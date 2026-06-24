@@ -68,6 +68,13 @@ func (n *noopSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityP
 }
 func (n *noopSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (n *noopSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
+func (n *noopSonarr) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile, error) {
+	return nil, nil
+}
+func (n *noopSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) { return nil, nil }
+func (n *noopSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+	return ports.Tag{}, nil
+}
 func (n *noopSonarr) GrabHistory(_ context.Context, _ domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }

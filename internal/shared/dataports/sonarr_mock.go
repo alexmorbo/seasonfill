@@ -5,11 +5,10 @@ package dataports
 
 import (
 	"context"
-	"sync"
-
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"sync"
 )
 
 // Ensure, that SonarrClientMock does implement SonarrClient.
@@ -22,6 +21,9 @@ var _ SonarrClient = &SonarrClientMock{}
 //
 //		// make and configure a mocked SonarrClient
 //		mockedSonarrClient := &SonarrClientMock{
+//			CreateTagFunc: func(ctx context.Context, label string) (Tag, error) {
+//				panic("mock out the CreateTag method")
+//			},
 //			ForceGrabFunc: func(ctx context.Context, guid string, indexerID int) (string, error) {
 //				panic("mock out the ForceGrab method")
 //			},
@@ -48,6 +50,12 @@ var _ SonarrClient = &SonarrClientMock{}
 //			},
 //			ListIndexersFunc: func(ctx context.Context) ([]Indexer, error) {
 //				panic("mock out the ListIndexers method")
+//			},
+//			ListQualityProfilesFunc: func(ctx context.Context) ([]QualityProfile, error) {
+//				panic("mock out the ListQualityProfiles method")
+//			},
+//			ListRootFoldersFunc: func(ctx context.Context) ([]RootFolder, error) {
+//				panic("mock out the ListRootFolders method")
 //			},
 //			ListSeriesFunc: func(ctx context.Context) ([]series.Series, error) {
 //				panic("mock out the ListSeries method")
@@ -77,6 +85,9 @@ var _ SonarrClient = &SonarrClientMock{}
 //
 //	}
 type SonarrClientMock struct {
+	// CreateTagFunc mocks the CreateTag method.
+	CreateTagFunc func(ctx context.Context, label string) (Tag, error)
+
 	// ForceGrabFunc mocks the ForceGrab method.
 	ForceGrabFunc func(ctx context.Context, guid string, indexerID int) (string, error)
 
@@ -104,6 +115,12 @@ type SonarrClientMock struct {
 	// ListIndexersFunc mocks the ListIndexers method.
 	ListIndexersFunc func(ctx context.Context) ([]Indexer, error)
 
+	// ListQualityProfilesFunc mocks the ListQualityProfiles method.
+	ListQualityProfilesFunc func(ctx context.Context) ([]QualityProfile, error)
+
+	// ListRootFoldersFunc mocks the ListRootFolders method.
+	ListRootFoldersFunc func(ctx context.Context) ([]RootFolder, error)
+
 	// ListSeriesFunc mocks the ListSeries method.
 	ListSeriesFunc func(ctx context.Context) ([]series.Series, error)
 
@@ -127,6 +144,13 @@ type SonarrClientMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// CreateTag holds details about calls to the CreateTag method.
+		CreateTag []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Label is the label argument value.
+			Label string
+		}
 		// ForceGrab holds details about calls to the ForceGrab method.
 		ForceGrab []struct {
 			// Ctx is the ctx argument value.
@@ -194,6 +218,16 @@ type SonarrClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// ListQualityProfiles holds details about calls to the ListQualityProfiles method.
+		ListQualityProfiles []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+		// ListRootFolders holds details about calls to the ListRootFolders method.
+		ListRootFolders []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// ListSeries holds details about calls to the ListSeries method.
 		ListSeries []struct {
 			// Ctx is the ctx argument value.
@@ -236,6 +270,7 @@ type SonarrClientMock struct {
 			Ctx context.Context
 		}
 	}
+	lockCreateTag                sync.RWMutex
 	lockForceGrab                sync.RWMutex
 	lockGetQualityProfile        sync.RWMutex
 	lockGetSeries                sync.RWMutex
@@ -245,6 +280,8 @@ type SonarrClientMock struct {
 	lockListEpisodes             sync.RWMutex
 	lockListEpisodesBySeries     sync.RWMutex
 	lockListIndexers             sync.RWMutex
+	lockListQualityProfiles      sync.RWMutex
+	lockListRootFolders          sync.RWMutex
 	lockListSeries               sync.RWMutex
 	lockListSeriesCache          sync.RWMutex
 	lockListTags                 sync.RWMutex
@@ -252,6 +289,42 @@ type SonarrClientMock struct {
 	lockParseRelease             sync.RWMutex
 	lockSearchReleases           sync.RWMutex
 	lockSystemStatus             sync.RWMutex
+}
+
+// CreateTag calls CreateTagFunc.
+func (mock *SonarrClientMock) CreateTag(ctx context.Context, label string) (Tag, error) {
+	if mock.CreateTagFunc == nil {
+		panic("SonarrClientMock.CreateTagFunc: method is nil but SonarrClient.CreateTag was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Label string
+	}{
+		Ctx:   ctx,
+		Label: label,
+	}
+	mock.lockCreateTag.Lock()
+	mock.calls.CreateTag = append(mock.calls.CreateTag, callInfo)
+	mock.lockCreateTag.Unlock()
+	return mock.CreateTagFunc(ctx, label)
+}
+
+// CreateTagCalls gets all the calls that were made to CreateTag.
+// Check the length with:
+//
+//	len(mockedSonarrClient.CreateTagCalls())
+func (mock *SonarrClientMock) CreateTagCalls() []struct {
+	Ctx   context.Context
+	Label string
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Label string
+	}
+	mock.lockCreateTag.RLock()
+	calls = mock.calls.CreateTag
+	mock.lockCreateTag.RUnlock()
+	return calls
 }
 
 // ForceGrab calls ForceGrabFunc.
@@ -583,6 +656,70 @@ func (mock *SonarrClientMock) ListIndexersCalls() []struct {
 	mock.lockListIndexers.RLock()
 	calls = mock.calls.ListIndexers
 	mock.lockListIndexers.RUnlock()
+	return calls
+}
+
+// ListQualityProfiles calls ListQualityProfilesFunc.
+func (mock *SonarrClientMock) ListQualityProfiles(ctx context.Context) ([]QualityProfile, error) {
+	if mock.ListQualityProfilesFunc == nil {
+		panic("SonarrClientMock.ListQualityProfilesFunc: method is nil but SonarrClient.ListQualityProfiles was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockListQualityProfiles.Lock()
+	mock.calls.ListQualityProfiles = append(mock.calls.ListQualityProfiles, callInfo)
+	mock.lockListQualityProfiles.Unlock()
+	return mock.ListQualityProfilesFunc(ctx)
+}
+
+// ListQualityProfilesCalls gets all the calls that were made to ListQualityProfiles.
+// Check the length with:
+//
+//	len(mockedSonarrClient.ListQualityProfilesCalls())
+func (mock *SonarrClientMock) ListQualityProfilesCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockListQualityProfiles.RLock()
+	calls = mock.calls.ListQualityProfiles
+	mock.lockListQualityProfiles.RUnlock()
+	return calls
+}
+
+// ListRootFolders calls ListRootFoldersFunc.
+func (mock *SonarrClientMock) ListRootFolders(ctx context.Context) ([]RootFolder, error) {
+	if mock.ListRootFoldersFunc == nil {
+		panic("SonarrClientMock.ListRootFoldersFunc: method is nil but SonarrClient.ListRootFolders was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockListRootFolders.Lock()
+	mock.calls.ListRootFolders = append(mock.calls.ListRootFolders, callInfo)
+	mock.lockListRootFolders.Unlock()
+	return mock.ListRootFoldersFunc(ctx)
+}
+
+// ListRootFoldersCalls gets all the calls that were made to ListRootFolders.
+// Check the length with:
+//
+//	len(mockedSonarrClient.ListRootFoldersCalls())
+func (mock *SonarrClientMock) ListRootFoldersCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockListRootFolders.RLock()
+	calls = mock.calls.ListRootFolders
+	mock.lockListRootFolders.RUnlock()
 	return calls
 }
 

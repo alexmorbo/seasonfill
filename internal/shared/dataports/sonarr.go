@@ -59,6 +59,20 @@ type Tag struct {
 	Label string
 }
 
+// RootFolder is Sonarr's /api/v3/rootfolder row. N-4a foundation for
+// the AddToSonarrModal "root folder" picker; consumed by the discovery
+// /api/v1/instances/{name}/root-folders endpoint (N-4b).
+//
+// `Accessible` and `FreeSpace` are emitted by Sonarr but absent on
+// older instances — both default to zero values when missing. The
+// caller decides whether to filter inaccessible roots.
+type RootFolder struct {
+	ID         int
+	Path       string
+	Accessible bool
+	FreeSpace  int64
+}
+
 // EpisodeFileDetail mirrors Sonarr's WebhookEpisodeFile + the on-disk
 // metadata available from GET /api/v3/episodeFile. 043c: powers the
 // Phase 12 drawer "Импортированные файлы" section. seasonfill does NOT
@@ -101,8 +115,24 @@ type SonarrClient interface {
 	ListEpisodeFilesBySeason(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]EpisodeFileDetail, error)
 	SearchReleases(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error)
 	GetQualityProfile(ctx context.Context, id int) (QualityProfile, error)
+	// ListQualityProfiles fetches all quality profiles defined on the
+	// Sonarr instance. Used by the N-4 AddToSonarrModal "quality profile"
+	// picker. The returned QualityProfile.Items slice is left empty —
+	// callers that need per-item allowance must fall back to
+	// GetQualityProfile(id) for one-off lookups. List endpoint trades
+	// per-item detail for a single round-trip.
+	ListQualityProfiles(ctx context.Context) ([]QualityProfile, error)
+	// ListRootFolders fetches Sonarr's configured root folders. Used by
+	// the N-4 AddToSonarrModal "root folder" picker (N-4b cache).
+	ListRootFolders(ctx context.Context) ([]RootFolder, error)
 	ListIndexers(ctx context.Context) ([]Indexer, error)
 	ListTags(ctx context.Context) ([]Tag, error)
+	// CreateTag posts a new label to /api/v3/tag. Sonarr deduplicates by
+	// label and returns the existing row on re-create, so callers can
+	// invoke without a prior ListTags membership check — POST itself is
+	// idempotent at the Sonarr layer. N-4c TagResolver uses this on
+	// cache miss after ListTags returns no match.
+	CreateTag(ctx context.Context, label string) (Tag, error)
 	GrabHistory(ctx context.Context, seriesID domain.SonarrSeriesID) ([]HistoryEvent, error)
 	ForceGrab(ctx context.Context, guid string, indexerID int) (string, error)
 	// ParseRelease calls Sonarr /api/v3/parse for the given release

@@ -161,6 +161,15 @@ func (f *abortFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) {
 	f.listTagsCalls.Add(1)
 	return nil, nil
 }
+func (f *abortFakeSonarr) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile, error) {
+	return nil, nil
+}
+func (f *abortFakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
+	return nil, nil
+}
+func (f *abortFakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+	return ports.Tag{}, nil
+}
 func (f *abortFakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	f.grabHistoryCalls.Add(1)
 	return nil, nil
@@ -514,6 +523,15 @@ func (f *authFailFakeSonarrWrapped) ListIndexers(_ context.Context) ([]ports.Ind
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) ListTags(_ context.Context) ([]ports.Tag, error) { return nil, nil }
+func (f *authFailFakeSonarrWrapped) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile, error) {
+	return nil, nil
+}
+func (f *authFailFakeSonarrWrapped) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
+	return nil, nil
+}
+func (f *authFailFakeSonarrWrapped) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+	return ports.Tag{}, nil
+}
 func (f *authFailFakeSonarrWrapped) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }

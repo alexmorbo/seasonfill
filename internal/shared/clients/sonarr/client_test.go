@@ -824,3 +824,171 @@ func TestSeriesDTOToCacheEntry_AiredPrefersExplicit(t *testing.T) {
 	entry := seriesDTOToCacheEntry(d, "homelab")
 	assert.Equal(t, 38, entry.AiredEpisodeCount, "explicit airedEpisodeCount wins over episodeCount fallback")
 }
+
+// --- N-4a: list-quality-profiles / list-root-folders / create-tag ---
+
+// TestClient_ListQualityProfiles_Success drives GET /api/v3/qualityprofile
+// and asserts the path is the LIST endpoint (no /{id} suffix), the
+// X-Api-Key header is propagated, and the array is decoded id+name.
+func TestClient_ListQualityProfiles_Success(t *testing.T) {
+	var gotPath, gotKey string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotKey = r.Header.Get("X-Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":1,"name":"Any"},{"id":7,"name":"HD-1080p"}]`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	profs, err := c.ListQualityProfiles(context.Background())
+	require.NoError(t, err)
+	require.Len(t, profs, 2)
+	assert.Equal(t, "/api/v3/qualityprofile", gotPath, "must hit LIST endpoint, not /{id}")
+	assert.Equal(t, "secret", gotKey)
+	assert.Equal(t, 1, profs[0].ID)
+	assert.Equal(t, "Any", profs[0].Name)
+	assert.Equal(t, 7, profs[1].ID)
+	assert.Equal(t, "HD-1080p", profs[1].Name)
+}
+
+func TestClient_ListQualityProfiles_5xxTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.ListQualityProfiles(context.Background())
+	require.Error(t, err)
+	assert.True(t, IsTransient(err))
+}
+
+func TestClient_ListQualityProfiles_401IsAuth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "bad", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.ListQualityProfiles(context.Background())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
+	assert.True(t, IsAuth(err))
+}
+
+func TestClient_ListRootFolders_Success(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id":1,"path":"/tv","accessible":true,"freeSpace":1099511627776},
+			{"id":2,"path":"/anime","accessible":false,"freeSpace":0}
+		]`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	roots, err := c.ListRootFolders(context.Background())
+	require.NoError(t, err)
+	require.Len(t, roots, 2)
+	assert.Equal(t, "/api/v3/rootfolder", gotPath)
+	assert.Equal(t, 1, roots[0].ID)
+	assert.Equal(t, "/tv", roots[0].Path)
+	assert.True(t, roots[0].Accessible)
+	assert.Equal(t, int64(1099511627776), roots[0].FreeSpace)
+	assert.Equal(t, "/anime", roots[1].Path)
+	assert.False(t, roots[1].Accessible)
+	assert.Equal(t, int64(0), roots[1].FreeSpace)
+}
+
+func TestClient_ListRootFolders_5xxTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.ListRootFolders(context.Background())
+	require.Error(t, err)
+	assert.True(t, IsTransient(err))
+}
+
+func TestClient_ListRootFolders_401IsAuth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "bad", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.ListRootFolders(context.Background())
+	require.Error(t, err)
+	assert.True(t, IsAuth(err))
+}
+
+// TestClient_CreateTag_Success asserts POST with the exact body
+// `{"label":"..."}`, Content-Type, and that the response is decoded
+// onto ports.Tag. Mirrors the ForceGrab pattern.
+func TestClient_CreateTag_Success(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		gotPath  string
+		gotMeth  string
+		gotKey   string
+		gotCType string
+		gotBody  createTagRequest
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		_ = json.Unmarshal(body, &gotBody)
+		gotPath = r.URL.Path
+		gotMeth = r.Method
+		gotKey = r.Header.Get("X-Api-Key")
+		gotCType = r.Header.Get("Content-Type")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":42,"label":"sf-alice"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	tag, err := c.CreateTag(context.Background(), "sf-alice")
+	require.NoError(t, err)
+	assert.Equal(t, 42, tag.ID)
+	assert.Equal(t, "sf-alice", tag.Label)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, "/api/v3/tag", gotPath)
+	assert.Equal(t, http.MethodPost, gotMeth)
+	assert.Equal(t, "secret", gotKey)
+	assert.Equal(t, "application/json", gotCType)
+	assert.Equal(t, "sf-alice", gotBody.Label, "label must round-trip into request body")
+}
+
+func TestClient_CreateTag_5xxTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.CreateTag(context.Background(), "sf-bob")
+	require.Error(t, err)
+	assert.True(t, IsTransient(err))
+}
+
+func TestClient_CreateTag_401IsAuth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "bad", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.CreateTag(context.Background(), "sf-bob")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
+	assert.True(t, IsAuth(err))
+}

@@ -597,6 +597,56 @@ func (c *Client) GetQualityProfile(ctx context.Context, id int) (ports.QualityPr
 	return prof, nil
 }
 
+// ListQualityProfiles calls GET /api/v3/qualityprofile and returns the
+// full list. Unlike GetQualityProfile(id), the per-item allowance loop
+// is skipped — the N-4 modal picker only needs id+name. Callers that
+// need the rich Items slice must fall back to GetQualityProfile(id).
+func (c *Client) ListQualityProfiles(ctx context.Context) ([]ports.QualityProfile, error) {
+	var dtos []qualityProfileDTO
+	if err := c.get(ctx, "/api/v3/qualityprofile", nil, &dtos); err != nil {
+		return nil, err
+	}
+	out := make([]ports.QualityProfile, 0, len(dtos))
+	for _, d := range dtos {
+		out = append(out, ports.QualityProfile{ID: d.ID, Name: d.Name})
+	}
+	return out, nil
+}
+
+// ListRootFolders calls GET /api/v3/rootfolder. Sonarr returns every
+// configured root in one round-trip; the typical instance has 1–3 of
+// them. No filtering applied — the caller picks based on Accessible.
+func (c *Client) ListRootFolders(ctx context.Context) ([]ports.RootFolder, error) {
+	var dtos []rootFolderDTO
+	if err := c.get(ctx, "/api/v3/rootfolder", nil, &dtos); err != nil {
+		return nil, err
+	}
+	out := make([]ports.RootFolder, 0, len(dtos))
+	for _, d := range dtos {
+		out = append(out, ports.RootFolder{
+			ID:         d.ID,
+			Path:       d.Path,
+			Accessible: d.Accessible,
+			FreeSpace:  d.FreeSpace,
+		})
+	}
+	return out, nil
+}
+
+// CreateTag posts {label} to /api/v3/tag and returns the created (or
+// pre-existing — Sonarr deduplicates by label) row. The TagResolver
+// (N-4c) calls this on cache miss; Sonarr's idempotency means the
+// resolver does not race even if two concurrent users trigger the
+// same label.
+func (c *Client) CreateTag(ctx context.Context, label string) (ports.Tag, error) {
+	body := createTagRequest{Label: label}
+	var dto tagDTO
+	if err := c.post(ctx, "/api/v3/tag", body, &dto); err != nil {
+		return ports.Tag{}, err
+	}
+	return ports.Tag{ID: dto.ID, Label: dto.Label}, nil
+}
+
 func (c *Client) ListIndexers(ctx context.Context) ([]ports.Indexer, error) {
 	var dtos []indexerDTO
 	if err := c.get(ctx, "/api/v3/indexer", nil, &dtos); err != nil {

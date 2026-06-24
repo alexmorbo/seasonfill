@@ -82,6 +82,15 @@ func (f *fakeSonarrGrab) GetQualityProfile(_ context.Context, _ int) (ports.Qual
 }
 func (f *fakeSonarrGrab) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (f *fakeSonarrGrab) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
+func (f *fakeSonarrGrab) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile, error) {
+	return nil, nil
+}
+func (f *fakeSonarrGrab) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
+	return nil, nil
+}
+func (f *fakeSonarrGrab) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+	return ports.Tag{}, nil
+}
 func (f *fakeSonarrGrab) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }

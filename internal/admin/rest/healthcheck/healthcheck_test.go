@@ -61,6 +61,13 @@ func (f *fakeSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityP
 }
 func (f *fakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (f *fakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
+func (f *fakeSonarr) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile, error) {
+	return nil, nil
+}
+func (f *fakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) { return nil, nil }
+func (f *fakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+	return ports.Tag{}, nil
+}
 func (f *fakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
@@ -428,6 +435,15 @@ func (s *slowFakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error
 	return nil, nil
 }
 func (s *slowFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) { return nil, nil }
+func (s *slowFakeSonarr) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile, error) {
+	return nil, nil
+}
+func (s *slowFakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
+	return nil, nil
+}
+func (s *slowFakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+	return ports.Tag{}, nil
+}
 func (s *slowFakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
@@ -531,6 +547,15 @@ func (s *sleepyFakeSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, err
 	return nil, nil
 }
 func (s *sleepyFakeSonarr) ListTags(_ context.Context) ([]ports.Tag, error) { return nil, nil }
+func (s *sleepyFakeSonarr) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile, error) {
+	return nil, nil
+}
+func (s *sleepyFakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
+	return nil, nil
+}
+func (s *sleepyFakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+	return ports.Tag{}, nil
+}
 func (s *sleepyFakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }

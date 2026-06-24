@@ -55,6 +55,13 @@ func (s *stubSonarr) GetQualityProfile(_ context.Context, _ int) (ports.QualityP
 }
 func (s *stubSonarr) ListIndexers(_ context.Context) ([]ports.Indexer, error) { return nil, nil }
 func (s *stubSonarr) ListTags(_ context.Context) ([]ports.Tag, error)         { return nil, nil }
+func (s *stubSonarr) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile, error) {
+	return nil, nil
+}
+func (s *stubSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) { return nil, nil }
+func (s *stubSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+	return ports.Tag{}, nil
+}
 func (s *stubSonarr) GrabHistory(_ context.Context, _ domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
