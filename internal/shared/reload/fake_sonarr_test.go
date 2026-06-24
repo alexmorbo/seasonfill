@@ -55,6 +55,9 @@ func (f *fakeSonarrClient) ListRootFolders(_ context.Context) ([]ports.RootFolde
 func (f *fakeSonarrClient) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }
+func (f *fakeSonarrClient) AddSeries(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+	return ports.AddSeriesResult{}, nil
+}
 func (f *fakeSonarrClient) GrabHistory(_ context.Context, _ domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }

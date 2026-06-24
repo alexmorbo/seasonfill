@@ -85,6 +85,9 @@ func (s stubSonarrEF) ListRootFolders(_ context.Context) ([]ports.RootFolder, er
 func (s stubSonarrEF) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }
+func (s stubSonarrEF) AddSeries(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+	return ports.AddSeriesResult{}, nil
+}
 func (s stubSonarrEF) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }

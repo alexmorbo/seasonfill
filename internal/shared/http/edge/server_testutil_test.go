@@ -38,5 +38,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
+		nil, // addToSonarrHandler (Story 520 N-4c)
 		logger)
 }

@@ -247,6 +247,9 @@ func (f *rescanFakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolde
 func (f *rescanFakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }
+func (f *rescanFakeSonarr) AddSeries(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+	return ports.AddSeriesResult{}, nil
+}
 func (f *rescanFakeSonarr) GrabHistory(context.Context, domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }

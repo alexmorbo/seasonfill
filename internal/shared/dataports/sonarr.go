@@ -59,6 +59,27 @@ type Tag struct {
 	Label string
 }
 
+// AddSeriesPayload mirrors POST /api/v3/series. N-4c (story 520) input
+// for AddToSonarrUseCase. TVDBID is the integer Sonarr lookup key;
+// callers convert from the typed shareddomain.TVDBID at the call site.
+// MonitorMode maps to Sonarr's addOptions.monitor — "all", "future",
+// "missing", "none" (empty defaults to "all" at the client).
+type AddSeriesPayload struct {
+	TVDBID           int
+	QualityProfileID int
+	RootFolderPath   string
+	Monitored        bool
+	MonitorMode      string
+	SearchOnAdd      bool
+	Tags             []int
+}
+
+// AddSeriesResult is the post-create projection — only the Sonarr
+// series id is consumed by the use case.
+type AddSeriesResult struct {
+	SonarrSeriesID int
+}
+
 // RootFolder is Sonarr's /api/v3/rootfolder row. N-4a foundation for
 // the AddToSonarrModal "root folder" picker; consumed by the discovery
 // /api/v1/instances/{name}/root-folders endpoint (N-4b).
@@ -133,6 +154,12 @@ type SonarrClient interface {
 	// idempotent at the Sonarr layer. N-4c TagResolver uses this on
 	// cache miss after ListTags returns no match.
 	CreateTag(ctx context.Context, label string) (Tag, error)
+	// AddSeries posts to /api/v3/series and returns the created series
+	// id. N-4c discovery AddToSonarrUseCase consumer. Sonarr stores +
+	// indexes asynchronously; the returned id is committed before this
+	// call returns, but the per-season episode rows may take a few
+	// seconds to materialise on the Sonarr side.
+	AddSeries(ctx context.Context, payload AddSeriesPayload) (AddSeriesResult, error)
 	GrabHistory(ctx context.Context, seriesID domain.SonarrSeriesID) ([]HistoryEvent, error)
 	ForceGrab(ctx context.Context, guid string, indexerID int) (string, error)
 	// ParseRelease calls Sonarr /api/v3/parse for the given release

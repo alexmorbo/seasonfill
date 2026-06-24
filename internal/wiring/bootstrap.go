@@ -794,6 +794,10 @@ func BuildHTTPServer(
 	// is already in scope; no operator-visible knobs warrant promotion
 	// to the top-level wiring graph yet.
 	instanceMetadataBundle := BuildInstanceMetadata(sonarrBundle, log)
+	// Story 520 (N-4c) — discovery AddToSonarr handler (TagResolver +
+	// AddSeries dispatch). Inline for the same reason as N-4b: the
+	// bundle's only deps (auth+sonarr+persistence) are already wired.
+	addToSonarrHandler := BuildDiscoveryAddToSonarr(auth, sonarrBundle, persistence, log)
 	return httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -838,6 +842,7 @@ func BuildHTTPServer(
 		discoveryHandler,
 		discoverHandler,
 		instanceMetadataBundle.Handler,
+		addToSonarrHandler,
 		log,
 	)
 }

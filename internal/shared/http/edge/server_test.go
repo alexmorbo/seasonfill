@@ -75,6 +75,9 @@ func (n *noopSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, err
 func (n *noopSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }
+func (n *noopSonarr) AddSeries(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+	return ports.AddSeriesResult{}, nil
+}
 func (n *noopSonarr) GrabHistory(_ context.Context, _ domain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
@@ -316,6 +319,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
+		nil, // addToSonarrHandler (Story 520 N-4c)
 		lg)
 }
 
@@ -382,6 +386,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
+		nil, // addToSonarrHandler (Story 520 N-4c)
 		lg)
 }
 
@@ -564,6 +569,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
+		nil, // addToSonarrHandler (Story 520 N-4c)
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

@@ -21,6 +21,9 @@ var _ SonarrClient = &SonarrClientMock{}
 //
 //		// make and configure a mocked SonarrClient
 //		mockedSonarrClient := &SonarrClientMock{
+//			AddSeriesFunc: func(ctx context.Context, payload AddSeriesPayload) (AddSeriesResult, error) {
+//				panic("mock out the AddSeries method")
+//			},
 //			CreateTagFunc: func(ctx context.Context, label string) (Tag, error) {
 //				panic("mock out the CreateTag method")
 //			},
@@ -85,6 +88,9 @@ var _ SonarrClient = &SonarrClientMock{}
 //
 //	}
 type SonarrClientMock struct {
+	// AddSeriesFunc mocks the AddSeries method.
+	AddSeriesFunc func(ctx context.Context, payload AddSeriesPayload) (AddSeriesResult, error)
+
 	// CreateTagFunc mocks the CreateTag method.
 	CreateTagFunc func(ctx context.Context, label string) (Tag, error)
 
@@ -144,6 +150,13 @@ type SonarrClientMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// AddSeries holds details about calls to the AddSeries method.
+		AddSeries []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Payload is the payload argument value.
+			Payload AddSeriesPayload
+		}
 		// CreateTag holds details about calls to the CreateTag method.
 		CreateTag []struct {
 			// Ctx is the ctx argument value.
@@ -270,6 +283,7 @@ type SonarrClientMock struct {
 			Ctx context.Context
 		}
 	}
+	lockAddSeries                sync.RWMutex
 	lockCreateTag                sync.RWMutex
 	lockForceGrab                sync.RWMutex
 	lockGetQualityProfile        sync.RWMutex
@@ -289,6 +303,42 @@ type SonarrClientMock struct {
 	lockParseRelease             sync.RWMutex
 	lockSearchReleases           sync.RWMutex
 	lockSystemStatus             sync.RWMutex
+}
+
+// AddSeries calls AddSeriesFunc.
+func (mock *SonarrClientMock) AddSeries(ctx context.Context, payload AddSeriesPayload) (AddSeriesResult, error) {
+	if mock.AddSeriesFunc == nil {
+		panic("SonarrClientMock.AddSeriesFunc: method is nil but SonarrClient.AddSeries was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		Payload AddSeriesPayload
+	}{
+		Ctx:     ctx,
+		Payload: payload,
+	}
+	mock.lockAddSeries.Lock()
+	mock.calls.AddSeries = append(mock.calls.AddSeries, callInfo)
+	mock.lockAddSeries.Unlock()
+	return mock.AddSeriesFunc(ctx, payload)
+}
+
+// AddSeriesCalls gets all the calls that were made to AddSeries.
+// Check the length with:
+//
+//	len(mockedSonarrClient.AddSeriesCalls())
+func (mock *SonarrClientMock) AddSeriesCalls() []struct {
+	Ctx     context.Context
+	Payload AddSeriesPayload
+} {
+	var calls []struct {
+		Ctx     context.Context
+		Payload AddSeriesPayload
+	}
+	mock.lockAddSeries.RLock()
+	calls = mock.calls.AddSeries
+	mock.lockAddSeries.RUnlock()
+	return calls
 }
 
 // CreateTag calls CreateTagFunc.

@@ -180,6 +180,31 @@ type createTagRequest struct {
 	Label string `json:"label"`
 }
 
+// addSeriesAddOptions is the addOptions sub-object on POST /api/v3/series.
+// `monitor` is one of "all" | "future" | "missing" | "none".
+type addSeriesAddOptions struct {
+	Monitor                  string `json:"monitor"`
+	SearchForMissingEpisodes bool   `json:"searchForMissingEpisodes"`
+}
+
+// addSeriesRequest is the wire body for POST /api/v3/series. N-4c
+// discovery AddToSonarrUseCase. `tags` is omitempty so the resolver
+// can pass nil when the tag-resolve path fell back to "no tag".
+type addSeriesRequest struct {
+	TVDBID           int                 `json:"tvdbId"`
+	QualityProfileID int                 `json:"qualityProfileId"`
+	RootFolderPath   string              `json:"rootFolderPath"`
+	Monitored        bool                `json:"monitored"`
+	AddOptions       addSeriesAddOptions `json:"addOptions"`
+	Tags             []int               `json:"tags,omitempty"`
+}
+
+// addSeriesResponseDTO is the minimal projection of Sonarr's POST
+// /api/v3/series response — only `id` is consumed.
+type addSeriesResponseDTO struct {
+	ID int `json:"id"`
+}
+
 // rootFolderDTO mirrors Sonarr's /api/v3/rootfolder row. `accessible`
 // and `freeSpace` are present on modern Sonarr (v3+); older instances
 // may omit them — JSON decode leaves the zero value, which is fine for

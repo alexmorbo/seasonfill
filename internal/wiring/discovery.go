@@ -177,13 +177,15 @@ func (a *stubUpserterAdapter) EnsureStub(
 }
 
 // DiscoveryHTTPBundle groups the HTTP-layer wiring for story 507 +
-// 508 (SearchUC) + story 509 (DiscoverHandler).
+// 508 (SearchUC) + story 509 (DiscoverHandler) + story 520 (N-4c
+// AddToSonarr).
 type DiscoveryHTTPBundle struct {
-	Handler         *discoveryrest.DiscoveryHandler
-	DiscoverHandler *discoveryrest.DiscoverHandler // story 509 N-2h
-	Genres          *discopersistence.GenresPickerRepo
-	Networks        *discopersistence.NetworksPickerRepo
-	SearchUC        *discoapp.SearchUseCase // story 508 (N-2g); nil when TMDB disabled
+	Handler            *discoveryrest.DiscoveryHandler
+	DiscoverHandler    *discoveryrest.DiscoverHandler    // story 509 N-2h
+	AddToSonarrHandler *discoveryrest.AddToSonarrHandler // story 520 N-4c
+	Genres             *discopersistence.GenresPickerRepo
+	Networks           *discopersistence.NetworksPickerRepo
+	SearchUC           *discoapp.SearchUseCase // story 508 (N-2g); nil when TMDB disabled
 }
 
 // BuildDiscoveryHTTP wires the story 507 N-2f HTTP handler + the

@@ -85,6 +85,7 @@ func NewServer(
 	discoveryHandler *discoveryrest.DiscoveryHandler,
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
+	addToSonarrHandler *discoveryrest.AddToSonarrHandler, // story 520 N-4c
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -299,6 +300,12 @@ func NewServer(
 			// Story 509 (N-2h) — ad-hoc TMDB Discover passthrough with LRU
 			// + background fetcher Pattern B (PRD §5.1.2).
 			guarded.GET("/discovery/discover", discoverHandler.Handle)
+		}
+		// Story 520 (N-4c) — POST add-to-sonarr. Nil-OK pattern: when
+		// wiring did not construct the handler (test bootstrap) the
+		// route is omitted rather than 5xx-stubbed.
+		if addToSonarrHandler != nil {
+			guarded.POST("/discovery/add-to-sonarr", addToSonarrHandler.Handle)
 		}
 		if qbitSettings != nil {
 			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)

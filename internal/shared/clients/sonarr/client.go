@@ -659,6 +659,37 @@ func (c *Client) ListIndexers(ctx context.Context) ([]ports.Indexer, error) {
 	return out, nil
 }
 
+// AddSeries posts to /api/v3/series. N-4c (story 520) — discovery
+// AddToSonarrUseCase. MonitorMode defaults to "all" when empty;
+// SearchOnAdd maps to addOptions.searchForMissingEpisodes. Tags is
+// optional (omitempty); a nil/empty slice is dropped from the wire.
+//
+// The returned id is the Sonarr series id (NOT TVDB) — Sonarr commits
+// the row before the response returns even though episode rows may
+// take a few seconds to materialise.
+func (c *Client) AddSeries(ctx context.Context, p ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+	monitor := p.MonitorMode
+	if monitor == "" {
+		monitor = "all"
+	}
+	body := addSeriesRequest{
+		TVDBID:           p.TVDBID,
+		QualityProfileID: p.QualityProfileID,
+		RootFolderPath:   p.RootFolderPath,
+		Monitored:        p.Monitored,
+		AddOptions: addSeriesAddOptions{
+			Monitor:                  monitor,
+			SearchForMissingEpisodes: p.SearchOnAdd,
+		},
+		Tags: p.Tags,
+	}
+	var dto addSeriesResponseDTO
+	if err := c.post(ctx, "/api/v3/series", body, &dto); err != nil {
+		return ports.AddSeriesResult{}, err
+	}
+	return ports.AddSeriesResult{SonarrSeriesID: dto.ID}, nil
+}
+
 func (c *Client) ListTags(ctx context.Context) ([]ports.Tag, error) {
 	var dtos []tagDTO
 	if err := c.get(ctx, "/api/v3/tag", nil, &dtos); err != nil {

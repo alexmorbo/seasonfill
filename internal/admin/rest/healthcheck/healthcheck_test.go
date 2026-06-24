@@ -68,6 +68,9 @@ func (f *fakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, err
 func (f *fakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }
+func (f *fakeSonarr) AddSeries(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+	return ports.AddSeriesResult{}, nil
+}
 func (f *fakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
@@ -444,6 +447,9 @@ func (s *slowFakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder,
 func (s *slowFakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }
+func (s *slowFakeSonarr) AddSeries(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+	return ports.AddSeriesResult{}, nil
+}
 func (s *slowFakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
 }
@@ -555,6 +561,9 @@ func (s *sleepyFakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolde
 }
 func (s *sleepyFakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
+}
+func (s *sleepyFakeSonarr) AddSeries(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+	return ports.AddSeriesResult{}, nil
 }
 func (s *sleepyFakeSonarr) GrabHistory(_ context.Context, _ shareddomain.SonarrSeriesID) ([]ports.HistoryEvent, error) {
 	return nil, nil
