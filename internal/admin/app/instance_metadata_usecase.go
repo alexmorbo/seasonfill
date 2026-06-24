@@ -49,14 +49,27 @@ type SonarrLookupResult struct {
 	InstanceName string
 }
 
+// SeasonsResolver resolves a tvdb_id (and best-effort tmdb_id hint) to
+// the authoritative per-season episode_count list. Story 525 — TMDB /
+// catalog are the source of truth; Sonarr's lookup returns
+// `episode_count=0` for not-yet-added series whose TVDB metadata cache
+// is incomplete. Implementations chain catalog seasons → TMDB GetTV →
+// TMDB FindByTVDB. Returns the empty slice + nil when neither source
+// has data; callers fall back to the Sonarr-supplied seasons.
+type SeasonsResolver interface {
+	ResolveSeasons(ctx context.Context, tvdbID, tmdbHint int) ([]ports.SeasonInfo, error)
+}
+
 // InstanceMetadataUseCase drives the three N-4b endpoints.
 type InstanceMetadataUseCase struct {
-	lookup InstanceLookup
-	cache  *admininfra.MetadataCache
-	clock  func() time.Time
+	lookup  InstanceLookup
+	cache   *admininfra.MetadataCache
+	clock   func() time.Time
+	seasons SeasonsResolver // optional — nil falls back to Sonarr seasons
 }
 
 // NewInstanceMetadataUseCase panics on nil deps — init-time bug.
+// seasons is optional (nil → Sonarr seasons are used unchanged).
 func NewInstanceMetadataUseCase(lookup InstanceLookup, cache *admininfra.MetadataCache, clock func() time.Time) *InstanceMetadataUseCase {
 	if lookup == nil {
 		panic("auth.NewInstanceMetadataUseCase: lookup must not be nil")
@@ -68,6 +81,13 @@ func NewInstanceMetadataUseCase(lookup InstanceLookup, cache *admininfra.Metadat
 		clock = time.Now
 	}
 	return &InstanceMetadataUseCase{lookup: lookup, cache: cache, clock: clock}
+}
+
+// WithSeasonsResolver installs the optional TMDB-first seasons resolver.
+// Returns the receiver so wiring can chain. Calling with nil clears it.
+func (uc *InstanceMetadataUseCase) WithSeasonsResolver(r SeasonsResolver) *InstanceMetadataUseCase {
+	uc.seasons = r
+	return uc
 }
 
 // GetQualityProfiles returns the cached list on hit, else fetches from
@@ -125,6 +145,15 @@ func (uc *InstanceMetadataUseCase) GetRootFolders(ctx context.Context, instanceN
 // integer identifier; the Sonarr term is built as "tvdb:<id>" for a
 // deterministic single-row match. Returns the empty slice for "no
 // matches" (handler maps to 404). 5xx/network → sonarr_unreachable.
+//
+// Story 525 — Sonarr's seasons[*].episode_count is `0` for series whose
+// TVDB metadata cache is incomplete on the upstream side. When a
+// SeasonsResolver is wired, the use case asks it for the authoritative
+// per-season episode_count (catalog seasons → TMDB), and overrides the
+// Sonarr-supplied counts. Sonarr still supplies title/year/overview/
+// image_url + the `monitored` defaults (those are not in TMDB's wire
+// shape). The resolver is best-effort: any error or empty result keeps
+// the Sonarr seasons unchanged — never blocks the add-to-sonarr flow.
 func (uc *InstanceMetadataUseCase) LookupSeries(ctx context.Context, instanceName string, tvdbID int) (SonarrLookupResult, error) {
 	_, client, ok := uc.lookup.Lookup(instanceName)
 	if !ok {
@@ -134,7 +163,47 @@ func (uc *InstanceMetadataUseCase) LookupSeries(ctx context.Context, instanceNam
 	if err != nil {
 		return SonarrLookupResult{}, sonarrUnreachable(instanceName, err)
 	}
+	if uc.seasons != nil && len(items) > 0 {
+		uc.overrideSeasons(ctx, items, tvdbID)
+	}
 	return SonarrLookupResult{Items: items, InstanceName: instanceName}, nil
+}
+
+// overrideSeasons asks the SeasonsResolver for the authoritative
+// per-season episode_count list and merges it into the Sonarr items
+// in-place. The merge preserves Sonarr's `monitored` flag for each
+// season (TMDB doesn't carry that). Resolver errors and empty results
+// are best-effort — the Sonarr seasons stay in place so the modal still
+// renders. The tmdbHint (Sonarr's own tmdb_id, if any) lets the
+// resolver skip a FindByTVDB round-trip when the canon already knows
+// the TMDB id.
+func (uc *InstanceMetadataUseCase) overrideSeasons(ctx context.Context, items []ports.SonarrLookupResult, tvdbID int) {
+	first := items[0]
+	resolved, err := uc.seasons.ResolveSeasons(ctx, tvdbID, first.TMDBID)
+	if err != nil || len(resolved) == 0 {
+		return
+	}
+	monitored := make(map[int]bool, len(first.Seasons))
+	for _, s := range first.Seasons {
+		monitored[s.SeasonNumber] = s.Monitored
+	}
+	merged := make([]ports.SeasonInfo, 0, len(resolved))
+	for _, s := range resolved {
+		mon, hadHint := monitored[s.SeasonNumber]
+		if !hadHint {
+			// TMDB-only season (Sonarr lookup was empty). Default to
+			// Sonarr's selection rule: monitor every non-specials
+			// season (season 0 stays unmonitored).
+			mon = s.SeasonNumber > 0
+		}
+		merged = append(merged, ports.SeasonInfo{
+			SeasonNumber: s.SeasonNumber,
+			EpisodeCount: s.EpisodeCount,
+			Monitored:    mon,
+		})
+	}
+	first.Seasons = merged
+	items[0] = first
 }
 
 // sonarrTVDBTerm renders the Sonarr lookup term for a TVDB id. Kept

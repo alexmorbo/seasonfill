@@ -781,6 +781,7 @@ func BuildHTTPServer(
 	seriesCacheRepo ports.SeriesCacheRepository,
 	counterRepo ports.CounterRepository,
 	discoveryHTTP *DiscoveryHTTPBundle,
+	tmdbSeasonsClient TMDBSeasonsClient,
 	log *slog.Logger,
 ) *httpserver.Server {
 	var discoveryHandler *discoveryrest.DiscoveryHandler
@@ -793,7 +794,12 @@ func BuildHTTPServer(
 	// inline because the bundle's only dependency is sonarrBundle which
 	// is already in scope; no operator-visible knobs warrant promotion
 	// to the top-level wiring graph yet.
-	instanceMetadataBundle := BuildInstanceMetadata(sonarrBundle, log)
+	//
+	// Story 525: persistence + tmdb holder are threaded in so the
+	// sonarr-lookup endpoint can override Sonarr's stub episode_count
+	// (=0 for not-yet-added series) with our catalog / TMDB data. The
+	// helper resolver is nil-safe; passing nil falls back to Sonarr-only.
+	instanceMetadataBundle := BuildInstanceMetadata(sonarrBundle, persistence, tmdbSeasonsClient, log)
 	// Story 521 (N-4d) — late-bind the metadata-cache invalidator into the
 	// instance CRUD handler. We resolve the chicken-and-egg ordering
 	// (catalog.BuildInstance must run before admin.BuildInstanceMetadata

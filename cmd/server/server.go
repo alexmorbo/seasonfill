@@ -522,12 +522,20 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// here so the routes are registered before the LATE BIND mutations
 	// kick in (these are no-ops from the route-registration POV; gin
 	// captured method pointers).
+	// Story 525: thread the TMDB holder into the metadata bundle so the
+	// sonarr-lookup endpoint can resolve authoritative per-season
+	// episode_count from our catalog / TMDB instead of Sonarr's stub
+	// data (Sonarr returns 0 episodes for not-yet-added series).
+	var tmdbSeasonsClient wiring.TMDBSeasonsClient
+	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+		tmdbSeasonsClient = enrichBundle.TMDBHolder
+	}
 	httpServer := wiring.BuildHTTPServer(
 		persistence, runtimecfg, auth,
 		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
 		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
 		mediaBundle, seriesDetailBundle,
-		seriesCacheRepo, counterRepo, discoveryHTTPBundle, log,
+		seriesCacheRepo, counterRepo, discoveryHTTPBundle, tmdbSeasonsClient, log,
 	)
 
 	// Boot scheduler — constructed after BuildEnrichment so the four
