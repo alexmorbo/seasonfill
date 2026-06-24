@@ -363,6 +363,11 @@ func (w *Worker) refresh(ctx context.Context, kind disco.Kind, param, lang strin
 		}
 	}
 
+	// PRIMARY KEY (kind, param, language, series_id) — TMDB occasionally
+	// returns the same series multiple times across pages of trending /
+	// popular. Keep first occurrence (best TMDB rank position).
+	items = dedupItemsBySeriesID(items)
+
 	if err := w.repo.ReplaceList(ctx, kind, param, lang, items); err != nil {
 		observability.IncDiscoveryRefresh(string(kind), lang, "error")
 		w.log.WarnContext(ctx, "discovery replace list failed",
@@ -475,6 +480,27 @@ func parseYear(d string) *int {
 		return nil
 	}
 	return &y
+}
+
+// dedupItemsBySeriesID removes duplicate items keyed by SeriesID,
+// preserving first occurrence order. Defends ReplaceList against the
+// discovery_lists PK uniqueness (kind, param, language, series_id) when
+// TMDB returns the same id on multiple pages (rare but reproducible
+// for trending_day / trending_week).
+func dedupItemsBySeriesID(items []disco.Item) []disco.Item {
+	if len(items) <= 1 {
+		return items
+	}
+	seen := make(map[shareddomain.SeriesID]struct{}, len(items))
+	out := items[:0]
+	for _, it := range items {
+		if _, dup := seen[it.SeriesID]; dup {
+			continue
+		}
+		seen[it.SeriesID] = struct{}{}
+		out = append(out, it)
+	}
+	return out
 }
 
 // IsWarming reports whether the worker has yet completed its first
