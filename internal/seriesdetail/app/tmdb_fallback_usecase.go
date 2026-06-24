@@ -6,9 +6,9 @@
 // canon row exists. Story 491 added GetCanonical (whole Detail). Story
 // 532 adds GetOverview + GetRecommendations canon-only siblings so the
 // per-section endpoints (Stories 529 / 530) don't 404 on TMDB-only
-// series. Returned views unconditionally include the "tmdb_series"
-// degraded marker — the fallback path's user-facing semantic ("no
-// Sonarr library carries this series").
+// series. Story 533b tightened the "tmdb_series" degraded marker:
+// appended only when canon is stub-hydration, freshener degraded, or a
+// real port load failed — NOT unconditionally for every fallback view.
 package seriesdetail
 
 import (
@@ -199,9 +199,19 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 		SonarrSeriesID: 0,
 		SeriesID:       seriesID,
 		Lang:           lang,
-		Degraded:       []string{"tmdb_series"},
+		Degraded:       []string{},
 	}
-	_ = freshen // Degraded already includes "tmdb_series" unconditionally — fallback semantic.
+	mark := func() {
+		if !containsString(out.Degraded, "tmdb_series") {
+			out.Degraded = append(out.Degraded, "tmdb_series")
+		}
+	}
+	if canon.Hydration != series.HydrationFull {
+		mark()
+	}
+	if freshen.Degraded {
+		mark()
+	}
 	if u.d.SeriesTexts != nil {
 		if t, terr := u.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang); terr == nil {
 			if t.Overview != nil {
@@ -212,6 +222,7 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 			u.d.Logger.WarnContext(ctx, "tmdb_fallback_overview_texts_failed",
 				slog.Int64("series_id", int64(seriesID)),
 				slog.String("err", terr.Error()))
+			mark()
 		}
 	}
 	if u.d.Keywords != nil {
@@ -225,6 +236,7 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 			u.d.Logger.WarnContext(ctx, "tmdb_fallback_overview_keywords_failed",
 				slog.Int64("series_id", int64(seriesID)),
 				slog.String("err", kerr.Error()))
+			mark()
 		}
 	}
 	if canon.OMDBAwards != nil && *canon.OMDBAwards != "" && *canon.OMDBAwards != "N/A" {
@@ -240,7 +252,8 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 		slog.String("lang", lang),
 		slog.Int("keyword_count", len(out.Keywords)),
 		slog.Bool("has_awards", out.Awards != nil),
-		slog.Bool("has_description", out.Description != ""))
+		slog.Bool("has_description", out.Description != ""),
+		slog.Int("degraded_count", len(out.Degraded)))
 	return out, nil
 }
 
@@ -275,9 +288,19 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 		SonarrSeriesID: 0,
 		SeriesID:       seriesID,
 		Items:          []RecommendationDetail{},
-		Degraded:       []string{"tmdb_series"},
+		Degraded:       []string{},
 	}
-	_ = freshen // Degraded already includes "tmdb_series" unconditionally — fallback semantic.
+	mark := func() {
+		if !containsString(out.Degraded, "tmdb_series") {
+			out.Degraded = append(out.Degraded, "tmdb_series")
+		}
+	}
+	if canon.Hydration != series.HydrationFull {
+		mark()
+	}
+	if freshen.Degraded {
+		mark()
+	}
 	if u.d.Recommendations == nil {
 		return out, nil
 	}
@@ -286,6 +309,7 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 		u.d.Logger.WarnContext(ctx, "tmdb_fallback_recommendations_list_failed",
 			slog.Int64("series_id", int64(seriesID)),
 			slog.String("err", err.Error()))
+		mark()
 		return out, nil
 	}
 	resolved := make([]RecommendationDetail, 0, len(ids))
@@ -326,6 +350,19 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 		slog.Int("offset", offset),
 		slog.Int("total_count", out.TotalCount),
 		slog.Int("items_returned", len(out.Items)),
-		slog.Bool("has_more", out.HasMore))
+		slog.Bool("has_more", out.HasMore),
+		slog.Int("degraded_count", len(out.Degraded)))
 	return out, nil
+}
+
+// containsString is a []string variant of contains[T comparable]. The fallback
+// overview / recs paths dedupe on the string-DTO marker ("tmdb_series") rather
+// than enrichment.Source, so contains[enrichment.Source] doesn't fit.
+func containsString(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
 }

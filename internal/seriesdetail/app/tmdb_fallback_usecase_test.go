@@ -367,6 +367,95 @@ func TestTMDBFallbackUseCase_GetRecommendations_NilRecsPortReturnsEmpty(t *testi
 	assert.Equal(t, []string{"tmdb_series"}, rec.Degraded)
 }
 
+// ─── Story 533b: tighten tmdb_series degraded marker semantics ────────
+
+// TestTMDBFallbackUseCase_GetOverview_FullHydration_NoDegraded — Story 533b.
+// Mirrors prod scenario for series 25551: canon HydrationFull + healthy
+// ports + lang fallback en-US → ru-RU asked → Degraded MUST be empty.
+func TestTMDBFallbackUseCase_GetOverview_FullHydration_NoDegraded(t *testing.T) {
+	t.Parallel()
+	overview := "Description in en-US"
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			25551: {ID: 25551, Hydration: series.HydrationFull},
+		}},
+		SeriesTexts: &fakeFallbackTexts{
+			out: series.SeriesText{Overview: &overview, Language: "en-US"},
+		},
+		Keywords: &fakeFallbackKeywords{ids: []int64{1}, byID: map[int64]taxonomy.Keyword{
+			1: {ID: 1, Name: "drama", Language: "ru-RU"},
+		}},
+		Logger: discardLogger(),
+	})
+	ov, err := uc.GetOverview(t.Context(), 25551, "ru-RU")
+	require.NoError(t, err)
+	assert.Empty(t, ov.Degraded, "full hydration + lang fallback must NOT mark tmdb_series")
+	assert.Equal(t, "en-US", ov.DescriptionLanguage)
+}
+
+// TestTMDBFallbackUseCase_GetOverview_TextsLoadError_Degrades — real port
+// failure (NOT ports.ErrNotFound) marks tmdb_series.
+func TestTMDBFallbackUseCase_GetOverview_TextsLoadError_Degrades(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			25551: {ID: 25551, Hydration: series.HydrationFull},
+		}},
+		SeriesTexts: &fakeFallbackTexts{err: errors.New("db down")},
+		Logger:      discardLogger(),
+	})
+	ov, err := uc.GetOverview(t.Context(), 25551, "ru-RU")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"tmdb_series"}, ov.Degraded)
+}
+
+// TestTMDBFallbackUseCase_GetOverview_TextsNotFound_NoDegrade — ErrNotFound
+// from SeriesTexts is a soft miss; MUST NOT mark tmdb_series alone.
+func TestTMDBFallbackUseCase_GetOverview_TextsNotFound_NoDegrade(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			25551: {ID: 25551, Hydration: series.HydrationFull},
+		}},
+		SeriesTexts: &fakeFallbackTexts{err: ports.ErrNotFound},
+		Logger:      discardLogger(),
+	})
+	ov, err := uc.GetOverview(t.Context(), 25551, "ru-RU")
+	require.NoError(t, err)
+	assert.Empty(t, ov.Degraded)
+}
+
+// TestTMDBFallbackUseCase_GetRecommendations_FullHydration_NoDegraded — Story 533b.
+func TestTMDBFallbackUseCase_GetRecommendations_FullHydration_NoDegraded(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			25551: {ID: 25551, Hydration: series.HydrationFull},
+			101:   {ID: 101, Hydration: series.HydrationFull},
+		}},
+		Recommendations: &fakeFallbackRecsPort{ids: []domain.SeriesID{101}},
+		Logger:          discardLogger(),
+	})
+	rec, err := uc.GetRecommendations(t.Context(), 25551, 20, 0)
+	require.NoError(t, err)
+	assert.Empty(t, rec.Degraded)
+}
+
+// TestTMDBFallbackUseCase_GetRecommendations_ListError_Degrades — Story 533b.
+func TestTMDBFallbackUseCase_GetRecommendations_ListError_Degrades(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			25551: {ID: 25551, Hydration: series.HydrationFull},
+		}},
+		Recommendations: &fakeFallbackRecsPort{err: errors.New("tmdb down")},
+		Logger:          discardLogger(),
+	})
+	rec, err := uc.GetRecommendations(t.Context(), 25551, 20, 0)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"tmdb_series"}, rec.Degraded)
+}
+
 // ─── Story 533: read-through TMDB freshener ──────────────────────────
 
 // fakeFreshener records EnsureFresh calls + returns a canned result.
