@@ -92,7 +92,7 @@ func TestD2_DiscoveryEndpoints(t *testing.T) {
 			networks := discopersistence.NewNetworksPickerRepo(gdb)
 			rf := &integRefresh{}
 			log := slog.New(slog.NewTextHandler(io.Discard, nil))
-			h := discoveryrest.NewDiscoveryHandler(repo, integWarming{}, rf, genres, networks, nil, log)
+			h := discoveryrest.NewDiscoveryHandler(repo, integWarming{}, rf, genres, networks, nil, nil, log)
 
 			gin.SetMode(gin.TestMode)
 			r := gin.New()
