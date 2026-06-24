@@ -7,13 +7,15 @@ import {
 } from 'lucide-react';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { EmptyState } from '@/components/EmptyState';
 import { TrendingGrid } from '@/components/discovery/TrendingGrid';
 import { PopularGrid } from '@/components/discovery/PopularGrid';
 import { GenreFilter } from '@/components/discovery/GenreFilter';
 import { GenreResultsGrid } from '@/components/discovery/GenreResultsGrid';
 import { SearchBar } from '@/components/discovery/SearchBar';
 import { SearchResults } from '@/components/discovery/SearchResults';
+import { FilteredPanel } from '@/components/discovery/FilteredPanel';
+import { FilteredResults } from '@/components/discovery/FilteredResults';
+import { useDiscoverFilter } from '@/hooks/useDiscoverFilter';
 import { cn } from '@/lib/utils';
 
 // Tab key constants — drive url <-> tab sync. Story 516 (filtered)
@@ -30,6 +32,22 @@ const TAB_META: ReadonlyArray<{ key: DiscoveryTabKey; icon: LucideIcon }> = [
 
 const isTabKey = (v: string | null): v is DiscoveryTabKey =>
   v !== null && (TAB_KEYS as readonly string[]).includes(v);
+
+// Story 516 / N-3d: child component so the URL-sync hook is only
+// mounted while the Filter tab is active. Trending/Popular/Genres
+// must not re-render when filter params change.
+function FilteredTab() {
+  const state = useDiscoverFilter();
+  return (
+    <div className="space-y-6" data-testid="discovery-filtered-tab">
+      <FilteredPanel state={state} />
+      <FilteredResults
+        filter={state.filter}
+        hasActiveFilter={state.hasActiveFilter}
+      />
+    </div>
+  );
+}
 
 const TRIGGER = cn(
   'inline-flex items-center gap-2 px-[15px] py-[10px] text-[13.5px] font-medium',
@@ -108,7 +126,7 @@ export function DiscoveryPage() {
             ) : null}
           </TabsContent>
           <TabsContent value="filtered" className="mt-6">
-            <EmptyState title={t('discovery.tabs.filtered')} />
+            <FilteredTab />
           </TabsContent>
         </Tabs>
       )}
