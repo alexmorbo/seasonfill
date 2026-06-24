@@ -354,6 +354,9 @@ func BuildSeriesDetail(
 		SeriesCacheLookup: sdSeriesCacheRepo,
 		// Story 533 — read-through sync TMDB refresh.
 		Freshener: seriesFreshenerHolder,
+		// Story 533a — populate canon seasons + cast on the fallback path.
+		// Same Composer instance the per-instance path uses; shares ports.
+		SeasonsCastSource: composer,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tmdb fallback use case: %w", err)

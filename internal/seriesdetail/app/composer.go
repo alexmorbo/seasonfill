@@ -182,6 +182,12 @@ type Deps struct {
 	Freshener SeriesFreshener
 }
 
+// CastDefaultLimit caps the cast rows returned by
+// Composer.GetCanonicalCast and the per-instance Composer.Get
+// loadTopCast branch (Story 215). Promoted to an exported constant
+// (Story 533a) so the TMDB-fallback call site reads the same number.
+const CastDefaultLimit = 10
+
 // Composer is the one application use case for the series detail
 // page composite read.
 type Composer struct {
@@ -290,7 +296,7 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 	// Branch c — top-10 cast.
 	g.Go(func() error {
 		return branches.run("cast", enrichment.SourceTMDBSeries, c.d.Logger, func() error {
-			return c.loadTopCast(gctx, d, 10)
+			return c.loadTopCast(gctx, d, CastDefaultLimit)
 		})
 	})
 
@@ -1120,4 +1126,129 @@ func (b *branchTracker) failed(s enrichment.Source) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.failures[s]
+}
+
+// GetCanonicalSeasons returns canon seasons + episodes for a series
+// WITHOUT per-instance state (no EpisodeStates, no SeasonStats). Used
+// by the TMDB-fallback path (Story 533a) when the series is not carried
+// by any Sonarr instance. Episode text fallback follows the same
+// EpisodeTextsPort.GetWithFallback chain as the per-instance branch.
+//
+// Result invariants:
+//   - Returns an empty (non-nil) slice when the series has no seasons.
+//   - Each SeasonDetail has Stats=nil (no per-instance projection).
+//   - Each EpisodeDetail has State=nil (no per-instance state).
+//   - EpisodeDetail.Text is populated when EpisodeTexts returns a row;
+//     ErrNotFound is treated as "no localized row" and silently skipped.
+func (c *Composer) GetCanonicalSeasons(ctx context.Context, seriesID domain.SeriesID, lang string) ([]SeasonDetail, error) {
+	lang = resolveLang(lang)
+	seasons, err := c.d.Seasons.ListBySeries(ctx, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("list seasons: %w", err)
+	}
+	episodes, err := c.d.Episodes.ListBySeries(ctx, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("list episodes: %w", err)
+	}
+	bySeason := make(map[int][]series.CanonEpisode)
+	for _, e := range episodes {
+		bySeason[e.SeasonNumber] = append(bySeason[e.SeasonNumber], e)
+	}
+	out := make([]SeasonDetail, 0, len(seasons))
+	for _, s := range seasons {
+		eps := bySeason[s.SeasonNumber]
+		sort.Slice(eps, func(i, j int) bool {
+			return eps[i].EpisodeNumber < eps[j].EpisodeNumber
+		})
+		epDetails := make([]EpisodeDetail, 0, len(eps))
+		for _, e := range eps {
+			ed := EpisodeDetail{Canon: e}
+			if c.d.EpisodeTexts != nil {
+				t, terr := c.d.EpisodeTexts.GetWithFallback(ctx, domain.EpisodeID(e.ID), lang)
+				if terr == nil {
+					et := t
+					ed.Text = &et
+				} else if !errors.Is(terr, ports.ErrNotFound) {
+					c.d.Logger.WarnContext(ctx, "canonical_episode_text_failed",
+						slog.Int64("series_id", int64(seriesID)),
+						slog.Int64("episode_id", e.ID),
+						slog.String("err", terr.Error()))
+				}
+			}
+			epDetails = append(epDetails, ed)
+		}
+		out = append(out, SeasonDetail{Canon: s, Episodes: epDetails})
+	}
+	// Best-effort media resolve. Sync for season posters (above-the-fold),
+	// async for episode stills (below-the-fold). Mirrors composer.go
+	// resolveAssets shape so the wire is stable across instance + fallback.
+	if c.d.MediaResolver != nil {
+		syncCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		for i := range out {
+			out[i].Canon.PosterAsset = c.d.MediaResolver.ResolveSync(syncCtx, out[i].Canon.PosterAsset, "w154", "season_poster_w154")
+			for j := range out[i].Episodes {
+				out[i].Episodes[j].Canon.StillAsset = c.d.MediaResolver.Resolve(ctx, out[i].Episodes[j].Canon.StillAsset, "w300", "still_w300")
+			}
+		}
+		cancel()
+	}
+	c.d.Logger.InfoContext(ctx, "canonical_seasons_composed",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.String("lang", lang),
+		slog.Int("season_count", len(out)))
+	return out, nil
+}
+
+// GetCanonicalCast returns top-N cast rows for a series with no
+// in_library probe (the H-1 per-instance composer does that). Used by
+// the TMDB-fallback path (Story 533a). Limit defaults to CastDefaultLimit.
+//
+// Result invariants:
+//   - Returns an empty (non-nil) slice when there are no cast rows.
+//   - Credits whose People row is missing are silently dropped (cast
+//     list shrinks gracefully — matches loadTopCast).
+//   - ProfileAsset is async-resolved through MediaResolver.
+func (c *Composer) GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, limit int) ([]CastDetail, error) {
+	if limit <= 0 {
+		limit = CastDefaultLimit
+	}
+	credits, err := c.d.SeriesPeople.ListBySeries(ctx, seriesID, people.SeriesCreditCast)
+	if err != nil {
+		return nil, fmt.Errorf("list series_people: %w", err)
+	}
+	if len(credits) > limit {
+		credits = credits[:limit]
+	}
+	if len(credits) == 0 {
+		return []CastDetail{}, nil
+	}
+	ids := make([]int64, 0, len(credits))
+	for _, cr := range credits {
+		ids = append(ids, cr.PersonID)
+	}
+	persons, err := c.d.People.ListByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list people by ids: %w", err)
+	}
+	byID := make(map[int64]people.Person, len(persons))
+	for _, p := range persons {
+		byID[p.ID] = p
+	}
+	out := make([]CastDetail, 0, len(credits))
+	for _, cr := range credits {
+		p, ok := byID[cr.PersonID]
+		if !ok {
+			continue
+		}
+		out = append(out, CastDetail{Credit: cr, Person: p})
+	}
+	if c.d.MediaResolver != nil {
+		for i := range out {
+			out[i].Person.ProfileAsset = c.d.MediaResolver.Resolve(ctx, out[i].Person.ProfileAsset, "w185", "profile_w185")
+		}
+	}
+	c.d.Logger.InfoContext(ctx, "canonical_cast_composed",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.Int("cast_count", len(out)))
+	return out, nil
 }

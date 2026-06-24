@@ -1073,3 +1073,133 @@ func TestPickInProgress_NilSafe(t *testing.T) {
 	require.Nil(t, pickInProgress(nil))
 	require.Nil(t, pickInProgress(&Detail{}))
 }
+
+// --- Story 533a: GetCanonicalSeasons / GetCanonicalCast ---
+
+// baseCanonicalDeps returns a Deps tailored for the canon-only methods.
+// Per-instance ports (EpisodeStates, SeasonStats, SeriesCache, etc.) are
+// nil because GetCanonicalSeasons/GetCanonicalCast do not touch them.
+func baseCanonicalDeps() Deps {
+	return Deps{
+		Seasons:      &fakeSeasons{},
+		Episodes:     &fakeEpisodes{},
+		EpisodeTexts: fakeEpisodeTexts{},
+		SeriesPeople: &fakeSeriesPeople{},
+		People:       &fakePeople{},
+		Logger:       newSilentLogger(),
+		Now:          func() time.Time { return time.Now().UTC() },
+	}
+}
+
+func TestComposer_GetCanonicalSeasons_HappyPath(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{SeasonNumber: 1},
+		{SeasonNumber: 2},
+	}}
+	deps.Episodes = &fakeEpisodes{rows: []series.CanonEpisode{
+		{ID: 11, SeasonNumber: 1, EpisodeNumber: 1},
+		{ID: 12, SeasonNumber: 1, EpisodeNumber: 2},
+		{ID: 21, SeasonNumber: 2, EpisodeNumber: 1},
+	}}
+	c := NewComposer(deps)
+	got, err := c.GetCanonicalSeasons(context.Background(), 100, "en-US")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Len(t, got[0].Episodes, 2)
+	require.Len(t, got[1].Episodes, 1)
+	require.Nil(t, got[0].Stats, "fallback path must not load SeasonStats")
+	require.Nil(t, got[0].Episodes[0].State, "fallback path must not load EpisodeStates")
+}
+
+func TestComposer_GetCanonicalSeasons_NoSeasonsReturnsEmpty(t *testing.T) {
+	deps := baseCanonicalDeps()
+	c := NewComposer(deps)
+	got, err := c.GetCanonicalSeasons(context.Background(), 100, "en-US")
+	require.NoError(t, err)
+	require.NotNil(t, got, "empty must be non-nil slice")
+	require.Len(t, got, 0)
+}
+
+func TestComposer_GetCanonicalSeasons_SeasonsError_Propagates(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.Seasons = &fakeSeasons{err: errors.New("seasons boom")}
+	c := NewComposer(deps)
+	_, err := c.GetCanonicalSeasons(context.Background(), 100, "en-US")
+	require.Error(t, err)
+}
+
+func TestComposer_GetCanonicalSeasons_EpisodesError_Propagates(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1}}}
+	deps.Episodes = &fakeEpisodes{err: errors.New("eps boom")}
+	c := NewComposer(deps)
+	_, err := c.GetCanonicalSeasons(context.Background(), 100, "en-US")
+	require.Error(t, err)
+}
+
+func TestComposer_GetCanonicalCast_TopN(t *testing.T) {
+	// Build 15 credits + matching persons; expect CastDefaultLimit (10) returned.
+	credits := make([]people.SeriesCredit, 0, 15)
+	persons := make([]people.Person, 0, 15)
+	for i := 1; i <= 15; i++ {
+		order := i
+		credits = append(credits, people.SeriesCredit{PersonID: int64(i), CreditOrder: &order})
+		persons = append(persons, people.Person{ID: int64(i)})
+	}
+	deps := baseCanonicalDeps()
+	deps.SeriesPeople = &fakeSeriesPeople{rows: credits}
+	deps.People = &fakePeople{rows: persons}
+	c := NewComposer(deps)
+	got, err := c.GetCanonicalCast(context.Background(), 100, 0)
+	require.NoError(t, err)
+	require.Len(t, got, CastDefaultLimit)
+}
+
+func TestComposer_GetCanonicalCast_NoCreditsReturnsEmpty(t *testing.T) {
+	deps := baseCanonicalDeps()
+	c := NewComposer(deps)
+	got, err := c.GetCanonicalCast(context.Background(), 100, 0)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Len(t, got, 0)
+}
+
+func TestComposer_GetCanonicalCast_DropsMissingPeopleRow(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.SeriesPeople = &fakeSeriesPeople{rows: []people.SeriesCredit{
+		{PersonID: 1},
+		{PersonID: 2},
+	}}
+	// Only PersonID=1 has a corresponding people row → cast list shrinks.
+	deps.People = &fakePeople{rows: []people.Person{{ID: 1}}}
+	c := NewComposer(deps)
+	got, err := c.GetCanonicalCast(context.Background(), 100, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, int64(1), got[0].Person.ID)
+}
+
+func TestComposer_GetCanonicalCast_ExplicitLimit(t *testing.T) {
+	credits := make([]people.SeriesCredit, 0, 5)
+	persons := make([]people.Person, 0, 5)
+	for i := 1; i <= 5; i++ {
+		credits = append(credits, people.SeriesCredit{PersonID: int64(i)})
+		persons = append(persons, people.Person{ID: int64(i)})
+	}
+	deps := baseCanonicalDeps()
+	deps.SeriesPeople = &fakeSeriesPeople{rows: credits}
+	deps.People = &fakePeople{rows: persons}
+	c := NewComposer(deps)
+	got, err := c.GetCanonicalCast(context.Background(), 100, 3)
+	require.NoError(t, err)
+	require.Len(t, got, 3, "explicit positive limit must cap output")
+}
+
+func TestComposer_GetCanonicalCast_SeriesPeopleError_Propagates(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.SeriesPeople = &fakeSeriesPeople{err: errors.New("people boom")}
+	c := NewComposer(deps)
+	_, err := c.GetCanonicalCast(context.Background(), 100, 0)
+	require.Error(t, err)
+}

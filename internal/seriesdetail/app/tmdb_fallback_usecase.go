@@ -54,6 +54,21 @@ type TMDBFallbackDeps struct {
 	// When non-nil, EnsureFresh runs BEFORE the canon load so a stub or
 	// stale row gets lifted to full in the SAME request (3s budget).
 	Freshener SeriesFreshener
+
+	// SeasonsCastSource (Story 533a) — when non-nil, GetCanonical
+	// populates Detail.Seasons + Detail.Cast from local DB. nil-OK:
+	// when nil, Seasons + Cast stay empty (Story 532 behaviour). The
+	// caller passes the same Composer instance the per-instance path
+	// uses — repos are shared, no double DB connection.
+	SeasonsCastSource CanonicalSeasonsCastReader
+}
+
+// CanonicalSeasonsCastReader is the seam Composer satisfies for the
+// fallback's seasons+cast extension (Story 533a). Composer's
+// GetCanonicalSeasons + GetCanonicalCast methods match this contract.
+type CanonicalSeasonsCastReader interface {
+	GetCanonicalSeasons(ctx context.Context, seriesID domain.SeriesID, lang string) ([]SeasonDetail, error)
+	GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, limit int) ([]CastDetail, error)
 }
 
 // TMDBFallbackUseCase returns canon-only views.
@@ -131,10 +146,36 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 	if freshen.Degraded && !contains(d.Degraded, enrichment.SourceTMDBSeries) {
 		d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
 	}
+	// Story 533a — populate seasons + cast from local DB when wired.
+	// Failure is logged and degraded[] gains tmdb_series; never 5xx.
+	if u.d.SeasonsCastSource != nil {
+		if seasons, serr := u.d.SeasonsCastSource.GetCanonicalSeasons(ctx, seriesID, lang); serr == nil {
+			d.Seasons = seasons
+		} else {
+			u.d.Logger.WarnContext(ctx, "tmdb_fallback_canon_seasons_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("err", serr.Error()))
+			if !contains(d.Degraded, enrichment.SourceTMDBSeries) {
+				d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
+			}
+		}
+		if cast, cerr := u.d.SeasonsCastSource.GetCanonicalCast(ctx, seriesID, 0); cerr == nil {
+			d.Cast = cast
+		} else {
+			u.d.Logger.WarnContext(ctx, "tmdb_fallback_canon_cast_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("err", cerr.Error()))
+			if !contains(d.Degraded, enrichment.SourceTMDBSeries) {
+				d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
+			}
+		}
+	}
 	u.d.Logger.InfoContext(ctx, "tmdb_fallback_composed",
 		slog.Int64("series_id", int64(seriesID)),
 		slog.String("hydration", string(canon.Hydration)),
 		slog.String("lang", lang),
+		slog.Int("season_count", len(d.Seasons)),
+		slog.Int("cast_count", len(d.Cast)),
 	)
 	return d, nil
 }

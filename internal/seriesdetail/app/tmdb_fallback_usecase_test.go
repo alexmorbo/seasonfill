@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -491,4 +492,162 @@ func TestTMDBFallbackUseCase_Freshener_GetRecommendations_Called(t *testing.T) {
 	require.Len(t, calls, 1)
 	// Recommendations doesn't take lang — freshener probes with en-US.
 	assert.Equal(t, "en-US", calls[0].lang)
+}
+
+// ─── Story 533a: GetCanonical populates seasons + cast from DB ────
+
+// fakeFallbackSeasonsCastSource satisfies seriesdetail.CanonicalSeasonsCastReader.
+// Independent fields per method so tests can wire them separately.
+type fakeFallbackSeasonsCastSource struct {
+	seasons    []seriesdetail.SeasonDetail
+	seasonsErr error
+	cast       []seriesdetail.CastDetail
+	castErr    error
+
+	mu              sync.Mutex
+	seasonsCalls    int
+	castCalls       int
+	lastSeasonsLang string
+	lastCastLimit   int
+}
+
+func (f *fakeFallbackSeasonsCastSource) GetCanonicalSeasons(_ context.Context, _ domain.SeriesID, lang string) ([]seriesdetail.SeasonDetail, error) {
+	f.mu.Lock()
+	f.seasonsCalls++
+	f.lastSeasonsLang = lang
+	f.mu.Unlock()
+	if f.seasonsErr != nil {
+		return nil, f.seasonsErr
+	}
+	return f.seasons, nil
+}
+
+func (f *fakeFallbackSeasonsCastSource) GetCanonicalCast(_ context.Context, _ domain.SeriesID, limit int) ([]seriesdetail.CastDetail, error) {
+	f.mu.Lock()
+	f.castCalls++
+	f.lastCastLimit = limit
+	f.mu.Unlock()
+	if f.castErr != nil {
+		return nil, f.castErr
+	}
+	return f.cast, nil
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_PopulatesSeasonsAndCastWhenWired(t *testing.T) {
+	t.Parallel()
+	seasons := []seriesdetail.SeasonDetail{
+		{
+			Canon: series.CanonSeason{SeasonNumber: 1, Name: new("Season 1")},
+			Episodes: []seriesdetail.EpisodeDetail{
+				{Canon: series.CanonEpisode{ID: 1001, SeasonNumber: 1, EpisodeNumber: 1}},
+				{Canon: series.CanonEpisode{ID: 1002, SeasonNumber: 1, EpisodeNumber: 2}},
+			},
+		},
+		{
+			Canon:    series.CanonSeason{SeasonNumber: 2, Name: new("Season 2")},
+			Episodes: []seriesdetail.EpisodeDetail{},
+		},
+	}
+	cast := []seriesdetail.CastDetail{
+		{
+			Credit: people.SeriesCredit{PersonID: 42, CharacterName: new("Rick")},
+			Person: people.Person{ID: 42, Name: "Justin Roiland"},
+		},
+	}
+	src := &fakeFallbackSeasonsCastSource{seasons: seasons, cast: cast}
+	canon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:            &stubSeriesReader{canon: canon},
+		Logger:            discardLogger(),
+		SeasonsCastSource: src,
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(context.Background(), 8378, "ru-RU")
+	require.NoError(t, err)
+	require.Len(t, d.Seasons, 2)
+	assert.Equal(t, 1, d.Seasons[0].Canon.SeasonNumber)
+	assert.Len(t, d.Seasons[0].Episodes, 2)
+	assert.Len(t, d.Seasons[1].Episodes, 0, "second season has empty episodes — preserved")
+	require.Len(t, d.Cast, 1)
+	assert.Equal(t, int64(42), d.Cast[0].Person.ID)
+	assert.Equal(t, "ru-RU", src.lastSeasonsLang, "lang flows through")
+	assert.Equal(t, 0, src.lastCastLimit, "default limit (0) reaches Composer; Composer applies CastDefaultLimit")
+	assert.Empty(t, d.Degraded, "full hydration + healthy source → no degraded")
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_NilSeasonsCastSource_LeavesEmpty(t *testing.T) {
+	t.Parallel()
+	canon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &stubSeriesReader{canon: canon},
+		Logger: discardLogger(),
+		// SeasonsCastSource intentionally nil — nil-OK.
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(context.Background(), 8378, "en-US")
+	require.NoError(t, err)
+	assert.Empty(t, d.Seasons, "nil source → nil/empty seasons")
+	assert.Empty(t, d.Cast, "nil source → nil/empty cast")
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_SeasonsErrorAppendsDegraded(t *testing.T) {
+	t.Parallel()
+	src := &fakeFallbackSeasonsCastSource{
+		seasonsErr: errors.New("db boom"),
+		cast:       []seriesdetail.CastDetail{},
+	}
+	canon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:            &stubSeriesReader{canon: canon},
+		Logger:            discardLogger(),
+		SeasonsCastSource: src,
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(context.Background(), 8378, "en-US")
+	require.NoError(t, err)
+	assert.Empty(t, d.Seasons)
+	assert.Contains(t, d.Degraded, enrichment.SourceTMDBSeries, "seasons failure must mark fallback degraded")
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_CastErrorAppendsDegraded(t *testing.T) {
+	t.Parallel()
+	src := &fakeFallbackSeasonsCastSource{
+		seasons: []seriesdetail.SeasonDetail{},
+		castErr: errors.New("people boom"),
+	}
+	canon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:            &stubSeriesReader{canon: canon},
+		Logger:            discardLogger(),
+		SeasonsCastSource: src,
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(context.Background(), 8378, "en-US")
+	require.NoError(t, err)
+	assert.Empty(t, d.Cast)
+	assert.Contains(t, d.Degraded, enrichment.SourceTMDBSeries, "cast failure must mark fallback degraded")
+}
+
+func TestTMDBFallbackUseCase_GetCanonical_StubHydration_DegradedNotDuplicated(t *testing.T) {
+	t.Parallel()
+	src := &fakeFallbackSeasonsCastSource{
+		seasons: []seriesdetail.SeasonDetail{},
+		castErr: errors.New("boom"),
+	}
+	canon := series.Canon{ID: 8378, Hydration: series.HydrationStub, Title: "stub"}
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:            &stubSeriesReader{canon: canon},
+		Logger:            discardLogger(),
+		SeasonsCastSource: src,
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(context.Background(), 8378, "en-US")
+	require.NoError(t, err)
+	count := 0
+	for _, src := range d.Degraded {
+		if src == enrichment.SourceTMDBSeries {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "stub-branch + cast-error both want tmdb_series; must dedupe")
 }
