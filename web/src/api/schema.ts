@@ -3027,6 +3027,90 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/series/{id}/overview": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Series overview block (description + keywords + awards)
+         * @description Returns ONLY the overview slice for a series keyed by
+         *     canonical series.id. Resolves the preferred Sonarr
+         *     instance automatically (lex-first that carries the
+         *     series). 404 when no library carries the series.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Canonical series.id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesOverviewResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/series/{id}/regrab": {
         readonly parameters: {
             readonly query?: never;
@@ -5407,6 +5491,15 @@ export type components = {
             readonly year_end?: number;
             /** @example 2008 */
             readonly year_start?: number;
+        };
+        readonly "dto.SeriesOverviewResponse": {
+            readonly degraded?: readonly string[];
+            readonly instance?: string;
+            /** @example ru-RU */
+            readonly lang?: string;
+            readonly overview?: components["schemas"]["dto.OverviewAside"];
+            readonly series_id?: number;
+            readonly sonarr_series_id?: number;
         };
         readonly "dto.SeriesRefreshResponse": {
             /** @example true */

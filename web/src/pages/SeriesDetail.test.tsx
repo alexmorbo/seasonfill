@@ -94,13 +94,17 @@ describe('<SeriesDetail />', () => {
   });
 
   it('renders the skeleton while loading', async () => {
-    let resolveDetail: ((v: unknown) => void) | undefined;
-    mockApi.mockImplementation(() => new Promise((res) => { resolveDetail = res; }));
+    // Story 529 — both `/series/:id` AND `/series/:id/overview` fire on
+    // mount. Capture each pending Promise's resolver per call so we can
+    // settle both during teardown without leaving dangling promises.
+    const resolvers: Array<(v: unknown) => void> = [];
+    mockApi.mockImplementation(() => new Promise((res) => { resolvers.push(res); }));
     renderRoute('/series/122');
     expect(await screen.findByTestId('series-detail-skeleton')).toBeInTheDocument();
-    // Resolve the in-flight query so test teardown does not hang on the
-    // dangling promise.
-    resolveDetail?.(fullFixture);
+    // Resolve every in-flight query so test teardown does not hang.
+    for (const resolve of resolvers) {
+      resolve(fullFixture);
+    }
     await waitFor(() => expect(screen.queryByTestId('series-detail-skeleton')).not.toBeInTheDocument());
   });
 

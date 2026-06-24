@@ -256,6 +256,19 @@ type OverviewAside struct {
 	Awards *string `json:"awards,omitempty"`
 }
 
+// SeriesOverviewResponse — wire shape of GET /api/v1/series/:id/overview
+// (Story 529 — decomposition 1/3). Embeds the existing OverviewAside as
+// the overview payload + the slim ids/lang/degraded envelope shared by
+// the other per-section endpoints.
+type SeriesOverviewResponse struct {
+	Instance       domain.InstanceName   `json:"instance"`
+	SonarrSeriesID domain.SonarrSeriesID `json:"sonarr_series_id"`
+	SeriesID       domain.SeriesID       `json:"series_id"`
+	Lang           string                `json:"lang" example:"ru-RU"`
+	Overview       OverviewAside         `json:"overview"`
+	Degraded       []string              `json:"degraded"`
+}
+
 // RecentEvent — one row of the last-5 activity strip. Empty in
 // this story (recent_activity_deferred — §9 note); the type stays
 // in the DTO so frontend can iterate the (always present) slice.

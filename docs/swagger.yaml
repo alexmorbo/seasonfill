@@ -2414,6 +2414,25 @@ components:
           example: 2008
           type: integer
       type: object
+    dto.SeriesOverviewResponse:
+      properties:
+        degraded:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        instance:
+          type: string
+        lang:
+          example: ru-RU
+          type: string
+        overview:
+          $ref: '#/components/schemas/dto.OverviewAside'
+        series_id:
+          type: integer
+        sonarr_series_id:
+          type: integer
+      type: object
     dto.SeriesRefreshResponse:
       properties:
         omdb_queued:
@@ -5142,6 +5161,62 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Full series cast & crew (global)
+      tags:
+      - series
+  /series/{id}/overview:
+    get:
+      description: |-
+        Returns ONLY the overview slice for a series keyed by
+        canonical series.id. Resolves the preferred Sonarr
+        instance automatically (lex-first that carries the
+        series). 404 when no library carries the series.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag
+        in: query
+        name: lang
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesOverviewResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Series overview block (description + keywords + awards)
       tags:
       - series
   /series/{id}/regrab:

@@ -852,6 +852,7 @@ func BuildHTTPServer(
 		auth.MeHandler,
 		auth.AuthRuntime,
 		seriesDetailBundle.GlobalSeriesHandler,
+		seriesDetailBundle.GlobalOverviewHandler,
 		discoveryHandler,
 		discoverHandler,
 		instanceMetadataBundle.Handler,

@@ -87,6 +87,9 @@ type SeriesDetailBundle struct {
 	GlobalComposerUC    *seriesdetail.GlobalComposerUseCase
 	TMDBFallbackUC      *seriesdetail.TMDBFallbackUseCase
 	GlobalSeriesHandler *seriesdetailrest.GlobalSeriesHandler
+	// Story 529 — decomposition 1/3: /series/:id/overview split-out.
+	OverviewHandler       *seriesdetailrest.SeriesOverviewHandler
+	GlobalOverviewHandler *seriesdetailrest.GlobalSeriesOverviewHandler
 }
 
 // BuildSeriesDetail wires the Story 215 / 216 / 217 / 218 series-detail
@@ -333,6 +336,14 @@ func BuildSeriesDetail(
 		log,
 	)
 
+	// Story 529 — /series/:id/overview split-out. Inner handler shares the
+	// same Composer instance as the parent detail handler so GetOverview
+	// reads through the same ports + freshness adapter; global wrapper
+	// resolves canonical series.id via the shared sdSeriesCacheRepo
+	// (lex-first instance) and delegates.
+	overviewHandler := seriesdetailrest.NewSeriesOverviewHandler(composer, log)
+	globalOverviewHandler := seriesdetailrest.NewGlobalSeriesOverviewHandler(overviewHandler, sdSeriesCacheRepo, log)
+
 	return &SeriesDetailBundle{
 		MediaResolver:          mediaResolver,
 		Composer:               composer,
@@ -349,5 +360,7 @@ func BuildSeriesDetail(
 		GlobalComposerUC:       globalComposerUC,
 		TMDBFallbackUC:         tmdbFallbackUC,
 		GlobalSeriesHandler:    globalSeriesHandler,
+		OverviewHandler:        overviewHandler,
+		GlobalOverviewHandler:  globalOverviewHandler,
 	}, nil
 }

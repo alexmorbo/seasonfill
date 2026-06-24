@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useSeries, parseStatus, isSonarrOnly, isDegraded } from '@/api/series';
+import { useSeriesOverview } from '@/api/seriesOverview';
 import { SeriesHero } from '@/components/series-detail/SeriesHero';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
 import { RailCard } from '@/components/series-detail/RailCard';
@@ -40,6 +41,16 @@ export function SeriesDetail() {
     ...(lang ? { lang } : {}),
     pollWhileDegraded: true,
   });
+
+  // Story 529 — overview block now loads from its own endpoint so the
+  // description + keywords + awards refresh independently of the parent
+  // composite document.
+  const overviewQ = useSeriesOverview({
+    seriesId,
+    ...(lang ? { lang } : {}),
+    pollWhileDegraded: true,
+  });
+  const overviewData = overviewQ.data?.overview;
 
   const data = detail.data;
   const hero = data?.hero;
@@ -86,8 +97,8 @@ export function SeriesDetail() {
   //   - empty + tmdb_series in degraded ⇒ "загружается" copy + skeleton.
   //   - empty + tmdb_series NOT in degraded ⇒ existing "недоступно" fallback.
   //   - non-empty ⇒ normal text.
-  const overviewEmpty = !data?.overview?.overview;
-  const overviewLoading = overviewEmpty && tmdbSeriesDegraded;
+  const overviewEmpty = !overviewData?.overview;
+  const overviewLoading = overviewQ.isLoading || (overviewEmpty && tmdbSeriesDegraded);
   // Cast strip — degraded UI is internal to CastStrip; pass the bool.
   const castEmpty = (data?.cast?.length ?? 0) === 0;
   const castLoading = castEmpty && tmdbPersonDegraded;
@@ -144,7 +155,7 @@ export function SeriesDetail() {
                     <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint [text-shadow:0_1px_2px_oklch(0_0_0/.55)]">
                       {t('seriesDetail.overview.label')}
                       <LanguageFallbackTag
-                        contentLang={data.overview?.language}
+                        contentLang={overviewData?.language}
                         {...(lang ? { requestedLang: lang } : {})}
                         testid="overview-lang-fallback"
                       />
@@ -165,7 +176,7 @@ export function SeriesDetail() {
                     >
                       {overviewLoading
                         ? t('seriesDetail.degraded.overview.loading')
-                        : (data.overview?.overview || t('seriesDetail.overview.empty'))}
+                        : (overviewData?.overview || t('seriesDetail.overview.empty'))}
                     </p>
                   </div>
                   {showCastSection && (
@@ -180,7 +191,7 @@ export function SeriesDetail() {
                       cast. AwardsBlock self-hides when awards is empty / N/A
                       or omdb is degraded — no outer guard needed here. */}
                   <AwardsBlock
-                    awards={data.overview?.awards ?? undefined}
+                    awards={overviewData?.awards ?? undefined}
                     omdbDegraded={omdbDegraded}
                     {...(syncedAt ? { syncedAt } : {})}
                   />
@@ -191,7 +202,7 @@ export function SeriesDetail() {
                   status={status}
                   hero={hero}
                   omdbDegraded={omdbDegraded}
-                  {...(data.overview?.keywords ? { keywords: data.overview.keywords } : {})}
+                  {...(overviewData?.keywords ? { keywords: overviewData.keywords } : {})}
                 />
               }
             />

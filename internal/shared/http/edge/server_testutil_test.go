@@ -35,6 +35,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // meHandler (Story 485 N-7a)
 		nil, // sharedAuthRuntime (Story 485 N-7a)
 		nil, // globalSeriesHandler (Story 491 N-1a)
+		nil, // globalOverviewHandler (Story 529)
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
