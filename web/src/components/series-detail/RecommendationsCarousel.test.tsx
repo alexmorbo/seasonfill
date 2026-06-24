@@ -1,49 +1,89 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider } from 'react-i18next';
 import { MemoryRouter } from 'react-router-dom';
 import i18n from '@/i18n';
 import { RecommendationsCarousel } from './RecommendationsCarousel';
 
-function r(node: React.ReactElement) {
+const mockApi = vi.fn();
+vi.mock('@/lib/api', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  return { ...actual, api: (path: string) => mockApi(path) };
+});
+
+// useIsSectionVisible is re-exported from seriesRecommendations.ts;
+// stub it directly on the seriesTorrents module (the source).
+const visibleRef = { value: true };
+vi.mock('@/api/seriesTorrents', async () => {
+  const actual = await vi.importActual<typeof import('@/api/seriesTorrents')>('@/api/seriesTorrents');
+  return { ...actual, useIsSectionVisible: () => visibleRef.value };
+});
+
+function wrap(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
-    <I18nextProvider i18n={i18n}>
-      <MemoryRouter>{node}</MemoryRouter>
-    </I18nextProvider>,
+    <QueryClientProvider client={qc}>
+      <I18nextProvider i18n={i18n}>
+        <MemoryRouter>{node}</MemoryRouter>
+      </I18nextProvider>
+    </QueryClientProvider>,
   );
 }
 
-const recs = [
-  { series_id: 1, title: 'Show A', year: 2022, tmdb_rating: 8.1, poster_asset: 'a',
-    in_library: true, instance_name: 'alpha', sonarr_series_id: 11 },
-  { series_id: 2, title: 'Show B', year: 2021, tmdb_rating: 7.6, poster_asset: 'b',
-    in_library: false },
-];
+const payload = {
+  instance: 'alpha', sonarr_series_id: 1, series_id: 140,
+  items: [
+    { series_id: 1, title: 'Show A', year: 2022, tmdb_rating: 8.1, poster_asset: 'a',
+      in_library: true, instance_name: 'alpha', sonarr_series_id: 11 },
+    { series_id: 2, title: 'Show B', year: 2021, tmdb_rating: 7.6, poster_asset: 'b',
+      in_library: false },
+  ],
+  total_count: 2, has_more: false, limit: 20, offset: 0, degraded: [],
+};
 
-describe('<RecommendationsCarousel />', () => {
-  it('renders cards with title, year, rating', () => {
-    r(<RecommendationsCarousel recommendations={recs} />);
-    expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument();
+describe('<RecommendationsCarousel /> (530)', () => {
+  beforeEach(() => {
+    mockApi.mockReset();
+    visibleRef.value = true;
+  });
+
+  it('does NOT fetch when section is off-screen', async () => {
+    visibleRef.value = false;
+    wrap(<RecommendationsCarousel seriesId={140} />);
+    // Allow microtask flush.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockApi).not.toHaveBeenCalled();
+    expect(screen.getByTestId('recommendations-carousel-sentinel')).toBeInTheDocument();
+  });
+
+  it('fetches and renders cards once visible', async () => {
+    mockApi.mockResolvedValueOnce(payload);
+    wrap(<RecommendationsCarousel seriesId={140} />);
+    await waitFor(() => expect(mockApi).toHaveBeenCalledWith('/series/140/recommendations?limit=20&offset=0'));
+    await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());
     expect(screen.getAllByTestId('recommendation-card')).toHaveLength(2);
-    expect(screen.getByText('Show A')).toBeInTheDocument();
-    expect(screen.getByText('8.1')).toBeInTheDocument();
   });
 
-  it('wraps in-library items with a Link to their detail page', () => {
-    r(<RecommendationsCarousel recommendations={recs} />);
-    const link = screen.getByTestId('recommendation-link') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('/series/alpha/11');
-    expect(screen.getByTestId('recommendation-in-library')).toBeInTheDocument();
+  it('wraps in-library items with a Link to their detail page', async () => {
+    mockApi.mockResolvedValueOnce(payload);
+    wrap(<RecommendationsCarousel seriesId={140} />);
+    await waitFor(() => expect(screen.getByTestId('recommendation-link')).toBeInTheDocument());
+    expect((screen.getByTestId('recommendation-link') as HTMLAnchorElement).getAttribute('href')).toBe('/series/alpha/11');
   });
 
-  it('renders an inert Add-to-Sonarr overlay for non-library items', () => {
-    r(<RecommendationsCarousel recommendations={recs} />);
-    const overlays = screen.getAllByTestId('recommendation-add-overlay');
-    expect(overlays).toHaveLength(1);
+  it('renders skeleton + loading label when tmdbSeriesLoading=true and items=[]', async () => {
+    mockApi.mockResolvedValueOnce({ ...payload, items: [] });
+    wrap(<RecommendationsCarousel seriesId={140} tmdbSeriesLoading />);
+    await waitFor(() => expect(screen.getByTestId('recommendations-carousel-loading')).toBeInTheDocument());
+    expect(screen.getAllByTestId('recommendations-skeleton-tile')).toHaveLength(6);
   });
 
-  it('returns null when recommendations is empty', () => {
-    const { container } = r(<RecommendationsCarousel recommendations={[]} />);
-    expect(container.firstChild).toBeNull();
+  it('returns null when items=[] and not loading and visible', async () => {
+    mockApi.mockResolvedValueOnce({ ...payload, items: [] });
+    const { container } = wrap(<RecommendationsCarousel seriesId={140} />);
+    await waitFor(() => expect(mockApi).toHaveBeenCalled());
+    // After data arrives, items=[] and tmdbSeriesLoading=false → null.
+    await waitFor(() => expect(container.firstChild).toBeNull());
   });
 });

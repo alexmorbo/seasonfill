@@ -83,6 +83,7 @@ func NewServer(
 	sharedAuthRuntime *middleware.AuthRuntimePointer,
 	globalSeriesHandler *seriesdetailrest.GlobalSeriesHandler,
 	globalOverviewHandler *seriesdetailrest.GlobalSeriesOverviewHandler, // story 529
+	globalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler, // story 530
 	discoveryHandler *discoveryrest.DiscoveryHandler,
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
@@ -246,6 +247,10 @@ func NewServer(
 		// Story 529 — decomposition 1/3: /series/:id/overview split.
 		if globalOverviewHandler != nil {
 			guarded.GET("/series/:id/overview", globalOverviewHandler.Get)
+		}
+		// Story 530 — decomposition 2/3: /series/:id/recommendations split.
+		if globalRecommendationsHandler != nil {
+			guarded.GET("/series/:id/recommendations", globalRecommendationsHandler.Get)
 		}
 		if globalSeasonHandler != nil {
 			guarded.GET("/series/:id/season/:n", globalSeasonHandler.Get)

@@ -90,6 +90,9 @@ type SeriesDetailBundle struct {
 	// Story 529 — decomposition 1/3: /series/:id/overview split-out.
 	OverviewHandler       *seriesdetailrest.SeriesOverviewHandler
 	GlobalOverviewHandler *seriesdetailrest.GlobalSeriesOverviewHandler
+	// Story 530 — decomposition 2/3: /series/:id/recommendations split-out.
+	RecommendationsHandler       *seriesdetailrest.SeriesRecommendationsHandler
+	GlobalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler
 }
 
 // BuildSeriesDetail wires the Story 215 / 216 / 217 / 218 series-detail
@@ -344,23 +347,30 @@ func BuildSeriesDetail(
 	overviewHandler := seriesdetailrest.NewSeriesOverviewHandler(composer, log)
 	globalOverviewHandler := seriesdetailrest.NewGlobalSeriesOverviewHandler(overviewHandler, sdSeriesCacheRepo, log)
 
+	// Story 530 — /series/:id/recommendations split-out. Same composer +
+	// cache repo as overview; the inner handler is not route-registered.
+	recommendationsHandler := seriesdetailrest.NewSeriesRecommendationsHandler(composer, log)
+	globalRecommendationsHandler := seriesdetailrest.NewGlobalSeriesRecommendationsHandler(recommendationsHandler, sdSeriesCacheRepo, log)
+
 	return &SeriesDetailBundle{
-		MediaResolver:          mediaResolver,
-		Composer:               composer,
-		CastComposer:           castComposer,
-		PeopleUC:               peopleUC,
-		SeriesRefreshUC:        seriesRefreshUC,
-		DetailHandler:          detailHandler,
-		SeasonHandler:          seasonHandler,
-		CastHandler:            castHandler,
-		PeopleHandler:          peopleHandler,
-		RefreshHandler:         seriesRefreshHandler,
-		PersonEnqueuerHolder:   peopleEnqueuerHolder,
-		OnDemandEnricherHolder: onDemandEnricherHolder,
-		GlobalComposerUC:       globalComposerUC,
-		TMDBFallbackUC:         tmdbFallbackUC,
-		GlobalSeriesHandler:    globalSeriesHandler,
-		OverviewHandler:        overviewHandler,
-		GlobalOverviewHandler:  globalOverviewHandler,
+		MediaResolver:                mediaResolver,
+		Composer:                     composer,
+		CastComposer:                 castComposer,
+		PeopleUC:                     peopleUC,
+		SeriesRefreshUC:              seriesRefreshUC,
+		DetailHandler:                detailHandler,
+		SeasonHandler:                seasonHandler,
+		CastHandler:                  castHandler,
+		PeopleHandler:                peopleHandler,
+		RefreshHandler:               seriesRefreshHandler,
+		PersonEnqueuerHolder:         peopleEnqueuerHolder,
+		OnDemandEnricherHolder:       onDemandEnricherHolder,
+		GlobalComposerUC:             globalComposerUC,
+		TMDBFallbackUC:               tmdbFallbackUC,
+		GlobalSeriesHandler:          globalSeriesHandler,
+		OverviewHandler:              overviewHandler,
+		GlobalOverviewHandler:        globalOverviewHandler,
+		RecommendationsHandler:       recommendationsHandler,
+		GlobalRecommendationsHandler: globalRecommendationsHandler,
 	}, nil
 }

@@ -3111,6 +3111,92 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/series/{id}/recommendations": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Series recommendations carousel
+         * @description Returns ONLY the recommendations slice for a series keyed by
+         *     canonical series.id. Resolves the preferred Sonarr
+         *     instance automatically (lex-first that carries the
+         *     series). 404 when no library carries the series.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description Page size (1..50, default 20) */
+                    readonly limit?: number;
+                    /** @description Offset (>=0, default 0) */
+                    readonly offset?: number;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Canonical series.id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesRecommendationsResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/series/{id}/regrab": {
         readonly parameters: {
             readonly query?: never;
@@ -5500,6 +5586,20 @@ export type components = {
             readonly overview?: components["schemas"]["dto.OverviewAside"];
             readonly series_id?: number;
             readonly sonarr_series_id?: number;
+        };
+        readonly "dto.SeriesRecommendationsResponse": {
+            readonly degraded?: readonly string[];
+            readonly has_more?: boolean;
+            readonly instance?: string;
+            readonly items?: readonly components["schemas"]["dto.Recommendation"][];
+            /** @example 20 */
+            readonly limit?: number;
+            /** @example 0 */
+            readonly offset?: number;
+            readonly series_id?: number;
+            readonly sonarr_series_id?: number;
+            /** @example 42 */
+            readonly total_count?: number;
         };
         readonly "dto.SeriesRefreshResponse": {
             /** @example true */

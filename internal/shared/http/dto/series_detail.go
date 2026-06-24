@@ -269,6 +269,23 @@ type SeriesOverviewResponse struct {
 	Degraded       []string              `json:"degraded"`
 }
 
+// SeriesRecommendationsResponse — wire shape of
+// GET /api/v1/series/:id/recommendations (Story 530 — decomposition 2/3).
+// Mirrors SeriesOverviewResponse envelope shape so the FE hook layer has
+// a uniform reading pattern across all per-section endpoints. Items
+// reuses the existing Recommendation DTO from the monolith response.
+type SeriesRecommendationsResponse struct {
+	Instance       domain.InstanceName   `json:"instance"`
+	SonarrSeriesID domain.SonarrSeriesID `json:"sonarr_series_id"`
+	SeriesID       domain.SeriesID       `json:"series_id"`
+	Items          []Recommendation      `json:"items"`
+	TotalCount     int                   `json:"total_count" example:"42"`
+	HasMore        bool                  `json:"has_more"`
+	Limit          int                   `json:"limit" example:"20"`
+	Offset         int                   `json:"offset" example:"0"`
+	Degraded       []string              `json:"degraded"`
+}
+
 // RecentEvent — one row of the last-5 activity strip. Empty in
 // this story (recent_activity_deferred — §9 note); the type stays
 // in the DTO so frontend can iterate the (always present) slice.

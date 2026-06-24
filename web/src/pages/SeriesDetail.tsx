@@ -223,7 +223,7 @@ export function SeriesDetail() {
           />
 
           <RecommendationsCarousel
-            recommendations={data.recommendations}
+            seriesId={seriesId}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
             {...(recsLoading ? { tmdbSeriesLoading: true } : {})}
           />

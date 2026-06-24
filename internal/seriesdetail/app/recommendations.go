@@ -1,0 +1,158 @@
+// Package seriesdetail — see ports.go header.
+//
+// recommendations.go (Story 530 — decomposition 2/3). Composer.GetRecommendations
+// returns the recommendations[] subset served by
+// GET /api/v1/series/:id/recommendations. Loads cache → canon-id →
+// Recommendations.ListBySeries → batch SeriesPort.Get + in_library probe
+// — same branch the monolith composer runs at composer.go:648, lifted
+// into a public method + paginated.
+package seriesdetail
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+)
+
+// Recommendations is the value object returned by Composer.GetRecommendations.
+// Items carry the canonical canon row + the in-library scope; the rest
+// mapper turns each into a dto.Recommendation. TotalCount is the count
+// of renderable items (canon resolvable), NOT the raw id-list length —
+// stubs that haven't been hydrated yet are silently skipped to match
+// the monolith composer's behaviour at loadRecommendations.
+type Recommendations struct {
+	Instance       domain.InstanceName
+	SonarrSeriesID domain.SonarrSeriesID
+	SeriesID       domain.SeriesID
+	Items          []RecommendationDetail
+	TotalCount     int
+	HasMore        bool
+	Degraded       []string
+}
+
+// Pagination bounds. Caller layer clamps; this is the source of truth.
+const (
+	RecommendationsLimitDefault = 20
+	RecommendationsLimitMax     = 50
+	RecommendationsLimitMin     = 1
+)
+
+// GetRecommendations returns the paginated recommendations slice for a
+// series. Hard-required path: cache → canon-id. Recommendations list
+// failure degrades with a "tmdb_series" tag rather than failing the
+// response — a slow / cold TMDB recommendations row is the same UX as
+// a slow descriptive blurb (Story 529 §3).
+//
+// limit/offset are pre-clamped by the caller — this method asserts they
+// are within bounds and falls back to safe defaults if they are not.
+// This makes the method safe to call directly from tests + future
+// internal callers without re-validating.
+func (c *Composer) GetRecommendations(
+	ctx context.Context,
+	instanceName domain.InstanceName,
+	sonarrSeriesID domain.SonarrSeriesID,
+	limit, offset int,
+) (*Recommendations, error) {
+	if limit <= 0 {
+		limit = RecommendationsLimitDefault
+	}
+	if limit > RecommendationsLimitMax {
+		limit = RecommendationsLimitMax
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	cache, err := c.d.SeriesCache.Get(ctx, instanceName, sonarrSeriesID)
+	if err != nil {
+		return nil, fmt.Errorf("series_cache lookup: %w", err)
+	}
+	if cache.SeriesID == nil || *cache.SeriesID == 0 {
+		return nil, errors.Join(
+			&sharedErrors.SeriesCacheNotFoundError{
+				InstanceName:   instanceName,
+				SonarrSeriesID: sonarrSeriesID,
+			},
+			ports.ErrNotFound,
+		)
+	}
+	seriesID := *cache.SeriesID
+
+	out := &Recommendations{
+		Instance:       instanceName,
+		SonarrSeriesID: sonarrSeriesID,
+		SeriesID:       seriesID,
+		Items:          []RecommendationDetail{},
+		Degraded:       []string{},
+	}
+
+	ids, err := c.d.Recommendations.ListBySeries(ctx, seriesID)
+	if err != nil {
+		c.d.Logger.WarnContext(ctx, "recommendations_list_failed",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.String("err", err.Error()))
+		out.Degraded = append(out.Degraded, "tmdb_series")
+		return out, nil
+	}
+
+	// Resolve canon rows in id-order; drop misses (matches monolith).
+	resolved := make([]RecommendationDetail, 0, len(ids))
+	for _, recID := range ids {
+		s, sgerr := c.d.Series.Get(ctx, recID)
+		if sgerr != nil {
+			continue
+		}
+		rd := RecommendationDetail{Series: s}
+		if c.d.SeriesCacheLookup != nil {
+			caches, _ := c.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
+			if len(caches) > 0 {
+				rd.InLibrary = true
+				rd.InstanceName = caches[0].InstanceName
+				rd.SonarrSeriesID = caches[0].SonarrSeriesID
+			}
+		}
+		resolved = append(resolved, rd)
+	}
+
+	out.TotalCount = len(resolved)
+
+	// Apply pagination + run the media resolver on the visible slice
+	// only — out-of-window posters don't need hash translation.
+	if offset >= len(resolved) {
+		out.Items = []RecommendationDetail{}
+		out.HasMore = false
+	} else {
+		end := min(offset+limit, len(resolved))
+		out.Items = resolved[offset:end]
+		out.HasMore = end < len(resolved)
+		c.resolveRecommendationsMedia(ctx, out.Items)
+	}
+
+	c.d.Logger.InfoContext(ctx, "series_recommendations_composed",
+		slog.String("instance_name", string(instanceName)),
+		slog.Int("sonarr_series_id", int(sonarrSeriesID)),
+		slog.Int64("series_id", int64(seriesID)),
+		slog.Int("limit", limit),
+		slog.Int("offset", offset),
+		slog.Int("total_count", out.TotalCount),
+		slog.Int("items_returned", len(out.Items)),
+		slog.Bool("has_more", out.HasMore))
+	return out, nil
+}
+
+// resolveRecommendationsMedia mirrors composer.go:896-898 — translates
+// raw TMDB poster paths into media hashes. Nil-OK resolver short-circuits.
+func (c *Composer) resolveRecommendationsMedia(ctx context.Context, items []RecommendationDetail) {
+	r := c.d.MediaResolver
+	if r == nil {
+		return
+	}
+	for i := range items {
+		items[i].Series.PosterAsset = r.Resolve(ctx, items[i].Series.PosterAsset, "w342", "poster_w342")
+	}
+}

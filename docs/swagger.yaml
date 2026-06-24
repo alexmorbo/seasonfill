@@ -2433,6 +2433,36 @@ components:
         sonarr_series_id:
           type: integer
       type: object
+    dto.SeriesRecommendationsResponse:
+      properties:
+        degraded:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        has_more:
+          type: boolean
+        instance:
+          type: string
+        items:
+          items:
+            $ref: '#/components/schemas/dto.Recommendation'
+          type: array
+          uniqueItems: false
+        limit:
+          example: 20
+          type: integer
+        offset:
+          example: 0
+          type: integer
+        series_id:
+          type: integer
+        sonarr_series_id:
+          type: integer
+        total_count:
+          example: 42
+          type: integer
+      type: object
     dto.SeriesRefreshResponse:
       properties:
         omdb_queued:
@@ -5217,6 +5247,67 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Series overview block (description + keywords + awards)
+      tags:
+      - series
+  /series/{id}/recommendations:
+    get:
+      description: |-
+        Returns ONLY the recommendations slice for a series keyed by
+        canonical series.id. Resolves the preferred Sonarr
+        instance automatically (lex-first that carries the
+        series). 404 when no library carries the series.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: Page size (1..50, default 20)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: Offset (>=0, default 0)
+        in: query
+        name: offset
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesRecommendationsResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Series recommendations carousel
       tags:
       - series
   /series/{id}/regrab:

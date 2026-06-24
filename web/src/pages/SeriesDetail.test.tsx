@@ -20,6 +20,22 @@ vi.mock('@/lib/instances', () => ({
   useInstances: () => ({ data: { instances: [{ name: 'homelab', public_url: 'http://sonarr' }] }, isPending: false }),
 }));
 
+// Story 530 — RecommendationsCarousel is gated by `useIsSectionVisible`
+// (intersection-observer composer). In happy-dom IO never fires, so
+// the section stays in sentinel-mode. Stub the composer to force
+// visible=true so the carousel fetches + renders in integration tests.
+// Patched on both the source module (seriesTorrents) AND the re-export
+// (seriesRecommendations) so the consumer's static-import resolution
+// hits the mocked symbol regardless of the import path.
+vi.mock('@/api/seriesTorrents', async () => {
+  const actual = await vi.importActual<typeof import('@/api/seriesTorrents')>('@/api/seriesTorrents');
+  return { ...actual, useIsSectionVisible: () => true };
+});
+vi.mock('@/api/seriesRecommendations', async () => {
+  const actual = await vi.importActual<typeof import('@/api/seriesRecommendations')>('@/api/seriesRecommendations');
+  return { ...actual, useIsSectionVisible: () => true };
+});
+
 function renderRoute(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } } });
   return render(
@@ -72,6 +88,16 @@ const fullFixture = {
   cast: [{ person_id: 1, name: 'Pedro Pascal', character_name: 'Joel', episode_count: 9 }],
   seasons: [{ season_number: 1, episode_count: 1, episodes: [{ episode_number: 1, title: 'Pilot', has_file: true }] }],
   recommendations: [{ series_id: 99, title: 'Other', year: 2022, tmdb_rating: 7.7, in_library: false }],
+  // Story 530 — both `/series/:id` AND `/series/:id/recommendations` fire
+  // on mount. mockApi.mockResolvedValue(fullFixture) returns the same
+  // payload for every path, so the carousel reads its expected `items[]`
+  // shape off this fixture too. Mirror `recommendations` so the carousel
+  // renders with one tile in tests.
+  items: [{ series_id: 99, title: 'Other', year: 2022, tmdb_rating: 7.7, in_library: false }],
+  total_count: 1,
+  has_more: false,
+  limit: 20,
+  offset: 0,
 };
 
 const sonarrOnlyFixture = {
@@ -134,7 +160,8 @@ describe('<SeriesDetail />', () => {
     ).toBeTruthy();
     expect(screen.getByTestId('external-links-footer')).toBeInTheDocument();
     expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument();
-    expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument();
+    // Story 530 — carousel mounts on its own /recommendations query.
+    await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());
     // The three deferred placeholders are gone:
     expect(screen.queryByTestId('placeholder-seasons')).not.toBeInTheDocument();
     expect(screen.queryByTestId('placeholder-cast')).not.toBeInTheDocument();
@@ -150,6 +177,9 @@ describe('<SeriesDetail />', () => {
     mockApi.mockResolvedValue(fullFixture);
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    // Story 530 — carousel mounts on its own /recommendations query;
+    // wait for it before reading section order.
+    await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());
     const order = ['series-hero', 'overview-section',
                    'seasons-accordion', 'recommendations-carousel', 'external-links-footer'];
     const elements = order.map(id => screen.getByTestId(id) as HTMLElement);
