@@ -789,6 +789,11 @@ func BuildHTTPServer(
 		discoveryHandler = discoveryHTTP.Handler
 		discoverHandler = discoveryHTTP.DiscoverHandler
 	}
+	// Story 519 (N-4b) — per-instance metadata cache + handler. Built
+	// inline because the bundle's only dependency is sonarrBundle which
+	// is already in scope; no operator-visible knobs warrant promotion
+	// to the top-level wiring graph yet.
+	instanceMetadataBundle := BuildInstanceMetadata(sonarrBundle, log)
 	return httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -832,6 +837,7 @@ func BuildHTTPServer(
 		seriesDetailBundle.GlobalSeriesHandler,
 		discoveryHandler,
 		discoverHandler,
+		instanceMetadataBundle.Handler,
 		log,
 	)
 }

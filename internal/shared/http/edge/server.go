@@ -84,6 +84,7 @@ func NewServer(
 	globalSeriesHandler *seriesdetailrest.GlobalSeriesHandler,
 	discoveryHandler *discoveryrest.DiscoveryHandler,
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
+	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -303,6 +304,15 @@ func NewServer(
 			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)
 			guarded.PUT("/instances/:name/qbit/settings", qbitSettings.Upsert)
 			guarded.DELETE("/instances/:name/qbit/settings", qbitSettings.Delete)
+		}
+		// Story 519 (N-4b) — per-instance metadata cache surface for the
+		// AddToSonarrModal pickers (quality profiles + root folders) +
+		// operator-driven cache invalidation. Nil-OK pattern mirrors
+		// qbitSettings so test wiring can omit the routes.
+		if instanceMetadataHandler != nil {
+			guarded.GET("/instances/:name/quality-profiles", instanceMetadataHandler.GetQualityProfiles)
+			guarded.GET("/instances/:name/root-folders", instanceMetadataHandler.GetRootFolders)
+			guarded.POST("/instances/:name/refresh-metadata", instanceMetadataHandler.RefreshMetadata)
 		}
 		if externalServices != nil {
 			guarded.GET("/external-services", externalServices.List)
