@@ -99,6 +99,10 @@ type SeriesDetailBundle struct {
 	// Story 530 — decomposition 2/3: /series/:id/recommendations split-out.
 	RecommendationsHandler       *seriesdetailrest.SeriesRecommendationsHandler
 	GlobalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler
+	// Story 535 — /series/:id/cast TMDB-fallback. The global cast handler
+	// now lives in the bundle (was: edge.NewServer inline construction) so
+	// the wiring site shares scope with tmdbFallbackUC.
+	GlobalCastHandler *seriesdetailrest.GlobalSeriesCastHandler
 }
 
 // BuildSeriesDetail wires the Story 215 / 216 / 217 / 218 series-detail
@@ -390,6 +394,11 @@ func BuildSeriesDetail(
 	recommendationsHandler := seriesdetailrest.NewSeriesRecommendationsHandler(composer, log)
 	globalRecommendationsHandler := seriesdetailrest.NewGlobalSeriesRecommendationsHandler(recommendationsHandler, sdSeriesCacheRepo, tmdbFallbackUC, log)
 
+	// Story 535 — /series/:id/cast TMDB-fallback. Same composer + cache
+	// repo as overview/recs; tmdbFallbackUC supplies the canon-only cast
+	// surface when the series isn't in any library.
+	globalCastHandler := seriesdetailrest.NewGlobalSeriesCastHandler(castHandler, sdSeriesCacheRepo, tmdbFallbackUC, log)
+
 	return &SeriesDetailBundle{
 		MediaResolver:                mediaResolver,
 		Composer:                     composer,
@@ -411,5 +420,6 @@ func BuildSeriesDetail(
 		GlobalOverviewHandler:        globalOverviewHandler,
 		RecommendationsHandler:       recommendationsHandler,
 		GlobalRecommendationsHandler: globalRecommendationsHandler,
+		GlobalCastHandler:            globalCastHandler,
 	}, nil
 }

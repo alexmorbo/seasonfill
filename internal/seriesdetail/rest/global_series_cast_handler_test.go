@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
@@ -44,7 +46,7 @@ func quietLoggerCastWrapper() *slog.Logger {
 func TestGlobalSeriesCastHandler_Get_400_InvalidID(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
-	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, &stubGlobalCastCacheLookup{}, quietLoggerCastWrapper())
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, &stubGlobalCastCacheLookup{}, nil, quietLoggerCastWrapper())
 	r := gin.New()
 	r.GET("/api/v1/series/:id/cast", h.Get)
 
@@ -56,11 +58,15 @@ func TestGlobalSeriesCastHandler_Get_400_InvalidID(t *testing.T) {
 	}
 }
 
-func TestGlobalSeriesCastHandler_Get_404_NoInstances(t *testing.T) {
+// TestGlobalSeriesCastHandler_Get_404_NoInstances_NilFallback —
+// legacy behaviour: when no fallback UC is wired, the wrapper still
+// returns the "series not in any library" 404. Renamed from
+// ..._NoInstances after Story 535.
+func TestGlobalSeriesCastHandler_Get_404_NoInstances_NilFallback(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	cache := &stubGlobalCastCacheLookup{entries: nil}
-	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, quietLoggerCastWrapper())
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, nil, quietLoggerCastWrapper())
 	r := gin.New()
 	r.GET("/api/v1/series/:id/cast", h.Get)
 
@@ -75,7 +81,7 @@ func TestGlobalSeriesCastHandler_Get_500_CacheError(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	cache := &stubGlobalCastCacheLookup{err: errors.New("db down")} //nolint:err113
-	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, quietLoggerCastWrapper())
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, nil, quietLoggerCastWrapper())
 	r := gin.New()
 	r.Use(middleware.ErrorResponseMiddleware(quietLoggerCastWrapper()))
 	r.GET("/api/v1/series/:id/cast", h.Get)
@@ -92,7 +98,7 @@ func TestGlobalSeriesCastHandler_Get_500_NilInner(t *testing.T) {
 	cache := &stubGlobalCastCacheLookup{entries: []series.CacheEntry{
 		{InstanceName: "homelab", SonarrSeriesID: 7},
 	}}
-	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, quietLoggerCastWrapper())
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, nil, quietLoggerCastWrapper())
 	r := gin.New()
 	r.GET("/api/v1/series/:id/cast", h.Get)
 
@@ -140,7 +146,7 @@ func TestGlobalSeriesCastHandler_Get_LexFirstPreference(t *testing.T) {
 	// middleware that captures c.Params + the panic and stops. This
 	// way the assertion happens on real splice behaviour pre-panic.
 	innerHandler := seriesdetailrest.NewSeriesCastHandler(nil, quietLoggerCastWrapper())
-	h := seriesdetailrest.NewGlobalSeriesCastHandler(innerHandler, cache, quietLoggerCastWrapper())
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(innerHandler, cache, nil, quietLoggerCastWrapper())
 	r := gin.New()
 	var capturedName, capturedID string
 	r.Use(func(c *gin.Context) {
@@ -166,4 +172,77 @@ func TestGlobalSeriesCastHandler_Get_LexFirstPreference(t *testing.T) {
 
 	assert.Equal(t, "alpha", capturedName, "lex-first instance name must be spliced into :name")
 	assert.Equal(t, "99", capturedID, "lex-first instance's per-instance sonarr_series_id must replace :id")
+}
+
+// Story 535 — TMDB-fallback path. stubCastFallback implements
+// seriesdetailrest.TMDBFallbackCastPort.
+type stubCastFallback struct {
+	out *seriesdetail.CastFallbackResult
+	err error
+}
+
+func (s *stubCastFallback) GetCanonicalCast(_ context.Context, _ domain.SeriesID, _ string, _ int) (*seriesdetail.CastFallbackResult, error) {
+	return s.out, s.err
+}
+
+// Story 535 — fallback wired + cache empty returns 200 with canon-only payload.
+func TestGlobalSeriesCastHandler_Get_TMDBFallback_Returns200(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	cache := &stubGlobalCastCacheLookup{entries: nil}
+	fallback := &stubCastFallback{out: &seriesdetail.CastFallbackResult{
+		SeriesID: 1294,
+		Lang:     "ru-RU",
+		Canon: series.Canon{
+			ID:        1294,
+			Title:     "Дом Дракона",
+			Hydration: series.HydrationStub,
+		},
+		Cast:     []seriesdetail.CastDetail{},
+		Degraded: []string{"tmdb_series"},
+	}}
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, fallback, quietLoggerCastWrapper())
+	r := gin.New()
+	r.GET("/api/v1/series/:id/cast", h.Get)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/1294/cast?lang=ru-RU", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"tmdb_series"`)
+	assert.Contains(t, w.Body.String(), `"series_id":1294`)
+}
+
+// Story 535 — fallback returns ports.ErrNotFound → 404 series_not_found.
+func TestGlobalSeriesCastHandler_Get_TMDBFallback_UnknownIDReturns404(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	cache := &stubGlobalCastCacheLookup{entries: nil}
+	fallback := &stubCastFallback{err: errors.Join(errors.New("canon load"), ports.ErrNotFound)} //nolint:err113
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, fallback, quietLoggerCastWrapper())
+	r := gin.New()
+	r.GET("/api/v1/series/:id/cast", h.Get)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/9999/cast", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), `"series_not_found"`)
+}
+
+// Story 535 — fallback returns generic error → 500 via error middleware.
+func TestGlobalSeriesCastHandler_Get_TMDBFallback_PortError_500(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	cache := &stubGlobalCastCacheLookup{entries: nil}
+	fallback := &stubCastFallback{err: errors.New("tmdb down")} //nolint:err113
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, fallback, quietLoggerCastWrapper())
+	r := gin.New()
+	r.Use(middleware.ErrorResponseMiddleware(quietLoggerCastWrapper()))
+	r.GET("/api/v1/series/:id/cast", h.Get)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/140/cast", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

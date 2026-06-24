@@ -379,6 +379,80 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 	return out, nil
 }
 
+// CastFallbackResult — canon-only cast for a TMDB-only series. The
+// handler projects this onto dto.SeriesCastResponse via the canon
+// row (Title/PosterAsset/Status/Year range) — there's no TotalEpisodeCount
+// or InLibrary probe on the TMDB-only path. Story 535 (B-42c).
+type CastFallbackResult struct {
+	SeriesID domain.SeriesID
+	Lang     string
+	// Canon is the resolved series.Canon row — exposed so the handler can
+	// project SeriesSummary without a second port lookup. Same posture as
+	// GetCanonical's *Detail.Canon.
+	Canon    series.Canon
+	Cast     []CastDetail
+	Degraded []string
+}
+
+// GetCanonicalCast — canon-only cast list for TMDB-only series. limit
+// clamps to CastDefaultLimit when <= 0. Story 535 (B-42c). Mirrors
+// GetOverview / GetRecommendations posture: synchronous canon load via
+// SeriesPort (ports.ErrNotFound bubbles up so the handler can dispatch
+// 404 series_not_found); best-effort SeasonsCastSource read with
+// degraded marker on failure.
+func (u *TMDBFallbackUseCase) GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, lang string, limit int) (*CastFallbackResult, error) {
+	if limit <= 0 {
+		limit = CastDefaultLimit
+	}
+	resolvedLang := resolveLang(lang)
+	var freshen FreshenResult
+	if u.d.Freshener != nil {
+		freshen = u.d.Freshener.EnsureFresh(ctx, seriesID, resolvedLang)
+	}
+	canon, err := u.d.Series.Get(ctx, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
+	}
+	out := &CastFallbackResult{
+		SeriesID: seriesID,
+		Lang:     resolvedLang,
+		Canon:    canon,
+		Cast:     []CastDetail{},
+		Degraded: []string{},
+	}
+	mark := func() {
+		if !containsString(out.Degraded, "tmdb_series") {
+			out.Degraded = append(out.Degraded, "tmdb_series")
+		}
+	}
+	if canon.Hydration != series.HydrationFull {
+		mark()
+	}
+	if freshen.Degraded {
+		mark()
+	}
+	if u.d.SeasonsCastSource != nil {
+		if cast, cerr := u.d.SeasonsCastSource.GetCanonicalCast(ctx, seriesID, limit); cerr == nil {
+			out.Cast = cast
+		} else {
+			u.d.Logger.WarnContext(ctx, "tmdb_fallback_cast_load_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("err", cerr.Error()))
+			mark()
+		}
+	}
+	if u.d.Enricher != nil && canon.Hydration != series.HydrationFull {
+		u.d.Enricher.EnqueueIfStale(seriesID, canon.Hydration)
+	}
+	u.d.Logger.InfoContext(ctx, "tmdb_fallback_cast_composed",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.String("hydration", string(canon.Hydration)),
+		slog.String("lang", resolvedLang),
+		slog.Int("cast_count", len(out.Cast)),
+		slog.Int("degraded_count", len(out.Degraded)))
+	return out, nil
+}
+
 // containsString is a []string variant of contains[T comparable]. The fallback
 // overview / recs paths dedupe on the string-DTO marker ("tmdb_series") rather
 // than enrichment.Source, so contains[enrichment.Source] doesn't fit.

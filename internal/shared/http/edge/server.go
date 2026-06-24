@@ -74,7 +74,6 @@ func NewServer(
 	mediaPending adminrest.CatalogMediaPendingWriter,
 	seriesDetailHandler *seriesdetailrest.SeriesDetailHandler,
 	seriesSeasonHandler *seriesdetailrest.SeriesSeasonHandler,
-	seriesCastHandler *seriesdetailrest.SeriesCastHandler,
 	peopleHandler *enrichrest.PeopleHandler,
 	seriesRefreshHandler *enrichrest.SeriesRefreshHandler,
 	seriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler,
@@ -82,6 +81,7 @@ func NewServer(
 	meHandler *adminrest.MeHandler,
 	sharedAuthRuntime *middleware.AuthRuntimePointer,
 	globalSeriesHandler *seriesdetailrest.GlobalSeriesHandler,
+	globalCastHandler *seriesdetailrest.GlobalSeriesCastHandler, // story 535
 	globalOverviewHandler *seriesdetailrest.GlobalSeriesOverviewHandler, // story 529
 	globalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler, // story 530
 	discoveryHandler *discoveryrest.DiscoveryHandler,
@@ -127,14 +127,12 @@ func NewServer(
 	// episode-files. Constructed as thin delegates over the per-instance
 	// handlers; nil-OK pattern mirrors the per-instance variants so the
 	// route is omitted (not 5xx-stubbed) when the inner is absent.
+	// Story 535 — globalCastHandler now built in wiring.BuildSeriesDetail
+	// so it shares scope with tmdbFallbackUC; passed in as a param.
 	var (
-		globalCastHandler     *seriesdetailrest.GlobalSeriesCastHandler
 		globalSeasonHandler   *seriesdetailrest.GlobalSeriesSeasonHandler
 		globalTorrentsHandler *seriesdetailrest.GlobalSeriesTorrentsHandler
 	)
-	if seriesCastHandler != nil {
-		globalCastHandler = seriesdetailrest.NewGlobalSeriesCastHandler(seriesCastHandler, seriesCacheRepo, logger)
-	}
 	if seriesSeasonHandler != nil {
 		globalSeasonHandler = seriesdetailrest.NewGlobalSeriesSeasonHandler(seriesSeasonHandler, seriesCacheRepo, logger)
 	}

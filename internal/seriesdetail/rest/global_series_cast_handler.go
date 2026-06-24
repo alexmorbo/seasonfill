@@ -1,47 +1,70 @@
 // Package rest — seriesdetail HTTP handlers.
 //
-// global_series_cast_handler.go (Story 492 / N-1b). GET
+// global_series_cast_handler.go (Story 492 / N-1b + Story 535). GET
 // /api/v1/series/:id/cast resolves the canonical series.id to the
 // preferred Sonarr instance via the cacheLookup (lex-first instance
 // that carries this series), then delegates to the existing
-// per-instance SeriesCastHandler by splicing :name + :id into c.Params
-// and invoking it. 404 when the series is in zero libraries (cast is
-// library-derived; TMDB-only series have no Sonarr-side cast surface
-// in v1). The legacy /api/v1/instances/:name/series/:id/cast route is
-// DELETED in this same story.
+// per-instance SeriesCastHandler. When NO instance carries the series
+// (TMDB-only canon row), Story 535 dispatches to
+// TMDBFallbackUseCase.GetCanonicalCast instead of returning 404 —
+// mirrors the /overview + /recommendations fallback (Story 532).
+// True unknown-id (no canon row at all) → 404 with body
+// `{"error":"series_not_found"}`.
 package rest
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
+// TMDBFallbackCastPort is the narrow port the wrapper consumes for the
+// TMDB-only fallback. *seriesdetail.TMDBFallbackUseCase satisfies it.
+// nil-OK at construction — when nil, the wrapper falls back to the
+// legacy 404 "series not in any library" response.
+type TMDBFallbackCastPort interface {
+	GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, lang string, limit int) (*seriesdetail.CastFallbackResult, error)
+}
+
 // GlobalSeriesCastHandler exposes GET /api/v1/series/:id/cast.
 type GlobalSeriesCastHandler struct {
-	inner       *SeriesCastHandler
-	cacheLookup seriesdetail.SeriesCacheLookupPort
-	logger      *slog.Logger
+	inner        *SeriesCastHandler
+	cacheLookup  seriesdetail.SeriesCacheLookupPort
+	tmdbFallback TMDBFallbackCastPort
+	logger       *slog.Logger
 }
 
 // NewGlobalSeriesCastHandler constructs the wrapper. inner is the
 // existing per-instance handler (its route registration drops in this
-// story; only this wrapper reaches it). logger nil-OK.
+// story; only this wrapper reaches it). tmdbFallback nil-OK — when nil
+// the wrapper reverts to the pre-535 behaviour (404 when not in any
+// library). logger nil-OK.
 func NewGlobalSeriesCastHandler(
 	inner *SeriesCastHandler,
 	cacheLookup seriesdetail.SeriesCacheLookupPort,
+	tmdbFallback TMDBFallbackCastPort,
 	logger *slog.Logger,
 ) *GlobalSeriesCastHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &GlobalSeriesCastHandler{inner: inner, cacheLookup: cacheLookup, logger: logger}
+	return &GlobalSeriesCastHandler{
+		inner:        inner,
+		cacheLookup:  cacheLookup,
+		tmdbFallback: tmdbFallback,
+		logger:       logger,
+	}
 }
 
 // Get handles GET /api/v1/series/:id/cast.
@@ -50,8 +73,10 @@ func NewGlobalSeriesCastHandler(
 // @Description Cast list for a series keyed by canonical series.id.
 // @Description Resolves the preferred Sonarr instance automatically
 // @Description (lex-first instance that carries the series in
-// @Description series_cache). 404 when no library carries the series —
-// @Description TMDB-only series have no cast surface in v1.
+// @Description series_cache). When the series is TMDB-only (no library
+// @Description carries it), returns a canon-only cast list with
+// @Description degraded=["tmdb_series"] and instance="". 404 only when
+// @Description the canonical id is truly unknown.
 // @Tags        series
 // @Produce     json
 // @Param       id    path      int     true   "Canonical series.id"
@@ -71,6 +96,7 @@ func (h *GlobalSeriesCastHandler) Get(c *gin.Context) {
 		return
 	}
 	seriesID := domain.SeriesID(parsedID)
+	lang := strings.TrimSpace(c.Query("lang"))
 
 	ctx := c.Request.Context()
 	preferred, ok, err := resolvePreferredCacheEntry(ctx, h.cacheLookup, seriesID)
@@ -79,7 +105,25 @@ func (h *GlobalSeriesCastHandler) Get(c *gin.Context) {
 		return
 	}
 	if !ok {
-		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not in any library"})
+		if h.tmdbFallback == nil {
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not in any library"})
+			return
+		}
+		cast, ferr := h.tmdbFallback.GetCanonicalCast(ctx, seriesID, lang, 0)
+		if ferr != nil {
+			if errors.Is(ferr, ports.ErrNotFound) {
+				c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series_not_found"})
+				return
+			}
+			_ = c.Error(ferr)
+			return
+		}
+		h.logger.InfoContext(ctx, "global_series_cast_tmdb_fallback",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.String("lang", lang),
+			slog.Int("cast_count", len(cast.Cast)),
+			slog.Int("degraded_count", len(cast.Degraded)))
+		c.JSON(http.StatusOK, toSeriesCastResponseFromFallback(cast))
 		return
 	}
 	if h.inner == nil {
@@ -95,4 +139,85 @@ func (h *GlobalSeriesCastHandler) Get(c *gin.Context) {
 	c.Params = setParam(c.Params, "name", string(preferred.InstanceName))
 	c.Params = setParam(c.Params, "id", strconv.Itoa(int(preferred.SonarrSeriesID)))
 	h.inner.Get(c)
+}
+
+// toSeriesCastResponseFromFallback projects a CastFallbackResult onto
+// dto.SeriesCastResponse. Instance="" and SonarrSeriesID=0 mark the
+// canon-only origin; SeriesSummary is built from the Canon row.
+// TotalEpisodeCount is 0 — TMDB-only series have no Sonarr-side
+// episodes; the FE renders the Main/Recurring/Guest badges as N/A.
+func toSeriesCastResponseFromFallback(r *seriesdetail.CastFallbackResult) dto.SeriesCastResponse {
+	resp := dto.SeriesCastResponse{
+		Instance:       "",
+		SonarrSeriesID: 0,
+		SeriesID:       r.SeriesID,
+		Lang:           r.Lang,
+		SeriesSummary:  buildFallbackSeriesSummary(r.Canon),
+		Cast:           make([]dto.CastPageMember, 0, len(r.Cast)),
+		Crew:           []dto.CrewPageMember{},
+		Degraded:       append([]string{}, r.Degraded...),
+	}
+	for _, e := range r.Cast {
+		resp.Cast = append(resp.Cast, dto.CastPageMember{
+			PersonID:      e.Person.ID,
+			TMDBID:        e.Person.TMDBID,
+			Name:          e.Person.Name,
+			ProfileAsset:  e.Person.ProfileAsset,
+			CharacterName: e.Credit.CharacterName,
+			CreditOrder:   e.Credit.CreditOrder,
+			EpisodeCount:  e.Credit.EpisodeCount,
+			InLibrary:     false, // canon-only: no probe (TMDB-only series cannot be in_library)
+		})
+	}
+	return resp
+}
+
+// buildFallbackSeriesSummary mirrors buildSeriesSummary in
+// internal/seriesdetail/app/cast.go (project-private). We don't import
+// across the layer — instead inline the projection here. Status uses the
+// same token mapping as the composer (continuing/ended/canceled/
+// in_production/upcoming/unknown).
+func buildFallbackSeriesSummary(c series.Canon) dto.SeriesSummary {
+	s := dto.SeriesSummary{
+		Title:     c.Title,
+		PosterURL: c.PosterAsset,
+		Status:    mapStatusTokenForFallback(c.Status, c.InProduction),
+	}
+	if c.Year != nil {
+		ys := *c.Year
+		s.FirstAiredYear = &ys
+	}
+	if c.LastAirDate != nil {
+		ye := c.LastAirDate.Year()
+		s.LastAiredYear = &ye
+	}
+	return s
+}
+
+// mapStatusTokenForFallback duplicates the composer-side mapping (cast.go
+// in package seriesdetail). Lifting it to a shared helper is a separate
+// refactor — kept inline so this story stays scoped to the bug fix.
+// TODO: extract to a shared helper alongside the composer-side copy.
+func mapStatusTokenForFallback(status *string, inProduction bool) string {
+	raw := ""
+	if status != nil {
+		raw = strings.ToLower(strings.TrimSpace(*status))
+	}
+	switch {
+	case strings.Contains(raw, "cancel"):
+		return "canceled"
+	case strings.Contains(raw, "ended"):
+		return "ended"
+	case strings.Contains(raw, "upcoming") || strings.Contains(raw, "planned"):
+		return "upcoming"
+	case strings.Contains(raw, "production") && !strings.Contains(raw, "post"):
+		return "in_production"
+	case strings.Contains(raw, "continu") || strings.Contains(raw, "ongoing") || strings.Contains(raw, "returning"):
+		return "continuing"
+	case inProduction:
+		return "in_production"
+	case raw == "":
+		return "unknown"
+	}
+	return "unknown"
 }

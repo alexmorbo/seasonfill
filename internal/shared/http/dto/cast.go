@@ -53,6 +53,12 @@ type SeriesCastResponse struct {
 	// SyncedAt is the request timestamp (server-side now()); the
 	// frontend uses it for the "synced Xs ago" microcopy.
 	SyncedAt string `json:"synced_at" example:"2026-06-13T12:00:00Z"`
+	// Degraded carries any source that's never-synced / errored /
+	// stale and the response was returned anyway. Empty slice on the
+	// per-instance happy path. Non-empty on the TMDB-fallback path
+	// (Story 535) where the series is TMDB-only — value `"tmdb_series"`
+	// signals canon-only origin so the FE can render an info banner.
+	Degraded []string `json:"degraded"`
 }
 
 // CastPageMember is one cast row of the full-page list. Distinct
