@@ -388,10 +388,13 @@ func BuildEnrichment(
 	// rebuilding the worker. The holder satisfies appenrich.TMDBClient
 	// via a thin atomic.Pointer indirection (one extra load per call —
 	// negligible vs the network round-trip).
+	// Story 533c: Languages left empty → constructor seeds with
+	// locale.SupportedUserLanguages (currently en-US + ru-RU). PersonWorker
+	// (below) keeps its single-language path because biographies remain
+	// en-US-only until a follow-up story.
 	worker, err := appenrich.NewSeriesWorker(appenrich.SeriesWorkerDeps{
 		TMDB:             tmdbHolder,
 		Tx:               tx,
-		Language:         tmdb.DefaultLanguage,
 		Series:           repos.Series,
 		SeriesTexts:      repos.SeriesTexts,
 		Seasons:          repos.Seasons,

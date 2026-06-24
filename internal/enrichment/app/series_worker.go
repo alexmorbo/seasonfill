@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -16,6 +17,7 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -24,9 +26,21 @@ import (
 // dependency surfaces as a nil-deref in the constructor's
 // validate step, NOT inside the hot path under load.
 type SeriesWorkerDeps struct {
-	TMDB         TMDBClient
-	Tx           Transactor
-	Language     string // "en-US" — only language Story 211 writes; ru lands in C-5
+	TMDB TMDBClient
+	Tx   Transactor
+	// Languages is the BCP-47 list the worker iterates over for every
+	// enrichment pass. Empty → defaults to locale.SupportedUserLanguages
+	// (the curated UI dropdown set, currently en-US + ru-RU). One row
+	// per language is written into series_texts / episode_texts /
+	// genres_i18n / keywords_i18n; one TMDB GetTV + per-active-season
+	// GetSeason call is issued per language, so the per-series TMDB cost
+	// is len(Languages)×.
+	//
+	// Story 533c: replaces the single-string Language field. PersonWorker
+	// retains its single-language Language field because biographies
+	// remain en-US-only until a follow-up story (cast / character
+	// localisation is also deferred).
+	Languages    []string
 	Series       SeriesRepo
 	SeriesTexts  SeriesTextsRepo
 	Seasons      SeasonsRepo
@@ -65,7 +79,8 @@ type SeriesWorker struct {
 
 // NewSeriesWorker validates that every required dependency is
 // non-nil and returns the worker. Logger defaults to slog.Default;
-// Clock defaults to time.Now; Language defaults to "en-US".
+// Clock defaults to time.Now; Languages defaults to
+// locale.SupportedUserLanguages (the curated UI dropdown set).
 func NewSeriesWorker(deps SeriesWorkerDeps) (*SeriesWorker, error) {
 	if deps.TMDB == nil {
 		return nil, errors.New("enrichment.series_worker: TMDB client required")
@@ -83,8 +98,11 @@ func NewSeriesWorker(deps SeriesWorkerDeps) (*SeriesWorker, error) {
 		deps.EnrichmentErrors == nil {
 		return nil, errors.New("enrichment.series_worker: every repository port is required")
 	}
-	if deps.Language == "" {
-		deps.Language = "en-US"
+	if len(deps.Languages) == 0 {
+		// Slice copy: the worker holds a defensive snapshot so a later
+		// runtime reload that mutates locale.SupportedUserLanguages does
+		// not race with an in-flight Handle.
+		deps.Languages = append([]string(nil), locale.SupportedUserLanguages...)
 	}
 	if deps.Logger == nil {
 		deps.Logger = sharedports.DomainLogger(slog.Default(), "enrichment")
@@ -162,40 +180,105 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 			slog.String("error", errErr.Error()))
 	}
 
-	// 3. Fetch TV payload + active seasons.
-	tv, err := w.deps.TMDB.GetTV(ctx, int64(*canon.TMDBID), w.deps.Language)
-	if err != nil {
-		return w.handleTMDBError(ctx, seriesID, "GetTV", err, prevAttempts, start)
+	// 3. Iterate every supported UI language. Each language gets its
+	//    own independent transaction so a TMDB 5xx on lang B does not
+	//    roll back lang A's successful write. First-success guards
+	//    person enqueue + media pre-warm so we don't double-fire — the
+	//    cast list and asset paths are language-INDEPENDENT.
+	//
+	//    Story 533c: SeriesWorkerDeps.Languages defaults to
+	//    locale.SupportedUserLanguages (en-US + ru-RU); see PRD §5.5
+	//    + the dual-lang fallback behaviour at
+	//    enrichment/persistence/i18n_texts.go:21.
+	personsEnqueued := false
+	prewarmEnqueued := false
+	failedLangs := make([]string, 0, len(w.deps.Languages))
+	succeededLangs := make([]string, 0, len(w.deps.Languages))
+	var firstErr error
+	for _, lang := range w.deps.Languages {
+		langLog := log.With(slog.String("language", lang))
+		if err := w.refreshOneLanguage(ctx, canon, lang, &personsEnqueued, &prewarmEnqueued, langLog); err != nil {
+			failedLangs = append(failedLangs, lang)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		succeededLangs = append(succeededLangs, lang)
 	}
 
-	// 4. Fetch each active season — PRD §5.5 "первый проход качает
-	//    все сезоны". On first hydration we hit every season; on
-	//    subsequent refreshes only "active" seasons. The classifier
-	//    runs on the freshly-fetched TV row. The "first hydration" gate
-	//    is whether the canon row already carries a TMDB synced_at:
-	//    nil → first pass, fetch everything; non-nil → refresh, skip
-	//    closed seasons.
+	// 4. Single freshness stamp — only on FULL success across every
+	//    supported language. Partial success records an error row so the
+	//    next dispatcher tick retries; stamping on partial success would
+	//    silence that retry path.
+	now := w.deps.Clock()
+	durMs := int(now.Sub(start).Milliseconds())
+	if len(failedLangs) == 0 {
+		w.journalOK(ctx, seriesID, now, durMs)
+		log.InfoContext(ctx, "enrichment.series.handle.ok",
+			slog.String("domain", "enrichment"),
+			slog.Any("languages", succeededLangs),
+			slog.Int("duration_ms", durMs),
+		)
+		return nil
+	}
+
+	// Partial / total failure path: record one error row (source-level) +
+	// log per-language detail. Reuse handleTMDBError for the backoff +
+	// recordEnrichmentError plumbing; the first error wins.
+	log.WarnContext(ctx, "enrichment.series.handle.partial_or_failed",
+		slog.String("domain", "enrichment"),
+		slog.Any("succeeded_languages", succeededLangs),
+		slog.Any("failed_languages", failedLangs),
+		slog.Int("duration_ms", durMs),
+		slog.String("first_error", firstErr.Error()),
+	)
+	return w.handleTMDBError(ctx, seriesID, "languages="+strings.Join(failedLangs, ","), firstErr, prevAttempts, start)
+}
+
+// refreshOneLanguage runs the full fetch + map + tx for a SINGLE BCP-47
+// language. The first successful pass enqueues person workers + media
+// prewarm; subsequent passes skip those side-effects (the cast list +
+// poster assets are language-independent — see Story 533c design notes).
+//
+// Returns the first non-nil error from GetTV / GetSeason / tx so the
+// caller can journal the failure. canon-row writes are repeated per
+// language; the repeats are idempotent (ON CONFLICT DO UPDATE merges).
+func (w *SeriesWorker) refreshOneLanguage(
+	ctx context.Context,
+	canon series.Canon,
+	lang string,
+	personsEnqueued *bool,
+	prewarmEnqueued *bool,
+	log *slog.Logger,
+) error {
+	// 3a. Fetch TV payload + active seasons in this language.
+	tv, err := w.deps.TMDB.GetTV(ctx, int64(*canon.TMDBID), lang)
+	if err != nil {
+		return fmt.Errorf("GetTV(%s): %w", lang, err)
+	}
 	firstHydration := canon.EnrichmentTMDBSyncedAt == nil
 	seasonResponses := make(map[int]*tmdb.SeasonResponse, len(tv.Seasons))
 	for _, s := range tv.Seasons {
 		if !seasonNeedsFetch(s, firstHydration) {
 			continue
 		}
-		sr, err := w.deps.TMDB.GetSeason(ctx, int64(*canon.TMDBID), s.SeasonNumber, w.deps.Language)
+		sr, err := w.deps.TMDB.GetSeason(ctx, int64(*canon.TMDBID), s.SeasonNumber, lang)
 		if err != nil {
-			return w.handleTMDBError(ctx, seriesID, fmt.Sprintf("GetSeason(%d)", s.SeasonNumber), err, prevAttempts, start)
+			return fmt.Errorf("GetSeason(%d,%s): %w", s.SeasonNumber, lang, err)
 		}
 		seasonResponses[s.SeasonNumber] = sr
 	}
 
-	// 5. Map every payload OUTSIDE the tx — no DB I/O above this
-	//    line means a TMDB 5xx leaves zero half-written rows.
-	mapped := w.mapAll(tv, seasonResponses, canon)
+	// 3b. Map outside the tx, using THIS language for text-bearing
+	//     fields. Pure CPU — no I/O — so a TMDB 5xx on a later language
+	//     leaves zero half-written rows from this language.
+	mapped := w.mapAllForLanguage(tv, seasonResponses, canon, lang)
 
-	// 6. ONE tx for the whole graph.
+	// 3c. ONE tx for THIS language's writes.
 	var enqueueRows []personEnqueueRow
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		rows, err := w.applyAll(txCtx, canon, tv, seasonResponses, mapped, log)
+		rows, err := w.applyAllForLanguage(txCtx, canon, tv, seasonResponses, mapped, lang, log)
 		if err != nil {
 			return err
 		}
@@ -203,32 +286,31 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 		return nil
 	})
 	if err != nil {
-		return w.handleTMDBError(ctx, seriesID, "tx", err, prevAttempts, start)
+		return fmt.Errorf("tx(%s): %w", lang, err)
 	}
 
-	// 7. Journal success — stamp canon column + clear any pending error row.
-	now := w.deps.Clock()
-	dur := int(now.Sub(start).Milliseconds())
-	w.journalOK(ctx, seriesID, now, dur)
-
-	// 8. Media pre-warm — nil-OK enqueue.
-	if w.deps.MediaPrewarmer != nil {
+	// 3d. Media pre-warm — once per Handle (assets are
+	//     language-independent: poster/backdrop/network logos/cast
+	//     profiles do not vary per language). nil-OK enqueue.
+	if !*prewarmEnqueued && w.deps.MediaPrewarmer != nil {
 		w.deps.MediaPrewarmer.Enqueue(ctx, mapped.PrewarmAssets)
+		*prewarmEnqueued = true
 	}
 
-	// 9. 212: enqueue persons post-tx (NOT inside the tx — calling
-	//    Dispatcher.Enqueue inside a tx is a layering violation).
-	//    Hot/cold split based on credit_order; the dispatcher's dedup
-	//    handles double-enqueues for the same person.
-	if w.deps.Dispatcher != nil {
+	// 3e. Enqueue persons post-tx — once per Handle. Calling
+	//     Dispatcher.Enqueue inside the tx is a layering violation; the
+	//     dispatcher's dedup handles double-enqueues, but skipping the
+	//     second-language enqueue keeps the log line honest about
+	//     persons_enqueued and saves the dispatcher's dedup work.
+	if !*personsEnqueued && w.deps.Dispatcher != nil {
 		w.enqueuePersons(ctx, enqueueRows, log)
+		*personsEnqueued = true
 	}
 
-	log.InfoContext(ctx, "enrichment.series.handle.ok",
+	log.InfoContext(ctx, "enrichment.series.handle.language_ok",
 		slog.String("domain", "enrichment"),
 		slog.Int("seasons_fetched", len(seasonResponses)),
 		slog.Int("persons_enqueued", len(enqueueRows)),
-		slog.Int("duration_ms", dur),
 	)
 	return nil
 }
@@ -332,17 +414,26 @@ type mappedPayload struct {
 	PrewarmAssets []MediaPrewarmRequest
 }
 
-// mapAll runs every mapper from infrastructure/tmdb against the
-// payload + composes the SeriesPatch + collects pre-warm asset
-// list. Pure — no logger, no errors (the mappers are fallible
-// over JSON parse, but every mapper here is total).
-func (w *SeriesWorker) mapAll(tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonResponse, canon series.Canon) mappedPayload {
+// mapAllForLanguage runs every mapper from infrastructure/tmdb against
+// the payload + composes the SeriesPatch + collects pre-warm asset
+// list. Pure — no logger, no errors (the mappers are fallible over JSON
+// parse, but every mapper here is total).
+//
+// Story 533c: lang is the BCP-47 tag the caller is currently iterating;
+// it is stamped into the SeriesText + EpisodeText rows so the per-
+// language Upsert produces ONE row per (entity_id, language).
+// Language-INDEPENDENT fields (canon patch, seasons, credits, taxonomy
+// IDs, videos, content_ratings, external_ids, recommendations, prewarm
+// assets) are mapped identically every call; the repeated writes are
+// idempotent (ON CONFLICT DO UPDATE), so the second-language tx is a
+// near-no-op for those tables.
+func (w *SeriesWorker) mapAllForLanguage(tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonResponse, canon series.Canon, lang string) mappedPayload {
 	out := mappedPayload{}
 
 	tmdbCanon := tmdb.MapTVToCanon(tv)
 	out.SeriesPatch = patchFromTMDBCanon(tmdbCanon)
 	out.SeriesText = series.SeriesText{
-		SeriesID: canon.ID, Language: w.deps.Language,
+		SeriesID: canon.ID, Language: lang,
 		Title: nonEmptyStringPtr(tv.Name), Overview: nonEmptyStringPtr(tv.Overview), Tagline: nonEmptyStringPtr(tv.Tagline),
 	}
 
@@ -382,12 +473,12 @@ func (w *SeriesWorker) mapAll(tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonR
 		for _, e := range seasonEps {
 			out.Episodes = append(out.Episodes, e)
 			if sr != nil {
-				// One episode_text per episode (en-US — Story 211
-				// language). Episode IDs are resolved post-batch
-				// upsert; the text rows use a sentinel zero
-				// EpisodeID that applyAll patches.
+				// One episode_text per episode keyed by `lang` (Story
+				// 533c). Episode IDs are resolved post-batch upsert;
+				// the text rows use a sentinel zero EpisodeID that
+				// applyAllForLanguage patches.
 				out.EpisodeTexts = append(out.EpisodeTexts, series.EpisodeText{
-					Language: w.deps.Language,
+					Language: lang,
 					Title:    nonEmptyStringPtr(findEpisodeTitle(sr, e.SeasonNumber, e.EpisodeNumber)),
 					Overview: nonEmptyStringPtr(findEpisodeOverview(sr, e.SeasonNumber, e.EpisodeNumber)),
 				})
@@ -404,17 +495,23 @@ func (w *SeriesWorker) mapAll(tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonR
 	return out
 }
 
-// applyAll runs every repo write inside ONE tx. Order is the
+// applyAllForLanguage runs every repo write inside ONE tx. Order is the
 // deterministic dependency-sorted sequence from PRD §5.6:
 // canon → texts → seasons → episodes → episode_texts →
 // people → series_people → taxonomy → videos → content_ratings →
 // external_ids → recommendations.
 //
-// Returns the resolved person enqueue rows so the caller (Handle)
+// Returns the resolved person enqueue rows so the caller (refreshOneLanguage)
 // can fan them out to the dispatcher AFTER the tx commits (calling
 // Dispatcher.Enqueue inside a tx is a layering violation — the
 // dispatcher's dedup window opens at enqueue time, not at commit).
-func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonResponse, m mappedPayload, log *slog.Logger) ([]personEnqueueRow, error) {
+//
+// Story 533c: lang is threaded through to applyTaxonomyForLanguage so
+// genres_i18n / keywords_i18n rows are written keyed by THIS language
+// (TMDB returns localised genre/keyword names per ?language=X). The
+// series_texts + episode_texts rows already carry Language=lang via
+// the mapping step.
+func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.Canon, tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonResponse, m mappedPayload, lang string, log *slog.Logger) ([]personEnqueueRow, error) {
 	// 1. Merge + upsert series canon.
 	merged := enrichment.MergeSeries(
 		canonToEnrichmentCanon(canon),
@@ -638,7 +735,9 @@ func (w *SeriesWorker) applyAll(txCtx context.Context, canon series.Canon, tv *t
 	}
 
 	// 8. Taxonomy — Genres / Keywords / Networks / Companies upsert + Set.
-	if err := w.applyTaxonomy(txCtx, seriesID, m); err != nil {
+	//    Story 533c: lang threads through so genres_i18n / keywords_i18n
+	//    rows are written keyed by THIS language.
+	if err := w.applyTaxonomyForLanguage(txCtx, seriesID, m, lang); err != nil {
 		return nil, err
 	}
 
@@ -993,7 +1092,7 @@ func resolveSeriesCreditsWithPersonID(tv *tmdb.TVResponse, seriesID domain.Serie
 	return out, dropped
 }
 
-func (w *SeriesWorker) applyTaxonomy(txCtx context.Context, seriesID domain.SeriesID, m mappedPayload) error {
+func (w *SeriesWorker) applyTaxonomyForLanguage(txCtx context.Context, seriesID domain.SeriesID, m mappedPayload, lang string) error {
 	// B-26: Genres.Upsert touches the shared `genres` table (16 TMDB
 	// TV genres, every series upserts 1-5 of them). Two parallel
 	// series_worker txes acquire row-level UPDATE locks on overlapping
@@ -1014,7 +1113,11 @@ func (w *SeriesWorker) applyTaxonomy(txCtx context.Context, seriesID domain.Seri
 			return fmt.Errorf("upsert genre: %w", err)
 		}
 		if g.Name != "" {
-			if err := w.deps.Genres.UpsertI18n(txCtx, id, w.deps.Language, g.Name); err != nil {
+			// Story 533c: TMDB returns localised genre names per
+			// ?language=X, so the i18n row is written keyed by the
+			// current language. Composite PK (genre_id, language)
+			// keeps the cross-language calls idempotent.
+			if err := w.deps.Genres.UpsertI18n(txCtx, id, lang, g.Name); err != nil {
 				return fmt.Errorf("upsert genres_i18n: %w", err)
 			}
 		}
@@ -1031,7 +1134,9 @@ func (w *SeriesWorker) applyTaxonomy(txCtx context.Context, seriesID domain.Seri
 			return fmt.Errorf("upsert keyword: %w", err)
 		}
 		if k.Name != "" {
-			if err := w.deps.Keywords.UpsertI18n(txCtx, id, w.deps.Language, k.Name); err != nil {
+			// Story 533c: TMDB returns localised keyword names per
+			// ?language=X.
+			if err := w.deps.Keywords.UpsertI18n(txCtx, id, lang, k.Name); err != nil {
 				return fmt.Errorf("upsert keywords_i18n: %w", err)
 			}
 		}

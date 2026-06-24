@@ -30,15 +30,30 @@ type fakeTMDB struct {
 	seasons  map[int]*tmdb.SeasonResponse
 	seasErr  map[int]error
 	getTVHit int
-	mu       sync.Mutex
-	calls    []string
+	// getTVCallSwitch — Story 533c: 1-indexed per-call error gate so a
+	// test can fail GetTV on a specific language pass (e.g. lang #2)
+	// while letting the first pass succeed. nil-OK; when set the
+	// returned error supersedes tvErr for that call.
+	getTVCallSwitch func(call int) error
+	// getTVLangs records each language argument the worker passed —
+	// used by Story 533c tests to assert per-language fan-out.
+	getTVLangs []string
+	mu         sync.Mutex
+	calls      []string
 }
 
 func (f *fakeTMDB) GetTV(ctx context.Context, id int64, language string) (*tmdb.TVResponse, error) {
 	f.mu.Lock()
 	f.getTVHit++
+	currentCall := f.getTVHit
 	f.calls = append(f.calls, "GetTV")
+	f.getTVLangs = append(f.getTVLangs, language)
 	f.mu.Unlock()
+	if f.getTVCallSwitch != nil {
+		if err := f.getTVCallSwitch(currentCall); err != nil {
+			return nil, err
+		}
+	}
 	return f.tv, f.tvErr
 }
 
@@ -101,6 +116,10 @@ type fakeSeriesRepo struct {
 	byTMDB  map[int]domain.SeriesID // tmdb_id -> internal id, Story 319
 	nextID  domain.SeriesID
 	upsertN int
+	// markedSynced — Story 533c: true iff MarkTMDBSynced was called.
+	// Partial-language-failure tests assert this stays false so the
+	// next dispatcher tick re-tries the failing language.
+	markedSynced bool
 }
 
 func newFakeSeriesRepo(rec *callRecord) *fakeSeriesRepo {
@@ -132,6 +151,7 @@ func (f *fakeSeriesRepo) Upsert(ctx context.Context, c series.Canon) (domain.Ser
 // 464b. Mirrors production single-column UPDATE semantics.
 func (f *fakeSeriesRepo) MarkTMDBSynced(ctx context.Context, id domain.SeriesID, now time.Time) error {
 	f.rec.add("Series.MarkTMDBSynced")
+	f.markedSynced = true
 	if c, ok := f.rows[id]; ok {
 		t := now
 		c.EnrichmentTMDBSyncedAt = &t
@@ -473,6 +493,11 @@ type fakeEnrichmentErrorRepo struct {
 	cleared  []clearedKey
 	preexist *enrichment.EnrichmentError // seeded by tests for retry path
 	getErr   error                       // seeded by tests for branch coverage
+	// recordFailureCalls — Story 533c: counter so partial-language-fail
+	// tests can assert "exactly one error row on a 2-lang Handle where
+	// one lang failed". Reads len(failures) work too, but a dedicated
+	// counter makes the intent in the assertion obvious.
+	recordFailureCalls int
 }
 
 type clearedKey struct {
@@ -485,6 +510,7 @@ func (f *fakeEnrichmentErrorRepo) RecordFailure(ctx context.Context, e enrichmen
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failures = append(f.failures, e)
+	f.recordFailureCalls++
 	return nil
 }
 
@@ -579,7 +605,7 @@ func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmd
 	w, err := NewSeriesWorker(SeriesWorkerDeps{
 		TMDB:             f.tmdb,
 		Tx:               syncTransactor{},
-		Language:         "en-US",
+		Languages:        []string{"en-US"},
 		Series:           f.series,
 		SeriesTexts:      f.seriesTexts,
 		Seasons:          f.seasons,
@@ -1200,4 +1226,183 @@ func TestApplyAll_DiagnosticLogReportsResolvedSeriesID(t *testing.T) {
 		strings.Contains(out, `"series_id":1`),
 		"diagnostic must report the resolved series_id, got: %s", out,
 	)
+}
+
+// ---- Story 533c — multi-language fan-out -----------------------------
+
+// TestSeriesWorker_IteratesEverySupportedLanguage verifies that the
+// worker calls TMDB once per language and writes one series_texts row
+// per language (en-US + ru-RU).
+func TestSeriesWorker_IteratesEverySupportedLanguage(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	seasonResp := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasonResp)
+	f.worker.deps.Languages = []string{"en-US", "ru-RU"}
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+
+	// Two GetTV calls (one per lang).
+	assert.Equal(t, 2, f.tmdb.getTVHit, "expected one GetTV per supported language")
+	assert.Equal(t, []string{"en-US", "ru-RU"}, f.tmdb.getTVLangs,
+		"GetTV must be called with each supported language in order")
+
+	// Two series_texts rows, distinct languages.
+	rows := f.seriesTexts.rows
+	require.Len(t, rows, 2)
+	langs := []string{rows[0].Language, rows[1].Language}
+	assert.ElementsMatch(t, []string{"en-US", "ru-RU"}, langs)
+
+	// One genres_i18n row PER language (the minimal TV payload has
+	// exactly one genre — Drama). Same for keywords.
+	require.Len(t, f.genres.i18n, 2, "genres_i18n must be written per language")
+	gLangs := []string{f.genres.i18n[0].Language, f.genres.i18n[1].Language}
+	assert.ElementsMatch(t, []string{"en-US", "ru-RU"}, gLangs)
+
+	require.Len(t, f.keywords.i18n, 2, "keywords_i18n must be written per language")
+	kLangs := []string{f.keywords.i18n[0].Language, f.keywords.i18n[1].Language}
+	assert.ElementsMatch(t, []string{"en-US", "ru-RU"}, kLangs)
+
+	// Canon stamp MUST land on full success.
+	assert.True(t, f.series.markedSynced,
+		"full-success Handle must stamp enrichment_tmdb_synced_at")
+	assert.Empty(t, f.enrichmentErrors.failures, "no error row on full-success path")
+}
+
+// TestSeriesWorker_PartialLanguageFailureLeavesStampUnset verifies the
+// "partial success ⇒ no canon stamp" semantic. Lang #1 succeeds, lang
+// #2's GetTV returns an error; canon.enrichment_tmdb_synced_at MUST NOT
+// be stamped, and the lang-#1 series_texts row MUST be written.
+func TestSeriesWorker_PartialLanguageFailureLeavesStampUnset(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	seasonResp := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasonResp)
+	f.worker.deps.Languages = []string{"en-US", "ru-RU"}
+
+	// Fail the SECOND GetTV call (ru-RU).
+	f.tmdb.getTVCallSwitch = func(call int) error {
+		if call == 2 {
+			return errors.New("simulated TMDB 503")
+		}
+		return nil
+	}
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+
+	// handleTMDBError returns nil — failure is journalled, not propagated.
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+
+	// en-US row IS written (lang #1 succeeded).
+	require.Len(t, f.seriesTexts.rows, 1)
+	assert.Equal(t, "en-US", f.seriesTexts.rows[0].Language)
+
+	// Canon NOT marked as synced.
+	assert.False(t, f.series.markedSynced,
+		"partial language failure must NOT stamp enrichment_tmdb_synced_at")
+
+	// Exactly one EnrichmentErrors row recorded.
+	assert.Equal(t, 1, f.enrichmentErrors.recordFailureCalls,
+		"one error row per partial-fail Handle (source-level, not per-language)")
+}
+
+// TestSeriesWorker_TotalLanguageFailurePropagates verifies that when
+// EVERY language fails, the worker still returns nil (the failure is
+// journalled into enrichment_errors) and no canon stamp is written.
+func TestSeriesWorker_TotalLanguageFailurePropagates(t *testing.T) {
+	t.Parallel()
+	f := newWorkerFixture(t, minimalTV(), nil)
+	f.worker.deps.Languages = []string{"en-US", "ru-RU"}
+	f.tmdb.tvErr = errors.New("simulated TMDB 503")
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+	assert.False(t, f.series.markedSynced,
+		"total language failure must NOT stamp enrichment_tmdb_synced_at")
+	assert.Empty(t, f.seriesTexts.rows, "no series_texts row when every lang fails")
+	assert.Equal(t, 1, f.enrichmentErrors.recordFailureCalls,
+		"single error row even when every language failed (source-level)")
+}
+
+// TestSeriesWorker_PersonEnqueueIsOnceAcrossLanguages verifies the
+// first-language guard for person enqueue + media prewarm. The cast
+// list is language-independent; enqueuing twice would burn dispatcher
+// dedup work for no benefit.
+func TestSeriesWorker_PersonEnqueueIsOnceAcrossLanguages(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	seasonResp := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasonResp)
+	f.worker.deps.Languages = []string{"en-US", "ru-RU"}
+	d := &recordingDispatcher{}
+	f.worker.deps.Dispatcher = d
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+
+	// minimalTV has 1 cast + 1 crew (= 2 enqueues). The second-language
+	// pass MUST NOT re-enqueue (otherwise we'd see 4).
+	personEnqueues := 0
+	for _, c := range d.calls {
+		if c.Kind == EntityPerson {
+			personEnqueues++
+		}
+	}
+	assert.Equal(t, 2, personEnqueues,
+		"person enqueue must fire ONCE per Handle (not once per language)")
+}
+
+// TestSeriesWorker_LanguagesDefault_OnEmptySlice verifies that an empty
+// Languages slice triggers the locale.SupportedUserLanguages default.
+// Locks in the wiring contract: wiring/enrichment.go leaves Languages
+// nil and relies on the constructor seed.
+func TestSeriesWorker_LanguagesDefault_OnEmptySlice(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	seasonResp := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasonResp)
+	// Reset to nil so the constructor default kicks in. The fixture's
+	// NewSeriesWorker call seeded Languages=["en-US"]; we re-build the
+	// worker via direct assignment of a fresh deps copy isn't needed
+	// because the seed is into deps.Languages itself (slice was copied
+	// in the constructor). Easiest path: build a NEW worker with empty
+	// Languages and assert it defaulted.
+	w, err := NewSeriesWorker(SeriesWorkerDeps{
+		TMDB:             f.tmdb,
+		Tx:               syncTransactor{},
+		Series:           f.series,
+		SeriesTexts:      f.seriesTexts,
+		Seasons:          f.seasons,
+		Episodes:         f.episodes,
+		EpisodeTexts:     f.episodeTexts,
+		People:           f.people,
+		PersonCredits:    f.personCredits,
+		Genres:           f.genres,
+		Keywords:         f.keywords,
+		Networks:         f.networks,
+		Companies:        f.companies,
+		Videos:           f.videos,
+		ContentRatings:   f.contentRatings,
+		ExternalIDs:      f.externalIDs,
+		Recommendations:  f.recommendations,
+		EnrichmentErrors: f.enrichmentErrors,
+		Logger:           quietLogger(),
+		Clock:            func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) },
+	})
+	require.NoError(t, err)
+	// At least one entry; en-US must be one of them (Default()).
+	require.NotEmpty(t, w.deps.Languages,
+		"constructor must seed Languages from locale.SupportedUserLanguages")
+	foundEnUS := false
+	for _, l := range w.deps.Languages {
+		if l == "en-US" {
+			foundEnUS = true
+			break
+		}
+	}
+	assert.True(t, foundEnUS, "default seed must include en-US")
 }
