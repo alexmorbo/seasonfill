@@ -40,6 +40,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/cachewatch"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // Pattern B constants (PRD §5.1.2).
@@ -75,15 +76,23 @@ type DiscoverHandler struct {
 	pass    app.TMDBPassthrough
 	bg      *app.BgFetcher
 	warming app.WarmingProbe
-	log     *slog.Logger
+	// resolver — story 526 (shared MediaResolver). Same role as the
+	// curated DiscoveryHandler counterpart: rewrites raw TMDB image
+	// paths into sha256 wire hashes so the FE renders posters through
+	// /api/v1/media/:hash. Nil-OK preserves legacy raw-path behavior.
+	resolver *media.Resolver
+	log      *slog.Logger
 }
 
-// NewDiscoverHandler wires the handler. Every arg required.
+// NewDiscoverHandler wires the handler. lru/pass/bg/warming/log are
+// required; resolver is nil-OK (legacy behavior — raw TMDB paths
+// flow through projectItem unchanged).
 func NewDiscoverHandler(
 	lru *cachewatch.Cache[string, []disco.Item],
 	pass app.TMDBPassthrough,
 	bg *app.BgFetcher,
 	warming app.WarmingProbe,
+	resolver *media.Resolver,
 	log *slog.Logger,
 ) *DiscoverHandler {
 	switch {
@@ -98,7 +107,7 @@ func NewDiscoverHandler(
 	case log == nil:
 		panic("discover handler: log required")
 	}
-	return &DiscoverHandler{lru: lru, pass: pass, bg: bg, warming: warming, log: log}
+	return &DiscoverHandler{lru: lru, pass: pass, bg: bg, warming: warming, resolver: resolver, log: log}
 }
 
 // Handle implements Pattern B.
@@ -109,28 +118,30 @@ func (h *DiscoverHandler) Handle(c *gin.Context) {
 	}
 	cacheKey := canonicalHash(filter, lang, page)
 
+	ctx := c.Request.Context()
+
 	// 1. LRU hit.
 	if items, found := h.lru.Get(cacheKey); found {
 		observability.IncDiscoverHandlerOutcome(OutcomeHit)
-		c.JSON(http.StatusOK, h.envelope(items, page, "hit", 0))
+		c.JSON(http.StatusOK, h.envelope(ctx, items, page, "hit", 0))
 		return
 	}
 
 	// 2. Sync attempt with 5s timeout.
-	syncCtx, cancel := context.WithTimeout(c.Request.Context(), discoverSyncTimeout)
+	syncCtx, cancel := context.WithTimeout(ctx, discoverSyncTimeout)
 	defer cancel()
 	items, err := h.pass.Fetch(syncCtx, filter, lang, page)
 	switch {
 	case err == nil:
 		h.lru.Add(cacheKey, items)
 		observability.IncDiscoverHandlerOutcome(OutcomeMissSync)
-		c.JSON(http.StatusOK, h.envelope(items, page, "miss", 0))
+		c.JSON(http.StatusOK, h.envelope(ctx, items, page, "miss", 0))
 		return
 	case errors.Is(err, context.DeadlineExceeded) || errors.Is(syncCtx.Err(), context.DeadlineExceeded):
 		// 3. Sync timed out — kick the background fetcher + return 202.
 		h.bg.EnqueueDedup(cacheKey, filter, lang, page)
 		observability.IncDiscoverHandlerOutcome(OutcomeMissWarming)
-		resp := h.envelope(nil, page, "warming", discoverWarmingRetryAfter)
+		resp := h.envelope(ctx, nil, page, "warming", discoverWarmingRetryAfter)
 		resp.Degraded = appendDegraded(resp.Degraded, "tmdb_throttled")
 		c.JSON(http.StatusAccepted, resp)
 		return
@@ -149,9 +160,9 @@ func (h *DiscoverHandler) Handle(c *gin.Context) {
 
 // envelope folds the response shape including the (possibly empty)
 // degraded list signals.
-func (h *DiscoverHandler) envelope(items []disco.Item, page int, status string, retryAfter int) DiscoverResponse {
+func (h *DiscoverHandler) envelope(ctx context.Context, items []disco.Item, page int, status string, retryAfter int) DiscoverResponse {
 	resp := DiscoverResponse{
-		Items:             projectSearchItems(items),
+		Items:             projectSearchItems(ctx, items, h.resolver),
 		Page:              page,
 		PerPage:           discoverPerPage,
 		CacheStatus:       status,

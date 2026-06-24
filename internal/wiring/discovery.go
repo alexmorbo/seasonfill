@@ -18,6 +18,7 @@ import (
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/cachewatch"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // discovery.go wires the discovery bounded-context persistence
@@ -200,6 +201,11 @@ type DiscoveryHTTPBundle struct {
 // 508). Any nil → searchUC is nil and the handler returns 503
 // search_unavailable on /discovery/search.
 //
+// resolver — story 526. Optional shared *media.Resolver used by
+// projectItem to translate raw TMDB image paths into sha256 wire
+// hashes. Nil-OK (legacy raw-path behavior). Wiring threads the same
+// instance the seriesdetail composers hold so cache slots are shared.
+//
 // log MUST already carry the "discovery" domain tag.
 func BuildDiscoveryHTTP(
 	persistence *PersistenceBundle,
@@ -208,6 +214,7 @@ func BuildDiscoveryHTTP(
 	tmdb discoapp.SearchTMDB,
 	stubs discoapp.StubUpserter,
 	dispatcher discoapp.EnrichmentDispatcher,
+	resolver *media.Resolver,
 	log *slog.Logger,
 ) *DiscoveryHTTPBundle {
 	genres := discopersistence.NewGenresPickerRepo(persistence.DB)
@@ -226,6 +233,7 @@ func BuildDiscoveryHTTP(
 		genres,
 		networks,
 		searchUC, // nil-OK; handler returns 503 search_unavailable
+		resolver, // nil-OK; raw TMDB paths flow through unchanged
 		log,
 	)
 	return &DiscoveryHTTPBundle{
@@ -284,7 +292,12 @@ type DiscoveryDiscoverDeps struct {
 	TMDBClient discoapp.TMDBDiscoverClient
 	Stubs      discoapp.StubUpserter
 	Worker     discoapp.WarmingProbe
-	Log        *slog.Logger
+	// Resolver — story 526. Optional shared *media.Resolver threaded
+	// into the DiscoverHandler so /discovery/discover rewrites raw
+	// TMDB paths to sha256 wire hashes (same projection contract as
+	// the curated endpoints). Nil-OK.
+	Resolver *media.Resolver
+	Log      *slog.Logger
 }
 
 // BuildDiscoveryDiscover wires the LRU + passthrough + bg fetcher +
@@ -308,7 +321,7 @@ func BuildDiscoveryDiscover(deps DiscoveryDiscoverDeps) *DiscoveryDiscoverBundle
 	lru := cachewatch.New[string, []disco.Item]("discover", 1000, 1*time.Hour, sizer)
 	pass := discoapp.NewTMDBPassthrough(deps.TMDBClient, deps.Stubs, deps.Log)
 	bg := discoapp.NewBgFetcher(lru, pass, deps.Log)
-	handler := discoveryrest.NewDiscoverHandler(lru, pass, bg, deps.Worker, deps.Log)
+	handler := discoveryrest.NewDiscoverHandler(lru, pass, bg, deps.Worker, deps.Resolver, deps.Log)
 	return &DiscoveryDiscoverBundle{
 		Handler:   handler,
 		BgFetcher: bg,

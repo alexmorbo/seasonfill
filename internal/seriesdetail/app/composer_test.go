@@ -19,6 +19,7 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // --- fakes ---
@@ -524,6 +525,10 @@ func TestClassifyKind(t *testing.T) {
 
 // --- story 312: media resolver integration ---
 
+type ensurePendingCall struct {
+	hash, sourceURL, kind string
+}
+
 type fakeMediaLookupIntegration struct {
 	byURL       map[string]string
 	ensureCalls []ensurePendingCall
@@ -564,7 +569,7 @@ func TestComposer_Get_ResolvesPosterToHash(t *testing.T) {
 		ID: 42, Title: "Breaking Bad", PosterAsset: new(rawPath),
 	}
 	const wantHash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
+	deps.MediaResolver = media.NewResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/abc.jpg": wantHash,
 	}}, nil, nil, newSilentLogger())
 	c := NewComposer(deps)
@@ -584,7 +589,7 @@ func TestComposer_Get_PosterMissReturnsEagerHash(t *testing.T) {
 	rawPath := "/abc.jpg"
 	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: new(rawPath)}
 	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{}}
-	deps.MediaResolver = NewMediaResolver(lookup, nil, nil, newSilentLogger())
+	deps.MediaResolver = media.NewResolver(lookup, nil, nil, newSilentLogger())
 	c := NewComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
 	require.NoError(t, err)
@@ -633,7 +638,7 @@ func TestComposer_Get_ResolvesAllAssetFields(t *testing.T) {
 	const hashSeason = "4444444444444444444444444444444444444444444444444444444444444444"
 	const hashProfile = "5555555555555555555555555555555555555555555555555555555555555555"
 	const hashRec = "6666666666666666666666666666666666666666666666666666666666666666"
-	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
+	deps.MediaResolver = media.NewResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/poster.jpg": hashPoster,
 		"https://image.tmdb.org/t/p/w1280/back.jpg":  hashBack,
 		"https://image.tmdb.org/t/p/w185/logo.png":   hashLogo,
@@ -689,7 +694,7 @@ func TestComposer_ResolveAssets_HeroEagerHashOnMiss(t *testing.T) {
 		},
 	}
 	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{}}
-	resolver := NewMediaResolver(lookup, nil, nil, newSilentLogger())
+	resolver := media.NewResolver(lookup, nil, nil, newSilentLogger())
 	c := NewComposer(Deps{MediaResolver: resolver})
 	c.resolveAssets(context.Background(), d)
 
@@ -749,7 +754,7 @@ func TestComposer_ResolveAssets_EpisodeStills(t *testing.T) {
 		"https://image.tmdb.org/t/p/w300/ep3.jpg": hashEp3,
 		// ep2.jpg intentionally missing — must come back nil (not raw path).
 	}}
-	resolver := NewMediaResolver(lookup, nil, nil, newSilentLogger())
+	resolver := media.NewResolver(lookup, nil, nil, newSilentLogger())
 	c := NewComposer(Deps{MediaResolver: resolver})
 	c.resolveAssets(context.Background(), d)
 
@@ -779,7 +784,7 @@ func TestComposer_ResolveAssets_SeasonPosterRegression(t *testing.T) {
 	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w154/seasonA.jpg": hashA,
 	}}
-	resolver := NewMediaResolver(lookup, nil, nil, newSilentLogger())
+	resolver := media.NewResolver(lookup, nil, nil, newSilentLogger())
 	c := NewComposer(Deps{MediaResolver: resolver})
 	c.resolveAssets(context.Background(), d)
 	require.NotNil(t, d.Seasons[0].Canon.PosterAsset)

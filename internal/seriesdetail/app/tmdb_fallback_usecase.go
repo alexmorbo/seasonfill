@@ -27,13 +27,14 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // TMDBFallbackDeps — narrow ports.
 type TMDBFallbackDeps struct {
 	Series        SeriesPort
-	MediaResolver *MediaResolver
+	MediaResolver *media.Resolver
 	Logger        *slog.Logger
 	Now           func() time.Time
 }
@@ -55,7 +56,7 @@ func NewTMDBFallbackUseCase(d TMDBFallbackDeps) (*TMDBFallbackUseCase, error) {
 		d.Now = func() time.Time { return time.Now().UTC() }
 	}
 	if d.MediaResolver == nil {
-		d.MediaResolver = NewNopMediaResolver()
+		d.MediaResolver = media.NewNopResolver()
 	}
 	return &TMDBFallbackUseCase{d: d}, nil
 }

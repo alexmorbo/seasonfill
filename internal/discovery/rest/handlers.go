@@ -42,6 +42,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	"github.com/alexmorbo/seasonfill/internal/discovery/persistence"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // staleTTL is the on-demand long-tail freshness window (PRD §5.1.1
@@ -76,7 +77,16 @@ type DiscoveryHandler struct {
 	// returns 503 search_unavailable when the use case is unwired
 	// (TMDB disabled at boot).
 	search *app.SearchUseCase
-	log    *slog.Logger
+	// resolver — story 526 (shared MediaResolver). Translates the
+	// disco.Item raw TMDB PosterPath / BackdropPath into the sha256
+	// hash the FE serves via /api/v1/media/:hash. Nil-OK: when nil,
+	// projectItem ships the raw path verbatim (legacy behavior — the
+	// FE then renders monograms because mediaproxy doesn't know the
+	// path). Wiring hands the same *media.Resolver instance that the
+	// seriesdetail composers use so cold-start cache hydration covers
+	// the discovery slot too.
+	resolver *media.Resolver
+	log      *slog.Logger
 
 	// sfGroup collapses concurrent cold-cache on-demand refresh calls
 	// onto a single TMDB fetch. Key: kind|param|lang. The shared
@@ -86,10 +96,12 @@ type DiscoveryHandler struct {
 }
 
 // NewDiscoveryHandler wires the handler against its narrow ports.
-// Every arg is required EXCEPT searchUC (nil-OK; the Search handler
-// returns 503 search_unavailable when nil). Panics on missing
-// required ports so a wiring bug surfaces at startup rather than at
-// first request.
+// Every arg is required EXCEPT searchUC and resolver (both nil-OK; the
+// Search handler returns 503 search_unavailable when searchUC is nil;
+// when resolver is nil, raw TMDB paths flow through projectItem
+// unchanged — same as pre-526 behavior). Panics on missing required
+// ports so a wiring bug surfaces at startup rather than at first
+// request.
 func NewDiscoveryHandler(
 	repo app.DiscoveryListRepo,
 	warming app.WarmingProbe,
@@ -97,6 +109,7 @@ func NewDiscoveryHandler(
 	genres *persistence.GenresPickerRepo,
 	networks *persistence.NetworksPickerRepo,
 	searchUC *app.SearchUseCase,
+	resolver *media.Resolver,
 	log *slog.Logger,
 ) *DiscoveryHandler {
 	switch {
@@ -120,6 +133,7 @@ func NewDiscoveryHandler(
 		genres:   genres,
 		networks: networks,
 		search:   searchUC, // nil-OK
+		resolver: resolver, // nil-OK
 		log:      log,
 	}
 }
@@ -385,7 +399,7 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 	}
 	if len(localItems) > 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"items":  projectSearchItems(localItems),
+			"items":  projectSearchItems(ctx, localItems, h.resolver),
 			"source": "local",
 		})
 		return
@@ -398,18 +412,22 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"items":  projectSearchItems(tmdbItems),
+		"items":  projectSearchItems(ctx, tmdbItems, h.resolver),
 		"source": "tmdb",
 	})
 }
 
 // projectSearchItems maps domain Items → wire DiscoverySeriesItem
 // preserving the curated endpoints' projection contract (empty []
-// for InLibraryInstances, nil-safe pointer field copies).
-func projectSearchItems(items []disco.Item) []DiscoverySeriesItem {
+// for InLibraryInstances, nil-safe pointer field copies). Story 526
+// — when resolver is non-nil, raw TMDB poster/backdrop paths are
+// translated into sha256 wire hashes that the FE serves via
+// /api/v1/media/:hash. Nil resolver preserves the legacy raw-path
+// behavior.
+func projectSearchItems(ctx context.Context, items []disco.Item, resolver *media.Resolver) []DiscoverySeriesItem {
 	out := make([]DiscoverySeriesItem, 0, len(items))
 	for _, it := range items {
-		out = append(out, projectItem(it))
+		out = append(out, projectItem(ctx, it, resolver))
 	}
 	return out
 }
@@ -472,7 +490,7 @@ func (h *DiscoveryHandler) readAndProject(
 
 	items := make([]DiscoverySeriesItem, 0, len(pg.Items))
 	for _, it := range pg.Items {
-		items = append(items, projectItem(it))
+		items = append(items, projectItem(ctx, it, h.resolver))
 	}
 	resp := &DiscoveryListResponse{
 		Items:       items,
@@ -499,13 +517,39 @@ func (h *DiscoveryHandler) readAndProject(
 //
 // InLibraryInstances ships as an empty []string{} until N-2g wires
 // the cross-instance lookup (PRD §5.1 line 493 invariant).
-func projectItem(it disco.Item) DiscoverySeriesItem {
+//
+// Story 526 — when resolver is non-nil, PosterPath / BackdropPath are
+// translated from raw TMDB paths into sha256 wire hashes by routing
+// through the shared MediaResolver. The same async pre-warm queue +
+// EnsurePending semantics that fire from the seriesdetail composer
+// fire here too, so a /discovery tile hit warms the mediaproxy cache
+// for the eventual /series/{id} click-through. Nil resolver leaves
+// the raw path untouched (legacy behavior — matches the pre-526
+// projection contract verbatim).
+func projectItem(ctx context.Context, it disco.Item, resolver *media.Resolver) DiscoverySeriesItem {
+	posterPath := it.PosterPath
+	backdropPath := it.BackdropPath
+	if resolver != nil {
+		// w342 mirrors the SeriesPosterListSize the pre-warm pipeline
+		// uses for catalog tiles — same source URL → same hash, so the
+		// /discovery tile shares the mediaproxy cache slot with the
+		// /series/{id}/list view.
+		if hash := resolver.Resolve(ctx, it.PosterPath, "w342", "poster_w342"); hash != nil {
+			posterPath = hash
+		}
+		// w780 mirrors the SeriesBackdropListSize used by the canon
+		// tiles. The backdrop is below-the-fold in /discovery, so
+		// async-only Resolve is appropriate (no ResolveSync budget).
+		if hash := resolver.Resolve(ctx, it.BackdropPath, "w780", "backdrop_w780"); hash != nil {
+			backdropPath = hash
+		}
+	}
 	out := DiscoverySeriesItem{
 		ID:                 int64(it.SeriesID),
 		Title:              it.Title,
 		Year:               it.Year,
-		PosterPath:         it.PosterPath,
-		BackdropPath:       it.BackdropPath,
+		PosterPath:         posterPath,
+		BackdropPath:       backdropPath,
 		OriginalLanguage:   it.OriginalLanguage,
 		InLibraryInstances: []string{},
 	}

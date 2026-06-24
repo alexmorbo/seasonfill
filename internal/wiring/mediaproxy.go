@@ -28,8 +28,9 @@ import (
 //     forwarded into the enrichmentRepoBundle, and the gc weekly job
 //     captures the same handles.
 //   - server.go's MediaResolver fallback — *MediaAssetsRepository
-//     satisfies seriesdetail.MediaHashLookupPort; the wirer hands the
-//     concrete pointer back so the resolver gets the nil-OK fallback.
+//     satisfies media.HashLookupPort (shared package since story 526);
+//     the wirer hands the concrete pointer back so the resolver gets
+//     the nil-OK fallback.
 //   - server.go calls Handler.SetOnDemandFetcher(...) AFTER wireEnrichment
 //     returns (story 321 late-bind). The wirer intentionally leaves the
 //     fetcher unset so the pre-339 boot ordering survives: handler exists

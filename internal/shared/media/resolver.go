@@ -1,25 +1,32 @@
-// Package seriesdetail — media asset resolver (Story 312 + Story 316).
+// Package media owns the cross-context bridge between raw TMDB image
+// paths (carried on canon.PosterAsset / person.ProfileAsset / network.
+// LogoAsset / season.PosterAsset, etc.) and the sha256 wire hash the
+// frontend hands to /api/v1/media/:hash.
 //
-// The TMDB mapper writes raw image paths into canon.PosterAsset /
-// person.ProfileAsset / network.LogoAsset / season.PosterAsset. The pre-warm
-// pipeline (application/media/enqueuer.go) hashes the FULL CDN URL
-// (https://image.tmdb.org/t/p/{size}{path}) and stores the bytes in S3 +
-// writes a media_assets row keyed by that sha256. The frontend treats every
-// *_asset wire field as a sha256 hex and serves it via /api/v1/media/:hash.
+// Pre-history: the resolver originated inside internal/seriesdetail/
+// app (story 312/316/320/347). Story 526 lifted it into
+// internal/shared/media so the discovery, enrichment, and future
+// cross-context handlers (network logos, person credits) share a
+// single hash-translation surface — preventing the "works in series
+// detail but not in /discovery" class of bug.
 //
-// The resolver bridges the two: given (raw_path, size), build the source URL
-// the pre-warm pipeline would have used, look up the matching media_assets
-// row, return the hash. Nil-or-empty raw path short-circuits to nil. Lookup
-// miss returns nil (NOT an error) — the frontend's monogram fallback covers
-// the gap. Lookup errors surface to the composer's per-branch tracker (they
-// degrade the branch but never 5xx the request).
+// The TMDB mapper writes raw image paths into the canon. The pre-warm
+// pipeline (internal/mediaproxy/app/enqueuer.go) hashes the FULL CDN
+// URL (https://image.tmdb.org/t/p/{size}{path}) and stores the bytes
+// in S3 + writes a media_assets row keyed by that sha256. The
+// frontend treats every *_asset wire field as a sha256 hex and
+// serves it via /api/v1/media/:hash.
 //
-// Story 316 — Resolve gains a priority enqueue side effect (best-effort, no
-// wait) so a missed lookup tells the async pre-warm pipeline to fetch now
-// instead of waiting for the next cold-start tick. ResolveSync is the
-// first-fold variant that does a synchronous fetch with a per-asset budget,
-// returning the hash once the bytes are in S3.
-package seriesdetail
+// The resolver bridges the two: given (raw_path, size), build the
+// source URL the pre-warm pipeline would have used, look up the
+// matching media_assets row, return the hash. Nil-or-empty raw path
+// short-circuits to nil (legacy flag) or sentinel (unified flag).
+// Lookup miss with the unified flag mints the eager content hash +
+// pending media_assets row so the FE gets a stable wire field that
+// the mediaproxy can fill on the user's next GET. ResolveSync is the
+// first-fold variant that does a synchronous fetch with a per-asset
+// budget, returning the hash once the bytes are in S3.
+package media
 
 import (
 	"context"
@@ -58,79 +65,79 @@ func sentinelEmitCounter(reason, kind string) *metrics.Counter {
 			`",kind="` + kind + `"}`)
 }
 
-// MediaResolver wraps a MediaHashLookupPort with the URL-construction
-// convention the pre-warm pipeline uses. Stateless for reads; the
-// enqueuer + fetcher fields are atomic.Pointer for late-binding via
-// SetSideEffects (the wiring layer constructs MediaResolver before the
-// media pipeline exists in cmd/server/main.go).
+// Resolver wraps a HashLookupPort with the URL-construction convention
+// the pre-warm pipeline uses. Stateless for reads; the enqueuer +
+// fetcher fields are atomic.Pointer for late-binding via SetSideEffects
+// (the wiring layer constructs Resolver before the media pipeline
+// exists in cmd/server/server.go).
 //
 // Story 347 — unifiedResolve toggles the always-emit-hash contract:
 // when true (the production default), Resolve emits a real hash via
 // eager-hash + EnsurePending for every non-nil rawPath, and the
 // sentinel-missing hash for nil/empty rawPath. When false (env
 // kill-switch), Resolve falls back to legacy nil-on-miss behavior.
-type MediaResolver struct {
-	lookup         MediaHashLookupPort
-	enqueuer       atomic.Pointer[mediaEnqueuerBox]    // story 316 — async priority enqueue
-	fetcher        atomic.Pointer[mediaSyncFetcherBox] // story 316 — sync first-fold fetch
-	unifiedResolve atomic.Bool                         // story 347 — always-emit-hash contract
+type Resolver struct {
+	lookup         HashLookupPort
+	enqueuer       atomic.Pointer[enqueuerBox]    // story 316 — async priority enqueue
+	fetcher        atomic.Pointer[syncFetcherBox] // story 316 — sync first-fold fetch
+	unifiedResolve atomic.Bool                    // story 347 — always-emit-hash contract
 	logger         *slog.Logger
 }
 
-// MediaEnqueuer is the story 316 async surface — kicks the pre-warm
+// Enqueuer is the story 316 async surface — kicks the pre-warm
 // pipeline to fetch an asset NOW rather than at the next cold-start
 // pass. Nil-OK (legacy behavior — no enqueue side effect).
-type MediaEnqueuer interface {
+type Enqueuer interface {
 	Enqueue(ctx context.Context, reqs []appmedia.EnqueueRequest)
 }
 
-// MediaSyncFetcher is the story 316 synchronous fetch surface. Nil-OK
+// SyncFetcher is the story 316 synchronous fetch surface. Nil-OK
 // (ResolveSync falls back to Resolve when nil).
-type MediaSyncFetcher interface {
+type SyncFetcher interface {
 	FetchSync(ctx context.Context, upstreamURL, kind, ext string) (string, bool)
 }
 
-// mediaEnqueuerBox / mediaSyncFetcherBox are pointer-wrapper boxes so
+// enqueuerBox / syncFetcherBox are pointer-wrapper boxes so
 // atomic.Pointer[T] can store an interface value (atomic.Pointer
 // requires a concrete pointer type).
-type mediaEnqueuerBox struct{ v MediaEnqueuer }
-type mediaSyncFetcherBox struct{ v MediaSyncFetcher }
+type enqueuerBox struct{ v Enqueuer }
+type syncFetcherBox struct{ v SyncFetcher }
 
-// NewMediaResolver constructs the resolver. Nil-lookup is a valid zero state
-// (the composer hands a no-op resolver to keep the call sites uniform when
-// the media subsystem is disabled — e.g., MediaAssets repo nil at boot).
-// Story 316: enqueuer + fetcher MAY be nil — Resolve still works (no async
-// side effect; ResolveSync falls back to Resolve).
-func NewMediaResolver(lookup MediaHashLookupPort, enqueuer MediaEnqueuer, fetcher MediaSyncFetcher, logger *slog.Logger) *MediaResolver {
+// NewResolver constructs the resolver. Nil-lookup is a valid zero state
+// (the composer hands a no-op resolver to keep the call sites uniform
+// when the media subsystem is disabled — e.g., MediaAssets repo nil at
+// boot). Story 316: enqueuer + fetcher MAY be nil — Resolve still
+// works (no async side effect; ResolveSync falls back to Resolve).
+func NewResolver(lookup HashLookupPort, enqueuer Enqueuer, fetcher SyncFetcher, logger *slog.Logger) *Resolver {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "composer")
 	}
-	r := &MediaResolver{lookup: lookup, logger: logger}
+	r := &Resolver{lookup: lookup, logger: logger}
 	if enqueuer != nil {
-		r.enqueuer.Store(&mediaEnqueuerBox{v: enqueuer})
+		r.enqueuer.Store(&enqueuerBox{v: enqueuer})
 	}
 	if fetcher != nil {
-		r.fetcher.Store(&mediaSyncFetcherBox{v: fetcher})
+		r.fetcher.Store(&syncFetcherBox{v: fetcher})
 	}
 	return r
 }
 
 // SetSideEffects late-binds the Story 316 enqueuer + fetcher onto an
-// already-constructed resolver. Used by cmd/server/main.go: the
+// already-constructed resolver. Used by cmd/server/server.go: the
 // resolver is created before wireEnrichment runs (so the composers
-// can take a stable *MediaResolver pointer), then the enqueuer +
-// fetcher are plugged in once the media pipeline is up. Either arg
-// MAY be nil. Concurrent reads are safe — Resolve / ResolveSync load
-// via atomic.Pointer.Load.
-func (r *MediaResolver) SetSideEffects(enqueuer MediaEnqueuer, fetcher MediaSyncFetcher) {
+// can take a stable *Resolver pointer), then the enqueuer + fetcher
+// are plugged in once the media pipeline is up. Either arg MAY be
+// nil. Concurrent reads are safe — Resolve / ResolveSync load via
+// atomic.Pointer.Load.
+func (r *Resolver) SetSideEffects(enqueuer Enqueuer, fetcher SyncFetcher) {
 	if r == nil {
 		return
 	}
 	if enqueuer != nil {
-		r.enqueuer.Store(&mediaEnqueuerBox{v: enqueuer})
+		r.enqueuer.Store(&enqueuerBox{v: enqueuer})
 	}
 	if fetcher != nil {
-		r.fetcher.Store(&mediaSyncFetcherBox{v: fetcher})
+		r.fetcher.Store(&syncFetcherBox{v: fetcher})
 	}
 }
 
@@ -139,7 +146,7 @@ func (r *MediaResolver) SetSideEffects(enqueuer MediaEnqueuer, fetcher MediaSync
 // signature stays stable for existing callers + tests. Concurrent reads
 // are safe via atomic.Bool. Production wiring reads the bool from
 // cfg.Enrichment.MediaUnifiedResolve (default-on; env kill-switch).
-func (r *MediaResolver) SetUnifiedResolve(v bool) {
+func (r *Resolver) SetUnifiedResolve(v bool) {
 	if r == nil {
 		return
 	}
@@ -165,7 +172,7 @@ func (r *MediaResolver) SetUnifiedResolve(v bool) {
 //
 // Lookup errors are logged at Debug. The returned pointer is the value the
 // composer assigns to the DTO field; nil renders as the frontend's monogram.
-func (r *MediaResolver) Resolve(ctx context.Context, rawPath *string, size, kind string) *string {
+func (r *Resolver) Resolve(ctx context.Context, rawPath *string, size, kind string) *string {
 	if r == nil || r.lookup == nil {
 		return nil
 	}
@@ -235,7 +242,7 @@ func (r *MediaResolver) Resolve(ctx context.Context, rawPath *string, size, kind
 // Callers: use this for hero poster + backdrop + person hero portrait.
 // Cast/recommendations/networks/seasons stay on plain Resolve (async only +
 // nil on miss — they render as monograms below the fold).
-func (r *MediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, kind string) *string {
+func (r *Resolver) ResolveSync(ctx context.Context, rawPath *string, size, kind string) *string {
 	if r == nil || r.lookup == nil {
 		return nil
 	}
@@ -308,7 +315,7 @@ func (r *MediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, 
 //
 // Cheap — the metric handle is interned by VictoriaMetrics on
 // reason+kind so we don't churn allocs in the hot composer loop.
-func (r *MediaResolver) emitSentinel(ctx context.Context, reason, kind, source string) {
+func (r *Resolver) emitSentinel(ctx context.Context, reason, kind, source string) {
 	sentinelEmitCounter(reason, kind).Inc()
 	if r == nil || r.logger == nil {
 		return
@@ -322,7 +329,7 @@ func (r *MediaResolver) emitSentinel(ctx context.Context, reason, kind, source s
 
 // enqueueAsync fires a best-effort hot enqueue. Nil enqueuer / context done
 // silently no-op.
-func (r *MediaResolver) enqueueAsync(ctx context.Context, url, kind, ext string) {
+func (r *Resolver) enqueueAsync(ctx context.Context, url, kind, ext string) {
 	box := r.enqueuer.Load()
 	if box == nil || box.v == nil {
 		return
@@ -334,8 +341,8 @@ func (r *MediaResolver) enqueueAsync(ctx context.Context, url, kind, ext string)
 	}})
 }
 
-// NewNopMediaResolver returns a resolver that always yields nil. Composer
+// NewNopResolver returns a resolver that always yields nil. Composer
 // behaves the same as if no media_assets rows existed (frontend renders
 // monogram fallback). Used at the composer wiring site when MediaAssets is
 // unavailable.
-func NewNopMediaResolver() *MediaResolver { return &MediaResolver{lookup: nil} }
+func NewNopResolver() *Resolver { return &Resolver{lookup: nil} }

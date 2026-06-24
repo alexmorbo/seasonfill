@@ -14,6 +14,7 @@ import (
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -44,9 +45,10 @@ import (
 //
 //   - MediaResolver is constructed WITHOUT enrichment side effects.
 //     mediaBundle.AssetsRepo (nil-OK) satisfies the widened
-//     MediaHashLookupPort (HashForSourceURL + EnsurePending — story 320).
+//     media.HashLookupPort (HashForSourceURL + EnsurePending — story 320).
 //     server.go's LATE BIND ZONE injects the enqueuer + on-demand fetcher
-//     once enrichBundle is ready.
+//     once enrichBundle is ready. (Story 526: resolver type moved to
+//     internal/shared/media.)
 //
 //   - Composer + CastComposer share the same MediaResolver instance, so
 //     the late-bound side effects propagate to both pipelines at once.
@@ -66,7 +68,7 @@ import (
 //     body, which built its own instances even though scan.go +
 //     enrichment had their own copies of the same set).
 type SeriesDetailBundle struct {
-	MediaResolver        *seriesdetail.MediaResolver
+	MediaResolver        *media.Resolver
 	Composer             *seriesdetail.Composer
 	CastComposer         *seriesdetail.CastComposer
 	PeopleUC             *apppeople.UseCase
@@ -135,18 +137,20 @@ func BuildSeriesDetail(
 
 	// Story 312 + Story 320: media resolver for the seriesdetail composer.
 	// nil-OK `mediaAssetsRepo` falls back to a nop resolver inside
-	// NewMediaResolver → every wire field stays nil and the frontend
+	// media.NewResolver → every wire field stays nil and the frontend
 	// renders monograms. *MediaAssetsRepository satisfies the widened
-	// MediaHashLookupPort (HashForSourceURL + EnsurePending) by virtue
-	// of the new EnsurePending method (story 320).
-	var mediaHashLookup seriesdetail.MediaHashLookupPort
+	// media.HashLookupPort (HashForSourceURL + EnsurePending) by virtue
+	// of the new EnsurePending method (story 320). Story 526 — the
+	// resolver type moved to internal/shared/media so discovery + other
+	// contexts can share the same hash-translation surface.
+	var mediaHashLookup media.HashLookupPort
 	if mediaBundle != nil && mediaBundle.AssetsRepo != nil {
 		mediaHashLookup = mediaBundle.AssetsRepo
 	}
 	// Story 316: enqueuer + fetcher are late-bound via SetSideEffects
 	// after wireEnrichment returns — the media pipeline doesn't exist
 	// yet at this point in boot.
-	mediaResolver := seriesdetail.NewMediaResolver(mediaHashLookup, nil, nil, composerLog)
+	mediaResolver := media.NewResolver(mediaHashLookup, nil, nil, composerLog)
 	// Story 347 — uniform always-emit-hash contract. Default-on; env
 	// kill-switch (SEASONFILL_MEDIA_UNIFIED_RESOLVE=false) flips back
 	// to legacy nil-on-miss without a redeploy.

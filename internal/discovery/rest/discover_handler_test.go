@@ -69,7 +69,7 @@ func newDiscoverHarness(t *testing.T, pass discoapp.TMDBPassthrough,
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	go func() { _ = bg.RunWorker(ctx) }()
-	h := discoveryrest.NewDiscoverHandler(lru, pass, bg, warming, log)
+	h := discoveryrest.NewDiscoverHandler(lru, pass, bg, warming, nil, log)
 	r := gin.New()
 	r.GET("/discovery/discover", h.Handle)
 	return r, lru, bg

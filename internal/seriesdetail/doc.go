@@ -9,13 +9,15 @@
 //	internal/seriesdetail/
 //	  app/   — Composer (9-branch errgroup fan-in for the series page),
 //	           CastComposer (single-purpose cast & crew sibling),
-//	           MediaResolver (raw TMDB path -> sha256 wire hash bridge),
 //	           and the cross-context ports.go contract surface that
 //	           declares the narrow read-side interfaces the composers
 //	           depend on (SeriesPort, SeasonPort, EpisodePort,
 //	           QbitTorrentPort, EnrichmentPort, PeoplePort,
-//	           PersonCreditsPort, TaxonomyPort, MediaHashLookupPort,
+//	           PersonCreditsPort, TaxonomyPort,
 //	           MediaAssetReader, SonarrQueueLister, ...).
+//	           Story 526 — MediaResolver (raw TMDB path -> sha256 wire
+//	           hash bridge) moved to internal/shared/media so discovery
+//	           and other contexts share the same translation surface.
 //	  rest/  — Gin handlers that translate /api/v1 series-page reads
 //	           into Composer / CastComposer / torrentsync.Query calls
 //	           and project the results onto the shared HTTP wire DTOs
@@ -50,6 +52,8 @@
 // reached strictly through Composer/CastComposer constructors with
 // narrow port dependencies — never reach into
 // internal/seriesdetail/app/* for state or shared mutable singletons.
+// The MediaResolver lives at internal/shared/media (story 526) so
+// cross-context consumers (discovery, person, etc.) can share it.
 //
 // B-13 invariants preserved bit-for-bit by the story 445 move (per
 // project_seasonfill_b13_series_detail_v2):

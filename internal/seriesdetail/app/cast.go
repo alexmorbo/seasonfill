@@ -19,6 +19,7 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -84,7 +85,7 @@ type CastDeps struct {
 	// MediaResolver (story 312) — translates raw TMDB ProfileAsset / PosterAsset
 	// paths into sha256 hashes the frontend serves via /api/v1/media/:hash. Nil
 	// is allowed at wiring; NewCastComposer defaults to a no-op resolver.
-	MediaResolver *MediaResolver
+	MediaResolver *media.Resolver
 }
 
 // CastComposer is the one application use case for the H-1 page.
@@ -102,7 +103,7 @@ func NewCastComposer(d CastDeps) *CastComposer {
 		d.Now = func() time.Time { return time.Now().UTC() }
 	}
 	if d.MediaResolver == nil {
-		d.MediaResolver = NewNopMediaResolver()
+		d.MediaResolver = media.NewNopResolver()
 	}
 	return &CastComposer{d: d}
 }

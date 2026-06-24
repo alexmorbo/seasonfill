@@ -18,10 +18,10 @@ import (
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
-	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	httpserver "github.com/alexmorbo/seasonfill/internal/shared/http/edge"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
 	"github.com/alexmorbo/seasonfill/internal/wiring"
@@ -404,7 +404,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	// Story 316 — enqueuer + on-demand fetcher onto the MediaResolver.
 	if enrichBundle != nil && seriesDetailMediaResolver != nil {
-		var mediaEnq seriesdetail.MediaEnqueuer
+		var mediaEnq media.Enqueuer
 		if enrichBundle.MediaEnqueuer != nil {
 			mediaEnq = enrichBundle.MediaEnqueuer
 		}
@@ -478,6 +478,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			searchTMDB,
 			discoPersistence.Stubs,
 			dispAdapter,
+			seriesDetailMediaResolver, // story 526 — shared MediaResolver
 			sharedports.DomainLogger(log, "discovery"),
 		)
 	}
@@ -490,6 +491,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			TMDBClient: enrichBundle.TMDBHolder,
 			Stubs:      discoPersistence.Stubs,
 			Worker:     discoRuntime.Worker,
+			Resolver:   seriesDetailMediaResolver, // story 526 — shared MediaResolver
 			Log:        sharedports.DomainLogger(log, "discovery"),
 		})
 		if discoveryHTTPBundle != nil {

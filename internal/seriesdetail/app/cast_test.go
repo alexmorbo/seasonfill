@@ -12,6 +12,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // --- cast-composer-local fakes ---
@@ -378,7 +379,7 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 	// Story 312: composer wraps the raw TMDB path through MediaResolver;
 	// inject a fake lookup so the wire field carries the sha256 hash.
 	const wantHash = "poster-asset-hash"
-	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupCast{byURL: map[string]string{
+	deps.MediaResolver = media.NewResolver(&fakeMediaLookupCast{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/poster.jpg": wantHash,
 	}}, nil, nil, newSilentLogger())
 	c := NewCastComposer(deps)
@@ -481,7 +482,7 @@ func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
 
 	const hashPoster = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const hashCast = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	deps.MediaResolver = NewMediaResolver(&fakeMediaLookupCast{byURL: map[string]string{
+	deps.MediaResolver = media.NewResolver(&fakeMediaLookupCast{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/hero.jpg":  hashPoster,
 		"https://image.tmdb.org/t/p/w185/bryan.jpg": hashCast,
 	}}, nil, nil, newSilentLogger())

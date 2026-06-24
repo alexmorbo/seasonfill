@@ -253,8 +253,14 @@ linters:
       # Composer, CastComposer, and MediaResolver constructors all
       # accept *slog.Logger and fall back to sharedports.DomainLogger(
       # slog.Default(), "composer") when nil. Established pattern moved
-      # from application/seriesdetail in story 445 (A-1-19).
+      # from application/seriesdetail in story 445 (A-1-19). Story 526
+      # extracted MediaResolver to internal/shared/media — the same
+      # nil-logger fallback pattern carries over.
       - path: 'internal/seriesdetail/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
+      - path: 'internal/shared/media/'
         linters:
           - forbidigo
         text: 'slog\.Default'

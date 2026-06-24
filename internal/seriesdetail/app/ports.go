@@ -212,26 +212,6 @@ type SonarrQueueLister interface {
 	Queue(ctx context.Context, seriesID domain.SonarrSeriesID) (sonarr.QueuePayload, error)
 }
 
-// MediaHashLookupPort resolves (raw TMDB path + size) → sha256 hash of the
-// media_assets row for the stored variant. Used by the composer to translate
-// canon.PosterAsset (a TMDB raw path) into the wire field the frontend hands
-// to /api/v1/media/:hash. Misses are ports.ErrNotFound — the composer leaves
-// the wire field nil so the frontend renders a monogram placeholder for
-// below-the-fold tiles; above-the-fold hero fields use the eager-hash path
-// (story 320 — composer mints the hash + EnsurePending so the handler's
-// pending-row sync fetch can find the source URL).
-//
-// The composer never builds the URL itself; it asks the resolver with the raw
-// path + size and lets the resolver own the URL shape (kept consistent with
-// application/media.BuildTMDBImageURL on the pre-warm producer side).
-type MediaHashLookupPort interface {
-	HashForSourceURL(ctx context.Context, sourceURL string) (string, error)
-	// EnsurePending writes a media_assets row keyed by hash with
-	// status='pending', source_url=sourceURL, kind=kind, created_at=now —
-	// IFF the row doesn't already exist. Idempotent: a second call with
-	// the same hash is a no-op (existing status='stored' / 'failed' is
-	// preserved). The composer calls this on hero poster/backdrop lookup
-	// miss so the handler (story 321) has a source URL to fetch from
-	// when the frontend later requests /api/v1/media/:hash.
-	EnsurePending(ctx context.Context, hash, sourceURL, kind string) error
-}
+// MediaHashLookupPort moved to internal/shared/media.HashLookupPort in
+// story 526 (shared MediaResolver extraction). The resolver type lives
+// in that package now; this file no longer re-declares the port.

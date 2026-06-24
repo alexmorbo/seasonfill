@@ -22,6 +22,7 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -172,9 +173,9 @@ type Deps struct {
 	Now             func() time.Time
 	// MediaResolver translates raw TMDB image paths on canon entities into the
 	// sha256 hash the frontend serves via /api/v1/media/:hash. Story 312. Pass
-	// NewNopMediaResolver() when the media subsystem is disabled — every wire
+	// media.NewNopResolver() when the media subsystem is disabled — every wire
 	// field falls back to nil and the frontend renders monograms.
-	MediaResolver *MediaResolver
+	MediaResolver *media.Resolver
 }
 
 // Composer is the one application use case for the series detail
@@ -193,7 +194,7 @@ func NewComposer(d Deps) *Composer {
 		d.Now = func() time.Time { return time.Now().UTC() }
 	}
 	if d.MediaResolver == nil {
-		d.MediaResolver = NewNopMediaResolver()
+		d.MediaResolver = media.NewNopResolver()
 	}
 	return &Composer{d: d}
 }

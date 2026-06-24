@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // --- minimal fakes for the cast composer (inline) ---
@@ -113,7 +114,7 @@ func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]s
 		EpisodesCount:     castFakeEpisodesCount{count: total},
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Now:               func() time.Time { return time.Now().UTC() },
-		MediaResolver:     seriesdetail.NewMediaResolver(castHandlerTestMediaLookup{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil))),
+		MediaResolver:     media.NewResolver(castHandlerTestMediaLookup{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil))),
 	})
 }
 

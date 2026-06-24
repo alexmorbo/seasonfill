@@ -129,6 +129,7 @@ func newTestHandler(t *testing.T, repo discoapp.DiscoveryListRepo,
 		persistence.NewGenresPickerRepo(nil),
 		persistence.NewNetworksPickerRepo(nil),
 		nil, // searchUC — story 508; nil-OK for curated-endpoint tests
+		nil, // resolver — story 526; nil-OK (raw TMDB paths flow unchanged)
 		log,
 	)
 	r := gin.New()

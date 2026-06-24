@@ -1,4 +1,4 @@
-package seriesdetail
+package media
 
 import (
 	"context"
@@ -45,26 +45,26 @@ func silentResolverLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-func TestMediaResolver_Nil_PathReturnsNil(t *testing.T) {
-	r := NewMediaResolver(&fakeMediaLookup{}, nil, nil, silentResolverLogger())
+func TestResolver_Nil_PathReturnsNil(t *testing.T) {
+	r := NewResolver(&fakeMediaLookup{}, nil, nil, silentResolverLogger())
 	require.Nil(t, r.Resolve(context.Background(), nil, "w342", "poster_w342"))
 }
 
-func TestMediaResolver_Empty_PathReturnsNil(t *testing.T) {
-	r := NewMediaResolver(&fakeMediaLookup{}, nil, nil, silentResolverLogger())
+func TestResolver_Empty_PathReturnsNil(t *testing.T) {
+	r := NewResolver(&fakeMediaLookup{}, nil, nil, silentResolverLogger())
 	empty := ""
 	require.Nil(t, r.Resolve(context.Background(), &empty, "w342", "poster_w342"))
 }
 
-func TestMediaResolver_NoLookup_ReturnsNil(t *testing.T) {
-	r := NewNopMediaResolver()
+func TestResolver_NoLookup_ReturnsNil(t *testing.T) {
+	r := NewNopResolver()
 	p := "/abc.jpg"
 	require.Nil(t, r.Resolve(context.Background(), &p, "w342", "poster_w342"))
 }
 
-func TestMediaResolver_Stored_ReturnsHash(t *testing.T) {
+func TestResolver_Stored_ReturnsHash(t *testing.T) {
 	const hash = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-	r := NewMediaResolver(&fakeMediaLookup{byURL: map[string]string{
+	r := NewResolver(&fakeMediaLookup{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/abc.jpg": hash,
 	}}, nil, nil, silentResolverLogger())
 	p := "/abc.jpg"
@@ -73,21 +73,21 @@ func TestMediaResolver_Stored_ReturnsHash(t *testing.T) {
 	assert.Equal(t, hash, *got)
 }
 
-func TestMediaResolver_UnknownPath_ReturnsNil(t *testing.T) {
-	r := NewMediaResolver(&fakeMediaLookup{byURL: map[string]string{}}, nil, nil, silentResolverLogger())
+func TestResolver_UnknownPath_ReturnsNil(t *testing.T) {
+	r := NewResolver(&fakeMediaLookup{byURL: map[string]string{}}, nil, nil, silentResolverLogger())
 	p := "/nope.jpg"
 	require.Nil(t, r.Resolve(context.Background(), &p, "w342", "poster_w342"))
 }
 
-func TestMediaResolver_LookupError_ReturnsNil_DoesNotPanic(t *testing.T) {
-	r := NewMediaResolver(&fakeMediaLookup{err: errors.New("db down")}, nil, nil, silentResolverLogger())
+func TestResolver_LookupError_ReturnsNil_DoesNotPanic(t *testing.T) {
+	r := NewResolver(&fakeMediaLookup{err: errors.New("db down")}, nil, nil, silentResolverLogger())
 	p := "/abc.jpg"
 	require.Nil(t, r.Resolve(context.Background(), &p, "w342", "poster_w342"))
 }
 
-func TestMediaResolver_DifferentSize_DifferentURL(t *testing.T) {
+func TestResolver_DifferentSize_DifferentURL(t *testing.T) {
 	const hashGrid = "0000000000000000000000000000000000000000000000000000000000000001"
-	r := NewMediaResolver(&fakeMediaLookup{byURL: map[string]string{
+	r := NewResolver(&fakeMediaLookup{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/abc.jpg": hashGrid,
 		// w780 deliberately absent — request at w780 must miss.
 	}}, nil, nil, silentResolverLogger())
@@ -123,11 +123,11 @@ func (s *stubFetcher) FetchSync(_ context.Context, url, kind, ext string) (strin
 	return s.hash, s.ok
 }
 
-func TestMediaResolver_Resolve_MissEnqueuesAsync(t *testing.T) {
+func TestResolver_Resolve_MissEnqueuesAsync(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{} // returns ports.ErrNotFound by default
 	enq := &stubEnqueuer{}
-	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	r := NewResolver(lookup, enq, nil, silentResolverLogger())
 	path := "/abc.jpg"
 	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
 	assert.Nil(t, got)
@@ -138,12 +138,12 @@ func TestMediaResolver_Resolve_MissEnqueuesAsync(t *testing.T) {
 	assert.Equal(t, "jpg", enq.calls[0][0].Extension)
 }
 
-func TestMediaResolver_ResolveSync_MissCallsFetchSync(t *testing.T) {
+func TestResolver_ResolveSync_MissCallsFetchSync(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{}
 	enq := &stubEnqueuer{}
 	fetcher := &stubFetcher{hash: "deadbeef", ok: true}
-	r := NewMediaResolver(lookup, enq, fetcher, silentResolverLogger())
+	r := NewResolver(lookup, enq, fetcher, silentResolverLogger())
 	path := "/abc.jpg"
 	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
 	require.NotNil(t, got)
@@ -154,7 +154,7 @@ func TestMediaResolver_ResolveSync_MissCallsFetchSync(t *testing.T) {
 	assert.Empty(t, enq.calls)
 }
 
-func TestMediaResolver_ResolveSync_FetchFailReturnsEagerHash(t *testing.T) {
+func TestResolver_ResolveSync_FetchFailReturnsEagerHash(t *testing.T) {
 	t.Parallel()
 	// Story 320: fetcher-miss no longer short-circuits to nil — the
 	// resolver mints the deterministic sha256-hex of the URL, writes a
@@ -163,7 +163,7 @@ func TestMediaResolver_ResolveSync_FetchFailReturnsEagerHash(t *testing.T) {
 	lookup := &fakeMediaLookup{}
 	enq := &stubEnqueuer{}
 	fetcher := &stubFetcher{ok: false}
-	r := NewMediaResolver(lookup, enq, fetcher, silentResolverLogger())
+	r := NewResolver(lookup, enq, fetcher, silentResolverLogger())
 	path := "/abc.jpg"
 	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
 	require.NotNil(t, got, "eager-hash path must return a non-nil hash on fetcher miss")
@@ -176,10 +176,10 @@ func TestMediaResolver_ResolveSync_FetchFailReturnsEagerHash(t *testing.T) {
 	require.Len(t, enq.calls, 1, "fallback async enqueue still kicks the pre-warm pipeline")
 }
 
-func TestMediaResolver_ResolveSync_EagerHashWithoutFetcher(t *testing.T) {
+func TestResolver_ResolveSync_EagerHashWithoutFetcher(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{}
-	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r := NewResolver(lookup, nil, nil, silentResolverLogger())
 	path := "/abc.jpg"
 	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
 	require.NotNil(t, got, "eager-hash path must NOT return nil on miss even without a fetcher")
@@ -189,23 +189,23 @@ func TestMediaResolver_ResolveSync_EagerHashWithoutFetcher(t *testing.T) {
 	assert.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
 }
 
-func TestMediaResolver_ResolveSync_EagerHashSkippedOnLookupHit(t *testing.T) {
+func TestResolver_ResolveSync_EagerHashSkippedOnLookupHit(t *testing.T) {
 	t.Parallel()
 	path := "/already-warm.jpg"
 	url := appmedia.BuildTMDBImageURL("w342", path)
 	lookup := &fakeMediaLookup{byURL: map[string]string{url: "already-stored-hash"}}
-	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r := NewResolver(lookup, nil, nil, silentResolverLogger())
 	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
 	require.NotNil(t, got)
 	assert.Equal(t, "already-stored-hash", *got)
 	assert.Empty(t, lookup.ensureCalls, "lookup hit must NOT trigger EnsurePending")
 }
 
-func TestMediaResolver_ResolveSync_EagerHashSkippedOnFetcherHit(t *testing.T) {
+func TestResolver_ResolveSync_EagerHashSkippedOnFetcherHit(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{}
 	fetcher := &stubFetcher{hash: "warm-hash-from-fetcher", ok: true}
-	r := NewMediaResolver(lookup, nil, fetcher, silentResolverLogger())
+	r := NewResolver(lookup, nil, fetcher, silentResolverLogger())
 	path := "/xyz.jpg"
 	got := r.ResolveSync(t.Context(), &path, "w1280", "backdrop_w1280")
 	require.NotNil(t, got)
@@ -213,11 +213,11 @@ func TestMediaResolver_ResolveSync_EagerHashSkippedOnFetcherHit(t *testing.T) {
 	assert.Empty(t, lookup.ensureCalls, "EnsurePending must NOT fire when FetchSync warmed the row")
 }
 
-func TestMediaResolver_ResolveSync_EagerHashFallbackOnEnsureError(t *testing.T) {
+func TestResolver_ResolveSync_EagerHashFallbackOnEnsureError(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{ensureErr: errors.New("db down")}
 	enq := &stubEnqueuer{}
-	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	r := NewResolver(lookup, enq, nil, silentResolverLogger())
 	path := "/abc.jpg"
 	got := r.ResolveSync(t.Context(), &path, "w342", "poster_w342")
 	assert.Nil(t, got, "EnsurePending failure must fall back to nil (legacy behavior)")
@@ -225,10 +225,10 @@ func TestMediaResolver_ResolveSync_EagerHashFallbackOnEnsureError(t *testing.T) 
 	require.Len(t, enq.calls, 1, "fallback async enqueue still fires on EnsurePending error")
 }
 
-func TestMediaResolver_SetSideEffects_LateBind(t *testing.T) {
+func TestResolver_SetSideEffects_LateBind(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{}
-	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r := NewResolver(lookup, nil, nil, silentResolverLogger())
 	// Pre-binding: Resolve on miss must be safe (no enqueue, no panic).
 	path := "/abc.jpg"
 	require.Nil(t, r.Resolve(t.Context(), &path, "w342", "poster_w342"))
@@ -247,10 +247,10 @@ func TestMediaResolver_SetSideEffects_LateBind(t *testing.T) {
 
 // --- Story 347: uniform always-emit-hash contract ---
 
-func TestMediaResolver_Resolve_FlagOff_LegacyNilOnMiss(t *testing.T) {
+func TestResolver_Resolve_FlagOff_LegacyNilOnMiss(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{}
-	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r := NewResolver(lookup, nil, nil, silentResolverLogger())
 	// Flag explicitly off — preserve pre-347 behavior.
 	r.SetUnifiedResolve(false)
 	path := "/abc.jpg"
@@ -263,10 +263,10 @@ func TestMediaResolver_Resolve_FlagOff_LegacyNilOnMiss(t *testing.T) {
 	assert.Nil(t, r.Resolve(t.Context(), &empty, "w342", "poster_w342"))
 }
 
-func TestMediaResolver_Resolve_FlagOn_SentinelOnNilPath(t *testing.T) {
+func TestResolver_Resolve_FlagOn_SentinelOnNilPath(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{}
-	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r := NewResolver(lookup, nil, nil, silentResolverLogger())
 	r.SetUnifiedResolve(true)
 	got := r.Resolve(t.Context(), nil, "w342", "poster_w342")
 	require.NotNil(t, got, "flag-on nil path must yield sentinel hash")
@@ -278,11 +278,11 @@ func TestMediaResolver_Resolve_FlagOn_SentinelOnNilPath(t *testing.T) {
 	assert.Empty(t, lookup.ensureCalls, "sentinel branch must NOT touch EnsurePending")
 }
 
-func TestMediaResolver_Resolve_FlagOn_EagerHashOnLookupMiss(t *testing.T) {
+func TestResolver_Resolve_FlagOn_EagerHashOnLookupMiss(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{}
 	enq := &stubEnqueuer{}
-	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	r := NewResolver(lookup, enq, nil, silentResolverLogger())
 	r.SetUnifiedResolve(true)
 	path := "/abc.jpg"
 	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
@@ -295,11 +295,11 @@ func TestMediaResolver_Resolve_FlagOn_EagerHashOnLookupMiss(t *testing.T) {
 	require.Len(t, enq.calls, 1, "async pre-warm enqueue still fires on miss")
 }
 
-func TestMediaResolver_Resolve_FlagOn_SentinelOnEnsurePendingFailure(t *testing.T) {
+func TestResolver_Resolve_FlagOn_SentinelOnEnsurePendingFailure(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{ensureErr: errors.New("db down")}
 	enq := &stubEnqueuer{}
-	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	r := NewResolver(lookup, enq, nil, silentResolverLogger())
 	r.SetUnifiedResolve(true)
 	path := "/abc.jpg"
 	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
@@ -309,13 +309,13 @@ func TestMediaResolver_Resolve_FlagOn_SentinelOnEnsurePendingFailure(t *testing.
 	require.Len(t, enq.calls, 1, "async fallback enqueue still fires")
 }
 
-func TestMediaResolver_Resolve_FlagOn_StoredHashStillWins(t *testing.T) {
+func TestResolver_Resolve_FlagOn_StoredHashStillWins(t *testing.T) {
 	t.Parallel()
 	const stored = "1111111111111111111111111111111111111111111111111111111111111111"
 	path := "/warm.jpg"
 	url := appmedia.BuildTMDBImageURL("w342", path)
 	lookup := &fakeMediaLookup{byURL: map[string]string{url: stored}}
-	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r := NewResolver(lookup, nil, nil, silentResolverLogger())
 	r.SetUnifiedResolve(true)
 	got := r.Resolve(t.Context(), &path, "w342", "poster_w342")
 	require.NotNil(t, got)
@@ -323,10 +323,10 @@ func TestMediaResolver_Resolve_FlagOn_StoredHashStillWins(t *testing.T) {
 	assert.Empty(t, lookup.ensureCalls, "lookup hit must NOT trigger EnsurePending")
 }
 
-func TestMediaResolver_ResolveSync_FlagOn_SentinelOnNilPath(t *testing.T) {
+func TestResolver_ResolveSync_FlagOn_SentinelOnNilPath(t *testing.T) {
 	t.Parallel()
 	lookup := &fakeMediaLookup{}
-	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r := NewResolver(lookup, nil, nil, silentResolverLogger())
 	r.SetUnifiedResolve(true)
 	got := r.ResolveSync(t.Context(), nil, "w342", "poster_w342")
 	require.NotNil(t, got, "ResolveSync nil path under flag-on must yield sentinel")
@@ -343,9 +343,9 @@ func TestMediaResolver_ResolveSync_FlagOn_SentinelOnNilPath(t *testing.T) {
 //
 // Not parallel — the counter is process-wide, so two tests
 // touching the same reason+kind would race the snapshot reads.
-func TestMediaResolver_SentinelEmitCounter_LabelsReason(t *testing.T) {
+func TestResolver_SentinelEmitCounter_LabelsReason(t *testing.T) {
 	lookup := &fakeMediaLookup{}
-	r := NewMediaResolver(lookup, nil, nil, silentResolverLogger())
+	r := NewResolver(lookup, nil, nil, silentResolverLogger())
 	r.SetUnifiedResolve(true)
 
 	// Snapshot the counters before the call so a re-run inside the
@@ -383,10 +383,10 @@ func TestMediaResolver_SentinelEmitCounter_LabelsReason(t *testing.T) {
 // reason class operators need split visibility for: data backlog
 // (nil_path) vs mapper miss (empty_url) vs persistence pressure
 // (ensure_pending_failed) drive different runbooks.
-func TestMediaResolver_SentinelEmitCounter_EnsurePendingFailureReason(t *testing.T) {
+func TestResolver_SentinelEmitCounter_EnsurePendingFailureReason(t *testing.T) {
 	lookup := &fakeMediaLookup{ensureErr: errors.New("write_timeout")}
 	enq := &stubEnqueuer{}
-	r := NewMediaResolver(lookup, enq, nil, silentResolverLogger())
+	r := NewResolver(lookup, enq, nil, silentResolverLogger())
 	r.SetUnifiedResolve(true)
 
 	before := sentinelEmitCounter("ensure_pending_failed", "poster_w342").Get()
