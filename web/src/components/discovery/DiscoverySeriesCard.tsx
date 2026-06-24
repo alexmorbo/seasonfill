@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { DiscoverySeriesItem } from '@/api/discovery';
 import { cn } from '@/lib/utils';
+import { AddToSonarrButton } from './AddToSonarrButton';
 import { InLibraryBadge } from './InLibraryBadge';
 
 const TMDB_POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
@@ -51,9 +52,13 @@ export function DiscoverySeriesCard({ item, className }: DiscoverySeriesCardProp
             </span>
           </div>
         )}
-        {inLibrary.length > 0 && (
+        {inLibrary.length > 0 ? (
           <div className="absolute right-2 top-2">
             <InLibraryBadge instances={inLibrary} />
+          </div>
+        ) : (
+          <div className="absolute right-2 top-2">
+            <AddToSonarrButton item={item} />
           </div>
         )}
       </div>

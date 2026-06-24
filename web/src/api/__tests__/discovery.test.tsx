@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ApiError } from '@/lib/api';
 import {
+  useAddToSonarr,
   useDiscoveryTrending, useDiscoveryPopular, useDiscoveryByGenre,
   useDiscoveryGenresList, useDiscoveryNetworksList,
   useDiscoverySearch, useDiscover, discoveryKeys,
@@ -11,7 +13,11 @@ import {
 const mockApi = vi.fn();
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
-  return { ...actual, api: (path: string) => mockApi(path) };
+  return {
+    ...actual,
+    api: (path: string, init?: RequestInit) =>
+      init === undefined ? mockApi(path) : mockApi(path, init),
+  };
 });
 
 const wrap = () => {
@@ -110,6 +116,7 @@ describe('useDiscover', () => {
 
 describe('discoveryKeys', () => {
   it('returns stable readonly tuples', () => {
+    expect(discoveryKeys.all).toEqual(['discovery']);
     expect(discoveryKeys.trending('en')).toEqual(['discovery', 'trending', 'en']);
     expect(discoveryKeys.popular('ru')).toEqual(['discovery', 'popular', 'ru']);
     expect(discoveryKeys.byGenre(18, 'en')).toEqual(['discovery', 'genre', 18, 'en']);
@@ -118,5 +125,70 @@ describe('discoveryKeys', () => {
     expect(discoveryKeys.genresList()).toEqual(['discovery', 'genres-list']);
     expect(discoveryKeys.networksList()).toEqual(['discovery', 'networks-list']);
     expect(discoveryKeys.search('rick', 'en')).toEqual(['discovery', 'search', 'rick', 'en']);
+  });
+});
+
+describe('useAddToSonarr', () => {
+  const successResp = {
+    sonarr_series_id: 555, instance_name: 'main',
+    user_tag_label: 'sf-alex', user_tag_id: 12,
+  };
+  const addBody = {
+    instance_name: 'main', tvdb_id: 81189,
+    quality_profile_id: 6, root_folder_path: '/tv',
+    monitor_mode: 'all' as const,
+  };
+
+  it('POSTs the BE wire shape and returns the resolved tag', async () => {
+    mockApi.mockResolvedValueOnce(successResp);
+    const { result } = renderHook(() => useAddToSonarr(), { wrapper: wrap() });
+    let returned: typeof successResp | undefined;
+    await act(async () => {
+      returned = await result.current.mutateAsync(addBody);
+    });
+    expect(mockApi).toHaveBeenCalledWith(
+      '/discovery/add-to-sonarr',
+      { method: 'POST', body: addBody },
+    );
+    expect(returned?.user_tag_label).toBe('sf-alex');
+  });
+
+  it('invalidates the entire discovery cache on success', async () => {
+    mockApi.mockResolvedValueOnce(successResp);
+    const qc = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 0 },
+        mutations: { retry: false },
+      },
+    });
+    // Spy on invalidateQueries — the observable contract is "the
+    // mutation calls invalidateQueries with the discovery prefix".
+    // We don't drive `isInvalidated` directly because an inactive
+    // query (seeded via setQueryData, no observer) does not transition
+    // to invalidated under all React Query versions; the spy verifies
+    // the contract directly.
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => useAddToSonarr(), { wrapper });
+    await act(async () => { await result.current.mutateAsync(addBody); });
+    expect(spy).toHaveBeenCalledWith({ queryKey: discoveryKeys.all });
+  });
+
+  it('surfaces the F-2c slug envelope as an ApiError on 502', async () => {
+    mockApi.mockRejectedValueOnce(
+      new ApiError(502, 'sonarr_unreachable',
+        { error: 'sonarr_unreachable', message: 'unreachable' }),
+    );
+    const { result } = renderHook(() => useAddToSonarr(), { wrapper: wrap() });
+    let captured: unknown;
+    await act(async () => {
+      try { await result.current.mutateAsync(addBody); }
+      catch (e) { captured = e; }
+    });
+    expect(captured).toBeInstanceOf(ApiError);
+    expect((captured as ApiError).status).toBe(502);
+    expect(((captured as ApiError).body as { error?: string })?.error)
+      .toBe('sonarr_unreachable');
   });
 });

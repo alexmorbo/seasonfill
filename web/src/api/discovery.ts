@@ -1,4 +1,7 @@
-import { useQuery, type Query, type UseQueryResult } from '@tanstack/react-query';
+import {
+  useMutation, useQuery, useQueryClient,
+  type Query, type UseMutationResult, type UseQueryResult,
+} from '@tanstack/react-query';
 import { ApiError, api } from '@/lib/api';
 
 // Story 513 / N-3a: hand-authored DTOs (handlers not yet in schema.ts).
@@ -7,6 +10,12 @@ import { ApiError, api } from '@/lib/api';
 export interface DiscoverySeriesItem {
   readonly series_id: number;
   readonly tmdb_id: number;
+  // tvdb_id is optional today: the discovery endpoints don't populate
+  // it for every TMDB-only stub. Story 522 / N-4e Add-to-Sonarr requires
+  // it (Sonarr identifies series by TVDB id during /api/v3/series add),
+  // so the modal disables submit when this field is missing and the
+  // future BE projection enrichment lands separately.
+  readonly tvdb_id?: number;
   readonly title: string;
   readonly year?: number;
   readonly poster_path?: string;
@@ -50,7 +59,10 @@ export interface DiscoveryFilter {
 }
 
 // Query keys — exported so 514-517 invalidate slices without string-guessing.
+// `all` is the umbrella prefix used by 522 to invalidate every discovery
+// slice in one shot after a successful POST /discovery/add-to-sonarr.
 export const discoveryKeys = {
+  all: ['discovery'] as const,
   trending: (lang: string) => ['discovery', 'trending', lang] as const,
   popular: (lang: string) => ['discovery', 'popular', lang] as const,
   byGenre: (id: number, lang: string) => ['discovery', 'genre', id, lang] as const,
@@ -61,6 +73,51 @@ export const discoveryKeys = {
   search: (q: string, lang: string) => ['discovery', 'search', q, lang] as const,
   discover: (f: DiscoveryFilter, lang: string) => ['discovery', 'discover', f, lang] as const,
 };
+
+// Story 522 / N-4e: POST /api/v1/discovery/add-to-sonarr request +
+// response bodies. Wire shape mirrors
+// internal/discovery/rest/add_to_sonarr_handler.go — `tvdb_id` is the
+// required identifier (sonarr matches by TVDB id during add), the
+// instance_name picks which Sonarr to write to, and the response
+// surfaces the resolved `user_tag_label` ("sf-{username}" or "sf-system")
+// + the Sonarr-side series id.
+export type AddToSonarrMonitorMode = 'all' | 'future' | 'missing' | 'none';
+
+export interface AddToSonarrRequest {
+  readonly instance_name: string;
+  readonly tvdb_id: number;
+  readonly quality_profile_id: number;
+  readonly root_folder_path: string;
+  readonly monitor_mode?: AddToSonarrMonitorMode;
+  readonly monitored?: boolean;
+  readonly search_on_add?: boolean;
+}
+
+export interface AddToSonarrResponse {
+  readonly sonarr_series_id: number;
+  readonly instance_name: string;
+  readonly user_tag_label: string;
+  readonly user_tag_id: number;
+}
+
+// useAddToSonarr is the mutation hook the modal calls. On success it
+// blasts away the entire `discovery` cache so every card's
+// `in_library_instances` count refreshes on the next render. We let
+// React Query refetch lazily — the modal closes immediately after
+// success.
+export function useAddToSonarr(): UseMutationResult<
+  AddToSonarrResponse, ApiError, AddToSonarrRequest
+> {
+  const qc = useQueryClient();
+  return useMutation<AddToSonarrResponse, ApiError, AddToSonarrRequest>({
+    mutationFn: (body) => api<AddToSonarrResponse>('/discovery/add-to-sonarr', {
+      method: 'POST', body,
+    }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: discoveryKeys.all });
+    },
+  });
+}
 
 const langQs = (lang?: string) => (lang ? `?lang=${encodeURIComponent(lang)}` : '');
 const withLang = (qs: URLSearchParams, lang?: string) => {
