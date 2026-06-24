@@ -320,6 +320,8 @@ func NewServer(
 			guarded.GET("/instances/:name/quality-profiles", instanceMetadataHandler.GetQualityProfiles)
 			guarded.GET("/instances/:name/root-folders", instanceMetadataHandler.GetRootFolders)
 			guarded.POST("/instances/:name/refresh-metadata", instanceMetadataHandler.RefreshMetadata)
+			// Story 524 N-4 per-season picker — uncached lookup proxy.
+			guarded.GET("/instances/:name/sonarr-lookup", instanceMetadataHandler.SonarrLookup)
 		}
 		if externalServices != nil {
 			guarded.GET("/external-services", externalServices.List)

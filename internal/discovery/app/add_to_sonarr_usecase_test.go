@@ -158,3 +158,131 @@ func TestAdd_SonarrAddSeriesError_502(t *testing.T) {
 	require.ErrorAs(t, err, &su)
 	assert.Equal(t, "main", string(su.Instance))
 }
+
+// TestAdd_MonitoredSeasons_LookupAndStamp verifies that when
+// req.MonitoredSeasons is non-empty the use case calls LookupSeries to
+// discover the full season list, then stamps `monitored=true` only on
+// the requested numbers and forwards the explicit array on the payload.
+// Story 524 N-4 per-season picker.
+func TestAdd_MonitoredSeasons_LookupAndStamp(t *testing.T) {
+	t.Parallel()
+	var (
+		capturedPayload ports.AddSeriesPayload
+		gotLookupTerm   string
+	)
+	cli := &ports.SonarrClientMock{
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, label string) (ports.Tag, error) {
+			return ports.Tag{ID: 12, Label: label}, nil
+		},
+		LookupSeriesFunc: func(_ context.Context, term string) ([]ports.SonarrLookupResult, error) {
+			gotLookupTerm = term
+			return []ports.SonarrLookupResult{{
+				Title:  "Rick and Morty",
+				TVDBID: 275274,
+				Seasons: []ports.SeasonInfo{
+					{SeasonNumber: 0, EpisodeCount: 0, Monitored: false},
+					{SeasonNumber: 1, EpisodeCount: 11, Monitored: true},
+					{SeasonNumber: 2, EpisodeCount: 10, Monitored: true},
+					{SeasonNumber: 3, EpisodeCount: 10, Monitored: true},
+				},
+			}}, nil
+		},
+		AddSeriesFunc: func(_ context.Context, p ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+			capturedPayload = p
+			return ports.AddSeriesResult{SonarrSeriesID: 888}, nil
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToSonarrUseCase(
+		fakeLookup{name: "main", client: cli},
+		fakeUsers{user: &admin.User{ID: 1, Username: "alex"}},
+		resolver,
+		discardLog(),
+	)
+
+	res, err := uc.Add(t.Context(), AddRequest{
+		InstanceName:     "main",
+		TVDBID:           275274,
+		QualityProfileID: 1,
+		RootFolderPath:   "/tv",
+		Monitored:        true,
+		MonitorMode:      "none",
+		Username:         "alex",
+		MonitoredSeasons: []int{1, 3},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 888, res.SonarrSeriesID)
+	assert.Equal(t, "tvdb:275274", gotLookupTerm)
+	require.Len(t, capturedPayload.Seasons, 4)
+	assert.Equal(t, 0, capturedPayload.Seasons[0].SeasonNumber)
+	assert.False(t, capturedPayload.Seasons[0].Monitored)
+	assert.Equal(t, 1, capturedPayload.Seasons[1].SeasonNumber)
+	assert.True(t, capturedPayload.Seasons[1].Monitored)
+	assert.Equal(t, 2, capturedPayload.Seasons[2].SeasonNumber)
+	assert.False(t, capturedPayload.Seasons[2].Monitored)
+	assert.Equal(t, 3, capturedPayload.Seasons[3].SeasonNumber)
+	assert.True(t, capturedPayload.Seasons[3].Monitored)
+}
+
+// TestAdd_MonitoredSeasons_LookupEmpty surfaces 404 when Sonarr's lookup
+// returns no matches for the TVDB id (typed instance_not_found error
+// joined to ports.ErrNotFound).
+func TestAdd_MonitoredSeasons_LookupEmpty(t *testing.T) {
+	t.Parallel()
+	cli := &ports.SonarrClientMock{
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, _ string) (ports.Tag, error) {
+			return ports.Tag{ID: 1, Label: "x"}, nil
+		},
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return nil, nil
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToSonarrUseCase(
+		fakeLookup{name: "main", client: cli},
+		fakeUsers{user: &admin.User{ID: 1, Username: "alex"}},
+		resolver,
+		discardLog(),
+	)
+
+	_, err := uc.Add(t.Context(), AddRequest{
+		InstanceName: "main", TVDBID: 999, QualityProfileID: 1,
+		RootFolderPath: "/tv", Username: "alex",
+		MonitoredSeasons: []int{1},
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+}
+
+// TestAdd_MonitoredSeasons_LookupError surfaces 502 on Sonarr lookup
+// failure (network / 5xx).
+func TestAdd_MonitoredSeasons_LookupError(t *testing.T) {
+	t.Parallel()
+	cli := &ports.SonarrClientMock{
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, _ string) (ports.Tag, error) {
+			return ports.Tag{ID: 1, Label: "x"}, nil
+		},
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return nil, errors.New("dial: connection refused")
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToSonarrUseCase(
+		fakeLookup{name: "main", client: cli},
+		fakeUsers{user: &admin.User{ID: 1, Username: "alex"}},
+		resolver,
+		discardLog(),
+	)
+
+	_, err := uc.Add(t.Context(), AddRequest{
+		InstanceName: "main", TVDBID: 1, QualityProfileID: 1,
+		RootFolderPath: "/tv", Username: "alex",
+		MonitoredSeasons: []int{1},
+	})
+	require.Error(t, err)
+	var su *sharedErrors.SonarrUnreachableError
+	require.ErrorAs(t, err, &su)
+}

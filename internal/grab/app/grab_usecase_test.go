@@ -88,6 +88,9 @@ func (f *fakeSonarrGrab) ListQualityProfiles(_ context.Context) ([]ports.Quality
 func (f *fakeSonarrGrab) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
 	return nil, nil
 }
+func (f *fakeSonarrGrab) LookupSeries(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+	return nil, nil
+}
 func (f *fakeSonarrGrab) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }

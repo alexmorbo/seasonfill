@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
@@ -991,4 +992,186 @@ func TestClient_CreateTag_401IsAuth(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
 	assert.True(t, IsAuth(err))
+}
+
+// TestClient_LookupSeries_Success asserts the lookup endpoint sends
+// the `term` query verbatim and projects rows incl. seasons into the
+// ports.SonarrLookupResult shape. Story 524 N-4 per-season picker.
+func TestClient_LookupSeries_Success(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		gotPath string
+		gotTerm string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gotPath = r.URL.Path
+		gotTerm = r.URL.Query().Get("term")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{
+				"title":"Rick and Morty",
+				"year":2013,
+				"tvdbId":275274,
+				"tmdbId":60625,
+				"overview":"smart guy with a dumb sidekick",
+				"remotePoster":"https://example.com/poster.jpg",
+				"seasons":[
+					{"seasonNumber":0,"monitored":false,"statistics":{"episodeCount":3,"totalEpisodeCount":5}},
+					{"seasonNumber":1,"monitored":true,"statistics":{"episodeCount":11,"totalEpisodeCount":11}},
+					{"seasonNumber":2,"monitored":true}
+				]
+			}
+		]`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	out, err := c.LookupSeries(context.Background(), "tvdb:275274")
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, "/api/v3/series/lookup", gotPath)
+	assert.Equal(t, "tvdb:275274", gotTerm)
+
+	row := out[0]
+	assert.Equal(t, "Rick and Morty", row.Title)
+	assert.Equal(t, 2013, row.Year)
+	assert.Equal(t, 275274, row.TVDBID)
+	assert.Equal(t, 60625, row.TMDBID)
+	assert.Equal(t, "https://example.com/poster.jpg", row.ImageURL)
+	require.Len(t, row.Seasons, 3)
+	// Specials: TotalEpisodeCount (5) wins over EpisodeCount (3).
+	assert.Equal(t, 0, row.Seasons[0].SeasonNumber)
+	assert.Equal(t, 5, row.Seasons[0].EpisodeCount)
+	assert.False(t, row.Seasons[0].Monitored)
+	assert.Equal(t, 1, row.Seasons[1].SeasonNumber)
+	assert.Equal(t, 11, row.Seasons[1].EpisodeCount)
+	assert.True(t, row.Seasons[1].Monitored)
+	// Stats absent → zero count, monitored flag still parses.
+	assert.Equal(t, 2, row.Seasons[2].SeasonNumber)
+	assert.Equal(t, 0, row.Seasons[2].EpisodeCount)
+	assert.True(t, row.Seasons[2].Monitored)
+}
+
+// TestClient_LookupSeries_EmptyArray covers Sonarr's "no matches"
+// response — empty slice, no error. Caller maps to 404.
+func TestClient_LookupSeries_EmptyArray(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	out, err := c.LookupSeries(context.Background(), "tvdb:0")
+	require.NoError(t, err)
+	assert.Empty(t, out)
+}
+
+func TestClient_LookupSeries_5xxTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.LookupSeries(context.Background(), "tvdb:1")
+	require.Error(t, err)
+	assert.True(t, IsTransient(err))
+}
+
+func TestClient_LookupSeries_401IsAuth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "bad", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.LookupSeries(context.Background(), "tvdb:1")
+	require.Error(t, err)
+	assert.True(t, IsAuth(err))
+}
+
+// TestClient_AddSeries_SeasonsPayload verifies the wire body includes
+// the `seasons` array verbatim when AddSeriesPayload.Seasons is set.
+// Story 524 N-4 per-season picker.
+func TestClient_AddSeries_SeasonsPayload(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		gotBody string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotBody = string(buf)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":42}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	res, err := c.AddSeries(context.Background(), ports.AddSeriesPayload{
+		TVDBID:           275274,
+		QualityProfileID: 1,
+		RootFolderPath:   "/tv",
+		Monitored:        true,
+		MonitorMode:      "all",
+		Seasons: []ports.SeasonSelection{
+			{SeasonNumber: 0, Monitored: false},
+			{SeasonNumber: 1, Monitored: true},
+			{SeasonNumber: 2, Monitored: false},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 42, res.SonarrSeriesID)
+	mu.Lock()
+	defer mu.Unlock()
+	var decoded struct {
+		Seasons []struct {
+			SeasonNumber int  `json:"seasonNumber"`
+			Monitored    bool `json:"monitored"`
+		} `json:"seasons"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(gotBody), &decoded))
+	require.Len(t, decoded.Seasons, 3)
+	assert.Equal(t, 0, decoded.Seasons[0].SeasonNumber)
+	assert.False(t, decoded.Seasons[0].Monitored)
+	assert.Equal(t, 1, decoded.Seasons[1].SeasonNumber)
+	assert.True(t, decoded.Seasons[1].Monitored)
+	assert.Equal(t, 2, decoded.Seasons[2].SeasonNumber)
+	assert.False(t, decoded.Seasons[2].Monitored)
+}
+
+// TestClient_AddSeries_NoSeasons_OmitsField asserts the legacy behaviour:
+// when AddSeriesPayload.Seasons is nil the wire body MUST omit the
+// `seasons` key so Sonarr falls back to addOptions.monitor as the sole
+// driver.
+func TestClient_AddSeries_NoSeasons_OmitsField(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		gotBody string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotBody = string(buf)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":7}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.AddSeries(context.Background(), ports.AddSeriesPayload{
+		TVDBID: 1, QualityProfileID: 1, RootFolderPath: "/tv",
+		Monitored: true, MonitorMode: "all",
+	})
+	require.NoError(t, err)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.NotContains(t, gotBody, `"seasons"`)
 }

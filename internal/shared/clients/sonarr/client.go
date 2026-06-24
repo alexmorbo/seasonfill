@@ -683,11 +683,78 @@ func (c *Client) AddSeries(ctx context.Context, p ports.AddSeriesPayload) (ports
 		},
 		Tags: p.Tags,
 	}
+	if len(p.Seasons) > 0 {
+		body.Seasons = make([]addSeriesSeasonDTO, 0, len(p.Seasons))
+		for _, s := range p.Seasons {
+			body.Seasons = append(body.Seasons, addSeriesSeasonDTO{
+				SeasonNumber: s.SeasonNumber,
+				Monitored:    s.Monitored,
+			})
+		}
+	}
 	var dto addSeriesResponseDTO
 	if err := c.post(ctx, "/api/v3/series", body, &dto); err != nil {
 		return ports.AddSeriesResult{}, err
 	}
 	return ports.AddSeriesResult{SonarrSeriesID: dto.ID}, nil
+}
+
+// LookupSeries calls GET /api/v3/series/lookup?term={term}. Story 524
+// N-4 per-season picker — Sonarr returns metadata (incl. seasons[])
+// for either already-added series or un-added candidates the metadata
+// provider knows about. The empty-result case (Sonarr returns `[]`) is
+// non-error; the caller surfaces 404.
+//
+// We project a small subset of the response — the full row carries
+// dozens of fields the FE does not need at preview time. `remotePoster`
+// is preferred over images[].url because the lookup result for un-added
+// series has the latter as a relative `/MediaCover/...` path that is
+// not resolvable.
+func (c *Client) LookupSeries(ctx context.Context, term string) ([]ports.SonarrLookupResult, error) {
+	q := url.Values{}
+	q.Set("term", term)
+	var dtos []lookupResultDTO
+	if err := c.get(ctx, "/api/v3/series/lookup", q, &dtos); err != nil {
+		return nil, err
+	}
+	out := make([]ports.SonarrLookupResult, 0, len(dtos))
+	for _, d := range dtos {
+		img := d.RemotePoster
+		if img == "" {
+			for _, i := range d.Images {
+				if i.CoverType == "poster" {
+					if i.RemoteURL != "" {
+						img = i.RemoteURL
+					} else {
+						img = i.URL
+					}
+					break
+				}
+			}
+		}
+		seasons := make([]ports.SeasonInfo, 0, len(d.Seasons))
+		for _, s := range d.Seasons {
+			ep := 0
+			if s.Statistics != nil {
+				ep = max(s.Statistics.EpisodeCount, s.Statistics.TotalEpisodeCount)
+			}
+			seasons = append(seasons, ports.SeasonInfo{
+				SeasonNumber: s.SeasonNumber,
+				EpisodeCount: ep,
+				Monitored:    s.Monitored,
+			})
+		}
+		out = append(out, ports.SonarrLookupResult{
+			Title:    d.Title,
+			Year:     d.Year,
+			TVDBID:   d.TVDBID,
+			TMDBID:   d.TMDBID,
+			Overview: d.Overview,
+			ImageURL: img,
+			Seasons:  seasons,
+		})
+	}
+	return out, nil
 }
 
 func (c *Client) ListTags(ctx context.Context) ([]ports.Tag, error) {

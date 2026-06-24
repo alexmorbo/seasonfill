@@ -22,6 +22,10 @@ import (
 const addToSonarrBodyLimit = 4 << 10 // 4 KiB
 
 // addToSonarrRequest is the wire shape decoded off the JSON body.
+//
+// MonitoredSeasons (story 524 N-4 per-season picker) — when non-empty,
+// the use case calls Sonarr's lookup endpoint to discover the full
+// season list and stamps explicit per-season monitored flags.
 type addToSonarrRequest struct {
 	InstanceName     string `json:"instance_name"`
 	TVDBID           int    `json:"tvdb_id"`
@@ -30,6 +34,7 @@ type addToSonarrRequest struct {
 	Monitored        *bool  `json:"monitored,omitempty"`
 	MonitorMode      string `json:"monitor_mode,omitempty"`
 	SearchOnAdd      bool   `json:"search_on_add,omitempty"`
+	MonitoredSeasons []int  `json:"monitored_seasons,omitempty"`
 }
 
 type addToSonarrResponse struct {
@@ -112,6 +117,7 @@ func (h *AddToSonarrHandler) Handle(c *gin.Context) {
 		MonitorMode:      body.MonitorMode,
 		SearchOnAdd:      body.SearchOnAdd,
 		Username:         username,
+		MonitoredSeasons: body.MonitoredSeasons,
 	}
 	res, err := h.uc.Add(c.Request.Context(), req)
 	if err != nil {

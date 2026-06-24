@@ -82,6 +82,9 @@ func (s stubSonarrEF) ListQualityProfiles(_ context.Context) ([]ports.QualityPro
 	return nil, nil
 }
 func (s stubSonarrEF) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) { return nil, nil }
+func (s stubSonarrEF) LookupSeries(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+	return nil, nil
+}
 func (s stubSonarrEF) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }

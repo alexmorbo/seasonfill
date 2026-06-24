@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	admininfra "github.com/alexmorbo/seasonfill/internal/admin/infrastructure"
@@ -37,6 +38,14 @@ type RootFoldersResult struct {
 	Items        []ports.RootFolder
 	RefreshedAt  time.Time
 	CacheStatus  string
+	InstanceName string
+}
+
+// SonarrLookupResult is the use case's lookup response. Story 524 N-4
+// per-season picker — uncached; the FE calls this once per modal open
+// and React Query handles client-side caching.
+type SonarrLookupResult struct {
+	Items        []ports.SonarrLookupResult
 	InstanceName string
 }
 
@@ -108,6 +117,31 @@ func (uc *InstanceMetadataUseCase) GetRootFolders(ctx context.Context, instanceN
 		Items: items, RefreshedAt: uc.clock(),
 		CacheStatus: CacheStatusMiss, InstanceName: instanceName,
 	}, nil
+}
+
+// LookupSeries proxies Sonarr's GET /api/v3/series/lookup for the
+// AddToSonarrModal per-season picker (story 524 N-4). Uncached — the
+// preview is fast and FE caches via React Query. tvdbID is the TVDB
+// integer identifier; the Sonarr term is built as "tvdb:<id>" for a
+// deterministic single-row match. Returns the empty slice for "no
+// matches" (handler maps to 404). 5xx/network → sonarr_unreachable.
+func (uc *InstanceMetadataUseCase) LookupSeries(ctx context.Context, instanceName string, tvdbID int) (SonarrLookupResult, error) {
+	_, client, ok := uc.lookup.Lookup(instanceName)
+	if !ok {
+		return SonarrLookupResult{}, instanceNotFound(instanceName)
+	}
+	items, err := client.LookupSeries(ctx, sonarrTVDBTerm(tvdbID))
+	if err != nil {
+		return SonarrLookupResult{}, sonarrUnreachable(instanceName, err)
+	}
+	return SonarrLookupResult{Items: items, InstanceName: instanceName}, nil
+}
+
+// sonarrTVDBTerm renders the Sonarr lookup term for a TVDB id. Kept
+// as a helper so tests can assert on the wire form without duplicating
+// the format string.
+func sonarrTVDBTerm(tvdbID int) string {
+	return "tvdb:" + strconv.Itoa(tvdbID)
 }
 
 // RefreshMetadata evicts both caches for the named instance.

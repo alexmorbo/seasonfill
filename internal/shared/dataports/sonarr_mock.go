@@ -69,6 +69,9 @@ var _ SonarrClient = &SonarrClientMock{}
 //			ListTagsFunc: func(ctx context.Context) ([]Tag, error) {
 //				panic("mock out the ListTags method")
 //			},
+//			LookupSeriesFunc: func(ctx context.Context, term string) ([]SonarrLookupResult, error) {
+//				panic("mock out the LookupSeries method")
+//			},
 //			NameFunc: func() string {
 //				panic("mock out the Name method")
 //			},
@@ -135,6 +138,9 @@ type SonarrClientMock struct {
 
 	// ListTagsFunc mocks the ListTags method.
 	ListTagsFunc func(ctx context.Context) ([]Tag, error)
+
+	// LookupSeriesFunc mocks the LookupSeries method.
+	LookupSeriesFunc func(ctx context.Context, term string) ([]SonarrLookupResult, error)
 
 	// NameFunc mocks the Name method.
 	NameFunc func() string
@@ -258,6 +264,13 @@ type SonarrClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// LookupSeries holds details about calls to the LookupSeries method.
+		LookupSeries []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Term is the term argument value.
+			Term string
+		}
 		// Name holds details about calls to the Name method.
 		Name []struct {
 		}
@@ -299,6 +312,7 @@ type SonarrClientMock struct {
 	lockListSeries               sync.RWMutex
 	lockListSeriesCache          sync.RWMutex
 	lockListTags                 sync.RWMutex
+	lockLookupSeries             sync.RWMutex
 	lockName                     sync.RWMutex
 	lockParseRelease             sync.RWMutex
 	lockSearchReleases           sync.RWMutex
@@ -870,6 +884,42 @@ func (mock *SonarrClientMock) ListTagsCalls() []struct {
 	mock.lockListTags.RLock()
 	calls = mock.calls.ListTags
 	mock.lockListTags.RUnlock()
+	return calls
+}
+
+// LookupSeries calls LookupSeriesFunc.
+func (mock *SonarrClientMock) LookupSeries(ctx context.Context, term string) ([]SonarrLookupResult, error) {
+	if mock.LookupSeriesFunc == nil {
+		panic("SonarrClientMock.LookupSeriesFunc: method is nil but SonarrClient.LookupSeries was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Term string
+	}{
+		Ctx:  ctx,
+		Term: term,
+	}
+	mock.lockLookupSeries.Lock()
+	mock.calls.LookupSeries = append(mock.calls.LookupSeries, callInfo)
+	mock.lockLookupSeries.Unlock()
+	return mock.LookupSeriesFunc(ctx, term)
+}
+
+// LookupSeriesCalls gets all the calls that were made to LookupSeries.
+// Check the length with:
+//
+//	len(mockedSonarrClient.LookupSeriesCalls())
+func (mock *SonarrClientMock) LookupSeriesCalls() []struct {
+	Ctx  context.Context
+	Term string
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Term string
+	}
+	mock.lockLookupSeries.RLock()
+	calls = mock.calls.LookupSeries
+	mock.lockLookupSeries.RUnlock()
 	return calls
 }
 

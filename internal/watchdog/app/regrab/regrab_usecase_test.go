@@ -165,7 +165,10 @@ func (fakeSonarr) ListQualityProfiles(_ context.Context) ([]ports.QualityProfile
 	return nil, nil
 }
 func (fakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) { return nil, nil }
-func (fakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error)      { return ports.Tag{}, nil }
+func (fakeSonarr) LookupSeries(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+	return nil, nil
+}
+func (fakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) { return ports.Tag{}, nil }
 func (fakeSonarr) AddSeries(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
 	return ports.AddSeriesResult{}, nil
 }

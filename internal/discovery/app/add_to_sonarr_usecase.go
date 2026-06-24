@@ -27,6 +27,14 @@ type CurrentUserResolver interface {
 }
 
 // AddRequest is the use-case input (handler decodes from JSON).
+//
+// MonitoredSeasons (story 524 N-4 per-season picker) is the explicit
+// list of season numbers the operator chose in the modal. nil/empty
+// means "no per-season override" — MonitorMode governs alone. When
+// non-empty, the use case calls Sonarr's lookup endpoint to discover
+// the full season list and stamps `monitored=true` on the chosen
+// numbers + `false` on the rest, then forwards the explicit array on
+// the add payload.
 type AddRequest struct {
 	InstanceName     domain.InstanceName
 	TVDBID           int
@@ -36,6 +44,7 @@ type AddRequest struct {
 	MonitorMode      string
 	SearchOnAdd      bool
 	Username         string // empty → bypass / system
+	MonitoredSeasons []int
 }
 
 // AddResult is the use-case output.
@@ -119,6 +128,37 @@ func (uc *AddToSonarrUseCase) Add(ctx context.Context, req AddRequest) (AddResul
 	}
 	if tagID > 0 {
 		payload.Tags = []int{tagID}
+	}
+
+	if len(req.MonitoredSeasons) > 0 {
+		results, err := client.LookupSeries(ctx, fmt.Sprintf("tvdb:%d", req.TVDBID))
+		if err != nil {
+			return AddResult{}, &sharedErrors.SonarrUnreachableError{
+				Instance: req.InstanceName,
+				Cause:    fmt.Errorf("lookup series: %w", err),
+			}
+		}
+		if len(results) == 0 {
+			// Sonarr's metadata provider returned no rows for the TVDB id.
+			// Surface as not_found via the typed instance error joined to
+			// ErrNotFound — the handler maps to 404 via F-2c.
+			return AddResult{}, errors.Join(
+				&sharedErrors.InstanceNotFoundError{Name: req.InstanceName},
+				ports.ErrNotFound,
+			)
+		}
+		wanted := make(map[int]bool, len(req.MonitoredSeasons))
+		for _, n := range req.MonitoredSeasons {
+			wanted[n] = true
+		}
+		seasons := make([]ports.SeasonSelection, 0, len(results[0].Seasons))
+		for _, s := range results[0].Seasons {
+			seasons = append(seasons, ports.SeasonSelection{
+				SeasonNumber: s.SeasonNumber,
+				Monitored:    wanted[s.SeasonNumber],
+			})
+		}
+		payload.Seasons = seasons
 	}
 	res, err := client.AddSeries(ctx, payload)
 	if err != nil {

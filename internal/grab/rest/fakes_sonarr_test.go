@@ -59,6 +59,9 @@ func (f *fakeSonarr) ListQualityProfiles(_ context.Context) ([]ports.QualityProf
 	return nil, nil
 }
 func (f *fakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) { return nil, nil }
+func (f *fakeSonarr) LookupSeries(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+	return nil, nil
+}
 func (f *fakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }

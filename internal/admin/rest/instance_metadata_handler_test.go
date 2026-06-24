@@ -73,6 +73,7 @@ func buildMetadataRouter(t *testing.T, cli *mdSonarrClient) *gin.Engine {
 	r.GET("/api/v1/instances/:name/quality-profiles", handler.GetQualityProfiles)
 	r.GET("/api/v1/instances/:name/root-folders", handler.GetRootFolders)
 	r.POST("/api/v1/instances/:name/refresh-metadata", handler.RefreshMetadata)
+	r.GET("/api/v1/instances/:name/sonarr-lookup", handler.SonarrLookup)
 	return r
 }
 
@@ -188,4 +189,84 @@ func TestHandler_SonarrUnreachable_GracefulFromCache(t *testing.T) {
 		"cached response MUST be returned when Sonarr fails on a hit-eligible key")
 	assert.Equal(t, "hit", body["cache_status"])
 	assert.Equal(t, int32(1), cli.qpCalls.Load(), "hit MUST NOT issue a Sonarr request")
+}
+
+// TestSonarrLookup_Success exercises the 200 response envelope: items
+// project season_number + episode_count + monitored, top-level series
+// metadata is echoed. Story 524 N-4 per-season picker.
+func TestSonarrLookup_Success(t *testing.T) {
+	cli := newMDSonarr()
+	cli.LookupSeriesFunc = func(_ context.Context, term string) ([]ports.SonarrLookupResult, error) {
+		assert.Equal(t, "tvdb:275274", term)
+		return []ports.SonarrLookupResult{{
+			Title: "Rick and Morty", Year: 2013, TVDBID: 275274, TMDBID: 60625,
+			Overview: "smart guy",
+			ImageURL: "https://example.com/poster.jpg",
+			Seasons: []ports.SeasonInfo{
+				{SeasonNumber: 0, EpisodeCount: 5, Monitored: false},
+				{SeasonNumber: 1, EpisodeCount: 11, Monitored: true},
+			},
+		}}, nil
+	}
+	r := buildMetadataRouter(t, cli)
+
+	w, body := httpDo(t, r, http.MethodGet, "/api/v1/instances/main/sonarr-lookup?tvdb_id=275274")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "Rick and Morty", body["title"])
+	assert.Equal(t, float64(2013), body["year"])
+	assert.Equal(t, float64(275274), body["tvdb_id"])
+	assert.Equal(t, "https://example.com/poster.jpg", body["image_url"])
+	items, ok := body["items"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 2)
+	first, _ := items[0].(map[string]any)
+	assert.Equal(t, float64(0), first["season_number"])
+	assert.Equal(t, float64(5), first["episode_count"])
+	assert.Equal(t, false, first["monitored"])
+}
+
+// TestSonarrLookup_NoMatches surfaces 404 when Sonarr returns the
+// empty array — handler maps to instance_not_found via F-2c.
+func TestSonarrLookup_NoMatches(t *testing.T) {
+	cli := newMDSonarr()
+	cli.LookupSeriesFunc = func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+		return nil, nil
+	}
+	r := buildMetadataRouter(t, cli)
+	w, body := httpDo(t, r, http.MethodGet, "/api/v1/instances/main/sonarr-lookup?tvdb_id=999999")
+	require.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "instance_not_found", body["error"])
+}
+
+// TestSonarrLookup_BadParam covers missing + non-positive tvdb_id.
+func TestSonarrLookup_BadParam(t *testing.T) {
+	cli := newMDSonarr()
+	r := buildMetadataRouter(t, cli)
+	for _, q := range []string{"", "?tvdb_id=0", "?tvdb_id=abc", "?tvdb_id=-1"} {
+		w, body := httpDo(t, r, http.MethodGet, "/api/v1/instances/main/sonarr-lookup"+q)
+		require.Equal(t, http.StatusBadRequest, w.Code, q)
+		assert.Equal(t, "invalid_request", body["error"], q)
+	}
+}
+
+// TestSonarrLookup_SonarrError surfaces 502 sonarr_unreachable.
+func TestSonarrLookup_SonarrError(t *testing.T) {
+	cli := newMDSonarr()
+	cli.LookupSeriesFunc = func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+		return nil, errors.New("dial: connection refused")
+	}
+	r := buildMetadataRouter(t, cli)
+	w, body := httpDo(t, r, http.MethodGet, "/api/v1/instances/main/sonarr-lookup?tvdb_id=1")
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	assert.Equal(t, "sonarr_unreachable", body["error"])
+}
+
+// TestSonarrLookup_InstanceNotFound — unknown instance name → 404
+// instance_not_found.
+func TestSonarrLookup_InstanceNotFound(t *testing.T) {
+	cli := newMDSonarr()
+	r := buildMetadataRouter(t, cli)
+	w, body := httpDo(t, r, http.MethodGet, "/api/v1/instances/ghost/sonarr-lookup?tvdb_id=1")
+	require.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "instance_not_found", body["error"])
 }

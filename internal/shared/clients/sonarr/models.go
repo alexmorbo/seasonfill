@@ -190,13 +190,40 @@ type addSeriesAddOptions struct {
 // addSeriesRequest is the wire body for POST /api/v3/series. N-4c
 // discovery AddToSonarrUseCase. `tags` is omitempty so the resolver
 // can pass nil when the tag-resolve path fell back to "no tag".
+//
+// Story 524 N-4 per-season picker: `seasons` is omitempty — when
+// absent Sonarr falls back to addOptions.monitor as the sole driver;
+// when present each entry sets a per-season monitored override.
 type addSeriesRequest struct {
-	TVDBID           int                 `json:"tvdbId"`
-	QualityProfileID int                 `json:"qualityProfileId"`
-	RootFolderPath   string              `json:"rootFolderPath"`
-	Monitored        bool                `json:"monitored"`
-	AddOptions       addSeriesAddOptions `json:"addOptions"`
-	Tags             []int               `json:"tags,omitempty"`
+	TVDBID           int                  `json:"tvdbId"`
+	QualityProfileID int                  `json:"qualityProfileId"`
+	RootFolderPath   string               `json:"rootFolderPath"`
+	Monitored        bool                 `json:"monitored"`
+	AddOptions       addSeriesAddOptions  `json:"addOptions"`
+	Tags             []int                `json:"tags,omitempty"`
+	Seasons          []addSeriesSeasonDTO `json:"seasons,omitempty"`
+}
+
+// addSeriesSeasonDTO is one entry in addSeriesRequest.seasons. Story
+// 524 N-4 per-season picker — Sonarr accepts a partial or full list.
+type addSeriesSeasonDTO struct {
+	SeasonNumber int  `json:"seasonNumber"`
+	Monitored    bool `json:"monitored"`
+}
+
+// lookupResultDTO mirrors one row in Sonarr's GET /api/v3/series/lookup
+// response. The endpoint returns a superset of `seriesDTO` for already-
+// known series; for un-added series Sonarr populates the same shape
+// from its metadata provider. We project the subset N-4 surfaces.
+type lookupResultDTO struct {
+	Title        string      `json:"title"`
+	Year         int         `json:"year"`
+	TVDBID       int         `json:"tvdbId"`
+	TMDBID       int         `json:"tmdbId"`
+	Overview     string      `json:"overview"`
+	RemotePoster string      `json:"remotePoster"`
+	Images       []imageDTO  `json:"images,omitempty"`
+	Seasons      []seasonDTO `json:"seasons"`
 }
 
 // addSeriesResponseDTO is the minimal projection of Sonarr's POST

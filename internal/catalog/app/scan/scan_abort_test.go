@@ -167,6 +167,9 @@ func (f *abortFakeSonarr) ListQualityProfiles(_ context.Context) ([]ports.Qualit
 func (f *abortFakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
 	return nil, nil
 }
+func (f *abortFakeSonarr) LookupSeries(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+	return nil, nil
+}
 func (f *abortFakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }
@@ -530,6 +533,9 @@ func (f *authFailFakeSonarrWrapped) ListQualityProfiles(_ context.Context) ([]po
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
+	return nil, nil
+}
+func (f *authFailFakeSonarrWrapped) LookupSeries(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
 	return nil, nil
 }
 func (f *authFailFakeSonarrWrapped) CreateTag(_ context.Context, _ string) (ports.Tag, error) {

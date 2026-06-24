@@ -253,6 +253,9 @@ func (f *rescanFakeSonarr) ListQualityProfiles(_ context.Context) ([]ports.Quali
 func (f *rescanFakeSonarr) ListRootFolders(_ context.Context) ([]ports.RootFolder, error) {
 	return nil, nil
 }
+func (f *rescanFakeSonarr) LookupSeries(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+	return nil, nil
+}
 func (f *rescanFakeSonarr) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	return ports.Tag{}, nil
 }

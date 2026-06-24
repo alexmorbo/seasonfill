@@ -64,6 +64,13 @@ type Tag struct {
 // callers convert from the typed shareddomain.TVDBID at the call site.
 // MonitorMode maps to Sonarr's addOptions.monitor — "all", "future",
 // "missing", "none" (empty defaults to "all" at the client).
+//
+// Story 524 (N-4 per-season picker): when Seasons is non-empty the
+// client serialises the explicit `seasons` array on the POST body and
+// Sonarr honours per-season `monitored` flags directly; MonitorMode
+// still governs unspecified seasons. When Seasons is empty (legacy
+// behaviour) the payload omits the field and MonitorMode is the sole
+// driver.
 type AddSeriesPayload struct {
 	TVDBID           int
 	QualityProfileID int
@@ -72,6 +79,42 @@ type AddSeriesPayload struct {
 	MonitorMode      string
 	SearchOnAdd      bool
 	Tags             []int
+	Seasons          []SeasonSelection
+}
+
+// SeasonSelection is one entry in AddSeriesPayload.Seasons — Sonarr's
+// per-season monitored flag at create time.
+type SeasonSelection struct {
+	SeasonNumber int
+	Monitored    bool
+}
+
+// SonarrLookupResult is the application-layer projection of one row in
+// Sonarr's GET /api/v3/series/lookup response. Story 524 N-4 per-season
+// picker — the FE preview surfaces Seasons (non-special, count > 0)
+// so the operator can pick which seasons to monitor before the add.
+//
+// ImageURL is best-effort: Sonarr returns `remotePoster` for lookup
+// results (the series is not yet added so there is no local MediaCover
+// proxy). The FE consumes it as-is via the existing mediaUrl helper.
+type SonarrLookupResult struct {
+	Title    string
+	Year     int
+	TVDBID   int
+	TMDBID   int
+	Overview string
+	ImageURL string
+	Seasons  []SeasonInfo
+}
+
+// SeasonInfo is one season entry in the lookup preview. EpisodeCount
+// is 0 for seasons Sonarr has not yet enriched from TVDB (or for the
+// special "Season 0" specials row); the FE collapses zero-episode
+// rows by default.
+type SeasonInfo struct {
+	SeasonNumber int
+	EpisodeCount int
+	Monitored    bool
 }
 
 // AddSeriesResult is the post-create projection — only the Sonarr
@@ -146,6 +189,14 @@ type SonarrClient interface {
 	// ListRootFolders fetches Sonarr's configured root folders. Used by
 	// the N-4 AddToSonarrModal "root folder" picker (N-4b cache).
 	ListRootFolders(ctx context.Context) ([]RootFolder, error)
+	// LookupSeries calls GET /api/v3/series/lookup?term={term} —
+	// Sonarr's metadata preview that returns series shape (incl.
+	// seasons[]) without requiring the series to be added yet. Story
+	// 524 N-4 per-season picker. `term` is a free-form Sonarr query;
+	// the discovery flow passes "tvdb:<id>" for a deterministic single-
+	// row match. Returns the empty slice (no error) on Sonarr "no
+	// matches"; the caller surfaces 404.
+	LookupSeries(ctx context.Context, term string) ([]SonarrLookupResult, error)
 	ListIndexers(ctx context.Context) ([]Indexer, error)
 	ListTags(ctx context.Context) ([]Tag, error)
 	// CreateTag posts a new label to /api/v3/tag. Sonarr deduplicates by
