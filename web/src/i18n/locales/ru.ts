@@ -811,6 +811,7 @@ export const ru: Translations = {
       cancel: 'Отмена',
       success: 'Добавлено с тегом {{tag}}',
       no_instances: 'Инстансы Sonarr не настроены',
+      missing_tvdb_id: 'Метаданные сериала ещё загружаются. Попробуйте через мгновение.',
       errors: {
         instance_not_found: 'Инстанс не найден',
         sonarr_unreachable: 'Sonarr недоступен',

@@ -175,6 +175,21 @@ export function AddToSonarrModal({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Story 523 / N-4 unblock: the BE projects tvdb_id straight off
+            the discovery list response, so the happy path always has it.
+            Legacy stubs upserted before story 523's join landed may still
+            be missing it — surface a non-fatal info banner so the user
+            knows why Submit is disabled. The enrichment worker hydrates
+            the field on the next /series/{id} pass. */}
+        {(typeof tvdbID !== 'number' || tvdbID <= 0) && (
+          <p
+            data-testid="add-to-sonarr-missing-tvdb"
+            className="text-sm text-tx-muted"
+          >
+            {t('discovery.add.missing_tvdb_id')}
+          </p>
+        )}
+
         <form
           onSubmit={handleSubmit}
           className="space-y-4"

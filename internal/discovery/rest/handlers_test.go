@@ -395,6 +395,65 @@ func TestByKeyword_StaleTrigger(t *testing.T) {
 	require.Equal(t, int64(1), rf.calls.Load())
 }
 
+// TestTrending_ProjectsTVDBIDAndOriginalLanguage — story 523. The
+// curated trending pipeline reads disco.Item rows whose TVDBID +
+// OriginalLanguage pointer fields carry through the projection into
+// the JSON response so the FE AddToSonarr modal can submit without
+// a second round-trip. Verifies both the populated and the nil cases
+// on the same response so the `omitempty` branch is exercised too.
+func TestTrending_ProjectsTVDBIDAndOriginalLanguage(t *testing.T) {
+	repo := newFakeRepo()
+	tvdb := shareddomain.TVDBID(81189)
+	ol := "en"
+	items := []disco.Item{
+		{
+			SeriesID:         shareddomain.SeriesID(1),
+			Title:            "With TVDB",
+			TVDBID:           &tvdb,
+			OriginalLanguage: &ol,
+		},
+		{
+			SeriesID: shareddomain.SeriesID(2),
+			Title:    "Legacy Stub",
+		},
+	}
+	repo.setPage(disco.KindTrendingDay, "", "en-US", disco.Page{
+		Items: items, RefreshedAt: time.Now(), Total: len(items),
+	}, false, time.Now())
+
+	r := newTestHandler(t, repo, &fakeWarming{}, &fakeRefresh{})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET",
+		"/discovery/trending?scope=day&lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp discoveryrest.DiscoveryListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 2)
+
+	require.NotNil(t, resp.Items[0].TVDBID,
+		"populated TVDBID must surface in JSON")
+	require.Equal(t, 81189, *resp.Items[0].TVDBID)
+	require.NotNil(t, resp.Items[0].OriginalLanguage,
+		"populated OriginalLanguage must surface in JSON")
+	require.Equal(t, "en", *resp.Items[0].OriginalLanguage)
+
+	require.Nil(t, resp.Items[1].TVDBID,
+		"nil domain TVDBID → nil DTO field (omitempty kicks in)")
+	require.Nil(t, resp.Items[1].OriginalLanguage,
+		"nil domain OriginalLanguage → nil DTO field")
+
+	// Spot-check that `omitempty` actually drops the keys for the
+	// nil row — otherwise the FE will receive `"tvdb_id":null` and
+	// the `typeof tvdb_id === 'number'` guard misfires.
+	body := rec.Body.String()
+	require.Contains(t, body, `"tvdb_id":81189`)
+	require.NotContains(t, body, `"tvdb_id":null`)
+	require.NotContains(t, body, `"original_language":null`)
+}
+
 func TestLongTail_InvalidID_400(t *testing.T) {
 	r := newTestHandler(t, newFakeRepo(), &fakeWarming{}, &fakeRefresh{})
 	for _, path := range []string{"/discovery/genre/abc", "/discovery/network/0", "/discovery/keyword/-1"} {

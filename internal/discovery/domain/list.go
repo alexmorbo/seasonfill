@@ -57,6 +57,19 @@ func (k Kind) IsValid() bool {
 // because a stub upserted via the legacy Sonarr-orphan path may have
 // NULL tmdb_id.
 //
+// TVDBID is a pointer for the same NULL-on-stub reason and is populated
+// only via the repository SELECT path (story 523 / N-4 unblock):
+// Sonarr's POST /api/v3/series requires the TVDB id, so the discovery
+// list response surfaces it through the FE → AddToSonarr modal. Worker
+// / passthrough / TMDB-search materialisers leave it nil because TMDB's
+// list-tier endpoints don't carry external_ids; the field hydrates on
+// the next /series/{id} enrichment pass.
+//
+// OriginalLanguage carries the ISO 639-1 tag from TMDB (e.g. "en",
+// "ja"). Pointer because legacy stubs predate origin_language ingest.
+// Pure metadata surface — the FE renders it as a chip; no backend
+// pipeline branches on it.
+//
 // OriginCountries arrives as a JSON-decoded slice (the `series.origin_countries`
 // column is text-stored JSON per migration 000041). Genres is populated
 // by the handler at projection time (story 507), so the repository
@@ -67,15 +80,17 @@ func (k Kind) IsValid() bool {
 // by SeriesModel in `internal/shared/db/models.go`; the repository
 // hydrates the field via raw SQL Scan.
 type Item struct {
-	SeriesID        shareddomain.SeriesID
-	TMDBID          *shareddomain.TMDBID
-	Title           string
-	Year            *int
-	PosterPath      *string
-	BackdropPath    *string
-	OriginCountries []string
-	Genres          []string
-	TMDBType        *int
+	SeriesID         shareddomain.SeriesID
+	TMDBID           *shareddomain.TMDBID
+	TVDBID           *shareddomain.TVDBID
+	Title            string
+	Year             *int
+	PosterPath       *string
+	BackdropPath     *string
+	OriginalLanguage *string
+	OriginCountries  []string
+	Genres           []string
+	TMDBType         *int
 }
 
 // Page is the GetRanked return shape: the materialised items plus the

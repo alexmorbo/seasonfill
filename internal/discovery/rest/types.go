@@ -16,6 +16,16 @@ import "time"
 // TMDB id when present (a stub may have NULL tmdb_id). Pointer
 // fields encode "column was NULL on the joined series row".
 //
+// TVDBID is surfaced because Sonarr's POST /api/v3/series identifies
+// the series by TVDB id (story 523 / N-4 unblock). Optional — a stub
+// upserted via the legacy Sonarr-orphan path may not have it; the FE
+// AddToSonarr modal disables Submit until it appears (worker enrichment
+// will fill it on the next /series/{id} pass).
+//
+// OriginalLanguage is the ISO 639-1 tag from TMDB (e.g. "en", "ja").
+// Optional for the same legacy-stub reason as TVDBID; the FE renders
+// a chip when present.
+//
 // InLibraryInstances is the list of Sonarr instance slugs the series
 // is registered to. Empty slice (never nil) when not in any library
 // — a discovery hit on a TMDB-only stub still returns [] so the FE
@@ -29,8 +39,10 @@ import "time"
 type DiscoverySeriesItem struct {
 	ID                 int64    `json:"id"`
 	TMDBID             *int     `json:"tmdb_id,omitempty"`
+	TVDBID             *int     `json:"tvdb_id,omitempty"`
 	Title              string   `json:"title"`
 	OriginalTitle      *string  `json:"original_title,omitempty"`
+	OriginalLanguage   *string  `json:"original_language,omitempty"`
 	Year               *int     `json:"year,omitempty"`
 	PosterPath         *string  `json:"poster_path,omitempty"`
 	BackdropPath       *string  `json:"backdrop_path,omitempty"`

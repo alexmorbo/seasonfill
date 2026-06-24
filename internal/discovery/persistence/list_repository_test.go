@@ -253,6 +253,68 @@ func TestListRepository_GetRanked_NullTMDBIDPreserved(t *testing.T) {
 	}
 }
 
+// TestListRepository_GetRanked_TVDBIDAndOriginalLanguage — story 523.
+// One seeded series carries tvdb_id + original_language, the other
+// leaves both NULL. Both round-trip through GetRanked: the populated
+// row hydrates the pointer fields, the NULL row keeps them nil. Pins
+// the N-4 unblock contract — the FE AddToSonarr modal reads tvdb_id
+// straight off the discovery list response.
+func TestListRepository_GetRanked_TVDBIDAndOriginalLanguage(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			lang := "en-US-" + uuid.NewString()[:6]
+
+			// Row A — populated tvdb_id + original_language.
+			tvdb := shareddomain.TVDBID(81189)
+			ol := "en"
+			a := database.SeriesModel{
+				Title:            "with-tvdb-" + uuid.NewString()[:6],
+				Hydration:        "stub",
+				InProduction:     false,
+				OriginCountries:  datatypes.JSON("[]"),
+				TVDBID:           &tvdb,
+				OriginalLanguage: &ol,
+			}
+			require.NoError(t, db.Create(&a).Error)
+
+			// Row B — NULL tvdb_id, NULL original_language.
+			b := database.SeriesModel{
+				Title:           "no-tvdb-" + uuid.NewString()[:6],
+				Hydration:       "stub",
+				InProduction:    false,
+				OriginCountries: datatypes.JSON("[]"),
+			}
+			require.NoError(t, db.Create(&b).Error)
+
+			ids := []shareddomain.SeriesID{a.ID, b.ID}
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", lang, itemsFor(ids)))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", lang, 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 2)
+
+			require.NotNil(t, page.Items[0].TVDBID,
+				"position 1 series has tvdb_id → Item.TVDBID populated")
+			assert.Equal(t, shareddomain.TVDBID(81189), *page.Items[0].TVDBID)
+			require.NotNil(t, page.Items[0].OriginalLanguage,
+				"position 1 series has original_language → field populated")
+			assert.Equal(t, "en", *page.Items[0].OriginalLanguage)
+
+			assert.Nil(t, page.Items[1].TVDBID,
+				"position 2 series has NULL tvdb_id → Item.TVDBID nil")
+			assert.Nil(t, page.Items[1].OriginalLanguage,
+				"position 2 series has NULL original_language → field nil")
+		})
+	}
+}
+
 func TestListRepository_ReplaceList_OrphanSeriesIDErrors(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {

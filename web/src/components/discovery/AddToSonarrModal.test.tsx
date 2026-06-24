@@ -178,4 +178,40 @@ describe('<AddToSonarrModal />', () => {
       expect(screen.getByTestId('add-to-sonarr-submit')).toBeDisabled();
     });
   });
+
+  // Story 523: when tvdb_id is missing the modal explains *why* Submit
+  // is disabled — the BE projection now exposes tvdb_id for every
+  // worker-hydrated row, so a missing value means the legacy stub
+  // hasn't been re-enriched yet.
+  it('shows the missing-tvdb info banner when tvdb_id is absent', async () => {
+    const qc = mkClient();
+    const item = {
+      series_id: 42, tmdb_id: 1399,
+      title: 'Rick and Morty', in_library_instances: [],
+    } as DiscoverySeriesItem;
+    render(
+      <I18nextProvider i18n={i18n}>
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <AddToSonarrModal
+              open onOpenChange={vi.fn()} item={item}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </I18nextProvider>,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('add-to-sonarr-missing-tvdb'),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('hides the missing-tvdb banner on the happy path', async () => {
+    renderModal({ tvdb_id: 81189 });
+    await waitFor(() => {
+      expect(screen.queryByTestId('add-to-sonarr-missing-tvdb'))
+        .not.toBeInTheDocument();
+    });
+  });
 });

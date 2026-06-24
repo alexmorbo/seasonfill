@@ -90,10 +90,14 @@ func (r *ListRepository) GetRanked(
 		return disco.Page{}, fmt.Errorf("discovery list repo: get ranked: offset overflow (page=%d perPage=%d)", page, perPage)
 	}
 
+	// Story 523 / N-4 unblock: tvdb_id + original_language join into the
+	// projection so the FE AddToSonarr modal can submit without a
+	// separate /series/{id} fetch. Both columns are NULL-tolerant — a
+	// stub upserted via the legacy Sonarr-orphan path may carry NULL.
 	const selectQ = `
 		SELECT d.series_id, d.refreshed_at,
-		       s.tmdb_id, s.title, s.year, s.poster_asset, s.backdrop_asset,
-		       s.origin_countries, s.tmdb_type, d.position
+		       s.tmdb_id, s.tvdb_id, s.title, s.year, s.poster_asset, s.backdrop_asset,
+		       s.original_language, s.origin_countries, s.tmdb_type, d.position
 		  FROM discovery_lists d
 		  JOIN series s ON s.id = d.series_id
 		 WHERE d.kind = ? AND d.param = ? AND d.language = ?
@@ -101,16 +105,18 @@ func (r *ListRepository) GetRanked(
 		 LIMIT ? OFFSET ?`
 
 	type joinedRow struct {
-		SeriesID        shareddomain.SeriesID `gorm:"column:series_id"`
-		RefreshedAt     time.Time             `gorm:"column:refreshed_at"`
-		TMDBID          *shareddomain.TMDBID  `gorm:"column:tmdb_id"`
-		Title           string                `gorm:"column:title"`
-		Year            *int                  `gorm:"column:year"`
-		PosterAsset     *string               `gorm:"column:poster_asset"`
-		BackdropAsset   *string               `gorm:"column:backdrop_asset"`
-		OriginCountries []byte                `gorm:"column:origin_countries"`
-		TMDBType        *int                  `gorm:"column:tmdb_type"`
-		Position        int                   `gorm:"column:position"`
+		SeriesID         shareddomain.SeriesID `gorm:"column:series_id"`
+		RefreshedAt      time.Time             `gorm:"column:refreshed_at"`
+		TMDBID           *shareddomain.TMDBID  `gorm:"column:tmdb_id"`
+		TVDBID           *shareddomain.TVDBID  `gorm:"column:tvdb_id"`
+		Title            string                `gorm:"column:title"`
+		Year             *int                  `gorm:"column:year"`
+		PosterAsset      *string               `gorm:"column:poster_asset"`
+		BackdropAsset    *string               `gorm:"column:backdrop_asset"`
+		OriginalLanguage *string               `gorm:"column:original_language"`
+		OriginCountries  []byte                `gorm:"column:origin_countries"`
+		TMDBType         *int                  `gorm:"column:tmdb_type"`
+		Position         int                   `gorm:"column:position"`
 	}
 	var rows []joinedRow
 	if err := r.db.WithContext(ctx).
@@ -144,14 +150,16 @@ func (r *ListRepository) GetRanked(
 			}
 		}
 		items = append(items, disco.Item{
-			SeriesID:        row.SeriesID,
-			TMDBID:          row.TMDBID,
-			Title:           row.Title,
-			Year:            row.Year,
-			PosterPath:      row.PosterAsset,
-			BackdropPath:    row.BackdropAsset,
-			OriginCountries: countries,
-			TMDBType:        row.TMDBType,
+			SeriesID:         row.SeriesID,
+			TMDBID:           row.TMDBID,
+			TVDBID:           row.TVDBID,
+			Title:            row.Title,
+			Year:             row.Year,
+			PosterPath:       row.PosterAsset,
+			BackdropPath:     row.BackdropAsset,
+			OriginalLanguage: row.OriginalLanguage,
+			OriginCountries:  countries,
+			TMDBType:         row.TMDBType,
 		})
 	}
 

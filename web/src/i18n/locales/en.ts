@@ -806,6 +806,7 @@ export const en = {
       cancel: 'Cancel',
       success: 'Added with tag {{tag}}',
       no_instances: 'No Sonarr instances configured',
+      missing_tvdb_id: 'Series metadata is still loading. Try again in a moment.',
       errors: {
         instance_not_found: 'Instance not found',
         sonarr_unreachable: 'Sonarr is unreachable',

@@ -493,6 +493,10 @@ func (h *DiscoveryHandler) readAndProject(
 // series columns). They stay nil until N-2g extends the projection
 // — by which time the FE will already render the no-data branch.
 //
+// TVDBID + OriginalLanguage joined into the projection in story 523
+// (N-4 unblock) so the FE AddToSonarr modal can submit straight from
+// the list response.
+//
 // InLibraryInstances ships as an empty []string{} until N-2g wires
 // the cross-instance lookup (PRD §5.1 line 493 invariant).
 func projectItem(it disco.Item) DiscoverySeriesItem {
@@ -502,11 +506,16 @@ func projectItem(it disco.Item) DiscoverySeriesItem {
 		Year:               it.Year,
 		PosterPath:         it.PosterPath,
 		BackdropPath:       it.BackdropPath,
+		OriginalLanguage:   it.OriginalLanguage,
 		InLibraryInstances: []string{},
 	}
 	if it.TMDBID != nil {
 		v := int(*it.TMDBID)
 		out.TMDBID = &v
+	}
+	if it.TVDBID != nil {
+		v := int(*it.TVDBID)
+		out.TVDBID = &v
 	}
 	if len(it.Genres) > 0 {
 		out.Genres = append(out.Genres, it.Genres...)
