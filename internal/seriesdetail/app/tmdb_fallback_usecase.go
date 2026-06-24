@@ -1,20 +1,14 @@
 // Package seriesdetail — see ports.go header.
 //
-// tmdb_fallback_usecase.go (Story 491 / N-1a). TMDBFallbackUseCase
-// returns a canonical-only Detail for series not present in any Sonarr
-// library. It reads only from the local series row (canon); it does NOT
-// synchronously hit TMDB. Discovery (N-2) is the path that lazy-stub-
-// upserts canon rows from TMDB ids — this UC trusts that the canon row
-// already exists.
-//
-// Returned Detail has:
-//   - Canon copied from series row (Hero metadata)
-//   - Empty Seasons / Cast / Recommendations / Queue / QueueRecords
-//   - degraded[] populated for any source the canon row is missing data
-//     for (hydration=stub → tmdb_series degraded).
-//   - SyncedAt = now.
-//   - MediaResolver hash translation applied (poster + backdrop) on the
-//     synchronous-resolve fast path so the FE can render the hero card.
+// tmdb_fallback_usecase.go (Story 491 / N-1a + Story 532). Canon-only
+// views for series not present in any Sonarr library. Discovery (N-2)
+// lazy-stub-upserts canon rows from TMDB ids — this UC trusts that the
+// canon row exists. Story 491 added GetCanonical (whole Detail). Story
+// 532 adds GetOverview + GetRecommendations canon-only siblings so the
+// per-section endpoints (Stories 529 / 530) don't 404 on TMDB-only
+// series. Returned views unconditionally include the "tmdb_series"
+// degraded marker — the fallback path's user-facing semantic ("no
+// Sonarr library carries this series").
 package seriesdetail
 
 import (
@@ -26,12 +20,16 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
-// TMDBFallbackDeps — narrow ports.
+// TMDBFallbackDeps — narrow ports. Existing fields keep nil-fallback
+// semantics. Story 532 fields (SeriesTexts, Keywords, Recommendations,
+// SeriesCacheLookup) are nil-OK — when nil, the corresponding branch
+// silently degrades to empty.
 type TMDBFallbackDeps struct {
 	Series        SeriesPort
 	MediaResolver *media.Resolver
@@ -43,9 +41,15 @@ type TMDBFallbackDeps struct {
 	Enricher OnDemandEnricher
 	Logger   *slog.Logger
 	Now      func() time.Time
+
+	// Story 532 — canon-keyed nil-OK ports for the new section methods.
+	SeriesTexts       SeriesTextsPort
+	Keywords          KeywordsPort
+	Recommendations   RecommendationsPort
+	SeriesCacheLookup SeriesCacheLookupPort
 }
 
-// TMDBFallbackUseCase returns canon-only Details.
+// TMDBFallbackUseCase returns canon-only views.
 type TMDBFallbackUseCase struct {
 	d TMDBFallbackDeps
 }
@@ -114,4 +118,139 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 		slog.String("lang", lang),
 	)
 	return d, nil
+}
+
+// GetOverview — canon-only overview for TMDB-only series. Returns the
+// upstream error (e.g. ports.ErrNotFound wrapped) when the canon row is
+// absent. Story 532.
+func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.SeriesID, lang string) (*Overview, error) {
+	canon, err := u.d.Series.Get(ctx, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
+	}
+	lang = resolveLang(lang)
+	out := &Overview{
+		Instance:       "",
+		SonarrSeriesID: 0,
+		SeriesID:       seriesID,
+		Lang:           lang,
+		Degraded:       []string{"tmdb_series"},
+	}
+	if u.d.SeriesTexts != nil {
+		if t, terr := u.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang); terr == nil {
+			if t.Overview != nil {
+				out.Description = *t.Overview
+			}
+			out.DescriptionLanguage = t.Language
+		} else if !errors.Is(terr, ports.ErrNotFound) {
+			u.d.Logger.WarnContext(ctx, "tmdb_fallback_overview_texts_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("err", terr.Error()))
+		}
+	}
+	if u.d.Keywords != nil {
+		if kwIDs, kerr := u.d.Keywords.ListBySeries(ctx, seriesID); kerr == nil {
+			for _, id := range kwIDs {
+				if k, gerr := u.d.Keywords.Get(ctx, id, lang); gerr == nil {
+					out.Keywords = append(out.Keywords, k)
+				}
+			}
+		} else {
+			u.d.Logger.WarnContext(ctx, "tmdb_fallback_overview_keywords_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("err", kerr.Error()))
+		}
+	}
+	if canon.OMDBAwards != nil && *canon.OMDBAwards != "" && *canon.OMDBAwards != "N/A" {
+		v := *canon.OMDBAwards
+		out.Awards = &v
+	}
+	if u.d.Enricher != nil && canon.Hydration != series.HydrationFull {
+		u.d.Enricher.EnqueueIfStale(seriesID, canon.Hydration)
+	}
+	u.d.Logger.InfoContext(ctx, "tmdb_fallback_overview_composed",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.String("hydration", string(canon.Hydration)),
+		slog.String("lang", lang),
+		slog.Int("keyword_count", len(out.Keywords)),
+		slog.Bool("has_awards", out.Awards != nil),
+		slog.Bool("has_description", out.Description != ""))
+	return out, nil
+}
+
+// GetRecommendations — canon-only recommendations for TMDB-only series.
+// limit/offset are clamped per Composer.GetRecommendations defaults.
+// Returns the upstream error (e.g. ports.ErrNotFound wrapped) when the
+// canon row for the source series is absent. Story 532.
+func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID domain.SeriesID, limit, offset int) (*Recommendations, error) {
+	if limit <= 0 {
+		limit = RecommendationsLimitDefault
+	}
+	if limit > RecommendationsLimitMax {
+		limit = RecommendationsLimitMax
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	canon, err := u.d.Series.Get(ctx, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
+	}
+	out := &Recommendations{
+		Instance:       "",
+		SonarrSeriesID: 0,
+		SeriesID:       seriesID,
+		Items:          []RecommendationDetail{},
+		Degraded:       []string{"tmdb_series"},
+	}
+	if u.d.Recommendations == nil {
+		return out, nil
+	}
+	ids, err := u.d.Recommendations.ListBySeries(ctx, seriesID)
+	if err != nil {
+		u.d.Logger.WarnContext(ctx, "tmdb_fallback_recommendations_list_failed",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.String("err", err.Error()))
+		return out, nil
+	}
+	resolved := make([]RecommendationDetail, 0, len(ids))
+	for _, recID := range ids {
+		s, sgerr := u.d.Series.Get(ctx, recID)
+		if sgerr != nil {
+			continue
+		}
+		rd := RecommendationDetail{Series: s}
+		if u.d.SeriesCacheLookup != nil {
+			caches, _ := u.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
+			if len(caches) > 0 {
+				rd.InLibrary = true
+				rd.InstanceName = caches[0].InstanceName
+				rd.SonarrSeriesID = caches[0].SonarrSeriesID
+			}
+		}
+		resolved = append(resolved, rd)
+	}
+	out.TotalCount = len(resolved)
+	if offset >= len(resolved) {
+		out.Items = []RecommendationDetail{}
+		out.HasMore = false
+	} else {
+		end := min(offset+limit, len(resolved))
+		out.Items = resolved[offset:end]
+		out.HasMore = end < len(resolved)
+		if u.d.MediaResolver != nil {
+			for i := range out.Items {
+				out.Items[i].Series.PosterAsset = u.d.MediaResolver.Resolve(ctx, out.Items[i].Series.PosterAsset, "w342", "poster_w342")
+			}
+		}
+	}
+	u.d.Logger.InfoContext(ctx, "tmdb_fallback_recommendations_composed",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.String("hydration", string(canon.Hydration)),
+		slog.Int("limit", limit),
+		slog.Int("offset", offset),
+		slog.Int("total_count", out.TotalCount),
+		slog.Int("items_returned", len(out.Items)),
+		slog.Bool("has_more", out.HasMore))
+	return out, nil
 }

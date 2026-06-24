@@ -1,12 +1,18 @@
 // Package rest — seriesdetail HTTP handlers.
 //
-// global_series_recommendations_handler.go (Story 530). GET
-// /api/v1/series/:id/recommendations resolves canonical series.id → lex-first
-// instance → splices :name + :id → delegates to inner per-instance
-// handler. Mirrors global_series_overview_handler.go.
+// global_series_recommendations_handler.go (Story 530 + Story 532). GET
+// /api/v1/series/:id/recommendations resolves canonical series.id →
+// lex-first instance → splices :name + :id → delegates to inner
+// per-instance handler. When NO instance carries the series (TMDB-only
+// canon row), Story 532 dispatches to
+// TMDBFallbackUseCase.GetRecommendations instead of returning 404 —
+// mirrors the main /series/:id fallback (Story 491). True unknown-id
+// (no canon row at all) → 404 with body `{"error":"series_not_found"}`.
 package rest
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -14,25 +20,41 @@ import (
 	"github.com/gin-gonic/gin"
 
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
+// TMDBFallbackRecommendationsPort is the narrow port the wrapper
+// consumes for the TMDB-only fallback. *seriesdetail.TMDBFallbackUseCase
+// satisfies it. nil-OK at construction — when nil, the wrapper falls
+// back to the legacy 404 "series not in any library" response.
+type TMDBFallbackRecommendationsPort interface {
+	GetRecommendations(ctx context.Context, seriesID domain.SeriesID, limit, offset int) (*seriesdetail.Recommendations, error)
+}
+
 type GlobalSeriesRecommendationsHandler struct {
-	inner       *SeriesRecommendationsHandler
-	cacheLookup seriesdetail.SeriesCacheLookupPort
-	logger      *slog.Logger
+	inner        *SeriesRecommendationsHandler
+	cacheLookup  seriesdetail.SeriesCacheLookupPort
+	tmdbFallback TMDBFallbackRecommendationsPort
+	logger       *slog.Logger
 }
 
 func NewGlobalSeriesRecommendationsHandler(
 	inner *SeriesRecommendationsHandler,
 	cacheLookup seriesdetail.SeriesCacheLookupPort,
+	tmdbFallback TMDBFallbackRecommendationsPort,
 	logger *slog.Logger,
 ) *GlobalSeriesRecommendationsHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &GlobalSeriesRecommendationsHandler{inner: inner, cacheLookup: cacheLookup, logger: logger}
+	return &GlobalSeriesRecommendationsHandler{
+		inner:        inner,
+		cacheLookup:  cacheLookup,
+		tmdbFallback: tmdbFallback,
+		logger:       logger,
+	}
 }
 
 // Get handles GET /api/v1/series/:id/recommendations.
@@ -41,7 +63,10 @@ func NewGlobalSeriesRecommendationsHandler(
 // @Description Returns ONLY the recommendations slice for a series keyed by
 // @Description canonical series.id. Resolves the preferred Sonarr
 // @Description instance automatically (lex-first that carries the
-// @Description series). 404 when no library carries the series.
+// @Description series). When the series is TMDB-only (no library
+// @Description carries it), returns a canon-only payload with
+// @Description degraded=["tmdb_series"] and instance="". 404 only
+// @Description when the canonical id is truly unknown.
 // @Tags        series
 // @Produce     json
 // @Param       id      path      int     true   "Canonical series.id"
@@ -70,7 +95,34 @@ func (h *GlobalSeriesRecommendationsHandler) Get(c *gin.Context) {
 		return
 	}
 	if !ok {
-		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not in any library"})
+		if h.tmdbFallback == nil {
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not in any library"})
+			return
+		}
+		limit, lok := parseRecLimit(c)
+		if !lok {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid limit"})
+			return
+		}
+		offset, ook := parseRecOffset(c)
+		if !ook {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid offset"})
+			return
+		}
+		rec, ferr := h.tmdbFallback.GetRecommendations(ctx, seriesID, limit, offset)
+		if ferr != nil {
+			if errors.Is(ferr, ports.ErrNotFound) {
+				c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series_not_found"})
+				return
+			}
+			_ = c.Error(ferr)
+			return
+		}
+		h.logger.InfoContext(ctx, "global_series_recommendations_tmdb_fallback",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.Int("limit", limit),
+			slog.Int("offset", offset))
+		c.JSON(http.StatusOK, toSeriesRecommendationsResponse(rec, limit, offset))
 		return
 	}
 	if h.inner == nil {

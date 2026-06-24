@@ -319,6 +319,13 @@ func BuildSeriesDetail(
 		MediaResolver: mediaResolver,
 		Enricher:      onDemandEnricherHolder,
 		Logger:        composerLog,
+		// Story 532 — canon-only ports for /overview + /recommendations
+		// TMDB-fallback paths. Reuse the same repository instances the
+		// per-instance Composer already binds (above).
+		SeriesTexts:       sdSeriesTextsRepo,
+		Keywords:          sdKeywordsRepo,
+		Recommendations:   sdRecommendationsRepo,
+		SeriesCacheLookup: sdSeriesCacheRepo,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tmdb fallback use case: %w", err)
@@ -345,12 +352,12 @@ func BuildSeriesDetail(
 	// resolves canonical series.id via the shared sdSeriesCacheRepo
 	// (lex-first instance) and delegates.
 	overviewHandler := seriesdetailrest.NewSeriesOverviewHandler(composer, log)
-	globalOverviewHandler := seriesdetailrest.NewGlobalSeriesOverviewHandler(overviewHandler, sdSeriesCacheRepo, log)
+	globalOverviewHandler := seriesdetailrest.NewGlobalSeriesOverviewHandler(overviewHandler, sdSeriesCacheRepo, tmdbFallbackUC, log)
 
 	// Story 530 — /series/:id/recommendations split-out. Same composer +
 	// cache repo as overview; the inner handler is not route-registered.
 	recommendationsHandler := seriesdetailrest.NewSeriesRecommendationsHandler(composer, log)
-	globalRecommendationsHandler := seriesdetailrest.NewGlobalSeriesRecommendationsHandler(recommendationsHandler, sdSeriesCacheRepo, log)
+	globalRecommendationsHandler := seriesdetailrest.NewGlobalSeriesRecommendationsHandler(recommendationsHandler, sdSeriesCacheRepo, tmdbFallbackUC, log)
 
 	return &SeriesDetailBundle{
 		MediaResolver:                mediaResolver,

@@ -3039,7 +3039,10 @@ export type paths = {
          * @description Returns ONLY the overview slice for a series keyed by
          *     canonical series.id. Resolves the preferred Sonarr
          *     instance automatically (lex-first that carries the
-         *     series). 404 when no library carries the series.
+         *     series). When the series is TMDB-only (no library
+         *     carries it), returns a canon-only payload with
+         *     degraded=["tmdb_series"] and instance="". 404 only
+         *     when the canonical id is truly unknown.
          */
         readonly get: {
             readonly parameters: {
@@ -3123,7 +3126,10 @@ export type paths = {
          * @description Returns ONLY the recommendations slice for a series keyed by
          *     canonical series.id. Resolves the preferred Sonarr
          *     instance automatically (lex-first that carries the
-         *     series). 404 when no library carries the series.
+         *     series). When the series is TMDB-only (no library
+         *     carries it), returns a canon-only payload with
+         *     degraded=["tmdb_series"] and instance="". 404 only
+         *     when the canonical id is truly unknown.
          */
         readonly get: {
             readonly parameters: {

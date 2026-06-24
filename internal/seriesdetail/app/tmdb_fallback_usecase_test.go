@@ -3,6 +3,8 @@ package seriesdetail_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 
@@ -11,10 +13,89 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
+
+// discardLogger returns a logger that discards everything — used by the
+// Story 532 tests to keep verbose tmdb_fallback_* domain output out of
+// `go test -v` output.
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// fakeMapSeriesReader satisfies seriesdetail.SeriesPort (Get +
+// GetByTMDBID). Unlike stubSeriesReader which returns a single canon
+// row, this one supports a map for the Recommendations test that needs
+// to resolve multiple canon ids. err takes precedence over rows.
+type fakeMapSeriesReader struct {
+	rows map[domain.SeriesID]series.Canon
+	err  error
+}
+
+func (f *fakeMapSeriesReader) Get(_ context.Context, id domain.SeriesID) (series.Canon, error) {
+	if f.err != nil {
+		return series.Canon{}, f.err
+	}
+	c, ok := f.rows[id]
+	if !ok {
+		return series.Canon{}, ports.ErrNotFound
+	}
+	return c, nil
+}
+
+func (f *fakeMapSeriesReader) GetByTMDBID(_ context.Context, _ domain.TMDBID) (series.Canon, error) {
+	return series.Canon{}, ports.ErrNotFound
+}
+
+// fakeFallbackTexts satisfies seriesdetail.SeriesTextsPort.
+type fakeFallbackTexts struct {
+	out series.SeriesText
+	err error
+}
+
+func (f *fakeFallbackTexts) GetWithFallback(_ context.Context, _ domain.SeriesID, _ string) (series.SeriesText, error) {
+	if f.err != nil {
+		return series.SeriesText{}, f.err
+	}
+	return f.out, nil
+}
+
+// fakeFallbackKeywords satisfies seriesdetail.KeywordsPort.
+type fakeFallbackKeywords struct {
+	ids  []int64
+	byID map[int64]taxonomy.Keyword
+	err  error
+}
+
+func (f *fakeFallbackKeywords) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.ids, nil
+}
+
+func (f *fakeFallbackKeywords) Get(_ context.Context, id int64, lang string) (taxonomy.Keyword, error) {
+	if k, ok := f.byID[id]; ok {
+		return k, nil
+	}
+	return taxonomy.Keyword{ID: id, Name: "kw", Language: lang}, nil
+}
+
+// fakeFallbackRecsPort satisfies seriesdetail.RecommendationsPort.
+type fakeFallbackRecsPort struct {
+	ids []domain.SeriesID
+	err error
+}
+
+func (f *fakeFallbackRecsPort) ListBySeries(_ context.Context, _ domain.SeriesID) ([]domain.SeriesID, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.ids, nil
+}
 
 // fakeOnDemandEnricher records EnqueueIfStale calls for assertion (Story 528).
 type fakeOnDemandEnricher struct {
@@ -177,4 +258,110 @@ func TestTMDBFallbackUseCase_OnDemandEnrich_NilEnricherSafe(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []enrichment.Source{enrichment.SourceTMDBSeries}, d.Degraded,
 		"nil enricher MUST NOT change the degraded slice (still stub)")
+}
+
+// ─── Story 532: GetOverview + GetRecommendations canon-only siblings ──
+
+func TestTMDBFallbackUseCase_GetOverview_StubReturnsCanonOnly(t *testing.T) {
+	t.Parallel()
+	awards := "Won 2 Emmys"
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationStub, OMDBAwards: &awards},
+		}},
+		SeriesTexts: &fakeFallbackTexts{out: func() series.SeriesText {
+			desc := "Краткое описание"
+			return series.SeriesText{Overview: &desc, Language: "ru-RU"}
+		}()},
+		Keywords: &fakeFallbackKeywords{
+			ids: []int64{1, 2},
+			byID: map[int64]taxonomy.Keyword{
+				1: {ID: 1, Name: "comedy", Language: "ru-RU"},
+				2: {ID: 2, Name: "sci-fi", Language: "ru-RU"},
+			},
+		},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	ov, err := uc.GetOverview(t.Context(), 8378, "ru-RU")
+	require.NoError(t, err)
+	assert.Equal(t, domain.SeriesID(8378), ov.SeriesID)
+	assert.Equal(t, domain.InstanceName(""), ov.Instance)
+	assert.Equal(t, "Краткое описание", ov.Description)
+	assert.Equal(t, "ru-RU", ov.DescriptionLanguage)
+	assert.Len(t, ov.Keywords, 2)
+	require.NotNil(t, ov.Awards)
+	assert.Equal(t, "Won 2 Emmys", *ov.Awards)
+	assert.Equal(t, []string{"tmdb_series"}, ov.Degraded)
+}
+
+func TestTMDBFallbackUseCase_GetOverview_UnknownIDReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{err: ports.ErrNotFound},
+		Logger: discardLogger(),
+	})
+	_, err := uc.GetOverview(t.Context(), 9999, "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ports.ErrNotFound)
+}
+
+func TestTMDBFallbackUseCase_GetOverview_NilOptionalPorts_StillReturnsCanon(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationStub},
+		}},
+		Logger: discardLogger(),
+	})
+	ov, err := uc.GetOverview(t.Context(), 8378, "")
+	require.NoError(t, err)
+	assert.Empty(t, ov.Description)
+	assert.Empty(t, ov.Keywords)
+	assert.Equal(t, []string{"tmdb_series"}, ov.Degraded)
+}
+
+func TestTMDBFallbackUseCase_GetRecommendations_StubReturnsItems(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationStub},
+			101:  {ID: 101},
+			102:  {ID: 102},
+		}},
+		Recommendations: &fakeFallbackRecsPort{ids: []domain.SeriesID{101, 102}},
+		Logger:          discardLogger(),
+	})
+	rec, err := uc.GetRecommendations(t.Context(), 8378, 20, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 2, rec.TotalCount)
+	assert.Len(t, rec.Items, 2)
+	assert.False(t, rec.HasMore)
+	assert.Equal(t, []string{"tmdb_series"}, rec.Degraded)
+}
+
+func TestTMDBFallbackUseCase_GetRecommendations_UnknownIDReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{err: ports.ErrNotFound},
+		Logger: discardLogger(),
+	})
+	_, err := uc.GetRecommendations(t.Context(), 9999, 20, 0)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ports.ErrNotFound)
+}
+
+func TestTMDBFallbackUseCase_GetRecommendations_NilRecsPortReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationStub},
+		}},
+		Logger: discardLogger(),
+	})
+	rec, err := uc.GetRecommendations(t.Context(), 8378, 20, 0)
+	require.NoError(t, err)
+	assert.Empty(t, rec.Items)
+	assert.Equal(t, 0, rec.TotalCount)
+	assert.Equal(t, []string{"tmdb_series"}, rec.Degraded)
 }
