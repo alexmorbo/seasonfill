@@ -17,12 +17,12 @@ const renderCard = (item: DiscoverySeriesItem) =>
   );
 
 describe('<DiscoverySeriesCard />', () => {
-  it('renders title, year and TMDB poster URL', () => {
+  it('renders title, year and mediaproxy poster URL', () => {
     renderCard(baseItem);
     expect(screen.getByText('Rick and Morty')).toBeInTheDocument();
     expect(screen.getByTestId('discovery-card-year').textContent).toBe('2013');
     const img = screen.getByTestId('discovery-poster-img') as HTMLImageElement;
-    expect(img.getAttribute('src')).toBe('https://image.tmdb.org/t/p/w342/abc.jpg');
+    expect(img.getAttribute('src')).toBe('/api/v1/media/%2Fabc.jpg');
     expect(img.getAttribute('loading')).toBe('lazy');
   });
 

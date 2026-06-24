@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { DiscoverySeriesItem } from '@/api/discovery';
+import { mediaUrl } from '@/api/series';
 import { cn } from '@/lib/utils';
 import { AddToSonarrButton } from './AddToSonarrButton';
 import { InLibraryBadge } from './InLibraryBadge';
-
-const TMDB_POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
 
 export interface DiscoverySeriesCardProps {
   readonly item: DiscoverySeriesItem;
@@ -13,11 +12,13 @@ export interface DiscoverySeriesCardProps {
 }
 
 // Story 514 / N-3b: poster card consumed by every discovery grid in
-// 515-517. Renders TMDB posters directly (poster_path is TMDB-shaped,
-// not a content-addressed sha256 — MediaImage doesn't apply here).
+// 515-517. Posters are proxied through the backend mediaproxy
+// (/api/v1/media/*) so RKN-blocked image.tmdb.org is reachable from
+// browsers off-VPN — the BE pod sits on the through-vpn node and
+// resolves the asset via cache → S3 → TMDB origin.
 export function DiscoverySeriesCard({ item, className }: DiscoverySeriesCardProps) {
   const [errored, setErrored] = useState(false);
-  const src = item.poster_path ? `${TMDB_POSTER_BASE}${item.poster_path}` : null;
+  const src = mediaUrl(item.poster_path);
   const showImg = Boolean(src) && !errored;
   const inLibrary = item.in_library_instances ?? [];
 

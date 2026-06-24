@@ -37,7 +37,7 @@ import "time"
 // at projection time from the series_genres × genres_i18n join. The
 // repo leaves it nil; the handler renders [] when empty.
 type DiscoverySeriesItem struct {
-	ID                 int64    `json:"id"`
+	ID                 int64    `json:"series_id"`
 	TMDBID             *int     `json:"tmdb_id,omitempty"`
 	TVDBID             *int     `json:"tvdb_id,omitempty"`
 	Title              string   `json:"title"`
