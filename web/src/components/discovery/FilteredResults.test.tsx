@@ -96,4 +96,17 @@ describe('<FilteredResults />', () => {
       expect(calls.some((u) => u.includes('page=2'))).toBe(true);
     });
   });
+
+  it('shows warming banner + skeleton on cold-start', async () => {
+    mockApi.mockResolvedValueOnce({
+      items: [], degraded: ['discovery_warming'],
+      warming_estimate_seconds: 20,
+    });
+    renderResults({ filter: { with_genres: [18] }, hasActiveFilter: true });
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-filtered-warming')).toBeInTheDocument());
+    expect(screen.getByTestId('discovery-warming-banner')).toHaveAttribute(
+      'data-kind', 'cold_start',
+    );
+  });
 });

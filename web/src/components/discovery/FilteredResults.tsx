@@ -1,12 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SlidersHorizontal } from 'lucide-react';
+import { toast } from 'sonner';
 import { useDiscover, type DiscoveryFilter } from '@/api/discovery';
+import { ApiError } from '@/lib/api';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { DiscoverySeriesCard } from './DiscoverySeriesCard';
+import { DiscoverSkeleton } from './DiscoverSkeleton';
+import { WarmingBanner } from './WarmingBanner';
+import { useDegradedPolling, degradedRefetchInterval } from './useDegradedPolling';
 
 const GRID_CLASS =
   'grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
@@ -20,12 +25,23 @@ export interface FilteredResultsProps {
 // "pick filters" prompt when nothing is selected. Pagination is a
 // local-state "page" overlay — not URL-synced — to avoid clobbering
 // deep links with stale page numbers.
+// Story 517 / N-3e adds warming banner + skeleton + 502 toast.
 export function FilteredResults({ filter, hasActiveFilter }: FilteredResultsProps) {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   // Local page wins over any URL `page`; resets when filter changes.
   const merged: DiscoveryFilter = { ...filter, page };
-  const q = useDiscover(merged, undefined, hasActiveFilter);
+  const q = useDiscover(merged, undefined, hasActiveFilter, degradedRefetchInterval);
+  const polling = useDegradedPolling(q.data);
+  const toastedRef = useRef(false);
+  useEffect(() => {
+    if (q.isError && q.error instanceof ApiError && q.error.status === 502
+      && !toastedRef.current) {
+      toastedRef.current = true;
+      toast.error(t('discovery.error.fetch_failed'));
+    }
+    if (!q.isError) toastedRef.current = false;
+  }, [q.isError, q.error, t]);
 
   if (!hasActiveFilter) {
     return (
@@ -53,6 +69,18 @@ export function FilteredResults({ filter, hasActiveFilter }: FilteredResultsProp
     );
   }
   const items = q.data?.items ?? [];
+  if (polling.isDegraded && items.length === 0) {
+    return (
+      <div className="space-y-3" data-testid="discovery-filtered-warming">
+        <WarmingBanner
+          kind={polling.degradedKind ?? 'cold_start'}
+          estimateSeconds={polling.estimateSeconds}
+          retryAfterSeconds={polling.retryAfterSeconds}
+        />
+        <DiscoverSkeleton testId="discovery-filtered-warming-skeleton" />
+      </div>
+    );
+  }
   if (items.length === 0) {
     return (
       <EmptyState
@@ -63,6 +91,13 @@ export function FilteredResults({ filter, hasActiveFilter }: FilteredResultsProp
   }
   return (
     <div className="space-y-4">
+      {polling.isDegraded && (
+        <WarmingBanner
+          kind={polling.degradedKind ?? 'cold_start'}
+          estimateSeconds={polling.estimateSeconds}
+          retryAfterSeconds={polling.retryAfterSeconds}
+        />
+      )}
       <div className={GRID_CLASS} data-testid="discovery-filtered-grid">
         {items.map((it) => <DiscoverySeriesCard key={it.series_id} item={it} />)}
       </div>

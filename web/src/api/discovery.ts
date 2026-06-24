@@ -1,4 +1,4 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useQuery, type Query, type UseQueryResult } from '@tanstack/react-query';
 import { ApiError, api } from '@/lib/api';
 
 // Story 513 / N-3a: hand-authored DTOs (handlers not yet in schema.ts).
@@ -71,9 +71,22 @@ const withLang = (qs: URLSearchParams, lang?: string) => {
 
 type ListResult = UseQueryResult<DiscoveryListResponse, ApiError>;
 
+// Story 517 / N-3e: `refetchInterval` lets call sites drive polling while
+// the backend reports a degraded slice. Callback form receives the latest
+// query so the interval can be derived from `degraded`/`retry_after_seconds`
+// on the same observer (no double-subscription). `false` (default) keeps
+// prior behaviour — single fetch + manual invalidation.
+export type DiscoveryQuery = Query<DiscoveryListResponse, ApiError>;
+export type RefetchInterval =
+  | number
+  | false
+  | ((q: DiscoveryQuery) => number | false | undefined);
+
 // Trending + Popular share the same shape; factor into one helper.
 function useDiscoveryList(
-  kind: 'trending' | 'popular', lang: string | undefined,
+  kind: 'trending' | 'popular',
+  lang: string | undefined,
+  refetchInterval: RefetchInterval,
 ): ListResult {
   const key = kind === 'trending'
     ? discoveryKeys.trending(lang ?? '') : discoveryKeys.popular(lang ?? '');
@@ -81,12 +94,21 @@ function useDiscoveryList(
     queryKey: key,
     queryFn: () => api<DiscoveryListResponse>(`/discovery/${kind}${langQs(lang)}`),
     staleTime: 60_000,
+    refetchInterval,
   });
 }
-export const useDiscoveryTrending = (lang?: string) => useDiscoveryList('trending', lang);
-export const useDiscoveryPopular = (lang?: string) => useDiscoveryList('popular', lang);
+export const useDiscoveryTrending = (
+  lang?: string, refetchInterval: RefetchInterval = false,
+) => useDiscoveryList('trending', lang, refetchInterval);
+export const useDiscoveryPopular = (
+  lang?: string, refetchInterval: RefetchInterval = false,
+) => useDiscoveryList('popular', lang, refetchInterval);
 
-export function useDiscoveryByGenre(genreId: number | undefined, lang?: string): ListResult {
+export function useDiscoveryByGenre(
+  genreId: number | undefined,
+  lang?: string,
+  refetchInterval: RefetchInterval = false,
+): ListResult {
   const enabled = typeof genreId === 'number' && genreId > 0;
   return useQuery<DiscoveryListResponse, ApiError>({
     queryKey: enabled
@@ -96,6 +118,7 @@ export function useDiscoveryByGenre(genreId: number | undefined, lang?: string):
       api<DiscoveryListResponse>(`/discovery/genre/${genreId}${langQs(lang)}`),
     enabled,
     staleTime: 60_000,
+    refetchInterval,
   });
 }
 
@@ -151,7 +174,10 @@ function buildDiscoverQs(f: DiscoveryFilter): URLSearchParams {
 }
 
 export function useDiscover(
-  filter: DiscoveryFilter, lang?: string, enabled = true,
+  filter: DiscoveryFilter,
+  lang?: string,
+  enabled = true,
+  refetchInterval: RefetchInterval = false,
 ): ListResult {
   return useQuery<DiscoveryListResponse, ApiError>({
     queryKey: discoveryKeys.discover(filter, lang ?? ''),
@@ -161,5 +187,6 @@ export function useDiscover(
     },
     enabled,
     staleTime: 30_000,
+    refetchInterval,
   });
 }

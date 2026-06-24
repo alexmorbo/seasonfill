@@ -69,4 +69,20 @@ describe('<PopularGrid />', () => {
     });
     expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument();
   });
+
+  it('shows warming banner + skeleton on cold-start', async () => {
+    mockApi.mockResolvedValueOnce({
+      items: [], degraded: ['discovery_warming'],
+      warming_estimate_seconds: 24, cache_status: 'warming',
+    });
+    renderGrid();
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-popular-warming')).toBeInTheDocument());
+    expect(screen.getByTestId('discovery-warming-banner')).toHaveAttribute(
+      'data-kind', 'cold_start',
+    );
+    expect(
+      screen.getByTestId('discovery-popular-warming-skeleton'),
+    ).toBeInTheDocument();
+  });
 });

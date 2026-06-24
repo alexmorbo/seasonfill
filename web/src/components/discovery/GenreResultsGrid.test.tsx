@@ -62,4 +62,17 @@ describe('<GenreResultsGrid />', () => {
     });
     expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument();
   });
+
+  it('shows warming banner + skeleton on cold-start', async () => {
+    mockApi.mockResolvedValueOnce({
+      items: [], degraded: ['discovery_warming'],
+      warming_estimate_seconds: 15,
+    });
+    renderGrid(18);
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-genre-warming')).toBeInTheDocument());
+    expect(screen.getByTestId('discovery-warming-banner')).toHaveAttribute(
+      'data-kind', 'cold_start',
+    );
+  });
 });

@@ -69,4 +69,33 @@ describe('<TrendingGrid />', () => {
     });
     expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument();
   });
+
+  it('shows warming banner + skeleton on cold-start', async () => {
+    mockApi.mockResolvedValueOnce({
+      items: [], degraded: ['discovery_warming'],
+      warming_estimate_seconds: 18, cache_status: 'warming',
+    });
+    renderGrid();
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-trending-warming')).toBeInTheDocument());
+    const banner = screen.getByTestId('discovery-warming-banner');
+    expect(banner).toHaveAttribute('data-kind', 'cold_start');
+    expect(banner.textContent).toMatch(/18/);
+    expect(
+      screen.getByTestId('discovery-trending-warming-skeleton'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows banner above grid when degraded but items present', async () => {
+    mockApi.mockResolvedValueOnce({
+      items: [{ series_id: 31, tmdb_id: 1, title: 'Rick and Morty', year: 2013,
+        poster_path: '/a.jpg', in_library_instances: [] }],
+      degraded: ['tmdb_throttled'], retry_after_seconds: 4,
+    });
+    renderGrid();
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-trending-grid')).toBeInTheDocument());
+    const banner = screen.getByTestId('discovery-warming-banner');
+    expect(banner).toHaveAttribute('data-kind', 'tmdb_throttled');
+  });
 });
