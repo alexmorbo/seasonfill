@@ -79,6 +79,10 @@ type SeriesDetailBundle struct {
 	PeopleHandler        *enrichrest.PeopleHandler
 	RefreshHandler       *enrichrest.SeriesRefreshHandler
 	PersonEnqueuerHolder *adapters.PersonEnqueuerHolder
+	// Story 528 — late-binding on-demand TMDB enrichment trigger for
+	// the TMDBFallback path. Holder no-ops until server.go's LATE BIND
+	// ZONE wires the dispatcher (matches PersonEnqueuerHolder).
+	OnDemandEnricherHolder *adapters.OnDemandEnricherHolder
 	// Story 491 / N-1a — global series surface.
 	GlobalComposerUC    *seriesdetail.GlobalComposerUseCase
 	TMDBFallbackUC      *seriesdetail.TMDBFallbackUseCase
@@ -293,6 +297,13 @@ func BuildSeriesDetail(
 	}
 	seriesRefreshHandler := enrichrest.NewSeriesRefreshHandler(seriesRefreshUC, log)
 
+	// Story 528 — on-demand enrichment holder for the TMDBFallback
+	// path. Holder owns a 30s in-memory throttle + 5min sweep goroutine
+	// (Close() drains the sweep on shutdown). server.go's LATE BIND
+	// ZONE calls Set(enrichBundle.Dispatcher) so the holder forwards
+	// PriorityHot enqueues once enrichment is up.
+	onDemandEnricherHolder := adapters.NewOnDemandEnricherHolder(log)
+
 	// Story 491 / N-1a — global series composer + handler. The
 	// TMDBFallback reads from the same canon series repo as the per-
 	// instance composer; the MediaResolver is shared (same pointer) so
@@ -300,6 +311,7 @@ func BuildSeriesDetail(
 	tmdbFallbackUC, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
 		Series:        sdSeriesRepo,
 		MediaResolver: mediaResolver,
+		Enricher:      onDemandEnricherHolder,
 		Logger:        composerLog,
 	})
 	if err != nil {
@@ -322,19 +334,20 @@ func BuildSeriesDetail(
 	)
 
 	return &SeriesDetailBundle{
-		MediaResolver:        mediaResolver,
-		Composer:             composer,
-		CastComposer:         castComposer,
-		PeopleUC:             peopleUC,
-		SeriesRefreshUC:      seriesRefreshUC,
-		DetailHandler:        detailHandler,
-		SeasonHandler:        seasonHandler,
-		CastHandler:          castHandler,
-		PeopleHandler:        peopleHandler,
-		RefreshHandler:       seriesRefreshHandler,
-		PersonEnqueuerHolder: peopleEnqueuerHolder,
-		GlobalComposerUC:     globalComposerUC,
-		TMDBFallbackUC:       tmdbFallbackUC,
-		GlobalSeriesHandler:  globalSeriesHandler,
+		MediaResolver:          mediaResolver,
+		Composer:               composer,
+		CastComposer:           castComposer,
+		PeopleUC:               peopleUC,
+		SeriesRefreshUC:        seriesRefreshUC,
+		DetailHandler:          detailHandler,
+		SeasonHandler:          seasonHandler,
+		CastHandler:            castHandler,
+		PeopleHandler:          peopleHandler,
+		RefreshHandler:         seriesRefreshHandler,
+		PersonEnqueuerHolder:   peopleEnqueuerHolder,
+		OnDemandEnricherHolder: onDemandEnricherHolder,
+		GlobalComposerUC:       globalComposerUC,
+		TMDBFallbackUC:         tmdbFallbackUC,
+		GlobalSeriesHandler:    globalSeriesHandler,
 	}, nil
 }

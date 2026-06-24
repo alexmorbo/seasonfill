@@ -390,6 +390,16 @@ func AddRecoverySweepEnqueued(kind string, n int) {
 	metrics.GetOrCreateCounter(`recovery_sweep_enqueued_total{kind="` + kind + `"}`).Add(n)
 }
 
+// IncOnDemandEnrich bumps the per-result on-demand enrichment counter
+// (Story 528). result ∈ {"enqueued","throttled","skipped_full",
+// "skipped_invalid_id","skipped_no_dispatcher","skipped_closed","panic"}
+// — closed label set; callers passing other values pollute cardinality.
+func IncOnDemandEnrich(result string) {
+	metrics.GetOrCreateCounter(
+		`seasonfill_seriesdetail_ondemand_enrich_total{result="` + result + `"}`,
+	).Inc()
+}
+
 // SetTMDBRateLimitInPause flips the 0/1 in-pause gauge (Story 313).
 // Pause entry → SetTMDBRateLimitInPause(true); resume → false.
 // A nil-resume (e.g. process death mid-pause) leaves the gauge at 1

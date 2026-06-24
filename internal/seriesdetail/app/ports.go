@@ -215,3 +215,24 @@ type SonarrQueueLister interface {
 // MediaHashLookupPort moved to internal/shared/media.HashLookupPort in
 // story 526 (shared MediaResolver extraction). The resolver type lives
 // in that package now; this file no longer re-declares the port.
+
+// OnDemandEnricher triggers a fire-and-forget enrichment enqueue for a
+// canonical series. Used by TMDBFallbackUseCase to lazily lift stub-row
+// detail pages on first user view (Story 528 / Bug 1 from backlog).
+//
+// Contract:
+//   - EnqueueIfStale MUST return immediately (no blocking I/O, no
+//     network calls). Implementations goroutine the actual dispatcher
+//     call internally.
+//   - hydration == series.HydrationFull → no-op (already enriched).
+//   - hydration != full → enqueue at PriorityHot (user-visible request
+//     is waiting on it).
+//   - Implementations SHOULD throttle duplicate enqueues per seriesID
+//     to avoid flooding the dispatcher when the SPA polls /series/{id}
+//     during the 5-30s enrichment window.
+//   - nil-OK seam: TMDBFallbackUseCase guards with `if uc.enricher != nil`,
+//     so the use case still functions when enrichment is disabled at
+//     boot (matches PersonEnqueuerHolder convention).
+type OnDemandEnricher interface {
+	EnqueueIfStale(seriesID domain.SeriesID, hydration series.Hydration)
+}

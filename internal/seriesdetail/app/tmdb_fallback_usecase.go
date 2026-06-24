@@ -35,8 +35,14 @@ import (
 type TMDBFallbackDeps struct {
 	Series        SeriesPort
 	MediaResolver *media.Resolver
-	Logger        *slog.Logger
-	Now           func() time.Time
+	// Enricher is the Story 528 nil-OK lazy on-demand trigger. When
+	// non-nil and the resolved canon row is stub-hydration, the use
+	// case fires a fire-and-forget enrichment enqueue so a subsequent
+	// SPA re-poll receives the hydrated row. nil keeps the UC working
+	// unchanged when the enrichment subsystem is disabled at boot.
+	Enricher OnDemandEnricher
+	Logger   *slog.Logger
+	Now      func() time.Time
 }
 
 // TMDBFallbackUseCase returns canon-only Details.
@@ -84,6 +90,14 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 	// enrichment worker fills the canon row.
 	if canon.Hydration != series.HydrationFull {
 		d.Degraded = []enrichment.Source{enrichment.SourceTMDBSeries}
+		// Story 528 — lazy on-demand enrichment trigger. Fires only for
+		// stub canon rows; the call is synchronous + non-blocking by
+		// contract (adapter goroutines the actual dispatcher Enqueue).
+		// nil-safe — UC continues to return canon-only Detail when
+		// enrichment is disabled at boot.
+		if u.d.Enricher != nil {
+			u.d.Enricher.EnqueueIfStale(seriesID, canon.Hydration)
+		}
 	}
 	// Media resolution: best-effort hero hash translation (same pattern as
 	// Composer.resolveAssets but synchronous-only — no recommendation /

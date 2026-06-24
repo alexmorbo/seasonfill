@@ -52,6 +52,9 @@ type Server struct {
 	persistence  *wiring.PersistenceBundle
 	watchdog     *wiring.WatchdogBundle
 	onReady      func(*runtime.Bus)
+	// Story 528 — retained so Shutdown can stop the throttle sweep
+	// goroutine. nil-safe (Close is idempotent).
+	onDemandEnricherHolder *adapters.OnDemandEnricherHolder
 }
 
 // New wires the server. The `armed` sentinel ensures bus.Close +
@@ -402,6 +405,14 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		peopleEnqueuerHolder.Set(enrichBundle.Dispatcher)
 	}
 
+	// Story 528 — dispatcher into the on-demand enricher holder so the
+	// TMDBFallbackUseCase can fire PriorityHot enrichment jobs when a
+	// user opens a stub-canon detail page (Bug 1: empty /series/{id}
+	// for Discovery-stubbed rows).
+	if enrichBundle != nil && enrichBundle.Dispatcher != nil && seriesDetailBundle.OnDemandEnricherHolder != nil {
+		seriesDetailBundle.OnDemandEnricherHolder.Set(enrichBundle.Dispatcher)
+	}
+
 	// Story 316 — enqueuer + on-demand fetcher onto the MediaResolver.
 	if enrichBundle != nil && seriesDetailMediaResolver != nil {
 		var mediaEnq media.Enqueuer
@@ -625,21 +636,22 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Disarm defers — Server owns bus + rootCancel until Shutdown.
 	armed = false
 	return &Server{
-		log:          log,
-		shutLog:      shutLog,
-		cfg:          cfg,
-		bus:          bus,
-		bgWG:         &bgWG,
-		lifecycle:    lifecycle,
-		rootCancel:   rootCancel,
-		httpServer:   httpServer,
-		scanUC:       scanUC,
-		scanRepo:     scanRepo,
-		enrichBundle: enrichBundle,
-		subSched:     subSched,
-		persistence:  persistence,
-		watchdog:     watchdogBundle,
-		onReady:      opts.OnReady,
+		log:                    log,
+		shutLog:                shutLog,
+		cfg:                    cfg,
+		bus:                    bus,
+		bgWG:                   &bgWG,
+		lifecycle:              lifecycle,
+		rootCancel:             rootCancel,
+		httpServer:             httpServer,
+		scanUC:                 scanUC,
+		scanRepo:               scanRepo,
+		enrichBundle:           enrichBundle,
+		subSched:               subSched,
+		persistence:            persistence,
+		watchdog:               watchdogBundle,
+		onReady:                opts.OnReady,
+		onDemandEnricherHolder: seriesDetailBundle.OnDemandEnricherHolder,
 	}, nil
 }
 
@@ -685,6 +697,11 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	}
 	if s.enrichBundle != nil && s.enrichBundle.MediaDownloader != nil {
 		s.enrichBundle.MediaDownloader.Close()
+	}
+	// Story 528 — stop the on-demand enricher throttle sweep goroutine.
+	// Idempotent + nil-safe.
+	if s.onDemandEnricherHolder != nil {
+		s.onDemandEnricherHolder.Close()
 	}
 
 	if cur := s.subSched.Current(); cur != nil {
