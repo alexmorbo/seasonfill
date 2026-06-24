@@ -768,6 +768,31 @@ export const ru: Translations = {
       rowAria: 'Открыть историю {{series}} {{season}} ({{count}} циклов)',
     },
   },
+  discovery: {
+    title: 'Обзор',
+    tabs: {
+      trending: 'Тренды',
+      popular: 'Популярное',
+      genres: 'Жанры',
+      filtered: 'Фильтр',
+    },
+    warming: {
+      cold_start: 'Загружаем рекомендации… ~{{seconds}}с',
+      tmdb: 'Подгружаем результаты, TMDB немного перегружен…',
+    },
+    search: {
+      placeholder: 'Найти сериал…',
+      no_results: 'Ничего не найдено по запросу «{{query}}»',
+    },
+    in_library: 'В библиотеке',
+    add_to_sonarr: 'Добавить в Sonarr',
+    error: {
+      fetch_failed: 'Не удалось загрузить. Попробуйте позже.',
+    },
+    stale: {
+      updated_ago: 'Обновлено {{time}} назад',
+    },
+  },
   grabs: {
     title: 'Захваты',
     subtitle: 'Релизы, отправленные в Sonarr.',

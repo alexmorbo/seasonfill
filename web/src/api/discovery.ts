@@ -1,0 +1,165 @@
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { ApiError, api } from '@/lib/api';
+
+// Story 513 / N-3a: hand-authored DTOs (handlers not yet in schema.ts).
+// Mirrors internal/shared/http/edge/server.go:285-301 contracts.
+
+export interface DiscoverySeriesItem {
+  readonly series_id: number;
+  readonly tmdb_id: number;
+  readonly title: string;
+  readonly year?: number;
+  readonly poster_path?: string;
+  readonly backdrop_path?: string;
+  readonly origin_countries?: readonly string[];
+  readonly genres?: readonly string[];
+  readonly in_library_instances?: readonly string[];
+}
+
+export type CacheStatus = 'hit' | 'miss' | 'warming' | 'stale';
+
+// Story 517 / N-3e consumes degraded/warming_*/retry_*; declared now for stable types.
+export interface DiscoveryListResponse {
+  readonly items: readonly DiscoverySeriesItem[];
+  readonly refreshed_at?: string;
+  readonly cache_status?: CacheStatus;
+  readonly degraded?: readonly string[];
+  readonly warming_estimate_seconds?: number;
+  readonly retry_after_seconds?: number;
+}
+
+export interface DiscoveryGenre { readonly id: number; readonly name: string }
+export interface DiscoveryNetwork {
+  readonly id: number; readonly name: string; readonly logo_path?: string;
+}
+export interface DiscoveryGenresResponse { readonly items: readonly DiscoveryGenre[] }
+export interface DiscoveryNetworksResponse { readonly items: readonly DiscoveryNetwork[] }
+
+export interface DiscoveryFilter {
+  readonly with_genres?: readonly number[];
+  readonly first_air_date_gte?: string;
+  readonly first_air_date_lte?: string;
+  readonly with_origin_country?: readonly string[];
+  readonly with_networks?: readonly number[];
+  readonly with_status?: readonly string[];
+  readonly with_type?: readonly string[];
+  readonly sort_by?: string;
+  readonly vote_average_gte?: number;
+  readonly vote_average_lte?: number;
+  readonly page?: number;
+}
+
+// Query keys — exported so 514-517 invalidate slices without string-guessing.
+export const discoveryKeys = {
+  trending: (lang: string) => ['discovery', 'trending', lang] as const,
+  popular: (lang: string) => ['discovery', 'popular', lang] as const,
+  byGenre: (id: number, lang: string) => ['discovery', 'genre', id, lang] as const,
+  byNetwork: (id: number, lang: string) => ['discovery', 'network', id, lang] as const,
+  byKeyword: (id: number, lang: string) => ['discovery', 'keyword', id, lang] as const,
+  genresList: () => ['discovery', 'genres-list'] as const,
+  networksList: () => ['discovery', 'networks-list'] as const,
+  search: (q: string, lang: string) => ['discovery', 'search', q, lang] as const,
+  discover: (f: DiscoveryFilter, lang: string) => ['discovery', 'discover', f, lang] as const,
+};
+
+const langQs = (lang?: string) => (lang ? `?lang=${encodeURIComponent(lang)}` : '');
+const withLang = (qs: URLSearchParams, lang?: string) => {
+  if (lang) qs.set('lang', lang);
+  const s = qs.toString();
+  return s ? `?${s}` : '';
+};
+
+type ListResult = UseQueryResult<DiscoveryListResponse, ApiError>;
+
+// Trending + Popular share the same shape; factor into one helper.
+function useDiscoveryList(
+  kind: 'trending' | 'popular', lang: string | undefined,
+): ListResult {
+  const key = kind === 'trending'
+    ? discoveryKeys.trending(lang ?? '') : discoveryKeys.popular(lang ?? '');
+  return useQuery<DiscoveryListResponse, ApiError>({
+    queryKey: key,
+    queryFn: () => api<DiscoveryListResponse>(`/discovery/${kind}${langQs(lang)}`),
+    staleTime: 60_000,
+  });
+}
+export const useDiscoveryTrending = (lang?: string) => useDiscoveryList('trending', lang);
+export const useDiscoveryPopular = (lang?: string) => useDiscoveryList('popular', lang);
+
+export function useDiscoveryByGenre(genreId: number | undefined, lang?: string): ListResult {
+  const enabled = typeof genreId === 'number' && genreId > 0;
+  return useQuery<DiscoveryListResponse, ApiError>({
+    queryKey: enabled
+      ? discoveryKeys.byGenre(genreId as number, lang ?? '')
+      : (['discovery', 'genre', 0, ''] as const),
+    queryFn: () =>
+      api<DiscoveryListResponse>(`/discovery/genre/${genreId}${langQs(lang)}`),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useDiscoveryGenresList(): UseQueryResult<DiscoveryGenresResponse, ApiError> {
+  return useQuery<DiscoveryGenresResponse, ApiError>({
+    queryKey: discoveryKeys.genresList(),
+    queryFn: () => api<DiscoveryGenresResponse>('/discovery/genres'),
+    staleTime: 24 * 60 * 60_000,
+  });
+}
+
+export function useDiscoveryNetworksList(): UseQueryResult<DiscoveryNetworksResponse, ApiError> {
+  return useQuery<DiscoveryNetworksResponse, ApiError>({
+    queryKey: discoveryKeys.networksList(),
+    queryFn: () => api<DiscoveryNetworksResponse>('/discovery/networks'),
+    staleTime: 24 * 60 * 60_000,
+  });
+}
+
+// Disabled when q empty / <2 chars so SearchBar (515) doesn't fire on stray keystrokes.
+export function useDiscoverySearch(q: string, enabled = true, lang?: string): ListResult {
+  const trimmed = q.trim();
+  const eff = enabled && trimmed.length >= 2;
+  return useQuery<DiscoveryListResponse, ApiError>({
+    queryKey: discoveryKeys.search(trimmed, lang ?? ''),
+    queryFn: () => {
+      const qs = new URLSearchParams({ q: trimmed });
+      return api<DiscoveryListResponse>(`/discovery/search${withLang(qs, lang)}`);
+    },
+    enabled: eff,
+    staleTime: 30_000,
+  });
+}
+
+function buildDiscoverQs(f: DiscoveryFilter): URLSearchParams {
+  const qs = new URLSearchParams();
+  const join = (k: string, v?: readonly (string | number)[]) =>
+    v?.length && qs.set(k, v.join(','));
+  join('with_genres', f.with_genres);
+  join('with_origin_country', f.with_origin_country);
+  join('with_networks', f.with_networks);
+  join('with_status', f.with_status);
+  join('with_type', f.with_type);
+  if (f.first_air_date_gte) qs.set('first_air_date_gte', f.first_air_date_gte);
+  if (f.first_air_date_lte) qs.set('first_air_date_lte', f.first_air_date_lte);
+  if (f.sort_by) qs.set('sort_by', f.sort_by);
+  if (typeof f.vote_average_gte === 'number')
+    qs.set('vote_average_gte', String(f.vote_average_gte));
+  if (typeof f.vote_average_lte === 'number')
+    qs.set('vote_average_lte', String(f.vote_average_lte));
+  if (typeof f.page === 'number') qs.set('page', String(f.page));
+  return qs;
+}
+
+export function useDiscover(
+  filter: DiscoveryFilter, lang?: string, enabled = true,
+): ListResult {
+  return useQuery<DiscoveryListResponse, ApiError>({
+    queryKey: discoveryKeys.discover(filter, lang ?? ''),
+    queryFn: () => {
+      const qs = buildDiscoverQs(filter);
+      return api<DiscoveryListResponse>(`/discovery/discover${withLang(qs, lang)}`);
+    },
+    enabled,
+    staleTime: 30_000,
+  });
+}

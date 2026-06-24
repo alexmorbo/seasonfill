@@ -763,6 +763,31 @@ export const en = {
       rowAria: 'Open history for {{series}} {{season}} ({{count}} cycles)',
     },
   },
+  discovery: {
+    title: 'Discover',
+    tabs: {
+      trending: 'Trending',
+      popular: 'Popular',
+      genres: 'Genres',
+      filtered: 'Filter',
+    },
+    warming: {
+      cold_start: 'Loading recommendations… ~{{seconds}}s',
+      tmdb: 'Loading results, TMDB is a bit busy…',
+    },
+    search: {
+      placeholder: 'Search shows…',
+      no_results: 'No matches for "{{query}}"',
+    },
+    in_library: 'In library',
+    add_to_sonarr: 'Add to Sonarr',
+    error: {
+      fetch_failed: 'Failed to load. Try again later.',
+    },
+    stale: {
+      updated_ago: 'Updated {{time}} ago',
+    },
+  },
   grabs: {
     title: 'Grabs',
     subtitle: 'Releases pushed to Sonarr.',
