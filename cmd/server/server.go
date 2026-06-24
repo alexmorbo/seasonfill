@@ -479,6 +479,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			discoPersistence.Stubs,
 			dispAdapter,
 			seriesDetailMediaResolver, // story 526 — shared MediaResolver
+			seriesCacheRepo,           // story 527 — in_library_instances batch lookup
 			sharedports.DomainLogger(log, "discovery"),
 		)
 	}
@@ -488,11 +489,12 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	var discoverBundle *wiring.DiscoveryDiscoverBundle
 	if discoRuntime != nil && enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		discoverBundle = wiring.BuildDiscoveryDiscover(wiring.DiscoveryDiscoverDeps{
-			TMDBClient: enrichBundle.TMDBHolder,
-			Stubs:      discoPersistence.Stubs,
-			Worker:     discoRuntime.Worker,
-			Resolver:   seriesDetailMediaResolver, // story 526 — shared MediaResolver
-			Log:        sharedports.DomainLogger(log, "discovery"),
+			TMDBClient:       enrichBundle.TMDBHolder,
+			Stubs:            discoPersistence.Stubs,
+			Worker:           discoRuntime.Worker,
+			Resolver:         seriesDetailMediaResolver, // story 526 — shared MediaResolver
+			LibraryInstances: seriesCacheRepo,           // story 527 — in_library_instances batch lookup
+			Log:              sharedports.DomainLogger(log, "discovery"),
 		})
 		if discoveryHTTPBundle != nil {
 			discoveryHTTPBundle.DiscoverHandler = discoverBundle.Handler

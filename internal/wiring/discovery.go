@@ -177,6 +177,49 @@ func (a *stubUpserterAdapter) EnsureStub(
 	return a.seriesRepo.UpsertStub(ctx, canon)
 }
 
+// libraryInstancesAdapter bridges catalog SeriesCacheRepository to the
+// narrow discoapp.LibraryInstancesPort. Same precedent as
+// stubUpserterAdapter — wiring is the only package allowed to bridge
+// across the discovery → catalog boundary (PRD §3.3 vertical slice).
+//
+// The adapter unwraps the typed []domain.InstanceName slice to a
+// []string per the discoapp port contract, so handlers don't carry a
+// catalog domain import.
+type libraryInstancesAdapter struct {
+	cache catalogLibraryInstancesReader
+}
+
+// catalogLibraryInstancesReader is the minimal SeriesCacheRepository
+// surface the adapter reads through. Declared inline so the adapter
+// stays testable with a hand-rolled stub without spinning a Postgres
+// container — every wiring-level unit test that exercises the
+// constructor uses this seam.
+type catalogLibraryInstancesReader interface {
+	GetInstancesBySeriesIDs(ctx context.Context, seriesIDs []shareddomain.SeriesID) (map[shareddomain.SeriesID][]shareddomain.InstanceName, error)
+}
+
+func (a *libraryInstancesAdapter) ListByCanonicalSeriesIDs(
+	ctx context.Context,
+	ids []shareddomain.SeriesID,
+) (map[shareddomain.SeriesID][]string, error) {
+	if len(ids) == 0 {
+		return map[shareddomain.SeriesID][]string{}, nil
+	}
+	raw, err := a.cache.GetInstancesBySeriesIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("library instances adapter: %w", err)
+	}
+	out := make(map[shareddomain.SeriesID][]string, len(raw))
+	for sid, instances := range raw {
+		strs := make([]string, 0, len(instances))
+		for _, in := range instances {
+			strs = append(strs, string(in))
+		}
+		out[sid] = strs
+	}
+	return out, nil
+}
+
 // DiscoveryHTTPBundle groups the HTTP-layer wiring for story 507 +
 // 508 (SearchUC) + story 509 (DiscoverHandler) + story 520 (N-4c
 // AddToSonarr).
@@ -206,6 +249,12 @@ type DiscoveryHTTPBundle struct {
 // hashes. Nil-OK (legacy raw-path behavior). Wiring threads the same
 // instance the seriesdetail composers hold so cache slots are shared.
 //
+// libraryInstances — story 527 (Bug 2 fix). Optional catalog
+// SeriesCacheRepository surface used by projectItem to populate
+// DiscoverySeriesItem.InLibraryInstances. Nil-OK: when nil, the slice
+// ships as []string{} for every item (legacy pre-527 behavior — UX
+// regresses to "+ Add to Sonarr always visible", never panics).
+//
 // log MUST already carry the "discovery" domain tag.
 func BuildDiscoveryHTTP(
 	persistence *PersistenceBundle,
@@ -215,6 +264,7 @@ func BuildDiscoveryHTTP(
 	stubs discoapp.StubUpserter,
 	dispatcher discoapp.EnrichmentDispatcher,
 	resolver *media.Resolver,
+	libraryInstances catalogLibraryInstancesReader,
 	log *slog.Logger,
 ) *DiscoveryHTTPBundle {
 	genres := discopersistence.NewGenresPickerRepo(persistence.DB)
@@ -226,6 +276,11 @@ func BuildDiscoveryHTTP(
 		searchUC = discoapp.NewSearchUseCase(searchRepo, tmdb, stubs, dispatcher, log)
 	}
 
+	var libPort discoapp.LibraryInstancesPort
+	if libraryInstances != nil {
+		libPort = &libraryInstancesAdapter{cache: libraryInstances}
+	}
+
 	h := discoveryrest.NewDiscoveryHandler(
 		listRepo,
 		runtime.Worker, // satisfies WarmingProbe
@@ -234,6 +289,7 @@ func BuildDiscoveryHTTP(
 		networks,
 		searchUC, // nil-OK; handler returns 503 search_unavailable
 		resolver, // nil-OK; raw TMDB paths flow through unchanged
+		libPort,  // nil-OK; in_library_instances stays []string{}
 		log,
 	)
 	return &DiscoveryHTTPBundle{
@@ -297,7 +353,11 @@ type DiscoveryDiscoverDeps struct {
 	// TMDB paths to sha256 wire hashes (same projection contract as
 	// the curated endpoints). Nil-OK.
 	Resolver *media.Resolver
-	Log      *slog.Logger
+	// LibraryInstances — story 527. Optional catalog surface used by
+	// DiscoverHandler's projectSearchItems loop to populate
+	// in_library_instances. Nil-OK (legacy pre-527 behavior).
+	LibraryInstances catalogLibraryInstancesReader
+	Log              *slog.Logger
 }
 
 // BuildDiscoveryDiscover wires the LRU + passthrough + bg fetcher +
@@ -321,7 +381,13 @@ func BuildDiscoveryDiscover(deps DiscoveryDiscoverDeps) *DiscoveryDiscoverBundle
 	lru := cachewatch.New[string, []disco.Item]("discover", 1000, 1*time.Hour, sizer)
 	pass := discoapp.NewTMDBPassthrough(deps.TMDBClient, deps.Stubs, deps.Log)
 	bg := discoapp.NewBgFetcher(lru, pass, deps.Log)
-	handler := discoveryrest.NewDiscoverHandler(lru, pass, bg, deps.Worker, deps.Resolver, deps.Log)
+
+	var libPort discoapp.LibraryInstancesPort
+	if deps.LibraryInstances != nil {
+		libPort = &libraryInstancesAdapter{cache: deps.LibraryInstances}
+	}
+
+	handler := discoveryrest.NewDiscoverHandler(lru, pass, bg, deps.Worker, deps.Resolver, libPort, deps.Log)
 	return &DiscoveryDiscoverBundle{
 		Handler:   handler,
 		BgFetcher: bg,

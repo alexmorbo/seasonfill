@@ -86,7 +86,7 @@ func mountSearchEndpoint(t *testing.T, uc *discoapp.SearchUseCase) *gin.Engine {
 		searchStubRefresh{},
 		persistence.NewGenresPickerRepo(nil),
 		persistence.NewNetworksPickerRepo(nil),
-		uc, nil, log,
+		uc, nil, nil, log,
 	)
 	r := gin.New()
 	r.GET("/discovery/search", h.Search)

@@ -1413,3 +1413,80 @@ func TestSeriesCacheRepository_GetInstancesBySeriesID(t *testing.T) {
 		})
 	}
 }
+
+// Story 527: GetInstancesBySeriesIDs is the batch sibling — returns
+// the sorted, distinct active instance names per series id in ONE
+// query. Verifies:
+//   - empty input → empty (non-nil) map, no SQL run
+//   - mixed input (valid + invalid ids) → only valid keys returned
+//   - 2-id batch → both keys populated with sorted instance slices
+//   - soft-deleted row excluded
+//   - id with no cache rows → key absent from map (not present-but-empty)
+func TestSeriesCacheRepository_GetInstancesBySeriesIDs(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			ctx := context.Background()
+
+			// Seed two canon-shared rows (alpha + beta) + one isolated (gamma).
+			sharedTVDB := domain.TVDBID(880001)
+			sharedTMDB := domain.TMDBID(880002)
+			sharedIMDB := domain.IMDBID("tt8800001")
+			alphaEntry := sampleEntry("alpha", 31)
+			alphaEntry.TVDBID = &sharedTVDB
+			alphaEntry.TMDBID = &sharedTMDB
+			alphaEntry.IMDBID = &sharedIMDB
+			betaEntry := sampleEntry("beta", 41)
+			betaEntry.TVDBID = &sharedTVDB
+			betaEntry.TMDBID = &sharedTMDB
+			betaEntry.IMDBID = &sharedIMDB
+			gammaEntry := sampleEntry("gamma", 51)
+
+			require.NoError(t, repo.Upsert(ctx, alphaEntry))
+			require.NoError(t, repo.Upsert(ctx, betaEntry))
+			require.NoError(t, repo.Upsert(ctx, gammaEntry))
+
+			alphaGot, err := repo.Get(ctx, "alpha", 31)
+			require.NoError(t, err)
+			require.NotNil(t, alphaGot.SeriesID)
+			sharedID := *alphaGot.SeriesID
+
+			gammaGot, err := repo.Get(ctx, "gamma", 51)
+			require.NoError(t, err)
+			require.NotNil(t, gammaGot.SeriesID)
+			gammaID := *gammaGot.SeriesID
+
+			// Case 1: empty input → empty (non-nil) map, no SQL.
+			got, err := repo.GetInstancesBySeriesIDs(ctx, nil)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Empty(t, got)
+
+			// Case 2: batch with valid + bogus + zero ids.
+			got, err = repo.GetInstancesBySeriesIDs(ctx, []domain.SeriesID{
+				sharedID, gammaID, 999999, 0, -1,
+			})
+			require.NoError(t, err)
+			assert.Len(t, got, 2, "only the 2 valid ids with rows must populate")
+			assert.Equal(t, []domain.InstanceName{"alpha", "beta"}, got[sharedID])
+			assert.Equal(t, []domain.InstanceName{"gamma"}, got[gammaID])
+			_, has := got[999999]
+			assert.False(t, has, "missing id MUST be absent from map")
+
+			// Case 3: soft-delete excludes the row.
+			require.NoError(t, repo.SoftDelete(ctx, "alpha", 31))
+			got, err = repo.GetInstancesBySeriesIDs(ctx, []domain.SeriesID{sharedID})
+			require.NoError(t, err)
+			assert.Equal(t, []domain.InstanceName{"beta"}, got[sharedID])
+
+			// Case 4: only-invalid input → empty map, no SQL.
+			got, err = repo.GetInstancesBySeriesIDs(ctx, []domain.SeriesID{0, -1})
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Empty(t, got)
+		})
+	}
+}

@@ -120,6 +120,14 @@ func newTestHandler(t *testing.T, repo discoapp.DiscoveryListRepo,
 	warming discoapp.WarmingProbe, refresh discoapp.RefreshOnDemand,
 ) *gin.Engine {
 	t.Helper()
+	return newTestHandlerWithLib(t, repo, warming, refresh, nil)
+}
+
+func newTestHandlerWithLib(t *testing.T, repo discoapp.DiscoveryListRepo,
+	warming discoapp.WarmingProbe, refresh discoapp.RefreshOnDemand,
+	lib discoapp.LibraryInstancesPort,
+) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := discoveryrest.NewDiscoveryHandler(
@@ -130,6 +138,7 @@ func newTestHandler(t *testing.T, repo discoapp.DiscoveryListRepo,
 		persistence.NewNetworksPickerRepo(nil),
 		nil, // searchUC — story 508; nil-OK for curated-endpoint tests
 		nil, // resolver — story 526; nil-OK (raw TMDB paths flow unchanged)
+		lib, // libraryInstances — story 527; nil-OK
 		log,
 	)
 	r := gin.New()
@@ -139,6 +148,26 @@ func newTestHandler(t *testing.T, repo discoapp.DiscoveryListRepo,
 	r.GET("/discovery/network/:id", h.ByNetwork)
 	r.GET("/discovery/keyword/:id", h.ByKeyword)
 	return r
+}
+
+// fakeLibraryInstances implements discoapp.LibraryInstancesPort.
+// Records calls + returns a canned map. err overrides the success
+// path; if err != nil ListBy returns the error.
+type fakeLibraryInstances struct {
+	mu     sync.Mutex
+	calls  int
+	result map[shareddomain.SeriesID][]string
+	err    error
+}
+
+func (f *fakeLibraryInstances) ListByCanonicalSeriesIDs(_ context.Context, _ []shareddomain.SeriesID) (map[shareddomain.SeriesID][]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.result, nil
 }
 
 func seedSeries(repo *fakeRepo, kind disco.Kind, param, lang string, n int) {
@@ -465,5 +494,76 @@ func TestLongTail_InvalidID_400(t *testing.T) {
 		req := httptest.NewRequestWithContext(t.Context(), "GET", path, nil)
 		r.ServeHTTP(rec, req)
 		require.Equal(t, http.StatusBadRequest, rec.Code, path)
+	}
+}
+
+// Story 527: with libraryInstances wired, projectItem populates
+// in_library_instances from the batched lookup result.
+func TestTrending_InLibraryInstances_Populated(t *testing.T) {
+	repo := newFakeRepo()
+	seedSeries(repo, disco.KindTrendingDay, "", "en-US", 3)
+	lib := &fakeLibraryInstances{
+		result: map[shareddomain.SeriesID][]string{
+			1: {"homelab"},
+			2: {"alpha", "beta"},
+			// 3: absent → must render []
+		},
+	}
+	r := newTestHandlerWithLib(t, repo, &fakeWarming{}, &fakeRefresh{}, lib)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET",
+		"/discovery/trending?scope=day&lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp discoveryrest.DiscoveryListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 3)
+	require.Equal(t, []string{"homelab"}, resp.Items[0].InLibraryInstances)
+	require.Equal(t, []string{"alpha", "beta"}, resp.Items[1].InLibraryInstances)
+	require.Equal(t, []string{}, resp.Items[2].InLibraryInstances)
+
+	lib.mu.Lock()
+	calls := lib.calls
+	lib.mu.Unlock()
+	require.Equal(t, 1, calls, "MUST be one batched lookup per response (no N+1)")
+}
+
+// Story 527: nil port keeps the legacy []string{} shape — no panic,
+// no SQL, no warn log.
+func TestTrending_InLibrary_NilPort_LegacyShape(t *testing.T) {
+	repo := newFakeRepo()
+	seedSeries(repo, disco.KindTrendingDay, "", "en-US", 2)
+	r := newTestHandlerWithLib(t, repo, &fakeWarming{}, &fakeRefresh{}, nil)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET",
+		"/discovery/trending?scope=day&lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp discoveryrest.DiscoveryListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 2)
+	for _, it := range resp.Items {
+		require.Equal(t, []string{}, it.InLibraryInstances,
+			"nil port MUST keep legacy []string{} shape")
+	}
+}
+
+// Story 527: port error → 200 with legacy []string{} shape (graceful
+// degrade). The bug regresses to "+ Add to Sonarr always visible"
+// but the request MUST NOT 500.
+func TestTrending_InLibrary_PortError_GracefulDegrade(t *testing.T) {
+	repo := newFakeRepo()
+	seedSeries(repo, disco.KindTrendingDay, "", "en-US", 2)
+	lib := &fakeLibraryInstances{err: errors.New("db down")}
+	r := newTestHandlerWithLib(t, repo, &fakeWarming{}, &fakeRefresh{}, lib)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET",
+		"/discovery/trending?scope=day&lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, "MUST NOT 500 on port error")
+	var resp discoveryrest.DiscoveryListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	for _, it := range resp.Items {
+		require.Equal(t, []string{}, it.InLibraryInstances)
 	}
 }

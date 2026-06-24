@@ -41,6 +41,9 @@ func (f *refreshFakeCache) ListDistinctNetworks(_ context.Context, _ domain.Inst
 func (f *refreshFakeCache) GetInstancesBySeriesID(_ context.Context, _ domain.SeriesID) ([]domain.InstanceName, error) {
 	return nil, nil
 }
+func (f *refreshFakeCache) GetInstancesBySeriesIDs(_ context.Context, _ []domain.SeriesID) (map[domain.SeriesID][]domain.InstanceName, error) {
+	return map[domain.SeriesID][]domain.InstanceName{}, nil
+}
 func (f *refreshFakeCache) ListBySeriesID(_ context.Context, _ domain.SeriesID) ([]series.CacheEntry, error) {
 	return nil, nil
 }

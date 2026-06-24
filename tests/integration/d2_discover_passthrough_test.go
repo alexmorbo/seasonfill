@@ -82,7 +82,7 @@ func TestD2_DiscoverPassthrough_CacheHitAcrossRequests(t *testing.T) {
 	bgDone := make(chan struct{})
 	go func() { defer close(bgDone); _ = bg.RunWorker(ctx) }()
 
-	h := discoveryrest.NewDiscoverHandler(lru, pass, bg, stubWarming{}, nil, log)
+	h := discoveryrest.NewDiscoverHandler(lru, pass, bg, stubWarming{}, nil, nil, log)
 	r := gin.New()
 	r.GET("/discovery/discover", h.Handle)
 

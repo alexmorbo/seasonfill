@@ -100,6 +100,7 @@ func newSearchHandler(t *testing.T, repo discoapp.SearchRepo, tm discoapp.Search
 		persistence.NewNetworksPickerRepo(nil),
 		uc,
 		nil, // resolver — story 526; nil-OK
+		nil, // libraryInstances — story 527; nil-OK
 		log,
 	)
 	r := gin.New()
@@ -237,7 +238,7 @@ func TestSearch_SearchUCNotWired_503(t *testing.T) {
 		newFakeRepo(), &fakeWarming{}, &fakeRefresh{},
 		persistence.NewGenresPickerRepo(nil),
 		persistence.NewNetworksPickerRepo(nil),
-		nil, nil, log,
+		nil, nil, nil, log,
 	)
 	r := gin.New()
 	r.GET("/discovery/search", h.Search)

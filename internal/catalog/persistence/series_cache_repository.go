@@ -321,6 +321,64 @@ func (r *SeriesCacheRepository) GetInstancesBySeriesID(ctx context.Context, seri
 	return rows, nil
 }
 
+// GetInstancesBySeriesIDs is the batch sibling of GetInstancesBySeriesID,
+// returning the sorted distinct active instance names for every id in
+// one query. Soft-deleted rows excluded.
+//
+// Empty input slice short-circuits before any SQL and returns an empty
+// (non-nil) map. Invalid ids (≤0) are skipped at the SQL level — they
+// can never have a series_cache row. Caller-side validation can rely on
+// "missing key in returned map" === "no active library instance".
+//
+// Used by the discovery handler page-projection loop to populate the
+// DiscoverySeriesItem.InLibraryInstances slice in one round-trip per
+// response, regardless of page size (avoids N+1 across 20-100 items).
+//
+// Portable across SQLite + Postgres: WHERE IN + ORDER BY without
+// array_agg. The (series_id, instance_name) ordering combined with the
+// stream-merge below means callers see deterministic instance ordering
+// per id.
+func (r *SeriesCacheRepository) GetInstancesBySeriesIDs(
+	ctx context.Context,
+	seriesIDs []domain.SeriesID,
+) (map[domain.SeriesID][]domain.InstanceName, error) {
+	out := make(map[domain.SeriesID][]domain.InstanceName, len(seriesIDs))
+	if len(seriesIDs) == 0 {
+		return out, nil
+	}
+	// Filter out invalid ids before issuing SQL — the single-id sibling
+	// returns an error on ≤0, but for the batch path silently dropping
+	// invalid ids is the right shape: callers feeding mixed slices
+	// shouldn't lose the valid lookups to one malformed entry.
+	clean := make([]domain.SeriesID, 0, len(seriesIDs))
+	for _, id := range seriesIDs {
+		if id > 0 {
+			clean = append(clean, id)
+		}
+	}
+	if len(clean) == 0 {
+		return out, nil
+	}
+	type row struct {
+		SeriesID     domain.SeriesID     `gorm:"column:series_id"`
+		InstanceName domain.InstanceName `gorm:"column:instance_name"`
+	}
+	var rows []row
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Table("series_cache").
+		Select("DISTINCT series_id, instance_name").
+		Where("series_id IN ? AND deleted_at IS NULL", clean).
+		Order("series_id ASC, instance_name ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("get instances by series_ids: %w", err)
+	}
+	for _, r := range rows {
+		out[r.SeriesID] = append(out[r.SeriesID], r.InstanceName)
+	}
+	return out, nil
+}
+
 func (r *SeriesCacheRepository) ListActiveByInstance(ctx context.Context, instanceName domain.InstanceName) ([]series.CacheEntry, error) {
 	var rows []cacheRow
 	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).

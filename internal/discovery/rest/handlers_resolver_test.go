@@ -91,6 +91,7 @@ func TestDiscoveryHandler_ResolvesPosterPath(t *testing.T) {
 		persistence.NewNetworksPickerRepo(nil),
 		nil,      // searchUC
 		resolver, // story 526
+		nil,      // libraryInstances — story 527
 		log,
 	)
 	r := gin.New()
@@ -154,6 +155,7 @@ func TestDiscoveryHandler_NoResolver_LegacyRawPath(t *testing.T) {
 		persistence.NewNetworksPickerRepo(nil),
 		nil, // searchUC
 		nil, // resolver — story 526 nil-OK
+		nil, // libraryInstances — story 527 nil-OK
 		log,
 	)
 	r := gin.New()

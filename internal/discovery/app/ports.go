@@ -85,3 +85,27 @@ type WarmingProbe interface {
 type RefreshOnDemand interface {
 	RefreshNow(ctx context.Context, kind disco.Kind, param, lang string) error
 }
+
+// LibraryInstancesPort is the narrow read-only contract that handlers
+// use to surface DiscoverySeriesItem.InLibraryInstances. The discovery
+// projection runs over the canon series_id keyspace; the implementation
+// fans those ids out into one batched series_cache lookup per response.
+//
+// Contract:
+//   - Input: a (possibly empty) slice of canonical series ids.
+//   - Output: map keyed on the input id, value = sorted distinct
+//     non-empty instance name slice, soft-deleted rows excluded.
+//   - Missing entries: an input id with zero active cache rows MAY
+//     be omitted from the result OR mapped to []string{}. Both
+//     shapes encode the same UX intent ("not in any library").
+//   - Empty input slice: implementations MUST short-circuit before
+//     issuing any SQL and return an empty (non-nil) map.
+//   - Concurrency: callers MAY invoke this concurrently — discovery
+//     handlers serve goroutines per request.
+//
+// Implementation: wiring/discovery.go libraryInstancesAdapter bridges
+// catalog SeriesCacheRepository.GetInstancesBySeriesIDs into this port.
+// Discovery never imports catalog directly (PRD §3.3 vertical slice).
+type LibraryInstancesPort interface {
+	ListByCanonicalSeriesIDs(ctx context.Context, ids []shareddomain.SeriesID) (map[shareddomain.SeriesID][]string, error)
+}

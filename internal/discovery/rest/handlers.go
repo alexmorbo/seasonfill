@@ -42,6 +42,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	"github.com/alexmorbo/seasonfill/internal/discovery/persistence"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
@@ -86,7 +87,14 @@ type DiscoveryHandler struct {
 	// seriesdetail composers use so cold-start cache hydration covers
 	// the discovery slot too.
 	resolver *media.Resolver
-	log      *slog.Logger
+	// libraryInstances — story 527 (Bug 2 fix). Populates per-item
+	// DiscoverySeriesItem.InLibraryInstances by issuing one batched
+	// lookup per response over the page's canonical series ids.
+	// Nil-OK: when nil, the slice ships as []string{} for every item
+	// (legacy pre-527 behavior — UX regresses to "+ Add to Sonarr
+	// always visible", never panics).
+	libraryInstances app.LibraryInstancesPort
+	log              *slog.Logger
 
 	// sfGroup collapses concurrent cold-cache on-demand refresh calls
 	// onto a single TMDB fetch. Key: kind|param|lang. The shared
@@ -110,6 +118,7 @@ func NewDiscoveryHandler(
 	networks *persistence.NetworksPickerRepo,
 	searchUC *app.SearchUseCase,
 	resolver *media.Resolver,
+	libraryInstances app.LibraryInstancesPort,
 	log *slog.Logger,
 ) *DiscoveryHandler {
 	switch {
@@ -127,14 +136,15 @@ func NewDiscoveryHandler(
 		panic("discovery handler: log required")
 	}
 	return &DiscoveryHandler{
-		repo:     repo,
-		warming:  warming,
-		refresh:  refresh,
-		genres:   genres,
-		networks: networks,
-		search:   searchUC, // nil-OK
-		resolver: resolver, // nil-OK
-		log:      log,
+		repo:             repo,
+		warming:          warming,
+		refresh:          refresh,
+		genres:           genres,
+		networks:         networks,
+		search:           searchUC,         // nil-OK
+		resolver:         resolver,         // nil-OK
+		libraryInstances: libraryInstances, // nil-OK
+		log:              log,
 	}
 }
 
@@ -398,8 +408,9 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 		return
 	}
 	if len(localItems) > 0 {
+		inLib := h.resolveInLibrary(ctx, localItems)
 		c.JSON(http.StatusOK, gin.H{
-			"items":  projectSearchItems(ctx, localItems, h.resolver),
+			"items":  projectSearchItems(ctx, localItems, h.resolver, inLib),
 			"source": "local",
 		})
 		return
@@ -411,8 +422,9 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 			"tmdb fallback failed")
 		return
 	}
+	inLib := h.resolveInLibrary(ctx, tmdbItems)
 	c.JSON(http.StatusOK, gin.H{
-		"items":  projectSearchItems(ctx, tmdbItems, h.resolver),
+		"items":  projectSearchItems(ctx, tmdbItems, h.resolver, inLib),
 		"source": "tmdb",
 	})
 }
@@ -424,10 +436,15 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 // translated into sha256 wire hashes that the FE serves via
 // /api/v1/media/:hash. Nil resolver preserves the legacy raw-path
 // behavior.
-func projectSearchItems(ctx context.Context, items []disco.Item, resolver *media.Resolver) []DiscoverySeriesItem {
+func projectSearchItems(
+	ctx context.Context,
+	items []disco.Item,
+	resolver *media.Resolver,
+	inLibrary map[shareddomain.SeriesID][]string,
+) []DiscoverySeriesItem {
 	out := make([]DiscoverySeriesItem, 0, len(items))
 	for _, it := range items {
-		out = append(out, projectItem(ctx, it, resolver))
+		out = append(out, projectItem(ctx, it, resolver, inLibrary))
 	}
 	return out
 }
@@ -488,9 +505,10 @@ func (h *DiscoveryHandler) readAndProject(
 		return nil, err
 	}
 
+	inLib := h.resolveInLibrary(ctx, pg.Items)
 	items := make([]DiscoverySeriesItem, 0, len(pg.Items))
 	for _, it := range pg.Items {
-		items = append(items, projectItem(ctx, it, h.resolver))
+		items = append(items, projectItem(ctx, it, h.resolver, inLib))
 	}
 	resp := &DiscoveryListResponse{
 		Items:       items,
@@ -515,8 +533,10 @@ func (h *DiscoveryHandler) readAndProject(
 // (N-4 unblock) so the FE AddToSonarr modal can submit straight from
 // the list response.
 //
-// InLibraryInstances ships as an empty []string{} until N-2g wires
-// the cross-instance lookup (PRD §5.1 line 493 invariant).
+// InLibraryInstances (story 527): when inLibrary is non-nil and the
+// map carries the item's SeriesID, the wire field renders the sorted
+// instance slug list (matches the existing Sonarr-instance naming).
+// Otherwise []string{} — same shape as pre-527.
 //
 // Story 526 — when resolver is non-nil, PosterPath / BackdropPath are
 // translated from raw TMDB paths into sha256 wire hashes by routing
@@ -526,7 +546,12 @@ func (h *DiscoveryHandler) readAndProject(
 // for the eventual /series/{id} click-through. Nil resolver leaves
 // the raw path untouched (legacy behavior — matches the pre-526
 // projection contract verbatim).
-func projectItem(ctx context.Context, it disco.Item, resolver *media.Resolver) DiscoverySeriesItem {
+func projectItem(
+	ctx context.Context,
+	it disco.Item,
+	resolver *media.Resolver,
+	inLibrary map[shareddomain.SeriesID][]string,
+) DiscoverySeriesItem {
 	posterPath := it.PosterPath
 	backdropPath := it.BackdropPath
 	if resolver != nil {
@@ -544,6 +569,12 @@ func projectItem(ctx context.Context, it disco.Item, resolver *media.Resolver) D
 			backdropPath = hash
 		}
 	}
+	instances := []string{}
+	if inLibrary != nil {
+		if hit, ok := inLibrary[it.SeriesID]; ok && len(hit) > 0 {
+			instances = append(instances, hit...)
+		}
+	}
 	out := DiscoverySeriesItem{
 		ID:                 int64(it.SeriesID),
 		Title:              it.Title,
@@ -551,7 +582,7 @@ func projectItem(ctx context.Context, it disco.Item, resolver *media.Resolver) D
 		PosterPath:         posterPath,
 		BackdropPath:       backdropPath,
 		OriginalLanguage:   it.OriginalLanguage,
-		InLibraryInstances: []string{},
+		InLibraryInstances: instances,
 	}
 	if it.TMDBID != nil {
 		v := int(*it.TMDBID)
@@ -565,6 +596,43 @@ func projectItem(ctx context.Context, it disco.Item, resolver *media.Resolver) D
 		out.Genres = append(out.Genres, it.Genres...)
 	}
 	return out
+}
+
+// resolveInLibrary issues one batched cross-instance lookup for the
+// page items and returns a map keyed on series id. The caller threads
+// the map into projectItem so the projection loop stays O(N) over the
+// page without per-item SQL.
+//
+// Failure modes:
+//   - nil port (tests, wiring race) → returns nil; projectItem keeps
+//     []string{} per the existing wire contract.
+//   - port error → logs a single Warn (domain="discovery") and returns
+//     nil; UX regresses to "+ Add to Sonarr always visible" but the
+//     request never 500s. The hardcoded-empty path is the same shape
+//     as the pre-527 behavior, so the regression is invisible to the
+//     FE's nil-guard at DiscoverySeriesCard.tsx:23.
+//   - empty page (len(items)==0) → returns nil (no SQL).
+func (h *DiscoveryHandler) resolveInLibrary(ctx context.Context, items []disco.Item) map[shareddomain.SeriesID][]string {
+	if h.libraryInstances == nil || len(items) == 0 {
+		return nil
+	}
+	ids := make([]shareddomain.SeriesID, 0, len(items))
+	for _, it := range items {
+		if it.SeriesID > 0 {
+			ids = append(ids, it.SeriesID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	m, err := h.libraryInstances.ListByCanonicalSeriesIDs(ctx, ids)
+	if err != nil {
+		h.log.WarnContext(ctx, "discovery.in_library.lookup_failed",
+			slog.Int("page_size", len(ids)),
+			slog.String("error", err.Error()))
+		return nil
+	}
+	return m
 }
 
 // warmingEnvelope returns the cold-start short-circuit response shape.

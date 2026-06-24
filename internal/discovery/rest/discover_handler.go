@@ -40,6 +40,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/cachewatch"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
@@ -81,7 +82,11 @@ type DiscoverHandler struct {
 	// paths into sha256 wire hashes so the FE renders posters through
 	// /api/v1/media/:hash. Nil-OK preserves legacy raw-path behavior.
 	resolver *media.Resolver
-	log      *slog.Logger
+	// libraryInstances — story 527. Same role as the curated
+	// DiscoveryHandler counterpart: per-page cross-instance lookup
+	// for in_library_instances. Nil-OK.
+	libraryInstances app.LibraryInstancesPort
+	log              *slog.Logger
 }
 
 // NewDiscoverHandler wires the handler. lru/pass/bg/warming/log are
@@ -93,6 +98,7 @@ func NewDiscoverHandler(
 	bg *app.BgFetcher,
 	warming app.WarmingProbe,
 	resolver *media.Resolver,
+	libraryInstances app.LibraryInstancesPort,
 	log *slog.Logger,
 ) *DiscoverHandler {
 	switch {
@@ -107,7 +113,15 @@ func NewDiscoverHandler(
 	case log == nil:
 		panic("discover handler: log required")
 	}
-	return &DiscoverHandler{lru: lru, pass: pass, bg: bg, warming: warming, resolver: resolver, log: log}
+	return &DiscoverHandler{
+		lru:              lru,
+		pass:             pass,
+		bg:               bg,
+		warming:          warming,
+		resolver:         resolver,         // nil-OK
+		libraryInstances: libraryInstances, // nil-OK
+		log:              log,
+	}
 }
 
 // Handle implements Pattern B.
@@ -161,8 +175,9 @@ func (h *DiscoverHandler) Handle(c *gin.Context) {
 // envelope folds the response shape including the (possibly empty)
 // degraded list signals.
 func (h *DiscoverHandler) envelope(ctx context.Context, items []disco.Item, page int, status string, retryAfter int) DiscoverResponse {
+	inLib := h.resolveInLibrary(ctx, items)
 	resp := DiscoverResponse{
-		Items:             projectSearchItems(ctx, items, h.resolver),
+		Items:             projectSearchItems(ctx, items, h.resolver, inLib),
 		Page:              page,
 		PerPage:           discoverPerPage,
 		CacheStatus:       status,
@@ -175,6 +190,32 @@ func (h *DiscoverHandler) envelope(ctx context.Context, items []disco.Item, page
 		resp.Degraded = appendDegraded(resp.Degraded, "tmdb_throttled")
 	}
 	return resp
+}
+
+// resolveInLibrary mirrors the curated DiscoveryHandler counterpart:
+// one batched cross-instance lookup per response, nil-port + error
+// graceful degrade (returns nil → projectItem keeps []string{}).
+func (h *DiscoverHandler) resolveInLibrary(ctx context.Context, items []disco.Item) map[shareddomain.SeriesID][]string {
+	if h.libraryInstances == nil || len(items) == 0 {
+		return nil
+	}
+	ids := make([]shareddomain.SeriesID, 0, len(items))
+	for _, it := range items {
+		if it.SeriesID > 0 {
+			ids = append(ids, it.SeriesID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	m, err := h.libraryInstances.ListByCanonicalSeriesIDs(ctx, ids)
+	if err != nil {
+		h.log.WarnContext(ctx, "discovery.in_library.lookup_failed",
+			slog.Int("page_size", len(ids)),
+			slog.String("error", err.Error()))
+		return nil
+	}
+	return m
 }
 
 // parse binds query parameters into a DiscoverFilter and validates page +

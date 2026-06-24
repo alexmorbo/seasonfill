@@ -518,6 +518,14 @@ type SeriesCacheRepository interface {
 	// resolve the preferred instance for a canonical series.id.
 	GetInstancesBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]domain.InstanceName, error)
 
+	// GetInstancesBySeriesIDs is the batch sibling: returns the sorted
+	// distinct active instance names per canonical series id in one
+	// query. Empty input → empty (non-nil) map. Used by the discovery
+	// handler page-projection loop to populate
+	// DiscoverySeriesItem.InLibraryInstances without going N+1 across
+	// 20-100 page items.
+	GetInstancesBySeriesIDs(ctx context.Context, seriesIDs []domain.SeriesID) (map[domain.SeriesID][]domain.InstanceName, error)
+
 	// ListBySeriesID returns every active (non-soft-deleted) cache row
 	// pointing at the canonical series.id. Richer projection than
 	// GetInstancesBySeriesID — surfaces the per-row SonarrSeriesID so
