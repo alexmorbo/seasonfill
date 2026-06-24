@@ -588,6 +588,14 @@ type tokenBucket struct {
 	tokens chan struct{}
 	stop   chan struct{}
 	once   sync.Once
+	// wg tracks live watchResume goroutines so Close can wait them out.
+	// Without this Close races with watchResume's tail (the cleanup
+	// section after the for-loop break), where the resume hook calls
+	// c.logger.LogAttrs — if the leaked goroutine fires after the
+	// owning test ended, it writes to a slog handler installed by a
+	// later test (slog.SetDefault routes log.Default's output through
+	// the new handler), tripping the race detector on bytes.Buffer.
+	wg sync.WaitGroup
 
 	// B-12-1 — injectable time source. Production = clock.Real(); tests
 	// pass a *clock.Fake so the pause-window state machine is bit-exact.
@@ -720,6 +728,7 @@ func (tb *tokenBucket) PauseUntil(until time.Time) bool {
 			gen := tb.pauseGen.Add(1)
 			observability.IncTMDBRateLimitPause()
 			observability.SetTMDBRateLimitInPause(true)
+			tb.wg.Add(1)
 			go tb.watchResume(gen, until)
 			return true
 		}
@@ -737,6 +746,7 @@ func (tb *tokenBucket) PauseUntil(until time.Time) bool {
 // happens to share an Until doesn't trigger two watchers stepping on
 // each other's gauge writes. Story 313.
 func (tb *tokenBucket) watchResume(gen uint64, until time.Time) {
+	defer tb.wg.Done()
 	for {
 		now := tb.clk.Now()
 		// Re-sample deadline from the atomic to honour extends.
@@ -755,6 +765,15 @@ func (tb *tokenBucket) watchResume(gen uint64, until time.Time) {
 			return
 		case <-t.C():
 		}
+	}
+	// Close racing with the cleanup section: bail before firing the
+	// resume hook so the captured Client logger doesn't get touched
+	// after the owning test (and any captured slog handler) has
+	// already returned.
+	select {
+	case <-tb.stop:
+		return
+	default:
 	}
 	// Only the latest pause-gen watcher clears state. A stale watcher
 	// from an extended pause returns silently above (deadline check),
@@ -778,4 +797,9 @@ func (tb *tokenBucket) watchResume(gen uint64, until time.Time) {
 
 func (tb *tokenBucket) Close() {
 	tb.once.Do(func() { close(tb.stop) })
+	// Wait for any in-flight watchResume goroutine to finish so the
+	// captured Client.logger is not touched after Close returns. Safe
+	// to call from multiple goroutines: once.Do guarantees the stop
+	// close happens exactly once; wg.Wait is concurrent-safe.
+	tb.wg.Wait()
 }
