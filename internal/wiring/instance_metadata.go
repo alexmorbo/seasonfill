@@ -43,7 +43,7 @@ func BuildInstanceMetadata(sonarrBundle *SonarrBundle, log *slog.Logger) *Instan
 	cache := admininfra.NewMetadataCache("")
 	lookup := registryLookup{reg: sonarrBundle.InstanceReg}
 	uc := authapp.NewInstanceMetadataUseCase(lookup, cache, nil)
-	domainLog := sharedports.DomainLogger(log, "instance_metadata")
+	domainLog := sharedports.DomainLogger(log, "admin")
 	handler := adminrest.NewInstanceMetadataHandler(uc, domainLog)
 	return &InstanceMetadataBundle{Cache: cache, UseCase: uc, Handler: handler}
 }
