@@ -140,6 +140,7 @@ export const ru: Translations = {
     navigation: 'Навигация',
     dashboard: 'Дашборд',
     series: 'Сериалы',
+    discovery: 'Обзор',
     instances: 'Инстансы',
     scans: 'Сканы',
     decisions: 'Решения',

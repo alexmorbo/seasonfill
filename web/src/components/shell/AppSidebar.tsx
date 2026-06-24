@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ListChecks,
   Globe,
+  Compass,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -38,6 +39,7 @@ type Item = {
 const OVERVIEW: Item[] = [
   { to: "/", end: true, icon: LayoutDashboard, key: "dashboard" },
   { to: "/series", icon: Library, key: "series" },
+  { to: "/discovery", icon: Compass, key: "discovery" },
 ]
 const SETUP: Item[] = [
   { to: "/instances", icon: Server, key: "instances" },

@@ -138,6 +138,7 @@ export const en = {
     navigation: 'Navigation',
     dashboard: 'Dashboard',
     series: 'Series',
+    discovery: 'Discover',
     instances: 'Instances',
     scans: 'Scans',
     decisions: 'Decisions',

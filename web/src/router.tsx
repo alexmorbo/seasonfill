@@ -24,6 +24,7 @@ import { SeriesDetail } from '@/pages/SeriesDetail';
 import { SeriesCast } from '@/pages/SeriesCast';
 import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
+import { DiscoveryPage } from '@/pages/DiscoveryPage';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
       { path: '/series/:instance/:id', element: <LegacySeriesRedirect /> },
       { path: '/series/:instance/:id/cast', element: <LegacySeriesRedirect kind="cast" /> },
       { path: '/person/:tmdbId',            element: <Person /> },
+      { path: '/discovery', element: <DiscoveryPage /> },
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
