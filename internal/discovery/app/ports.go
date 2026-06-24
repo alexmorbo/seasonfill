@@ -31,6 +31,13 @@ type DiscoveryListRepo interface {
 	IsStale(ctx context.Context, kind disco.Kind, param, language string, ttl time.Duration) (bool, error)
 	LastRefreshedAt(ctx context.Context, kind disco.Kind, param, language string) (time.Time, error)
 	ReplaceList(ctx context.Context, kind disco.Kind, param, language string, items []disco.Item) error
+	// HasAnyList reports whether ANY discovery_lists row exists. Used by
+	// the worker's post-Tick warming probe: a redeploy against an already-
+	// populated DB takes the "fresh, skip refresh" branch through every
+	// (kind, lang) pair, leaving warmingOnce=false forever. HasAnyList lets
+	// the worker flip warming via a single cheap probe so handlers stop
+	// emitting the cold-start envelope after the first Tick.
+	HasAnyList(ctx context.Context) (bool, error)
 }
 
 // StubUpserter is the narrow port discovery uses to materialise an

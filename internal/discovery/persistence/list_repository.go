@@ -228,6 +228,25 @@ func (r *ListRepository) LastRefreshedAt(
 	return row.RefreshedAt.UTC(), nil
 }
 
+// HasAnyList reports whether at least one discovery_lists row exists,
+// across every (kind, param, language) tuple. Issued as a cheap LIMIT 1
+// probe via GORM's Take — returns (false, nil) on gorm.ErrRecordNotFound
+// (empty table). Used by the worker's post-Tick warming probe to flip
+// warming=false on a redeploy where every list is already fresh, so the
+// "no refresh fired this Tick" branch doesn't strand the cold-start
+// envelope on the HTTP handlers forever.
+func (r *ListRepository) HasAnyList(ctx context.Context) (bool, error) {
+	var row DiscoveryListsModel
+	err := r.db.WithContext(ctx).Limit(1).Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("discovery list repo: has any list: %w", err)
+	}
+	return true, nil
+}
+
 // ReplaceList atomically swaps the row-set for (kind, param, language).
 // Steps inside the transaction:
 //  1. DELETE FROM discovery_lists WHERE kind=? AND param=? AND language=?

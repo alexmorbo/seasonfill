@@ -251,6 +251,23 @@ func (w *Worker) Tick(ctx context.Context) error {
 		}
 		w.maybeRefreshCurated(ctx, disco.KindByNetwork, lang)
 	}
+
+	// Warming probe (hotfix): if Tick fired NO refresh because every list
+	// was within its freshness window, but data exists from a prior run,
+	// flip warming=false so handlers stop returning the cold-start
+	// envelope. Without this, a redeploy against an already-populated
+	// discovery_lists table leaves IsWarming() == true indefinitely —
+	// the original CompareAndSwap inside refresh() only fires on a
+	// successful list write, which never happens on a fresh redeploy.
+	if !w.warmingOnce.Load() {
+		if has, err := w.repo.HasAnyList(ctx); err == nil && has {
+			if w.warmingOnce.CompareAndSwap(false, true) {
+				observability.SetDiscoveryWarming(false)
+				w.log.InfoContext(ctx, "discovery warming flipped via probe",
+					slog.String("domain", "discovery"))
+			}
+		}
+	}
 	return nil
 }
 

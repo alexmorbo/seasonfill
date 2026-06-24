@@ -31,6 +31,10 @@ func (searchStubListRepo) ReplaceList(_ context.Context, _ disco.Kind, _, _ stri
 	return nil
 }
 
+func (searchStubListRepo) HasAnyList(_ context.Context) (bool, error) {
+	return false, nil
+}
+
 type searchStubWarming struct{}
 
 func (searchStubWarming) IsWarming() bool { return false }

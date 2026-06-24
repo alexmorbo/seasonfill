@@ -70,6 +70,9 @@ func (f *fakeRepo) LastRefreshedAt(_ context.Context, kind disco.Kind, param, la
 func (f *fakeRepo) ReplaceList(_ context.Context, _ disco.Kind, _, _ string, _ []disco.Item) error {
 	return nil
 }
+func (f *fakeRepo) HasAnyList(_ context.Context) (bool, error) {
+	return false, nil
+}
 
 // setPage is a test-only helper that atomically writes the (kind, param,
 // lang) tuple into pages/stale/lastRefresh under mu.

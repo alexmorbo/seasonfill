@@ -32,6 +32,10 @@ type fakeRepo struct {
 	replaceErr error
 	// isStaleErr seeded → IsStale returns it
 	isStaleErr error
+	// hasAnyList seeded → HasAnyList returns it (default false = empty DB)
+	hasAnyList bool
+	// hasAnyErr seeded → HasAnyList returns it
+	hasAnyErr error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -78,6 +82,15 @@ func (r *fakeRepo) ReplaceList(_ context.Context, kind disco.Kind, param, langua
 	r.replaced[keyFor(kind, param, language)] = items
 	r.lastAt[keyFor(kind, param, language)] = time.Now()
 	return nil
+}
+
+func (r *fakeRepo) HasAnyList(_ context.Context) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.hasAnyErr != nil {
+		return false, r.hasAnyErr
+	}
+	return r.hasAnyList, nil
 }
 
 func (r *fakeRepo) replacedCount(kind disco.Kind, param, lang string) int {
@@ -372,6 +385,47 @@ func TestTick_WarmingFlipsAfterFirstSuccess(t *testing.T) {
 	w := newTestWorker(t, repo, langs, stubs, client, tops)
 	require.NoError(t, w.Tick(context.Background()))
 	require.NoError(t, w.Tick(context.Background()), "second tick must not re-flip warming")
+}
+
+func TestWorker_Tick_FlipsWarmingViaProbeWhenDataExists(t *testing.T) {
+	// Hotfix scenario: redeploy against an already-populated discovery_lists
+	// table. Every (kind, lang) pair is within its freshness window, so
+	// IsStale returns false and refresh() never fires its CompareAndSwap.
+	// The post-Tick probe MUST see HasAnyList()==true and flip warming off.
+	repo := newFakeRepo()
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{resp: makeResp(0)}
+	stubs := newFakeStubs()
+	tops := &fakeTopKinds{}
+	// Mark every leaderboard fresh — Tick will take the skip-refresh branch.
+	for _, k := range []disco.Kind{disco.KindTrendingDay, disco.KindTrendingWeek, disco.KindPopular} {
+		repo.stale[keyFor(k, "", "en-US")] = false
+	}
+	// Probe sees data from a prior worker run.
+	repo.hasAnyList = true
+
+	w := newTestWorker(t, repo, langs, stubs, client, tops)
+	require.True(t, w.IsWarming(), "warming starts true")
+	require.NoError(t, w.Tick(context.Background()))
+	require.False(t, w.IsWarming(), "probe must flip warming once Tick sees existing data")
+	require.Zero(t, client.trendingCalls(), "fresh lists: no TMDB calls")
+}
+
+func TestWorker_Tick_StaysWarmingWhenRepoEmpty(t *testing.T) {
+	// Guard test: probe returns false (empty DB) and no refresh fires —
+	// warming MUST stay true so handlers keep returning the cold-start
+	// envelope until the worker actually writes a list.
+	repo := newFakeRepo()
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{err: errors.New("tmdb 500")} // force refresh failure
+	stubs := newFakeStubs()
+	tops := &fakeTopKinds{}
+	repo.hasAnyList = false
+
+	w := newTestWorker(t, repo, langs, stubs, client, tops)
+	require.True(t, w.IsWarming())
+	require.NoError(t, w.Tick(context.Background()))
+	require.True(t, w.IsWarming(), "empty DB + no successful refresh: still warming")
 }
 
 func TestWorker_ThrottlesRefreshRate(t *testing.T) {
