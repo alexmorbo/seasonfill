@@ -334,6 +334,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		SeriesStaleScan:   wiring.NewSeriesStaleScanAdapter(seriesRepo),
 		PeopleStaleScan:   wiring.NewPeopleStaleScanAdapter(peopleRepo),
 		LibraryWithIMDB:   wiring.NewOMDbBatchScannerAdapter(seriesRepo),
+		RefreshPicker:     wiring.NewRefreshPickerAdapter(seriesRepo), // Story 534
 		MediaAssets:       mediaAssetsRepo,
 		MediaStore:        mediaStoreImpl,
 	}
@@ -636,6 +637,19 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.ColdStart != nil {
 		lifecycle.Go(rootCtx, "cold-start-backfill", func(ctx context.Context) {
 			enrichBundle.ColdStart(ctx)
+		})
+	}
+
+	// Story 534 — background tiered refresh scheduler. Gated by
+	// cfg.Cron.Enabled so disabling cron globally also disables the
+	// background refresh sweep (single operator lever). Skips when
+	// the wirer did not construct a scheduler (RefreshPicker absent
+	// from EnrichmentRepoBundle).
+	if cfg.Cron.Enabled && enrichBundle != nil && enrichBundle.RefreshScheduler != nil {
+		refreshLog := sharedports.DomainLogger(log, "enrichment")
+		lifecycle.Go(rootCtx, "refresh-scheduler", func(ctx context.Context) {
+			loops.RunRefresh(ctx, enrichBundle.RefreshScheduler,
+				loops.DefaultRefreshInterval, refreshLog)
 		})
 	}
 

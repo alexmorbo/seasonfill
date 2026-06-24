@@ -118,6 +118,29 @@ func NewSeriesWorker(deps SeriesWorkerDeps) (*SeriesWorker, error) {
 // terminal failure that should NOT bubble (the worker journals
 // outcome=error / not_found internally before returning).
 func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error {
+	return w.handleInternal(ctx, seriesID, false)
+}
+
+// HandleForced is the Story 534 entry point used by the background
+// refresh scheduler. Identical to Handle EXCEPT the freshness gate
+// (canon.EnrichmentTMDBSyncedAt + TTL check) is bypassed — the
+// scheduler's tiered TTL has already decided this series is stale,
+// re-applying the worker's TTL here would short-circuit valid
+// refreshes for series inside their per-tier window but outside the
+// worker's 24h source TTL.
+//
+// Used ONLY by RefreshScheduler. All other callers (dispatcher,
+// on-demand enricher, cold-start backfill) continue to use Handle so
+// the in-band staleness check stays a server-side cache.
+func (w *SeriesWorker) HandleForced(ctx context.Context, seriesID domain.SeriesID) error {
+	return w.handleInternal(ctx, seriesID, true)
+}
+
+// handleInternal carries the shared Handle/HandleForced body. The only
+// behavioural diff vs the pre-534 Handle is the `if !force` guard
+// around the freshness gate. Every other branch (no tmdb_id skip,
+// per-language fan-out, error journal) is byte-identical.
+func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.SeriesID, force bool) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
@@ -159,7 +182,12 @@ func (w *SeriesWorker) Handle(ctx context.Context, seriesID domain.SeriesID) err
 
 	// 2. Staleness short-circuit — read canon.EnrichmentTMDBSyncedAt
 	//    directly. nil = never enriched (proceed); within TTL = skip.
-	if canon.EnrichmentTMDBSyncedAt != nil {
+	//    Story 534: bypassed under force — the background scheduler
+	//    has already gated this series as stale via the per-tier
+	//    RefreshTTL; re-checking the worker's 24h source TTL here
+	//    would silence valid refreshes for series inside their tier
+	//    window but outside the source TTL.
+	if !force && canon.EnrichmentTMDBSyncedAt != nil {
 		ttl := enrichment.TTL(enrichment.SourceTMDBSeries, classifyKind(canon))
 		if ttl > 0 && w.deps.Clock().Sub(*canon.EnrichmentTMDBSyncedAt) < ttl {
 			log.DebugContext(ctx, "enrichment.series.handle.fresh_skip",

@@ -183,6 +183,11 @@ type EnrichmentBundle struct {
 	// read-through TMDB refresh on cold/stale detail opens. Same
 	// dispatcher-bound instance the worker pool already consumes.
 	SeriesWorker *appenrich.SeriesWorker
+	// RefreshScheduler (Story 534) — background tiered refresh
+	// scheduler. nil when RefreshPicker is absent OR Cron.Enabled gate
+	// flips the loop off. server.go's LATE BIND ZONE owns the
+	// lifecycle.Go("refresh-scheduler", ...) goroutine.
+	RefreshScheduler *appenrich.RefreshScheduler
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
@@ -730,6 +735,25 @@ func BuildEnrichment(
 		go omdbActivation(rootCtx, "boot_kick")
 	}
 
+	// Story 534 — background refresh scheduler. Build only when
+	// repos.RefreshPicker is supplied (production wiring in main.go).
+	// Tests/legacy callers that pass an empty bundle stay scheduler-less
+	// — server.go's LATE BIND ZONE skips the lifecycle.Go goroutine
+	// when the bundle field is nil.
+	var refreshScheduler *appenrich.RefreshScheduler
+	if repos.RefreshPicker != nil {
+		rs, err := appenrich.NewRefreshScheduler(appenrich.RefreshSchedulerDeps{
+			Picker:  repos.RefreshPicker,
+			Worker:  seriesWorkerForceAdapter{inner: worker},
+			Metrics: observability.NewEnrichmentRefreshMetrics(),
+			Logger:  enrichmentLog,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("wire refresh scheduler: %w", err)
+		}
+		refreshScheduler = rs
+	}
+
 	return &EnrichmentBundle{
 		Dispatcher:        dispatcher,
 		Nightly:           nightly,
@@ -759,6 +783,10 @@ func BuildEnrichment(
 		// Handle() synchronously for cold/stale detail opens. Same
 		// pointer the dispatcher's series-worker goroutine consumes.
 		SeriesWorker: worker,
+		// 534: background tiered refresh scheduler. nil when
+		// repos.RefreshPicker is absent (defensive — production always
+		// supplies it).
+		RefreshScheduler: refreshScheduler,
 	}, nil
 }
 
@@ -918,6 +946,12 @@ type EnrichmentRepoBundle struct {
 	// — when nil the dispatcher loop skips the person staleness sweep
 	// (retry-due rows still fire).
 	PeopleStaleScan PeopleStaleScanner
+	// RefreshPicker — Story 534: tiered (hot/normal/cold) candidate
+	// picker used by the background refresh scheduler. Production
+	// impl wraps *SeriesRepository.PickRefreshCandidates via
+	// NewRefreshPickerAdapter. Nil-OK — when nil the scheduler is
+	// skipped at boot.
+	RefreshPicker appenrich.RefreshPicker
 	// 213: ListLibraryWithIMDBStale source for the OMDb daily batch.
 	// Production impl wraps *SeriesRepository. Nil-OK — when nil the
 	// OMDb daily-batch closure logs and short-circuits.
@@ -1244,4 +1278,49 @@ func NewPeopleStaleScanAdapter(p *enrichpersistence.PeopleRepository) PeopleStal
 
 func (a peopleStaleScanAdapter) ListStaleForTMDB(ctx context.Context, ttl time.Duration, limit int) ([]int64, error) {
 	return a.inner.ListStaleForTMDB(ctx, ttl, limit)
+}
+
+// refreshPickerAdapter wraps *SeriesRepository.PickRefreshCandidates
+// to satisfy the appenrich.RefreshPicker port. Story 534. Out-of-
+// application boundary; the adapter maps persistence-flavoured
+// RefreshCandidate (domain.SeriesID) to the app-port shape (int64).
+type refreshPickerAdapter struct {
+	inner *enrichpersistence.SeriesRepository
+}
+
+// NewRefreshPickerAdapter returns the wrapper for main.go's wiring.
+func NewRefreshPickerAdapter(s *enrichpersistence.SeriesRepository) appenrich.RefreshPicker {
+	return refreshPickerAdapter{inner: s}
+}
+
+func (a refreshPickerAdapter) PickRefreshCandidates(
+	ctx context.Context,
+	now time.Time,
+	ttl enrichment.RefreshTTL,
+	limit int,
+) ([]appenrich.RefreshCandidate, error) {
+	rows, err := a.inner.PickRefreshCandidates(ctx, now, ttl, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]appenrich.RefreshCandidate, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, appenrich.RefreshCandidate{
+			SeriesID: int64(r.SeriesID),
+			Tier:     r.Tier,
+		})
+	}
+	return out, nil
+}
+
+// seriesWorkerForceAdapter bridges the int64 application-port shape
+// (appenrich.SeriesForceRefresher) to *SeriesWorker.HandleForced
+// which takes domain.SeriesID. Mirrors the existing
+// seriesStaleScanAdapter pattern.
+type seriesWorkerForceAdapter struct {
+	inner *appenrich.SeriesWorker
+}
+
+func (a seriesWorkerForceAdapter) HandleForced(ctx context.Context, id int64) error {
+	return a.inner.HandleForced(ctx, domain.SeriesID(id))
 }
