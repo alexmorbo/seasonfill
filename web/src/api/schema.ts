@@ -54,7 +54,7 @@ export type paths = {
             /** @description Instance fields */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.InstanceCreateRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.InstanceCreateRequest"];
                 };
             };
             readonly responses: {
@@ -158,7 +158,7 @@ export type paths = {
             /** @description Instance fields */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.InstanceUpdateRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.InstanceUpdateRequest"];
                 };
             };
             readonly responses: {
@@ -268,7 +268,7 @@ export type paths = {
             /** @description URL and api_key to probe */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.InstanceTestRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.InstanceTestRequest"];
                 };
             };
             readonly responses: {
@@ -376,7 +376,7 @@ export type paths = {
             /** @description Username and password */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.LoginRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.LoginRequest"];
                 };
             };
             readonly responses: {
@@ -562,7 +562,7 @@ export type paths = {
             /** @description Current + new password */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.PasswordChangeRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.PasswordChangeRequest"];
                 };
             };
             readonly responses: {
@@ -730,7 +730,7 @@ export type paths = {
             /** @description Runtime config */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.RuntimeConfigDTO"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.RuntimeConfigDTO"];
                 };
             };
             readonly responses: {
@@ -1238,7 +1238,7 @@ export type paths = {
             /** @description Settings */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.ExternalServiceUpsertRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.ExternalServiceUpsertRequest"];
                 };
             };
             readonly responses: {
@@ -1653,7 +1653,7 @@ export type paths = {
             /** @description Settings */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.QbitSettingsUpsertRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.QbitSettingsUpsertRequest"];
                 };
             };
             readonly responses: {
@@ -2140,7 +2140,7 @@ export type paths = {
             /** @description Current + new password */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.MeChangePasswordRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.MeChangePasswordRequest"];
                 };
             };
             readonly responses: {
@@ -2219,7 +2219,7 @@ export type paths = {
             /** @description Partial settings patch */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.MeSettingsPatchRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.MeSettingsPatchRequest"];
                 };
             };
             readonly responses: {
@@ -2285,7 +2285,6 @@ export type paths = {
                         readonly [name: string]: unknown;
                     };
                     content: {
-                        readonly "application/json": string;
                         readonly "image/jpeg": string;
                     };
                 };
@@ -2302,7 +2301,7 @@ export type paths = {
                         readonly [name: string]: unknown;
                     };
                     content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                        readonly "image/jpeg": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
                 /** @description reserved (handler currently has no 404 paths) */
@@ -2311,7 +2310,7 @@ export type paths = {
                         readonly [name: string]: unknown;
                     };
                     content: {
-                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                        readonly "image/jpeg": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
             };
@@ -2503,7 +2502,7 @@ export type paths = {
             /** @description Optional instance + series filter */
             readonly requestBody?: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.ScanTriggerRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.ScanTriggerRequest"];
                 };
             };
             readonly responses: {
@@ -3396,7 +3395,7 @@ export type paths = {
                         readonly [name: string]: unknown;
                     };
                     content: {
-                        readonly "application/json": components["schemas"]["dto.SeriesCacheNetworksList"];
+                        readonly "application/json": components["schemas"]["SeriesCacheNetworksList"];
                     };
                 };
                 /** @description Bad Request */
@@ -3498,7 +3497,7 @@ export type paths = {
             /** @description Timezone */
             readonly requestBody: {
                 readonly content: {
-                    readonly "application/json": components["schemas"]["dto.TimezonePatchRequest"];
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.TimezonePatchRequest"];
                 };
             };
             readonly responses: {
@@ -3763,6 +3762,9 @@ export type paths = {
 export type webhooks = Record<string, never>;
 export type components = {
     schemas: {
+        readonly SeriesCacheNetworksList: {
+            readonly networks?: readonly string[];
+        };
         readonly "auth.CheckDiscovery": {
             readonly discovered_issuer?: string;
             readonly error?: string;
@@ -5179,9 +5181,6 @@ export type components = {
             readonly next_cursor?: string;
             /** @example 42 */
             readonly total?: number;
-        };
-        readonly "dto.SeriesCacheNetworksList": {
-            readonly networks?: readonly string[];
         };
         readonly "dto.SeriesCastResponse": {
             /**

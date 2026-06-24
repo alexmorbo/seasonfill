@@ -1,5 +1,13 @@
 components:
   schemas:
+    SeriesCacheNetworksList:
+      properties:
+        networks:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
     auth.CheckDiscovery:
       properties:
         discovered_issuer:
@@ -2129,14 +2137,6 @@ components:
           example: 42
           type: integer
       type: object
-    dto.SeriesCacheNetworksList:
-      properties:
-        networks:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-      type: object
     dto.SeriesCastResponse:
       properties:
         cast:
@@ -3138,7 +3138,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.InstanceCreateRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.InstanceCreateRequest'
+                description: Instance fields
+                summary: body
         description: Instance fields
         required: true
       responses:
@@ -3246,7 +3250,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.InstanceUpdateRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.InstanceUpdateRequest'
+                description: Instance fields
+                summary: body
         description: Instance fields
         required: true
       responses:
@@ -3291,7 +3299,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.InstanceTestRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.InstanceTestRequest'
+                description: URL and api_key to probe
+                summary: body
         description: URL and api_key to probe
         required: true
       responses:
@@ -3346,7 +3358,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.LoginRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.LoginRequest'
+                description: Username and password
+                summary: body
         description: Username and password
         required: true
       responses:
@@ -3440,7 +3456,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.PasswordChangeRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.PasswordChangeRequest'
+                description: Current + new password
+                summary: body
         description: Current + new password
         required: true
       responses:
@@ -3538,7 +3558,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.RuntimeConfigDTO'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.RuntimeConfigDTO'
+                description: Runtime config
+                summary: body
         description: Runtime config
         required: true
       responses:
@@ -3895,7 +3919,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.ExternalServiceUpsertRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.ExternalServiceUpsertRequest'
+                description: Settings
+                summary: body
         description: Settings
         required: true
       responses:
@@ -4212,7 +4240,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.QbitSettingsUpsertRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.QbitSettingsUpsertRequest'
+                description: Settings
+                summary: body
         description: Settings
         required: true
       responses:
@@ -4491,7 +4523,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.MeChangePasswordRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.MeChangePasswordRequest'
+                description: Current + new password
+                summary: body
         description: Current + new password
         required: true
       responses:
@@ -4533,7 +4569,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.MeSettingsPatchRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.MeSettingsPatchRequest'
+                description: Partial settings patch
+                summary: body
         description: Partial settings patch
         required: true
       responses:
@@ -4577,25 +4617,21 @@ paths:
       responses:
         "200":
           content:
-            application/json:
-              schema:
-                type: string
             image/jpeg:
               schema:
-                format: binary
                 type: string
           description: asset bytes
         "304":
           description: not modified
         "400":
           content:
-            application/json:
+            image/jpeg:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
           description: Bad Request
         "404":
           content:
-            application/json:
+            image/jpeg:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
           description: reserved (handler currently has no 404 paths)
@@ -4716,7 +4752,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.ScanTriggerRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.ScanTriggerRequest'
+                description: Optional instance + series filter
+                summary: body
         description: Optional instance + series filter
       responses:
         "202":
@@ -5345,7 +5385,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/dto.SeriesCacheNetworksList'
+                $ref: '#/components/schemas/SeriesCacheNetworksList'
           description: OK
         "400":
           content:
@@ -5403,7 +5443,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/dto.TimezonePatchRequest'
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.TimezonePatchRequest'
+                description: Timezone
+                summary: body
         description: Timezone
         required: true
       responses:
