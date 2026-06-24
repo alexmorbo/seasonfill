@@ -15,12 +15,24 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
+// MetadataInvalidator is the narrow port the handler uses to evict the
+// per-instance Sonarr metadata caches (quality profiles + root folders)
+// the moment an operator reconfigures or deletes an instance. The
+// production adapter is admin/infrastructure.MetadataCache; the wirer
+// installs it via WithMetadataInvalidator after both bundles exist.
+// Nil is a valid value — the handler skips the eviction call so the
+// older test wirings keep compiling unchanged.
+type MetadataInvalidator interface {
+	InvalidateInstance(instanceID int64)
+}
+
 // InstanceCRUDHandler is the GET/POST/PUT/DELETE handler for
 // `/api/v1/instances[/:name]` excluding List (kept on
 // InstancesHandler.List) and the probe endpoint (in 027b-2).
 type InstanceCRUDHandler struct {
-	uc     *instance.UseCase
-	logger *slog.Logger
+	uc          *instance.UseCase
+	logger      *slog.Logger
+	invalidator MetadataInvalidator // may be nil — see MetadataInvalidator
 }
 
 func NewInstanceCRUDHandler(uc *instance.UseCase, logger *slog.Logger) *InstanceCRUDHandler {
@@ -28,6 +40,26 @@ func NewInstanceCRUDHandler(uc *instance.UseCase, logger *slog.Logger) *Instance
 		logger = slog.Default()
 	}
 	return &InstanceCRUDHandler{uc: uc, logger: logger}
+}
+
+// WithMetadataInvalidator wires the per-instance metadata-cache eviction
+// hook. Returns the receiver for fluent chaining at wiring time. Safe to
+// call with nil (no-op); production main.go installs the
+// admin/infrastructure MetadataCache after BuildHTTPServer's bundles
+// resolve the chicken-and-egg ordering between catalog and admin.
+func (h *InstanceCRUDHandler) WithMetadataInvalidator(inv MetadataInvalidator) *InstanceCRUDHandler {
+	h.invalidator = inv
+	return h
+}
+
+// invalidateMetadata is the no-op-safe wrapper around the optional port.
+// Called on PUT success and BEFORE DELETE (where the row still exists so
+// the lookup is reliable).
+func (h *InstanceCRUDHandler) invalidateMetadata(id int64) {
+	if h.invalidator == nil {
+		return
+	}
+	h.invalidator.InvalidateInstance(id)
 }
 
 // Get returns the masked detail of one instance.
@@ -139,6 +171,13 @@ func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 		h.writeError(c, err)
 		return
 	}
+	// Story 521 (N-4d): reconfigure may have flipped Sonarr base URL or
+	// API key — evict the per-instance metadata caches so the next
+	// /admin/instances/{name}/quality_profiles call refetches from the
+	// new Sonarr endpoint rather than serving the stale snapshot. Keyed
+	// by the snapshot ID so renames (impossible today per ErrNameImmutable
+	// but defensive) still hit the right cache row.
+	h.invalidateMetadata(int64(stored.ID))
 	c.Header("Last-Modified", ts.UTC().Format(http.TimeFormat))
 	c.JSON(http.StatusOK, snapshotToDetailDTO(stored, ts))
 }
@@ -172,9 +211,25 @@ func (h *InstanceCRUDHandler) writeStaleWrite(c *gin.Context, name string) {
 // @Router      /admin/instances/{name} [delete]
 func (h *InstanceCRUDHandler) Delete(c *gin.Context) {
 	name := c.Param("name")
+	// Story 521 (N-4d): resolve the row ID BEFORE delete so the metadata
+	// cache eviction has a usable key — post-delete the row is gone and
+	// the snapshot ID is unrecoverable. The extra Get is cheap (single
+	// indexed read by name) and only fires on a rare admin operation.
+	// A pre-delete miss (404) propagates through the actual Delete call,
+	// so we only swallow the lookup error here — the canonical 404 still
+	// flows through writeError below.
+	var lookupID int64
+	if h.invalidator != nil {
+		if snap, _, gerr := h.uc.Get(c.Request.Context(), name); gerr == nil {
+			lookupID = int64(snap.ID)
+		}
+	}
 	if err := h.uc.Delete(c.Request.Context(), name); err != nil {
 		h.writeError(c, err)
 		return
+	}
+	if lookupID != 0 {
+		h.invalidateMetadata(lookupID)
 	}
 	c.Status(http.StatusNoContent)
 }

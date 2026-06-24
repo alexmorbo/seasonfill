@@ -628,6 +628,97 @@ func TestCRUD_Update_WebhookInstallEnabled_PointerFalseHonoured(t *testing.T) {
 	assert.Equal(t, false, got["webhook_install_enabled"])
 }
 
+// --- Story 521 (N-4d) — metadata-cache invalidation hook ---
+
+// fakeInvalidator records every InvalidateInstance call so the tests
+// can assert (a) it was called, and (b) the ID matches the row the
+// handler operated on. Sync via mutex is unnecessary — the gin engine
+// in setupCRUD serializes requests on the calling goroutine.
+type fakeInvalidator struct {
+	calls []int64
+}
+
+func (f *fakeInvalidator) InvalidateInstance(id int64) {
+	f.calls = append(f.calls, id)
+}
+
+// setupCRUDWithInvalidator mirrors setupCRUD but wires a recording
+// invalidator into the handler via WithMetadataInvalidator. Returned
+// repo lets callers inspect the seeded ID for assertion.
+func setupCRUDWithInvalidator(t *testing.T) (*gin.Engine, *crudFakeRepo, *fakeInvalidator) {
+	t.Helper()
+	repo := newCRUDFakeRepo()
+	uc := instance.New(repo, crudFakeRuntime{}, nil, runtime.NewBus(nil), slog.Default())
+	inv := &fakeInvalidator{}
+	h := NewInstanceCRUDHandler(uc, slog.Default()).WithMetadataInvalidator(inv)
+	r := gin.New()
+	r.Use(middleware.ErrorResponseMiddleware(slog.Default()))
+	r.POST("/api/v1/instances", h.Create)
+	r.PUT("/api/v1/instances/:name", h.Update)
+	r.DELETE("/api/v1/instances/:name", h.Delete)
+	return r, repo, inv
+}
+
+// TestCRUD_Put_InvalidatesMetadataCache exercises the Story 521 PUT
+// hook: after a successful reconfigure, the handler must call
+// InvalidateInstance with the row's ID so the next quality-profiles /
+// root-folders GET refetches against the possibly-flipped Sonarr base
+// URL or API key.
+func TestCRUD_Put_InvalidatesMetadataCache(t *testing.T) {
+	t.Parallel()
+	r, repo, inv := setupCRUDWithInvalidator(t)
+	createResp := doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
+	require.Equal(t, http.StatusCreated, createResp.Code, "body=%s", createResp.Body.String())
+	wantID := int64(repo.rows["alpha"].ID)
+	require.NotZero(t, wantID, "fake repo must assign a non-zero ID on Create")
+
+	body := createBody("alpha")
+	body["url"] = "http://updated-sonarr:8989"
+	w := doJSON(t, r, http.MethodPut, "/api/v1/instances/alpha", body, nil)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	require.Len(t, inv.calls, 1, "PUT must invalidate exactly once")
+	assert.Equal(t, wantID, inv.calls[0],
+		"invalidation ID must match the stored row")
+}
+
+// TestCRUD_Delete_InvalidatesMetadataCache exercises the Story 521
+// DELETE hook: the handler must resolve the row ID BEFORE delete so the
+// cache eviction has a usable key (post-delete the ID is gone).
+func TestCRUD_Delete_InvalidatesMetadataCache(t *testing.T) {
+	t.Parallel()
+	r, repo, inv := setupCRUDWithInvalidator(t)
+	createResp := doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
+	require.Equal(t, http.StatusCreated, createResp.Code)
+	wantID := int64(repo.rows["alpha"].ID)
+	require.NotZero(t, wantID)
+
+	w := doJSON(t, r, http.MethodDelete, "/api/v1/instances/alpha", nil, nil)
+	require.Equal(t, http.StatusNoContent, w.Code)
+
+	require.Len(t, inv.calls, 1, "DELETE must invalidate exactly once")
+	assert.Equal(t, wantID, inv.calls[0])
+}
+
+// TestCRUD_Put_StaleWrite_DoesNotInvalidate guards the negative path:
+// a 412 stale-write must NOT evict the cache — the row was not actually
+// updated, so the cached metadata is still consistent with the Sonarr
+// endpoint pointed at by the stored row.
+func TestCRUD_Put_StaleWrite_DoesNotInvalidate(t *testing.T) {
+	t.Parallel()
+	r, repo, inv := setupCRUDWithInvalidator(t)
+	doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
+	// Force the stored row into the future so an IUS in the past is stale
+	// (same construction as TestCRUD_Put_Stale_IfUnmodifiedSince_412).
+	repo.updated["alpha"] = time.Now().UTC().Add(time.Hour)
+	body := createBody("alpha")
+	w := doJSON(t, r, http.MethodPut, "/api/v1/instances/alpha", body,
+		map[string]string{"If-Unmodified-Since": time.Now().UTC().Add(-time.Hour).Format(http.TimeFormat)})
+	require.Equal(t, http.StatusPreconditionFailed, w.Code)
+
+	assert.Empty(t, inv.calls, "stale write must NOT invalidate the cache")
+}
+
 // TestCRUD_Create_NewFields_ValidationCases is the table-driven sweep
 // of every 400 path on the three new fields. Each case is asserted to
 // surface the matching INVALID_INSTANCE_* code so the SPA can render

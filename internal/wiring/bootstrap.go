@@ -794,6 +794,13 @@ func BuildHTTPServer(
 	// is already in scope; no operator-visible knobs warrant promotion
 	// to the top-level wiring graph yet.
 	instanceMetadataBundle := BuildInstanceMetadata(sonarrBundle, log)
+	// Story 521 (N-4d) — late-bind the metadata-cache invalidator into the
+	// instance CRUD handler. We resolve the chicken-and-egg ordering
+	// (catalog.BuildInstance must run before admin.BuildInstanceMetadata
+	// because the metadata bundle reads sonarrBundle.InstanceReg) by
+	// installing the hook here, after both bundles exist. The handler
+	// treats nil as a no-op so the older test wirings keep compiling.
+	instanceBundle.CRUDHandler.WithMetadataInvalidator(instanceMetadataBundle.Cache)
 	// Story 520 (N-4c) — discovery AddToSonarr handler (TagResolver +
 	// AddSeries dispatch). Inline for the same reason as N-4b: the
 	// bundle's only deps (auth+sonarr+persistence) are already wired.
