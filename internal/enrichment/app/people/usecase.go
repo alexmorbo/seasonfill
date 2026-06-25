@@ -81,8 +81,15 @@ type LibraryInstance struct {
 // OtherCredit is one TMDB-only credit — either the canon series
 // row doesn't exist OR it has no live series_cache references
 // (e.g., recommendation stubs from 215's branch).
+//
+// Canon carries the canon series row when classifyCredit found
+// one but the cache lookup was empty (CategoryCanon). It stays
+// zero-valued when the credit has no canon row at all
+// (CategoryTMDB) — the wire-DTO mapper consults Canon.ID to
+// decide whether to populate dto.OtherCreditEntry.SeriesID.
 type OtherCredit struct {
 	Credit dompeople.PersonCredit
+	Canon  series.Canon
 }
 
 // Deps groups the use case's dependencies. Every port is required;
@@ -182,16 +189,19 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 	libCredits := make([]LibraryCredit, 0, len(credits)/2)
 	otherCredits := make([]OtherCredit, 0, len(credits))
 	for _, pc := range credits {
-		isLib, canon, instances := uc.classifyCredit(ctx, pc)
-		if isLib {
+		cat, canon, instances := uc.classifyCredit(ctx, pc)
+		switch cat {
+		case CategoryLibrary:
 			libCredits = append(libCredits, LibraryCredit{
 				Credit:    pc,
 				Canon:     canon,
 				Instances: instances,
 			})
-			continue
+		case CategoryCanon:
+			otherCredits = append(otherCredits, OtherCredit{Credit: pc, Canon: canon})
+		default: // CategoryTMDB
+			otherCredits = append(otherCredits, OtherCredit{Credit: pc})
 		}
-		otherCredits = append(otherCredits, OtherCredit{Credit: pc})
 	}
 
 	sortLibraryCredits(libCredits, sk)
@@ -245,11 +255,29 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 	return out, nil
 }
 
-// classifyCredit returns (isLibrary, canon, instances) for one
-// person_credits row.
-func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit) (bool, series.Canon, []LibraryInstance) {
+// CreditCategory tells the classifier whether a credit goes to
+// library_credits (has canon + cache), other_credits with a
+// canon row (TMDB-fallback route available), or other_credits
+// without a canon row at all (external TMDB link only).
+type CreditCategory int
+
+const (
+	// CategoryTMDB — no canon row → FE renders external TMDB link only.
+	CategoryTMDB CreditCategory = iota
+	// CategoryCanon — canon row, no cache → FE renders internal
+	// route, SeriesDetail resolves via TMDBFallbackUseCase.
+	CategoryCanon
+	// CategoryLibrary — canon row + live cache → primary library route.
+	CategoryLibrary
+)
+
+// classifyCredit returns (category, canon, instances) for one
+// person_credits row. Canon is zero-valued when category is
+// CategoryTMDB. Instances is non-empty only when category is
+// CategoryLibrary.
+func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit) (CreditCategory, series.Canon, []LibraryInstance) {
 	if pc.MediaType != "tv" {
-		return false, series.Canon{}, nil
+		return CategoryTMDB, series.Canon{}, nil
 	}
 	canon, err := uc.d.SeriesByTMDB.GetByTMDBID(ctx, domain.TMDBID(pc.TMDBMediaID))
 	if err != nil {
@@ -259,17 +287,20 @@ func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit
 				slog.Int64("tmdb_media_id", pc.TMDBMediaID),
 				slog.String("error", err.Error()))
 		}
-		return false, series.Canon{}, nil
+		return CategoryTMDB, series.Canon{}, nil
 	}
 	caches, err := uc.d.SeriesCache.ListBySeriesID(ctx, canon.ID)
 	if err != nil {
 		uc.d.Logger.WarnContext(ctx, "person_classify_cache_list_failed",
 			slog.Int64("series_id", int64(canon.ID)),
 			slog.String("error", err.Error()))
-		return false, series.Canon{}, nil
+		// We have the canon row but cache lookup failed — fall
+		// through to CategoryCanon so the FE still gets an
+		// internal-routable card.
+		return CategoryCanon, canon, nil
 	}
 	if len(caches) == 0 {
-		return false, series.Canon{}, nil
+		return CategoryCanon, canon, nil
 	}
 	instances := make([]LibraryInstance, 0, len(caches))
 	seen := map[domain.InstanceName]bool{}
@@ -295,7 +326,7 @@ func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit
 	sort.SliceStable(instances, func(i, j int) bool {
 		return instances[i].InstanceName < instances[j].InstanceName
 	})
-	return true, canon, instances
+	return CategoryLibrary, canon, instances
 }
 
 // sortLibraryCredits applies the per-sort-key ordering to the

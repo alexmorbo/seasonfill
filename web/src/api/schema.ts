@@ -4914,6 +4914,16 @@ export type components = {
             readonly original_title?: string;
             readonly poster_asset?: string;
             readonly role_label?: string;
+            /**
+             * @description SeriesID is the canonical series.id when the underlying TMDB
+             *     media has a canon row in the database — even if there are no
+             *     live series_cache references. Present → FE deep-links to the
+             *     global /series/:id surface (Composer falls through to
+             *     TMDBFallbackUseCase when cache is empty). Absent → FE falls
+             *     back to the external TMDB link.
+             * @example 42
+             */
+            readonly series_id?: number;
             readonly title?: string;
             /** @example 999 */
             readonly tmdb_media_id?: number;

@@ -2,11 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nextProvider } from 'react-i18next';
+import { MemoryRouter } from 'react-router-dom';
 import i18n from '@/i18n';
 import { OtherCreditsGrid } from './OtherCreditsGrid';
 
 function r(node: React.ReactElement) {
-  return render(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
+  return render(
+    <I18nextProvider i18n={i18n}>
+      <MemoryRouter>{node}</MemoryRouter>
+    </I18nextProvider>,
+  );
 }
 
 // Server returns rows ordered by (year DESC, title ASC). The movie
@@ -44,14 +49,64 @@ describe('<OtherCreditsGrid />', () => {
     expect(screen.getAllByTestId('person-other-card')).toHaveLength(12);
   });
 
-  it('opens the correct TMDB URL in a new tab', () => {
+  it('opens external TMDB when no canon series_id is present (Story 537)', () => {
     // slice(1, 2) skips the movie row (toggle OFF hides it) and grabs
-    // the first TV row whose tmdb_media_id is 1000.
+    // the first TV row whose tmdb_media_id is 1000. No series_id ⇒
+    // external link.
     r(<OtherCreditsGrid credits={mixed.slice(1, 2)} />);
     const card = screen.getByTestId('person-other-card');
     expect(card.getAttribute('href')).toBe('https://www.themoviedb.org/tv/1000');
     expect(card.getAttribute('target')).toBe('_blank');
     expect(card.getAttribute('rel')).toContain('noreferrer');
+  });
+
+  it('prefers internal /series/{series_id} when canon row exists (Story 537 / B-42e)', () => {
+    const rows = [
+      {
+        tmdb_media_id: 1000,
+        title: 'Canon No Cache',
+        media_type: 'tv',
+        kind: 'cast',
+        year: 2024,
+        series_id: 777,
+      },
+    ];
+    r(<OtherCreditsGrid credits={rows} />);
+    const card = screen.getByTestId('person-other-card');
+    expect(card.getAttribute('href')).toBe('/series/777');
+    // Internal links are <Link>, NOT <a target="_blank">.
+    expect(card.getAttribute('target')).toBeNull();
+  });
+
+  it('keeps external TMDB for movies even when series_id somehow set (TV-only rule)', () => {
+    // Need at least one TV row so the section renders (filtered.length > 0).
+    const rows = [
+      {
+        tmdb_media_id: 1,
+        title: 'A TV Show',
+        media_type: 'tv',
+        kind: 'cast',
+        year: 2024,
+      },
+      {
+        tmdb_media_id: 9999,
+        title: 'A Movie',
+        media_type: 'movie',
+        kind: 'cast',
+        year: 2024,
+        // series_id is meaningless for movies — current BE never sets it,
+        // but the FE rule defensively requires media_type === 'tv'.
+        series_id: 12345,
+      },
+    ];
+    r(<OtherCreditsGrid credits={rows} />);
+    // Movies hidden by default — toggle them on.
+    fireEvent.click(screen.getByTestId('person-include-movies'));
+    // Movie card: find by data-media-type=movie.
+    const cards = screen.getAllByTestId('person-other-card');
+    const movieCard = cards.find((el) => el.getAttribute('data-media-type') === 'movie');
+    expect(movieCard).toBeTruthy();
+    expect(movieCard!.getAttribute('href')).toBe('https://www.themoviedb.org/movie/9999');
   });
 
   it('returns null when the filter empties the list (movies-only payload)', () => {

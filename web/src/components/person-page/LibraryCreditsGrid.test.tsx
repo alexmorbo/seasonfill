@@ -14,17 +14,27 @@ function r(node: React.ReactElement) {
 }
 
 const sample = [
-  { series_id: 42, title: 'The Last of Us', year: 2023, role_label: 'Joel Miller · 9 ep.',
+  {
+    series_id: 42,
+    title: 'The Last of Us',
+    year: 2023,
+    role_label: 'Joel Miller · 9 ep.',
     kind: 'cast',
     instances: [
       { instance: 'alpha', sonarr_series_id: 7001 },
       { instance: '4k', sonarr_series_id: 9001 },
     ],
-    poster_asset: 'aaa' },
-  { series_id: 43, title: 'Game of Thrones', year: 2011, role_label: 'Oberyn Martell · 7 ep.',
+    poster_asset: 'aaa',
+  },
+  {
+    series_id: 43,
+    title: 'Game of Thrones',
+    year: 2011,
+    role_label: 'Oberyn Martell · 7 ep.',
     kind: 'cast',
     instances: [{ instance: 'alpha', sonarr_series_id: 7050 }],
-    poster_asset: 'bbb' },
+    poster_asset: 'bbb',
+  },
 ];
 
 describe('<LibraryCreditsGrid />', () => {
@@ -35,17 +45,16 @@ describe('<LibraryCreditsGrid />', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders one card per credit with href built from sonarr_series_id (NOT canon series_id)', () => {
+  it('links to canonical /series/{series_id} URL (Story 537 / B-42e — NOT legacy 3-segment)', () => {
     r(<LibraryCreditsGrid credits={sample} sort="recent" onSortChange={() => {}} />);
     const cards = screen.getAllByTestId('person-library-card');
     expect(cards).toHaveLength(2);
-    // First card: instances[0] = alpha / sonarr 7001 — note that canon
-    // series_id=42 must NOT appear in the URL.
-    expect(cards[0]?.getAttribute('href')).toBe('/series/alpha/7001');
-    expect(cards[0]?.getAttribute('data-sonarr-id')).toBe('7001');
-    expect(cards[0]?.getAttribute('href')).not.toContain('/42');
-    // Second card: alpha / sonarr 7050
-    expect(cards[1]?.getAttribute('href')).toBe('/series/alpha/7050');
+    expect(cards[0]?.getAttribute('href')).toBe('/series/42');
+    expect(cards[1]?.getAttribute('href')).toBe('/series/43');
+    // Defence-in-depth: ensure the legacy 3-segment shape NEVER ships again.
+    for (const c of cards) {
+      expect(c.getAttribute('href')).not.toMatch(/\/series\/[^/]+\/\d+$/);
+    }
   });
 
   it('renders title with year and the role label', () => {
@@ -54,14 +63,48 @@ describe('<LibraryCreditsGrid />', () => {
     expect(screen.getByText('Joel Miller · 9 ep.')).toBeInTheDocument();
   });
 
-  it('renders a non-interactive div when instances is empty', () => {
-    r(<LibraryCreditsGrid
-      credits={[{ series_id: 99, title: 'Orphaned', year: 2020, kind: 'cast', instances: [] }]}
-      sort="recent"
-      onSortChange={() => {}}
-    />);
+  it('still links to canonical /series/{series_id} when instances array is empty', () => {
+    r(
+      <LibraryCreditsGrid
+        credits={[
+          {
+            series_id: 99,
+            title: 'Orphaned',
+            year: 2020,
+            kind: 'cast',
+            instances: [],
+          },
+        ]}
+        sort="recent"
+        onSortChange={() => {}}
+      />,
+    );
+    const card = screen.getByTestId('person-library-card');
+    expect(card.getAttribute('href')).toBe('/series/99');
+  });
+
+  it('renders non-clickable card when series_id is missing (defensive — should not happen in prod)', () => {
+    r(
+      <LibraryCreditsGrid
+        credits={[
+          { title: 'No canon id', kind: 'cast', instances: [] } as never,
+        ]}
+        sort="recent"
+        onSortChange={() => {}}
+      />,
+    );
     const card = screen.getByTestId('person-library-card');
     expect(card.getAttribute('href')).toBeNull();
+    expect(card.tagName.toLowerCase()).toBe('div');
+  });
+
+  it('renders the In-library badge on each card', () => {
+    r(<LibraryCreditsGrid credits={sample} sort="recent" onSortChange={() => {}} />);
+    const badges = screen.getAllByTestId('person-library-card-badge');
+    expect(badges).toHaveLength(2);
+    for (const b of badges) {
+      expect(b.getAttribute('data-badge')).toBe('inLibrary');
+    }
   });
 
   it('renders the sort control', () => {

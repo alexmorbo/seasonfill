@@ -574,3 +574,62 @@ func TestUseCase_InvalidTMDBID_TypedTMDBNF(t *testing.T) {
 		"TMDBNotFoundError chain must survive (F-2c-2)")
 	assert.Equal(t, 0, typed.ID)
 }
+
+// Story 537 (B-42e) — when classifyCredit finds the canon row but
+// the series_cache lookup is empty, the credit must land in
+// other_credits with OtherCredit.Canon populated so the wire DTO
+// can emit series_id for FE deep-linking via the TMDBFallbackUseCase
+// internal route.
+func TestUseCase_CanonWithoutCachePopulatesOtherCreditCanon(t *testing.T) {
+	t.Parallel()
+	deps := happyFixture(t)
+	// Wipe series_cache so every canon-resolved credit drops into
+	// CategoryCanon (canon present, no cache). LoU and GoT both
+	// have canon rows in happyFixture (tmdb 100/200 → canon 42/43).
+	deps.SeriesCache = &fakeSeriesCache{rows: map[domain.SeriesID][]series.CacheEntry{}}
+	uc := NewUseCase(deps)
+	out, err := uc.Get(context.Background(), 4495, "", "")
+	require.NoError(t, err)
+	require.Empty(t, out.LibraryCredits, "no cache → must NOT land in library_credits")
+	// 4 credits total: LoU (canon), GoT (canon), Narcos (no canon — CategoryTMDB),
+	// movie (CategoryTMDB by media_type). All four go to other_credits.
+	require.Len(t, out.OtherCredits, 4)
+
+	// Build title→OtherCredit lookup to assert canon propagation.
+	byTitle := map[string]OtherCredit{}
+	for _, oc := range out.OtherCredits {
+		byTitle[oc.Credit.Title] = oc
+	}
+	// LoU and GoT have canon → Canon.ID propagated (CategoryCanon).
+	require.Contains(t, byTitle, "The Last of Us")
+	assert.Equal(t, domain.SeriesID(42), byTitle["The Last of Us"].Canon.ID,
+		"Canon.ID must propagate so wire DTO can emit series_id")
+	require.Contains(t, byTitle, "Game of Thrones")
+	assert.Equal(t, domain.SeriesID(43), byTitle["Game of Thrones"].Canon.ID)
+	// Narcos has no canon row → Canon stays zero (CategoryTMDB).
+	require.Contains(t, byTitle, "Narcos")
+	assert.Zero(t, byTitle["Narcos"].Canon.ID,
+		"no canon row → Canon stays zero so wire DTO omits series_id")
+	// Movie is CategoryTMDB by media_type — Canon also zero.
+	require.Contains(t, byTitle, "Strange Way of Life")
+	assert.Zero(t, byTitle["Strange Way of Life"].Canon.ID)
+}
+
+// Story 537 (B-42e) — when no canon row exists for a TV credit,
+// the use case must leave OtherCredit.Canon at zero value so the
+// wire DTO omits series_id (FE falls back to external TMDB link).
+func TestUseCase_NoCanonLeavesOtherCreditCanonZero(t *testing.T) {
+	t.Parallel()
+	deps := happyFixture(t)
+	// Empty SeriesByTMDB → every canon lookup returns ErrNotFound,
+	// every credit lands in CategoryTMDB.
+	deps.SeriesByTMDB = &fakeSeriesByTMDB{}
+	uc := NewUseCase(deps)
+	out, err := uc.Get(context.Background(), 4495, "", "")
+	require.NoError(t, err)
+	require.Empty(t, out.LibraryCredits)
+	require.Len(t, out.OtherCredits, 4)
+	for _, oc := range out.OtherCredits {
+		assert.Zero(t, oc.Canon.ID, "credit %q must have zero Canon", oc.Credit.Title)
+	}
+}

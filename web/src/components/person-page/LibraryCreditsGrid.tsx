@@ -1,8 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { mediaUrl } from '@/api/series';
 import { SortControl } from './SortControl';
+import { CreditCard, type CreditLinkTarget } from './CreditCard';
 import type { LibraryCreditEntry, LibrarySort } from '@/api/person';
 
 export interface LibraryCreditsGridProps {
@@ -10,6 +9,25 @@ export interface LibraryCreditsGridProps {
   readonly sort: LibrarySort;
   readonly onSortChange: (next: LibrarySort) => void;
   readonly className?: string | undefined;
+}
+
+/**
+ * libraryLinkTarget — Story 537 (B-42e). After Story 536 the
+ * canonical URL is /series/{canonical_series_id} — `series_id`
+ * is always populated on library credits (BE wire confirms it).
+ * The legacy 3-segment `/series/{instance}/{sonarrId}` form is
+ * dead (LegacySeriesRedirect now strips it down to the wrong id
+ * because Sonarr per-instance ids ≠ canon series.id for nearly
+ * every row).
+ */
+function libraryLinkTarget(c: LibraryCreditEntry): CreditLinkTarget {
+  if (typeof c.series_id === 'number' && c.series_id > 0) {
+    return { kind: 'internal', to: `/series/${c.series_id}` };
+  }
+  // series_id ABSENT on a library credit indicates a contract
+  // violation (BE always populates it). Defensive fallback: render
+  // as a non-clickable card so we don't ship a broken link.
+  return { kind: 'none' };
 }
 
 export function LibraryCreditsGrid({
@@ -39,71 +57,38 @@ export function LibraryCreditsGrid({
         className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5"
       >
         {credits.map((c) => {
-          const src = mediaUrl(c.poster_asset);
-          // Each credit can surface in multiple instances (cross-instance
-          // series, e.g. homelab + 4k). For the deep-link we pick the
-          // first — instances are already sorted alphabetically by the
-          // backend, so the choice is stable across renders.
+          const link = libraryLinkTarget(c);
+          // Instances are already sorted alphabetically by BE; pick the
+          // first as a stable display label for the footer.
           const primary = (c.instances ?? [])[0];
           const instance = primary?.instance;
-          const sonarrId = primary?.sonarr_series_id;
-          const canonSeriesId = c.series_id;
           const role = c.role_label ?? c.character_name ?? '';
-          const titleYear = c.year ? `${c.title ?? ''} · ${c.year}` : (c.title ?? '');
-          const key = `${canonSeriesId ?? 'x'}-${instance ?? 'noinst'}`;
-
-          const inner = (
-            <div className="flex flex-col gap-1.5 p-2 rounded-lg border border-border-subtle bg-bg-surface hover:border-accent/40 transition-colors h-full">
-              <div className="aspect-[2/3] w-full rounded overflow-hidden bg-bg-surface-2 border border-border-subtle">
-                {src && (
-                  <img
-                    src={src}
-                    alt=""
-                    aria-hidden="true"
-                    loading="lazy"
-                    decoding="async"
-                    className="w-full h-full object-cover"
-                  />
-                )}
-              </div>
-              <div className="text-[12.5px] font-semibold text-tx-primary truncate" title={c.title}>
-                {titleYear}
-              </div>
-              {role && (
-                <div className="text-[11.5px] text-tx-muted truncate" title={role}>
-                  {role}
-                </div>
-              )}
-              {instance && (
-                <div className="text-[10.5px] text-tx-faint font-mono uppercase tracking-wide truncate">
-                  {instance}
-                </div>
-              )}
-            </div>
-          );
-
-          return instance && sonarrId ? (
-            <Link
-              key={key}
-              to={`/series/${encodeURIComponent(instance)}/${sonarrId}`}
-              data-testid="person-library-card"
-              data-instance={instance}
-              data-sonarr-id={sonarrId}
-              data-series-id={canonSeriesId}
-              className="block focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
-            >
-              {inner}
-            </Link>
-          ) : (
+          const key = `${c.series_id ?? 'x'}-${instance ?? 'noinst'}`;
+          const footer = instance ? (
             <div
-              key={key}
-              data-testid="person-library-card"
-              data-instance=""
-              data-sonarr-id=""
-              data-series-id=""
+              className="text-[10.5px] text-tx-faint font-mono uppercase tracking-wide truncate"
+              title={instance}
             >
-              {inner}
+              {instance}
             </div>
+          ) : null;
+          return (
+            <CreditCard
+              key={key}
+              testId="person-library-card"
+              title={c.title ?? ''}
+              year={c.year ?? undefined}
+              role={role || undefined}
+              posterAsset={c.poster_asset ?? undefined}
+              badge="inLibrary"
+              link={link}
+              footer={footer}
+              dataAttrs={{
+                'series-id': c.series_id ?? undefined,
+                instance: instance ?? undefined,
+                'sonarr-id': primary?.sonarr_series_id ?? undefined,
+              }}
+            />
           );
         })}
       </div>

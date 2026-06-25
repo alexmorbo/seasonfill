@@ -98,6 +98,15 @@ export function Person() {
         </p>
       )}
 
+      {library.length === 0 && other.length === 0 && !isStub && person?.name && (
+        <p
+          data-testid="person-no-credits"
+          className="text-[13px] text-tx-muted text-center py-8"
+        >
+          {t('person.emptyState.noCredits')}
+        </p>
+      )}
+
       <BiographySection
         biography={data?.biography}
         bioLanguage={data?.bio_language}

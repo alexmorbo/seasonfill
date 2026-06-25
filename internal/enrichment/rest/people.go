@@ -161,7 +161,7 @@ func mapLibraryCredit(lc apppeople.LibraryCredit) dto.LibraryCreditEntry {
 }
 
 func mapOtherCredit(oc apppeople.OtherCredit) dto.OtherCreditEntry {
-	return dto.OtherCreditEntry{
+	out := dto.OtherCreditEntry{
 		TMDBMediaID:   int(oc.Credit.TMDBMediaID),
 		MediaType:     oc.Credit.MediaType,
 		Title:         oc.Credit.Title,
@@ -175,6 +175,11 @@ func mapOtherCredit(oc apppeople.OtherCredit) dto.OtherCreditEntry {
 		VoteAverage:   oc.Credit.TMDBRating,
 		VoteCount:     oc.Credit.TMDBVotes,
 	}
+	if oc.Canon.ID != 0 {
+		sid := oc.Canon.ID
+		out.SeriesID = &sid
+	}
+	return out
 }
 
 // deriveRoleLabel picks the display label per kind:

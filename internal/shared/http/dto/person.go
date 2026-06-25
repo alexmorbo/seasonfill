@@ -104,16 +104,23 @@ type LibraryCreditInstance struct {
 // "Original: <name>") and for future vote-desc sort, but does NOT
 // consume them in v1.
 type OtherCreditEntry struct {
-	TMDBMediaID   int      `json:"tmdb_media_id" example:"999"`
-	MediaType     string   `json:"media_type" example:"tv"`
-	Title         string   `json:"title"`
-	OriginalTitle *string  `json:"original_title,omitempty"`
-	Year          *int     `json:"year,omitempty"`
-	CharacterName *string  `json:"character_name,omitempty"`
-	Kind          string   `json:"kind" example:"cast"`
-	Department    *string  `json:"department,omitempty" example:"Production"`
-	RoleLabel     string   `json:"role_label"`
-	PosterAsset   *string  `json:"poster_asset,omitempty"`
-	VoteAverage   *float64 `json:"vote_average,omitempty"`
-	VoteCount     *int     `json:"vote_count,omitempty" example:"12345"`
+	// SeriesID is the canonical series.id when the underlying TMDB
+	// media has a canon row in the database — even if there are no
+	// live series_cache references. Present → FE deep-links to the
+	// global /series/:id surface (Composer falls through to
+	// TMDBFallbackUseCase when cache is empty). Absent → FE falls
+	// back to the external TMDB link.
+	SeriesID      *domain.SeriesID `json:"series_id,omitempty" example:"42"`
+	TMDBMediaID   int              `json:"tmdb_media_id" example:"999"`
+	MediaType     string           `json:"media_type" example:"tv"`
+	Title         string           `json:"title"`
+	OriginalTitle *string          `json:"original_title,omitempty"`
+	Year          *int             `json:"year,omitempty"`
+	CharacterName *string          `json:"character_name,omitempty"`
+	Kind          string           `json:"kind" example:"cast"`
+	Department    *string          `json:"department,omitempty" example:"Production"`
+	RoleLabel     string           `json:"role_label"`
+	PosterAsset   *string          `json:"poster_asset,omitempty"`
+	VoteAverage   *float64         `json:"vote_average,omitempty"`
+	VoteCount     *int             `json:"vote_count,omitempty" example:"12345"`
 }

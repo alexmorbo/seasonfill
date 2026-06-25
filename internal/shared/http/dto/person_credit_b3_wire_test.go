@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
@@ -73,4 +74,40 @@ func TestOtherCreditEntry_B3FieldsOmitWhenNil(t *testing.T) {
 	assert.NotContains(t, s, `"department"`)
 	assert.NotContains(t, s, `"original_title"`)
 	assert.NotContains(t, s, `"vote_count"`)
+}
+
+// Story 537 (B-42e) — `series_id` is the canonical series row id
+// returned when the underlying TMDB media has a canon row in the
+// database, even if no live cache references exist. FE uses it to
+// route to /series/:id (Global Composer w/ TMDBFallbackUseCase).
+// Pointer with omitempty so it never leaks empty values.
+func TestOtherCreditEntry_SeriesID_WirePresentWhenSet(t *testing.T) {
+	t.Parallel()
+	sid := domain.SeriesID(777)
+	e := dto.OtherCreditEntry{
+		TMDBMediaID: 999,
+		MediaType:   "tv",
+		Title:       "x",
+		Kind:        "cast",
+		RoleLabel:   "",
+		SeriesID:    &sid,
+	}
+	b, err := json.Marshal(e)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"series_id":777`)
+}
+
+func TestOtherCreditEntry_SeriesID_WireOmittedWhenNil(t *testing.T) {
+	t.Parallel()
+	e := dto.OtherCreditEntry{
+		TMDBMediaID: 999,
+		MediaType:   "tv",
+		Title:       "x",
+		Kind:        "cast",
+		RoleLabel:   "",
+		// SeriesID intentionally nil
+	}
+	b, err := json.Marshal(e)
+	require.NoError(t, err)
+	require.NotContains(t, string(b), `"series_id"`)
 }

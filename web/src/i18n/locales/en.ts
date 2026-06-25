@@ -2274,6 +2274,13 @@ export const en = {
       showMore: 'Show more',
       openInTmdb: 'Open in TMDB ↗',
     },
+    badges: {
+      inLibrary: 'In library',
+      tmdbOnly: 'TMDB only',
+    },
+    emptyState: {
+      noCredits: 'No known credits',
+    },
     sort: {
       label: 'Sort',
       recent: 'Recent',

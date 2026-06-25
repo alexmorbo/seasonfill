@@ -2272,6 +2272,13 @@ export const ru: Translations = {
       showMore: 'Показать больше',
       openInTmdb: 'Открыть в TMDB ↗',
     },
+    badges: {
+      inLibrary: 'В библиотеке',
+      tmdbOnly: 'Только TMDB',
+    },
+    emptyState: {
+      noCredits: 'Нет известных ролей',
+    },
     sort: {
       label: 'Сортировка',
       recent: 'Свежие',
