@@ -29,8 +29,16 @@ type SeriesFreshenerConfig struct {
 // SeriesWorkerHandle is the narrow contract the freshener consumes from
 // *appenrich.SeriesWorker. Local interface so tests inject a fake worker
 // without standing up the full TMDB + persistence dependency graph.
+//
+// HandleForced bypasses the worker's per-source freshness gate. Probe
+// has already proven this series is stale (stub / never / TTL /
+// missing_lang / empty_seasons / empty_people) — re-applying Handle's
+// 30d source TTL would short-circuit valid refreshes (Bug #2: a
+// missing_lang probe at hour 12 of a 30d TTL window returned
+// fresh_skip and never wrote series_texts).
 type SeriesWorkerHandle interface {
 	Handle(ctx context.Context, seriesID domain.SeriesID) error
+	HandleForced(ctx context.Context, seriesID domain.SeriesID) error
 }
 
 // SeriesFreshenerHolder satisfies seriesdetail.SeriesFreshener. Wraps a
@@ -139,11 +147,13 @@ func (h *SeriesFreshenerHolder) EnsureFresh(ctx context.Context, seriesID domain
 	key := fmt.Sprintf("%d:%s", int64(seriesID), lang)
 	v, sferr, _ := h.sf.Do(key, func() (any, error) {
 		defer h.sf.Forget(key)
-		// Detached ctx — coalesced callers share one Handle invocation,
-		// and one caller's cancellation must not abort the others.
+		// Detached ctx — coalesced callers share one HandleForced
+		// invocation, and one caller's cancellation must not abort the
+		// others. HandleForced (not Handle) — see SeriesWorkerHandle
+		// doc; the freshness probe above is the only gate that matters.
 		freshenCtx, cancel := context.WithTimeout(context.Background(), h.cfg.SyncTimeout)
 		defer cancel()
-		if err := inner.Handle(freshenCtx, seriesID); err != nil {
+		if err := inner.HandleForced(freshenCtx, seriesID); err != nil {
 			return err, err
 		}
 		return nil, nil

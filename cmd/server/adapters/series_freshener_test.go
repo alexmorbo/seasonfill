@@ -52,8 +52,15 @@ func (e *fakeAsyncEnricher) Calls() int {
 
 // fakeWorker satisfies SeriesWorkerHandle. Configurable: block until
 // ctx.Done (timeout test), return canned error (error test), or noop+nil.
+//
+// `calls` aggregates Handle + HandleForced for tests that don't care
+// which entry point Freshener picked. `handleCalls` and
+// `handleForcedCalls` split the count for the Story 544 regression
+// test that pins routing to HandleForced.
 type fakeWorker struct {
-	calls atomic.Int64
+	calls             atomic.Int64
+	handleCalls       atomic.Int64
+	handleForcedCalls atomic.Int64
 
 	block       bool
 	err         error
@@ -66,6 +73,17 @@ type fakeWorker struct {
 
 func (f *fakeWorker) Handle(ctx context.Context, _ domain.SeriesID) error {
 	f.calls.Add(1)
+	f.handleCalls.Add(1)
+	return f.runBody(ctx)
+}
+
+func (f *fakeWorker) HandleForced(ctx context.Context, _ domain.SeriesID) error {
+	f.calls.Add(1)
+	f.handleForcedCalls.Add(1)
+	return f.runBody(ctx)
+}
+
+func (f *fakeWorker) runBody(ctx context.Context) error {
 	now := time.Now()
 	f.recordCtxAt.Store(&now)
 	if f.block {
@@ -314,6 +332,14 @@ type workerCtxRecorder struct {
 }
 
 func (f *workerCtxRecorder) Handle(ctx context.Context, _ domain.SeriesID) error {
+	return f.record(ctx)
+}
+
+func (f *workerCtxRecorder) HandleForced(ctx context.Context, _ domain.SeriesID) error {
+	return f.record(ctx)
+}
+
+func (f *workerCtxRecorder) record(ctx context.Context) error {
 	f.calls.Add(1)
 	state := struct{ err error }{err: ctx.Err()}
 	f.entry.Store(&state)
@@ -325,4 +351,26 @@ func (f *workerCtxRecorder) Handle(ctx context.Context, _ domain.SeriesID) error
 		}
 	}
 	return nil
+}
+
+// Story 544 regression: when probe says stale, Freshener MUST call
+// HandleForced (not Handle). Handle's per-source freshness gate would
+// short-circuit valid refreshes (e.g. missing_lang at hour 12 of a 30d
+// SourceTMDBSeries TTL window — live bug observed for sonarr_id=25551
+// where freshen.run logged result:"refreshed" but no TMDB call fired
+// and series_texts.ru-RU was never written).
+func TestSeriesFreshenerHolder_StalePath_CallsHandleForcedNotHandle(t *testing.T) {
+	t.Parallel()
+	probe := &fakeProbe{stale: true, reason: "missing_lang"}
+	enr := &fakeAsyncEnricher{}
+	h := newFreshener(t, probe, enr, time.Second)
+	w := &fakeWorker{}
+	h.Set(w)
+	defer h.Close()
+
+	res := h.EnsureFresh(context.Background(), 25551, "ru-RU")
+	assert.True(t, res.Refreshed)
+	assert.Equal(t, int64(1), w.handleForcedCalls.Load(), "Freshener MUST route through HandleForced when probe says stale")
+	assert.Equal(t, int64(0), w.handleCalls.Load(), "Freshener MUST NOT call Handle (bypassed source TTL is the whole point of Story 544)")
+	assert.Equal(t, 0, enr.Calls(), "successful sync refresh must NOT enqueue async fallback")
 }
