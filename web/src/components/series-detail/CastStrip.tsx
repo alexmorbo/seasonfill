@@ -108,10 +108,13 @@ export function CastStrip({
           const src = mediaUrl(m.profile_asset);
           const name = m.name ?? '';
           const character = m.character_name ?? '';
-          // B-42b: only wrap in Link when person_id is defined. BE always
-          // emits person_id today, but the DTO types it optional and an
-          // empty fallback would produce /people/ which 404s.
-          const hasPerson = typeof m.person_id === 'number' && m.person_id > 0;
+          // B-45 (audit 2026-06-25): the PersonPage route is `/person/:tmdbId`
+          // and reads `tmdbId` via useParams. Sonarr-only people without a
+          // TMDB match are rendered as a non-clickable card so we never
+          // navigate to /person/undefined (which would silently fall through
+          // the router's catch-all to the Dashboard).
+          const tmdbPersonId = m.tmdb_person_id;
+          const hasPerson = typeof tmdbPersonId === 'number' && tmdbPersonId > 0;
           const body = (
             <>
               <span
@@ -158,8 +161,8 @@ export function CastStrip({
           if (hasPerson) {
             return (
               <Link
-                key={m.person_id}
-                to={`/people/${m.person_id}`}
+                key={tmdbPersonId}
+                to={`/person/${tmdbPersonId}`}
                 data-testid="cast-strip-card"
                 className={className}
               >

@@ -394,8 +394,8 @@ export const ru: Translations = {
         aria: 'Ssparkline грабов {{instance}} за 7 дней',
       },
       actions: {
-        edit: 'Edit',
-        forceScan: 'Force scan',
+        edit: 'Изменить',
+        forceScan: 'Сканировать',
         forceScanRunning: 'Сканирование…',
         openSonarr: 'Sonarr',
       },

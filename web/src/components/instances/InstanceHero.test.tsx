@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { screen, waitFor } from '@testing-library/react';
+import i18n from '@/i18n';
 import { renderWithProviders } from '@/test-utils';
 import { InstanceHero } from './InstanceHero';
 
@@ -496,5 +497,39 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
     await waitFor(() => {
       expect(screen.getByTestId('hero-force-scan-homelab')).toHaveAttribute('data-busy', 'false');
     });
+  });
+});
+
+describe('<InstanceHero /> — B-50 i18n (ru localization for Edit + Force scan)', () => {
+  const inst = {
+    name: 'homelab',
+    mode: 'auto',
+    health: 'Available',
+    last_check_at: new Date().toISOString(),
+    transitions_count: 0,
+    url: 'http://sonarr:80',
+  } as never;
+
+  let savedLang: string;
+  beforeEach(() => { savedLang = i18n.resolvedLanguage ?? 'en'; });
+  afterEach(async () => { await i18n.changeLanguage(savedLang); });
+
+  it('localizes the Edit + Force scan buttons in ru', async () => {
+    // Story 538 B-50 — `ru.ts` previously shipped placeholder English
+    // values for `instances.hero.actions.edit` and `.forceScan`. The
+    // operator saw "Edit" / "Force scan" on the ru UI. Lock the
+    // localized strings in.
+    await i18n.changeLanguage('ru');
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    // Wait for a stable render via the chip row.
+    await screen.findByTestId('chip-missing');
+    // Edit button is rendered as the literal localized text alongside
+    // its icon. Use getByText (not getByRole-name) because the icon
+    // contributes to the accessible name on some shadcn variants.
+    expect(screen.getByText('Изменить')).toBeInTheDocument();
+    expect(screen.getByText('Сканировать')).toBeInTheDocument();
+    // Negative: the placeholder English values must not appear.
+    expect(screen.queryByText('Edit')).toBeNull();
+    expect(screen.queryByText('Force scan')).toBeNull();
   });
 });

@@ -66,4 +66,28 @@ describe('useMissing()', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result.current.fetchStatus).toBe('idle');
   });
+
+  it('caps per-page limit at 100 (B-46 audit 2026-06-25)', async () => {
+    // BE clamps limit to [1, 100] (internal/catalog/rest/instances.go
+    // searchMaxLimit). Sending 200 silently 400s and the missing
+    // section never renders. Lock in the <= 100 invariant.
+    const captured: { url?: string } = {};
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      captured.url = typeof url === 'string' ? url : url.toString();
+      return new Response(JSON.stringify({ items: [], total: 0, has_more: false }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const { result } = renderHook(() => useMissing('alpha'), { wrapper: wrap() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(captured.url).toBeDefined();
+    const u = new URL(captured.url!, 'http://test');
+    const limit = Number(u.searchParams.get('limit'));
+    expect(Number.isFinite(limit)).toBe(true);
+    expect(limit).toBeGreaterThan(0);
+    expect(limit).toBeLessThanOrEqual(100);
+    // Negative: the legacy 200 value must not reappear.
+    expect(captured.url).not.toContain('limit=200');
+  });
 });

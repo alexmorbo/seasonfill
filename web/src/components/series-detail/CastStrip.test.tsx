@@ -17,9 +17,9 @@ function wrap(ui: React.ReactElement) {
 }
 
 const sample = [
-  { person_id: 1, name: 'Joel Kinnaman', character_name: 'Ed Baldwin', profile_asset: 'h1' },
-  { person_id: 2, name: 'Krys Marshall', character_name: 'Danielle Poole' },
-  { person_id: 3, name: 'Wrenn Schmidt', character_name: 'Margo Madison', profile_asset: 'h3' },
+  { person_id: 1, tmdb_person_id: 1001, name: 'Joel Kinnaman', character_name: 'Ed Baldwin', profile_asset: 'h1' },
+  { person_id: 2, tmdb_person_id: 1002, name: 'Krys Marshall', character_name: 'Danielle Poole' },
+  { person_id: 3, tmdb_person_id: 1003, name: 'Wrenn Schmidt', character_name: 'Margo Madison', profile_asset: 'h3' },
 ];
 
 describe('CastStrip', () => {
@@ -74,9 +74,14 @@ describe('CastStrip', () => {
     expect(header.querySelector('.flex-1')).toBeNull();
   });
 
-  it('renders a non-link div for cast members without person_id (B-42b)', () => {
+  it('renders a non-link div for cast members without tmdb_person_id (B-45)', () => {
+    // Story 538 B-45: link guard now keys on tmdb_person_id (not the
+    // local person_id). Sonarr-only people without a TMDB match must
+    // render as a non-clickable card so we never navigate to
+    // /person/undefined.
     const cast: CastMember[] = [
-      { name: 'Unknown Actor', character_name: 'Background' } as CastMember,
+      // local person_id present, but TMDB id missing.
+      { person_id: 42, name: 'Sonarr Only', character_name: 'Background' } as CastMember,
     ];
     render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={cast} />));
     const card = screen.getByTestId('cast-strip-card');
@@ -84,5 +89,22 @@ describe('CastStrip', () => {
     expect(card.tagName).toBe('DIV');
     expect(card.getAttribute('href')).toBeNull();
     expect(card.getAttribute('data-no-link')).toBe('true');
+  });
+
+  it('links to /person/${tmdb_person_id} when TMDB id present (B-45)', () => {
+    // Story 538 B-45: the PersonPage route is `/person/:tmdbId`, NOT
+    // `/people/:id`. The CastStrip card must point to the TMDB person
+    // id, not the local DB person_id.
+    const cast: CastMember[] = [
+      { person_id: 42, tmdb_person_id: 12345, name: 'Test Actor', character_name: 'Role' } as CastMember,
+    ];
+    render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={cast} />));
+    const card = screen.getByTestId('cast-strip-card');
+    expect(card.tagName).toBe('A');
+    expect(card.getAttribute('href')).toBe('/person/12345');
+    // Negative: the local person_id must not leak into the href, and
+    // the dead `/people/` prefix must not reappear.
+    expect(card.getAttribute('href')).not.toContain('/people/');
+    expect(card.getAttribute('href')).not.toContain('/42');
   });
 });

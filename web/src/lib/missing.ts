@@ -59,9 +59,13 @@ export interface MissingSeriesList {
 export function useMissing(
   name: string | undefined,
 ): UseQueryResult<MissingSeriesList, ApiError> {
+  // B-46 (audit 2026-06-25): BE clamps `limit` to [1, 100]
+  // (internal/catalog/rest/instances.go searchMaxLimit). 200 silently
+  // 400s and the missing section never renders. useSeriesCacheInfinite
+  // is cursor-paginated so capping per-page is lossless.
   const cache = useSeriesCacheInfinite(
     name ?? null,
-    { state: 'missing', limit: 200 },
+    { state: 'missing', limit: 100 },
   );
   const items = useMemo<readonly MissingSeries[]>(
     () => projectCacheToMissing(flattenSeriesCachePages(cache.data?.pages)),
