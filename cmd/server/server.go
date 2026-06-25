@@ -477,6 +477,28 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		})
 	}
 
+	// Story 540 / B-49 — discovery genre catalog sync. Boot pass + 24h
+	// ticker. Goroutine; never blocks server start. Without this loop
+	// the discovery picker falls back to en-US for the ~10/18 TMDB TV
+	// genres that the per-series enrichment worker has never touched in
+	// ru-RU (and any future locale.SupportedUserLanguages addition).
+	if discoRuntime != nil && enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+		gsBundle, gsErr := wiring.BuildDiscoveryGenreSync(wiring.DiscoveryGenreSyncDeps{
+			Genres: genresRepo,
+			I18n:   genresI18nRepo,
+			TMDB:   enrichBundle.TMDBHolder,
+			Log:    sharedports.DomainLogger(log, "discovery"),
+		})
+		if gsErr != nil {
+			return nil, fmt.Errorf("wire discovery genre sync: %w", gsErr)
+		}
+		lifecycle.Go(rootCtx, "discovery-genre-sync", func(ctx context.Context) {
+			loops.RunDiscoveryGenreSync(ctx, gsBundle.Syncer,
+				loops.DefaultDiscoveryGenreSyncInterval,
+				sharedports.DomainLogger(log, "discovery"))
+		})
+	}
+
 	// Story 507 (N-2f) — curated discovery HTTP handler. Built only
 	// when the discovery runtime exists (i.e. TMDB was constructable
 	// at boot). When TMDB is runtime-only enabled (operator flips

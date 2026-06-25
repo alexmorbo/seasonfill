@@ -17,7 +17,9 @@ import (
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/cachewatch"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
@@ -393,4 +395,77 @@ func BuildDiscoveryDiscover(deps DiscoveryDiscoverDeps) *DiscoveryDiscoverBundle
 		BgFetcher: bg,
 		LRU:       lru,
 	}
+}
+
+// === Story 540 / B-49 — Discovery genre catalog sync ===
+
+// DiscoveryGenreSyncBundle groups the syncer constructed at boot.
+type DiscoveryGenreSyncBundle struct {
+	Syncer *discoapp.GenreSyncer
+}
+
+// TMDBGenreClient is the slice of *tmdb.Client the syncer needs. The
+// production binder is *adapters.TMDBClientHolder once it gains a
+// GenreListTV pass-through; the holder method is added in this story.
+type TMDBGenreClient interface {
+	GenreListTV(ctx context.Context, language string) (*tmdb.GenreListResponse, error)
+}
+
+// genreListerAdapter bridges TMDBGenreClient → discoapp.TMDBGenreLister.
+// The package boundary forbids internal/discovery/ from importing the
+// concrete tmdb.GenreListResponse; the adapter performs the field
+// rename (Genres → Items).
+type genreListerAdapter struct {
+	inner TMDBGenreClient
+}
+
+func (a *genreListerAdapter) GenreListTV(ctx context.Context, language string) (*discoapp.GenreListResult, error) {
+	resp, err := a.inner.GenreListTV(ctx, language)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]discoapp.GenreListItem, 0, len(resp.Genres))
+	for _, g := range resp.Genres {
+		out = append(out, discoapp.GenreListItem{ID: g.ID, Name: g.Name})
+	}
+	return &discoapp.GenreListResult{Items: out}, nil
+}
+
+// DiscoveryGenreSyncDeps is the input contract.
+type DiscoveryGenreSyncDeps struct {
+	Genres    *enrichpersistence.GenresRepository
+	I18n      *enrichpersistence.GenresI18nRepository
+	TMDB      TMDBGenreClient
+	Languages []string
+	Log       *slog.Logger
+}
+
+// BuildDiscoveryGenreSync wires the syncer over the enrichment repos +
+// the live TMDB client. Languages defaults to locale.SupportedUserLanguages
+// when nil — caller passes a copied slice so future runtime-reload
+// mutations don't race.
+func BuildDiscoveryGenreSync(deps DiscoveryGenreSyncDeps) (*DiscoveryGenreSyncBundle, error) {
+	if deps.Genres == nil {
+		return nil, fmt.Errorf("discovery genre sync: genres repo required")
+	}
+	if deps.I18n == nil {
+		return nil, fmt.Errorf("discovery genre sync: i18n repo required")
+	}
+	if deps.TMDB == nil {
+		return nil, fmt.Errorf("discovery genre sync: tmdb client required")
+	}
+	if deps.Log == nil {
+		return nil, fmt.Errorf("discovery genre sync: log required")
+	}
+	if len(deps.Languages) == 0 {
+		deps.Languages = append([]string(nil), locale.SupportedUserLanguages...)
+	}
+	syncer := discoapp.NewGenreSyncer(discoapp.GenreSyncerDeps{
+		TMDB:      &genreListerAdapter{inner: deps.TMDB},
+		Genres:    deps.Genres,
+		I18n:      deps.I18n,
+		Languages: deps.Languages,
+		Log:       deps.Log,
+	})
+	return &DiscoveryGenreSyncBundle{Syncer: syncer}, nil
 }

@@ -68,8 +68,8 @@ export const discoveryKeys = {
   byGenre: (id: number, lang: string) => ['discovery', 'genre', id, lang] as const,
   byNetwork: (id: number, lang: string) => ['discovery', 'network', id, lang] as const,
   byKeyword: (id: number, lang: string) => ['discovery', 'keyword', id, lang] as const,
-  genresList: () => ['discovery', 'genres-list'] as const,
-  networksList: () => ['discovery', 'networks-list'] as const,
+  genresList: (lang: string) => ['discovery', 'genres-list', lang] as const,
+  networksList: (lang: string) => ['discovery', 'networks-list', lang] as const,
   search: (q: string, lang: string) => ['discovery', 'search', q, lang] as const,
   discover: (f: DiscoveryFilter, lang: string) => ['discovery', 'discover', f, lang] as const,
 };
@@ -183,18 +183,22 @@ export function useDiscoveryByGenre(
   });
 }
 
-export function useDiscoveryGenresList(): UseQueryResult<DiscoveryGenresResponse, ApiError> {
+export function useDiscoveryGenresList(
+  lang?: string,
+): UseQueryResult<DiscoveryGenresResponse, ApiError> {
   return useQuery<DiscoveryGenresResponse, ApiError>({
-    queryKey: discoveryKeys.genresList(),
-    queryFn: () => api<DiscoveryGenresResponse>('/discovery/genres'),
+    queryKey: discoveryKeys.genresList(lang ?? ''),
+    queryFn: () => api<DiscoveryGenresResponse>(`/discovery/genres${langQs(lang)}`),
     staleTime: 24 * 60 * 60_000,
   });
 }
 
-export function useDiscoveryNetworksList(): UseQueryResult<DiscoveryNetworksResponse, ApiError> {
+export function useDiscoveryNetworksList(
+  lang?: string,
+): UseQueryResult<DiscoveryNetworksResponse, ApiError> {
   return useQuery<DiscoveryNetworksResponse, ApiError>({
-    queryKey: discoveryKeys.networksList(),
-    queryFn: () => api<DiscoveryNetworksResponse>('/discovery/networks'),
+    queryKey: discoveryKeys.networksList(lang ?? ''),
+    queryFn: () => api<DiscoveryNetworksResponse>(`/discovery/networks${langQs(lang)}`),
     staleTime: 24 * 60 * 60_000,
   });
 }

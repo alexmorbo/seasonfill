@@ -54,10 +54,14 @@ describe('list hooks fire correct URLs', () => {
     expectUrl(() => useDiscoveryPopular('ru'), '/discovery/popular?lang=ru'));
   it('useDiscoveryByGenre', () =>
     expectUrl(() => useDiscoveryByGenre(18, 'en'), '/discovery/genre/18?lang=en'));
-  it('useDiscoveryGenresList', () =>
+  it('useDiscoveryGenresList without lang → bare path', () =>
     expectUrl(() => useDiscoveryGenresList(), '/discovery/genres'));
-  it('useDiscoveryNetworksList', () =>
+  it('useDiscoveryGenresList with lang → ?lang= appended', () =>
+    expectUrl(() => useDiscoveryGenresList('ru-RU'), '/discovery/genres?lang=ru-RU'));
+  it('useDiscoveryNetworksList without lang → bare path', () =>
     expectUrl(() => useDiscoveryNetworksList(), '/discovery/networks'));
+  it('useDiscoveryNetworksList with lang → ?lang= appended', () =>
+    expectUrl(() => useDiscoveryNetworksList('ru-RU'), '/discovery/networks?lang=ru-RU'));
 });
 
 describe('useDiscoveryByGenre — guards', () => {
@@ -122,8 +126,9 @@ describe('discoveryKeys', () => {
     expect(discoveryKeys.byGenre(18, 'en')).toEqual(['discovery', 'genre', 18, 'en']);
     expect(discoveryKeys.byNetwork(49, '')).toEqual(['discovery', 'network', 49, '']);
     expect(discoveryKeys.byKeyword(7, '')).toEqual(['discovery', 'keyword', 7, '']);
-    expect(discoveryKeys.genresList()).toEqual(['discovery', 'genres-list']);
-    expect(discoveryKeys.networksList()).toEqual(['discovery', 'networks-list']);
+    expect(discoveryKeys.genresList('ru-RU')).toEqual(['discovery', 'genres-list', 'ru-RU']);
+    expect(discoveryKeys.genresList('')).toEqual(['discovery', 'genres-list', '']);
+    expect(discoveryKeys.networksList('ru-RU')).toEqual(['discovery', 'networks-list', 'ru-RU']);
     expect(discoveryKeys.search('rick', 'en')).toEqual(['discovery', 'search', 'rick', 'en']);
   });
 });

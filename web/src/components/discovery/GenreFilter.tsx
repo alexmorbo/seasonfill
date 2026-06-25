@@ -4,6 +4,7 @@ import { useDiscoveryGenresList } from '@/api/discovery';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toBcp47 } from '@/lib/locale';
 import { cn } from '@/lib/utils';
 
 export interface GenreFilterProps {
@@ -19,8 +20,8 @@ const CHIP_BASE = cn(
 // Story 515 / N-3c: horizontal chip strip of TMDB genres. Click toggles
 // the selection; parent renders <GenreResultsGrid /> below.
 export function GenreFilter({ selectedGenreId, onSelect }: GenreFilterProps) {
-  const { t } = useTranslation();
-  const q = useDiscoveryGenresList();
+  const { t, i18n } = useTranslation();
+  const q = useDiscoveryGenresList(toBcp47(i18n.resolvedLanguage));
 
   if (q.isPending) {
     return (

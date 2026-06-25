@@ -30,7 +30,8 @@ func TestTMDBEndpointFor(t *testing.T) {
 		{"/3/configuration", "/configuration"},
 		// Future paths fall through.
 		{"/3/movie/603", "/unknown"},
-		{"/3/genre/tv/list", "/unknown"},
+		// Story 540: genre catalog sync.
+		{"/3/genre/tv/list", "/genre/tv/list"},
 		// Edge: bare /3 → "/"  → "/unknown" (no rule matches).
 		{"/3", "/unknown"},
 		// Edge: no /3 prefix (custom base URL in tests).

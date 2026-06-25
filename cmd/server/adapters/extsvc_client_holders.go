@@ -176,6 +176,19 @@ func (h *TMDBClientHolder) SearchTV(ctx context.Context, query, language string,
 	return c.SearchTV(ctx, query, language, page)
 }
 
+// GenreListTV forwards to the live tmdb.Client; entry point for the
+// discovery GenreSyncer background loop (story 540 / B-49). Same
+// Load+nil-check pattern as the other forwarders so a runtime TMDB
+// disable surfaces the canonical ErrTMDBClientNotReady — the syncer
+// then logs warn and the existing genres_i18n rows stay intact.
+func (h *TMDBClientHolder) GenreListTV(ctx context.Context, language string) (*tmdb.GenreListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.GenreListTV(ctx, language)
+}
+
 // Compile-time guarantee: *TMDBClientHolder satisfies the application
 // port. Caught at build time if the port ever grows a new method.
 var _ appenrich.TMDBClient = (*TMDBClientHolder)(nil)

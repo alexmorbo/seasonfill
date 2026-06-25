@@ -3,6 +3,7 @@ import {
   useDiscoveryGenresList, useDiscoveryNetworksList,
   type DiscoveryFilter,
 } from '@/api/discovery';
+import { toBcp47 } from '@/lib/locale';
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select';
@@ -70,10 +71,11 @@ export interface FilteredPanelProps {
 }
 
 export function FilteredPanel({ state }: FilteredPanelProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = toBcp47(i18n.resolvedLanguage);
   const { filter, setFilter, clearFilter, hasActiveFilter } = state;
-  const genresQ = useDiscoveryGenresList();
-  const networksQ = useDiscoveryNetworksList();
+  const genresQ = useDiscoveryGenresList(lang);
+  const networksQ = useDiscoveryNetworksList(lang);
   const [yLo, yHi] = yearRange(filter);
   const [rLo, rHi] = ratingRange(filter);
 
