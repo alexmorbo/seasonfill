@@ -136,6 +136,171 @@ func (w *SeriesWorker) HandleForced(ctx context.Context, seriesID domain.SeriesI
 	return w.handleInternal(ctx, seriesID, true)
 }
 
+// HandleForcedLang is the Freshener-facing entry point for lang-targeted
+// staged enrichment (Story 546).
+//
+// Diff vs HandleForced:
+//  1. Single language (the one the user requested), NOT every entry in
+//     w.deps.Languages.
+//  2. STAGE 1+2 ONLY: one GetTV call. Series-level data committed in one
+//     tx (canon + series_texts[lang] + season SHELLS + people +
+//     person_credits(tv) + taxonomy + videos + content_ratings +
+//     external_ids + recommendations). NO per-season GetSeason calls,
+//     NO episodes write, NO episode_texts write, NO episode_credits.
+//  3. Does NOT stamp enrichment_tmdb_synced_at — the
+//     RefreshScheduler/Dispatcher-driven full Handle pass keeps that
+//     contract. Background Worker.Handle via OnDemandEnricher dispatch
+//     will fill episodes; not stamping here ensures the freshness gate
+//     does NOT short-circuit that follow-up.
+//
+// Use case: read-through TMDB fallback (Freshener) where the user is on
+// a 3s budget and wants Russian text NOW. The user-visible payload (hero
+// title + season list + cast carousel + recommendations) is fully
+// satisfied by Stage 1+2; episode lists land asynchronously via the
+// separate per-season-detail endpoint after the dispatcher pass completes.
+//
+// Bug context: pre-546, the freshener invoked HandleForced which
+// iterated EVERY w.deps.Languages entry AND fetched every active season's
+// episode list per language. On a 9-season series this was 1 + 9 = 10
+// TMDB calls × 2 langs = 20 calls under a 3s budget → ru-RU consistently
+// tripped context.DeadlineExceeded → tx rollback → series_texts.ru-RU
+// never written → 2h error backoff blocks retry → user stuck on en-US
+// for hours. Concrete prod evidence: series 25551 "The Rookie",
+// 2026-06-25 08:30 UTC, GetSeason(8,ru-RU) exceeded budget after 3000ms.
+func (w *SeriesWorker) HandleForcedLang(ctx context.Context, seriesID domain.SeriesID, lang string) error {
+	start := w.deps.Clock()
+	log := w.deps.Logger.With(
+		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
+		slog.Int64("entity_id", int64(seriesID)),
+		slog.String("source", string(enrichment.SourceTMDBSeries)),
+		slog.String("language", lang),
+		slog.String("stage", "series_level"),
+	)
+
+	canon, err := w.deps.Series.Get(ctx, seriesID)
+	if err != nil {
+		var seriesNF *sharedErrors.SeriesNotFoundError
+		if errors.As(err, &seriesNF) {
+			log.WarnContext(ctx, "enrichment.series.handle_lang.series_missing",
+				slog.Int64("series_id", int64(seriesNF.ID)),
+				slog.String("code", seriesNF.Code()))
+			return nil
+		}
+		return fmt.Errorf("series worker (lang): load canon: %w", err)
+	}
+	if canon.TMDBID == nil {
+		// Same Story 510 rationale as handleInternal — Sonarr-only series
+		// with no tmdb_id can never be enriched via TMDB; log Debug + return.
+		log.DebugContext(ctx, "enrichment.series.handle_lang.no_tmdb_id_skip",
+			slog.String("domain", "enrichment"),
+		)
+		return nil
+	}
+
+	// Pull existing attempts counter for the backoff math on failure.
+	prevAttempts := 0
+	if errRow, errErr := w.deps.EnrichmentErrors.GetByEntitySource(ctx,
+		enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceTMDBSeries); errErr == nil {
+		prevAttempts = errRow.Attempts
+	} else if !errors.Is(errErr, ports.ErrNotFound) {
+		log.WarnContext(ctx, "enrichment.series.handle_lang.error_row_read_failed",
+			slog.String("error", errErr.Error()))
+	}
+
+	// personsEnqueued/prewarmEnqueued are local single-lang flags — the
+	// helper guards against double-firing on retry-within-same-call
+	// (cannot happen on a single-lang call but the helper's signature
+	// requires the pointer pair).
+	personsEnqueued := false
+	prewarmEnqueued := false
+	if err := w.refreshOneLanguageStaged(ctx, canon, lang, &personsEnqueued, &prewarmEnqueued, log); err != nil {
+		return w.handleTMDBError(ctx, seriesID, "lang-stage1="+lang, err, prevAttempts, start)
+	}
+
+	durMs := int(w.deps.Clock().Sub(start).Milliseconds())
+	log.InfoContext(ctx, "enrichment.series.handle_lang.staged_ok",
+		slog.String("domain", "enrichment"),
+		slog.String("language", lang),
+		slog.Int("duration_ms", durMs),
+		slog.String("note", "stage1_2_committed_episodes_pending_dispatcher"),
+	)
+	// NB: deliberately NOT calling journalOK — see Story 546 decision #3.
+	// The series-level data is committed, but the dispatcher-driven
+	// full Handle pass (triggered via OnDemandEnricher.EnqueueIfStale by
+	// the Freshener's success branch) still needs to fill episodes, and
+	// that pass is TTL-gated. Stamping synced_at here would short-circuit
+	// the follow-up.
+	return nil
+}
+
+// refreshOneLanguageStaged is the Stage 1+2 clone of refreshOneLanguage.
+// Diff: NO per-season GetSeason calls; seasonResponses is an empty map.
+// applyAllForLanguage handles the empty map gracefully — episode-bearing
+// steps (4 episodes / 5 episode_texts / 7b episode_credits) early-return
+// or no-op when their input slice is empty.
+//
+// Returns the first non-nil error from GetTV / tx so HandleForcedLang
+// can journal the failure.
+func (w *SeriesWorker) refreshOneLanguageStaged(
+	ctx context.Context,
+	canon series.Canon,
+	lang string,
+	personsEnqueued *bool,
+	prewarmEnqueued *bool,
+	log *slog.Logger,
+) error {
+	// One TMDB call. GetTV bundles aggregate_credits + videos + images +
+	// external_ids + content_ratings + keywords + recommendations via
+	// append_to_response (see tmdb/tv.go:16), so everything the Stage 1+2
+	// payload needs is in ONE round-trip.
+	tv, err := w.deps.TMDB.GetTV(ctx, int64(*canon.TMDBID), lang)
+	if err != nil {
+		return fmt.Errorf("GetTV(%s): %w", lang, err)
+	}
+
+	// Empty seasons map → mapAllForLanguage produces zero episodes/
+	// episode_texts; applyAllForLanguage's BatchUpsert(empty) and
+	// applyEpisodeCredits(empty) no-op gracefully.
+	emptySeasons := map[int]*tmdb.SeasonResponse{}
+	mapped := w.mapAllForLanguage(tv, emptySeasons, canon, lang)
+
+	var enqueueRows []personEnqueueRow
+	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
+		rows, err := w.applyAllForLanguage(txCtx, canon, tv, emptySeasons, mapped, lang, log)
+		if err != nil {
+			return err
+		}
+		enqueueRows = rows
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("tx-staged(%s): %w", lang, err)
+	}
+
+	// Post-tx media prewarm. Asset paths come from canon + season shells,
+	// which we DID persist this tx — safe to enqueue.
+	if !*prewarmEnqueued && w.deps.MediaPrewarmer != nil {
+		w.deps.MediaPrewarmer.Enqueue(ctx, mapped.PrewarmAssets)
+		*prewarmEnqueued = true
+	}
+
+	// Post-tx person enqueue. aggregate_credits IS in tv (append_to_response)
+	// so enqueueRows carries the series-level cast + crew the user sees in
+	// the hero carousel. Episode-only guest stars are filled by the
+	// dispatcher-driven full Handle pass.
+	if !*personsEnqueued && w.deps.Dispatcher != nil {
+		w.enqueuePersons(ctx, enqueueRows, log)
+		*personsEnqueued = true
+	}
+
+	log.InfoContext(ctx, "enrichment.series.handle_lang.language_ok",
+		slog.String("domain", "enrichment"),
+		slog.Int("seasons_fetched", 0),
+		slog.Int("persons_enqueued", len(enqueueRows)),
+	)
+	return nil
+}
+
 // handleInternal carries the shared Handle/HandleForced body. The only
 // behavioural diff vs the pre-534 Handle is the `if !force` guard
 // around the freshness gate. Every other branch (no tmdb_id skip,

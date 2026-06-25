@@ -30,15 +30,21 @@ type SeriesFreshenerConfig struct {
 // *appenrich.SeriesWorker. Local interface so tests inject a fake worker
 // without standing up the full TMDB + persistence dependency graph.
 //
-// HandleForced bypasses the worker's per-source freshness gate. Probe
-// has already proven this series is stale (stub / never / TTL /
-// missing_lang / empty_seasons / empty_people) — re-applying Handle's
-// 30d source TTL would short-circuit valid refreshes (Bug #2: a
-// missing_lang probe at hour 12 of a 30d TTL window returned
-// fresh_skip and never wrote series_texts).
+// HandleForcedLang (Story 546) is the read-through entry point: ONE GetTV
+// call + ONE tx commits series-level data (canon, series_texts[lang],
+// season shells, cast, taxonomy, videos, ratings, external IDs,
+// recommendations). Episodes/episode_texts/episode_credits land via the
+// background dispatcher pass triggered by AsyncEnricher.EnqueueIfStale.
+// Pre-546 the Freshener called HandleForced, which iterated every
+// w.deps.Languages entry AND fetched every active season's episode list
+// per language — on a 9-season series this consistently blew the 3s
+// budget on ru-RU and rolled back the entire tx (no series_texts.ru-RU
+// row written). HandleForced + Handle stay on the interface so the test
+// fakes keep their existing routing assertions (Story 544 regression).
 type SeriesWorkerHandle interface {
 	Handle(ctx context.Context, seriesID domain.SeriesID) error
 	HandleForced(ctx context.Context, seriesID domain.SeriesID) error
+	HandleForcedLang(ctx context.Context, seriesID domain.SeriesID, lang string) error
 }
 
 // SeriesFreshenerHolder satisfies seriesdetail.SeriesFreshener. Wraps a
@@ -147,15 +153,25 @@ func (h *SeriesFreshenerHolder) EnsureFresh(ctx context.Context, seriesID domain
 	key := fmt.Sprintf("%d:%s", int64(seriesID), lang)
 	v, sferr, _ := h.sf.Do(key, func() (any, error) {
 		defer h.sf.Forget(key)
-		// Detached ctx — coalesced callers share one HandleForced
+		// Detached ctx — coalesced callers share one HandleForcedLang
 		// invocation, and one caller's cancellation must not abort the
-		// others. HandleForced (not Handle) — see SeriesWorkerHandle
-		// doc; the freshness probe above is the only gate that matters.
+		// others. HandleForcedLang (Story 546) is the staged path: one
+		// GetTV + one tx, no per-season fetches.
 		freshenCtx, cancel := context.WithTimeout(context.Background(), h.cfg.SyncTimeout)
 		defer cancel()
-		if err := inner.HandleForced(freshenCtx, seriesID); err != nil {
+		if err := inner.HandleForcedLang(freshenCtx, seriesID, lang); err != nil {
 			return err, err
 		}
+		// Stage 1+2 committed (series-level data + lang text). Story 546:
+		// schedule the background pass that fills episodes/episode_texts
+		// via the dispatcher path. Fired INSIDE the singleflight Do() so a
+		// coalesced batch of N "first opens" produces ONE EnqueueIfStale
+		// call, not N — the OnDemandEnricher's 30s throttle would dedup
+		// in prod anyway, but keeping it tight here means tests + metrics
+		// observe a clean 1:1 between staged commits and follow-up
+		// enqueues. The worker's Handle freshness gate is intentionally
+		// NOT stamped by HandleForcedLang, so the follow-up runs end-to-end.
+		h.cfg.AsyncEnricher.EnqueueIfStale(seriesID, catalogseries.HydrationStub)
 		return nil, nil
 	})
 
@@ -169,6 +185,7 @@ func (h *SeriesFreshenerHolder) EnsureFresh(ctx context.Context, seriesID domain
 			slog.String("result", "refreshed"),
 			slog.String("reason", reason),
 			slog.Int64("duration_ms", durMs),
+			slog.String("followup", "enqueued"),
 		)
 		return seriesdetail.FreshenResult{Refreshed: true}
 	default:

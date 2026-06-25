@@ -1406,3 +1406,189 @@ func TestSeriesWorker_LanguagesDefault_OnEmptySlice(t *testing.T) {
 	}
 	assert.True(t, foundEnUS, "default seed must include en-US")
 }
+
+// ---- Story 546 — staged HandleForcedLang -----------------------------
+
+// TestSeriesWorker_HandleForcedLang_StageOnlyCommits asserts that
+// HandleForcedLang's tx writes the SERIES-LEVEL slice (canon +
+// series_texts[lang] + season SHELLS + people + person_credits +
+// taxonomy + videos + content_ratings + external_ids + recommendations)
+// BUT NEVER calls GetSeason and NEVER writes episodes / episode_texts /
+// episode_credits. Those land via the dispatcher-driven Worker.Handle
+// follow-up that the Freshener's success branch enqueues.
+//
+// Failure mode under test (pre-546): refreshOneLanguage iterated active
+// seasons calling GetSeason per language; on a 9-season show under a 3s
+// budget this consistently rolled back the entire ru-RU tx.
+func TestSeriesWorker_HandleForcedLang_StageOnlyCommits(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	// Seed seasons map so a regression would hit GetSeason and surface
+	// in f.tmdb.calls. The map IS NOT used by HandleForcedLang (staged
+	// path passes empty map to mapAllForLanguage).
+	seasons := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasons)
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+
+	require.NoError(t, f.worker.HandleForcedLang(context.Background(), 1, "ru-RU"))
+
+	// Series-level writes — present.
+	calls := f.rec.list()
+	for _, expect := range []string{
+		"Series.Upsert",
+		"SeriesTexts.Upsert",
+		"Seasons.Upsert",
+		"People.Upsert",
+		"PersonCredits.BatchUpsert",
+		"Genres.Upsert",
+		"Genres.Set",
+		"Keywords.Upsert",
+		"Keywords.Set",
+		"Networks.Upsert",
+		"Networks.Set",
+		"Companies.Upsert",
+		"Companies.Set",
+		"Videos.Upsert",
+		"ContentRatings.Upsert",
+		"ExternalIDs.Upsert",
+		"Recommendations.Set",
+	} {
+		assert.Contains(t, calls, expect, "Stage 1+2 must write %q", expect)
+	}
+
+	// Episode-bearing writes — ABSENT at the DATA level. The repo Upsert
+	// methods may still be invoked with empty slices (the production
+	// BatchUpsert call site is unconditional), but the staged path MUST
+	// NOT pass any episode rows or episode_text rows through the wire.
+	// Stage 3-6 lands later via the dispatcher follow-up.
+	assert.Empty(t, f.episodes.rows,
+		"Story 546: HandleForcedLang must NOT persist episode rows (deferred to dispatcher follow-up)")
+	assert.Empty(t, f.episodeTexts.rows,
+		"Story 546: HandleForcedLang must NOT persist episode_text rows (deferred to dispatcher follow-up)")
+
+	// GetSeason — NEVER called. Pre-546 this was the bottleneck: per-
+	// season GetSeason calls blew the 3s read-through budget.
+	for _, c := range f.tmdb.calls {
+		assert.NotEqual(t, "GetSeason", c,
+			"Story 546: HandleForcedLang must NOT call GetSeason (per-season fetches blew the 3s budget pre-546)")
+	}
+
+	// Exactly ONE GetTV call, for the requested language only.
+	assert.Equal(t, 1, f.tmdb.getTVHit,
+		"Story 546: HandleForcedLang must fire exactly one GetTV (no multi-lang fan-out)")
+	assert.Equal(t, []string{"ru-RU"}, f.tmdb.getTVLangs,
+		"Story 546: HandleForcedLang must call GetTV for the requested language only")
+
+	// series_texts row IS written, language is the requested one.
+	require.Len(t, f.seriesTexts.rows, 1, "exactly one series_texts row for the requested lang")
+	assert.Equal(t, "ru-RU", f.seriesTexts.rows[0].Language)
+}
+
+// TestSeriesWorker_HandleForcedLang_DoesNotStampSyncedAt is the
+// freshness-gate invariant — Story 546 decision #3. If we stamped
+// enrichment_tmdb_synced_at on the staged commit, the dispatcher-driven
+// Worker.Handle follow-up (TTL-gated) would short-circuit and episodes
+// would never land.
+func TestSeriesWorker_HandleForcedLang_DoesNotStampSyncedAt(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+
+	require.NoError(t, f.worker.HandleForcedLang(context.Background(), 1, "ru-RU"))
+
+	assert.False(t, f.series.markedSynced,
+		"Story 546: HandleForcedLang must NOT stamp enrichment_tmdb_synced_at — "+
+			"the dispatcher follow-up is TTL-gated and a stamp here would short-circuit it")
+	// And no ClearOnSuccess either — that's part of journalOK.
+	assert.Empty(t, f.enrichmentErrors.cleared,
+		"Story 546: HandleForcedLang must NOT call ClearOnSuccess (paired with synced_at stamping)")
+}
+
+// TestSeriesWorker_HandleForcedLang_GetTVError_JournalsBackoff asserts
+// that a GetTV failure on the staged path records an enrichment_errors
+// row with a NextAttemptAt set by the existing exponential backoff
+// (NOT terminalAttempts), and that the WARN log line carries
+// op="lang-stage1=<lang>" so operators can grep prod logs to
+// distinguish per-lang staged failures from multi-lang full-pass
+// failures (which log op="languages=…").
+func TestSeriesWorker_HandleForcedLang_GetTVError_JournalsBackoff(t *testing.T) {
+	t.Parallel()
+	f := newWorkerFixture(t, nil, nil)
+	f.tmdb.tvErr = errors.New("simulated TMDB 503")
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+	buf := installCaptureLogger(t, f)
+
+	// handleTMDBError returns nil — failure is journalled, not propagated.
+	require.NoError(t, f.worker.HandleForcedLang(context.Background(), 1, "ru-RU"))
+
+	last := f.enrichmentErrors.lastFailure()
+	assert.Equal(t, enrichment.SourceTMDBSeries, last.Source)
+	assert.Equal(t, 1, last.Attempts, "first failure → attempts=1")
+	require.NotNil(t, last.NextAttemptAt, "retryable error must have NextAttemptAt set")
+	assert.Contains(t, last.LastError, "simulated TMDB 503",
+		"underlying TMDB error is preserved verbatim in LastError")
+
+	// Log line carries the op label for prod grep filtering.
+	out := buf.String()
+	assert.Contains(t, out, `"op":"lang-stage1=ru-RU"`,
+		"Story 546: WARN log must carry op=lang-stage1=<lang> for prod grep distinction")
+
+	// No canon writes happened.
+	assert.NotContains(t, f.rec.list(), "Series.Upsert",
+		"GetTV failure must NOT trigger Series.Upsert (no half-writes)")
+	assert.False(t, f.series.markedSynced,
+		"failure path must NOT stamp enrichment_tmdb_synced_at")
+}
+
+// TestSeriesWorker_HandleForcedLang_NoTMDBID_NoJournal mirrors the
+// handleInternal no_tmdb_id branch (Story 510 / B-38): canon with
+// tmdb_id == nil is a permanent natural state for Sonarr-only imports.
+// HandleForcedLang must NOT journal an error row, NOT call TMDB, and
+// return nil.
+func TestSeriesWorker_HandleForcedLang_NoTMDBID_NoJournal(t *testing.T) {
+	t.Parallel()
+	f := newWorkerFixture(t, nil, nil)
+	f.seedCanon(1, nil) // tmdb_id is nil
+
+	require.NoError(t, f.worker.HandleForcedLang(context.Background(), 1, "ru-RU"))
+
+	assert.Empty(t, f.enrichmentErrors.failures,
+		"no tmdb_id ⇒ no enrichment_errors row written (B-38 invariant)")
+	assert.Empty(t, f.enrichmentErrors.cleared,
+		"no tmdb_id ⇒ ClearOnSuccess MUST NOT fire either")
+	assert.Equal(t, 0, f.tmdb.getTVHit, "no TMDB call when no tmdb_id")
+	assert.False(t, f.series.markedSynced, "no_tmdb_id ⇒ no canon stamp")
+}
+
+// TestSeriesWorker_HandleForcedLang_BypassesFreshnessGate asserts that
+// even when canon.EnrichmentTMDBSyncedAt is well within the 24h source
+// TTL, HandleForcedLang STILL fires GetTV and writes series_texts. The
+// Freshener's StalenessProbe has already decided this series needs a
+// targeted lang refresh; re-applying the worker's source TTL here would
+// reproduce the Bug #2 fresh_skip failure mode (missing_lang probe at
+// hour 12 of a 30d window returning fresh_skip + no write).
+func TestSeriesWorker_HandleForcedLang_BypassesFreshnessGate(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{1: minimalSeason()})
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+	// Seed a "fresh" canon — 1h ago, well within continuing-series TTL.
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	syncedAt := now.Add(-1 * time.Hour)
+	row := f.series.rows[1]
+	row.EnrichmentTMDBSyncedAt = &syncedAt
+	f.series.rows[1] = row
+
+	require.NoError(t, f.worker.HandleForcedLang(context.Background(), 1, "ru-RU"))
+
+	assert.Equal(t, 1, f.tmdb.getTVHit,
+		"Story 546: HandleForcedLang must bypass the freshness gate (Freshener probe already decided)")
+	require.Len(t, f.seriesTexts.rows, 1,
+		"Story 546: HandleForcedLang must write series_texts even when canon is fresh")
+	assert.Equal(t, "ru-RU", f.seriesTexts.rows[0].Language)
+}

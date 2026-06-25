@@ -53,14 +53,15 @@ func (e *fakeAsyncEnricher) Calls() int {
 // fakeWorker satisfies SeriesWorkerHandle. Configurable: block until
 // ctx.Done (timeout test), return canned error (error test), or noop+nil.
 //
-// `calls` aggregates Handle + HandleForced for tests that don't care
-// which entry point Freshener picked. `handleCalls` and
-// `handleForcedCalls` split the count for the Story 544 regression
-// test that pins routing to HandleForced.
+// `calls` aggregates Handle + HandleForced + HandleForcedLang for tests
+// that don't care which entry point Freshener picked. `handleCalls` /
+// `handleForcedCalls` / `handleForcedLangCalls` split the count for the
+// Story 544 + Story 546 regression tests that pin routing.
 type fakeWorker struct {
-	calls             atomic.Int64
-	handleCalls       atomic.Int64
-	handleForcedCalls atomic.Int64
+	calls                 atomic.Int64
+	handleCalls           atomic.Int64
+	handleForcedCalls     atomic.Int64
+	handleForcedLangCalls atomic.Int64
 
 	block       bool
 	err         error
@@ -80,6 +81,15 @@ func (f *fakeWorker) Handle(ctx context.Context, _ domain.SeriesID) error {
 func (f *fakeWorker) HandleForced(ctx context.Context, _ domain.SeriesID) error {
 	f.calls.Add(1)
 	f.handleForcedCalls.Add(1)
+	return f.runBody(ctx)
+}
+
+// HandleForcedLang — Story 546 entry point. Increments the same
+// `calls` aggregator so tests that don't care which entry point fired
+// keep their assertions intact.
+func (f *fakeWorker) HandleForcedLang(ctx context.Context, _ domain.SeriesID, _ string) error {
+	f.calls.Add(1)
+	f.handleForcedLangCalls.Add(1)
 	return f.runBody(ctx)
 }
 
@@ -149,7 +159,8 @@ func TestSeriesFreshenerHolder_StubStalePath_Refreshed(t *testing.T) {
 	assert.True(t, res.Refreshed)
 	assert.False(t, res.Degraded)
 	assert.Equal(t, int64(1), w.calls.Load())
-	assert.Equal(t, 0, enr.Calls(), "successful refresh does NOT enqueue async")
+	assert.Equal(t, 1, enr.Calls(),
+		"Story 546: successful Stage 1+2 refresh enqueues async follow-up for episodes")
 }
 
 func TestSeriesFreshenerHolder_Singleflight_CoalescesSameKey(t *testing.T) {
@@ -339,6 +350,13 @@ func (f *workerCtxRecorder) HandleForced(ctx context.Context, _ domain.SeriesID)
 	return f.record(ctx)
 }
 
+// HandleForcedLang — Story 546 routing path. Same body as Handle /
+// HandleForced; the recorder asserts the detached-ctx invariant
+// regardless of which entry point Freshener picks.
+func (f *workerCtxRecorder) HandleForcedLang(ctx context.Context, _ domain.SeriesID, _ string) error {
+	return f.record(ctx)
+}
+
 func (f *workerCtxRecorder) record(ctx context.Context) error {
 	f.calls.Add(1)
 	state := struct{ err error }{err: ctx.Err()}
@@ -353,13 +371,25 @@ func (f *workerCtxRecorder) record(ctx context.Context) error {
 	return nil
 }
 
-// Story 544 regression: when probe says stale, Freshener MUST call
-// HandleForced (not Handle). Handle's per-source freshness gate would
+// Story 544 + Story 546 regression: when probe says stale, Freshener
+// MUST route through HandleForcedLang (NOT Handle, NOT HandleForced).
+//
+// Why HandleForcedLang and not the original HandleForced (Story 546):
+// pre-546 the freshener invoked HandleForced, which iterated every
+// w.deps.Languages entry AND fetched every active season's episode list
+// per language. On a 9-season series this consistently blew the 3s
+// sync budget on lang #2 and rolled back the entire ru-RU tx — no
+// series_texts.ru-RU row written, 2h backoff blocked retry. Story 546
+// swapped the call to HandleForcedLang (one GetTV + one tx, no
+// per-season fetches) and added a success-branch
+// AsyncEnricher.EnqueueIfStale to schedule the background pass that
+// fills episodes.
+//
+// Why NOT Handle (Story 544): Handle's per-source freshness gate would
 // short-circuit valid refreshes (e.g. missing_lang at hour 12 of a 30d
 // SourceTMDBSeries TTL window — live bug observed for sonarr_id=25551
-// where freshen.run logged result:"refreshed" but no TMDB call fired
-// and series_texts.ru-RU was never written).
-func TestSeriesFreshenerHolder_StalePath_CallsHandleForcedNotHandle(t *testing.T) {
+// where freshen.run logged result:"refreshed" but no TMDB call fired).
+func TestSeriesFreshenerHolder_StalePath_CallsHandleForcedLangNotHandleForced(t *testing.T) {
 	t.Parallel()
 	probe := &fakeProbe{stale: true, reason: "missing_lang"}
 	enr := &fakeAsyncEnricher{}
@@ -370,7 +400,12 @@ func TestSeriesFreshenerHolder_StalePath_CallsHandleForcedNotHandle(t *testing.T
 
 	res := h.EnsureFresh(context.Background(), 25551, "ru-RU")
 	assert.True(t, res.Refreshed)
-	assert.Equal(t, int64(1), w.handleForcedCalls.Load(), "Freshener MUST route through HandleForced when probe says stale")
-	assert.Equal(t, int64(0), w.handleCalls.Load(), "Freshener MUST NOT call Handle (bypassed source TTL is the whole point of Story 544)")
-	assert.Equal(t, 0, enr.Calls(), "successful sync refresh must NOT enqueue async fallback")
+	assert.Equal(t, int64(1), w.handleForcedLangCalls.Load(),
+		"Story 546: Freshener MUST route through HandleForcedLang (staged Stage 1+2 path)")
+	assert.Equal(t, int64(0), w.handleForcedCalls.Load(),
+		"Story 546: Freshener MUST NOT call HandleForced (per-season GetSeason loop blew 3s budget pre-546)")
+	assert.Equal(t, int64(0), w.handleCalls.Load(),
+		"Story 544: Freshener MUST NOT call Handle (per-source TTL would short-circuit stale refreshes)")
+	assert.Equal(t, 1, enr.Calls(),
+		"Story 546: successful Stage 1+2 enqueues async follow-up for episodes")
 }
