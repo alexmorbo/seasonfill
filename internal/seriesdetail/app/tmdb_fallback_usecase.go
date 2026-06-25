@@ -425,6 +425,17 @@ func (u *TMDBFallbackUseCase) GetCanonicalCast(ctx context.Context, seriesID dom
 	if err != nil {
 		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
 	}
+	// Story 545 (Bug #3) — hero poster on the cast page must use the
+	// content-addressed media proxy hash, not the raw TMDB path. Mirrors
+	// the GetCanonical path (line 139) so the TMDB-only cast page and
+	// the TMDB-only detail page share the same hero-resolution surface.
+	// Without this the wire emits `/abc.jpg` and the FE renders
+	// `/api/v1/media/%2Fabc.jpg` → 404.
+	if u.d.MediaResolver != nil {
+		syncCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		canon.PosterAsset = u.d.MediaResolver.ResolveSync(syncCtx, canon.PosterAsset, "w342", "poster_w342")
+		cancel()
+	}
 	out := &CastFallbackResult{
 		SeriesID: seriesID,
 		Lang:     resolvedLang,

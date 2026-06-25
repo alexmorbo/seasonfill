@@ -18,6 +18,7 @@ import (
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // discardLogger returns a logger that discards everything — used by the
@@ -971,4 +972,60 @@ func TestTMDBFallbackUseCase_GetOverview_CanonPreferred_SkipsEnUSRow(t *testing.
 	require.NoError(t, err)
 	assert.Empty(t, out.Description, "canon.OriginalLanguage=ru matches request — en-US overview MUST be skipped")
 	assert.Empty(t, out.DescriptionLanguage)
+}
+
+// ─── Story 545 (Bug #3): cast hero poster resolves through MediaResolver ───
+
+// fakeCastHashLookup satisfies media.HashLookupPort. Hit on URL match
+// returns a stored hash; miss returns ports.ErrNotFound (resolver
+// treats as degrade path — eager-hash + EnsurePending under the unified
+// contract). EnsurePending is a no-op — the tested invariant is "raw
+// path doesn't leak", not the pending-row side-effect.
+type fakeCastHashLookup struct {
+	byURL map[string]string
+}
+
+func (f *fakeCastHashLookup) HashForSourceURL(_ context.Context, url string) (string, error) {
+	if h, ok := f.byURL[url]; ok {
+		return h, nil
+	}
+	return "", ports.ErrNotFound
+}
+
+func (f *fakeCastHashLookup) EnsurePending(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+// TestTMDBFallbackUseCase_GetCanonicalCast_ResolvesPosterAsset locks in
+// the Bug #3 fix: the TMDB-only cast fallback MUST funnel the canon
+// PosterAsset through MediaResolver.ResolveSync so the wire emits a
+// content-addressed sha256 hash (or sentinel), never the raw TMDB path.
+// Without this the FE built `/api/v1/media/%2Fabc.jpg` and 404'd.
+func TestTMDBFallbackUseCase_GetCanonicalCast_ResolvesPosterAsset(t *testing.T) {
+	t.Parallel()
+	const wantHash = "deadbeef00000000000000000000000000000000000000000000000000000001"
+	rawPath := "/hero.jpg"
+	canon := series.Canon{
+		ID:          25551,
+		Hydration:   series.HydrationFull,
+		Title:       "Новичок",
+		PosterAsset: &rawPath,
+	}
+	resolver := media.NewResolver(&fakeCastHashLookup{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w342/hero.jpg": wantHash,
+	}}, nil, nil, discardLogger())
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:        &stubSeriesReader{canon: canon},
+		MediaResolver: resolver,
+		Logger:        discardLogger(),
+	})
+	require.NoError(t, err)
+
+	out, err := uc.GetCanonicalCast(t.Context(), 25551, "en-US", 0)
+	require.NoError(t, err)
+	require.NotNil(t, out.Canon.PosterAsset, "PosterAsset must not be nil — raw path should resolve")
+	assert.Equal(t, wantHash, *out.Canon.PosterAsset, "PosterAsset must carry the resolved hash, not the raw TMDB path")
+	// Regression invariant: a leading slash on the wire is the exact
+	// shape that broke the FE. Lock it down explicitly.
+	assert.NotEqual(t, byte('/'), (*out.Canon.PosterAsset)[0], "PosterAsset must not start with '/' — raw TMDB path leaked")
 }
