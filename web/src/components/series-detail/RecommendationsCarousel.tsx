@@ -30,12 +30,13 @@ function RecCard({ rec }: RecCardProps) {
   const title = rec.title ?? '';
   const year = rec.year;
   const rating = rec.tmdb_rating;
-  // B-42d: navigate by canonical series_id (the /series/:id route).
-  // We still gate the Link on rec.in_library so out-of-library recs
-  // (which have no detail page) render as a static card with the
-  // "Add to Sonarr" overlay.
-  const inLibrary = Boolean(rec.in_library)
-    && typeof rec.series_id === 'number' && rec.series_id > 0;
+  // B-42d / Story 542: navigate by canonical series_id regardless of
+  // in_library — out-of-library recs also have canon rows in DB and
+  // their detail page resolves via the TMDB-fallback path (Story 541).
+  // `inLibrary` is kept ONLY as a visual hint (green badge + hover
+  // CTA overlay); `hasValidId` gates the Link wrap.
+  const inLibrary = Boolean(rec.in_library);
+  const hasValidId = typeof rec.series_id === 'number' && rec.series_id > 0;
 
   const body = (
     <div
@@ -97,7 +98,7 @@ function RecCard({ rec }: RecCardProps) {
     </div>
   );
 
-  if (inLibrary) {
+  if (hasValidId) {
     return (
       <Link
         to={`/series/${rec.series_id}`}

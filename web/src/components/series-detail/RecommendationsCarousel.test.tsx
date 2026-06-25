@@ -65,11 +65,41 @@ describe('<RecommendationsCarousel /> (530)', () => {
     expect(screen.getAllByTestId('recommendation-card')).toHaveLength(2);
   });
 
-  it('wraps in-library items with a Link to their detail page', async () => {
+  it('wraps ALL recs with valid series_id in a Link (542 — in-library AND out-of-library both navigate)', async () => {
     mockApi.mockResolvedValueOnce(payload);
     wrap(<RecommendationsCarousel seriesId={140} />);
+    await waitFor(() => expect(screen.getAllByTestId('recommendation-link')).toHaveLength(2));
+    const links = screen.getAllByTestId('recommendation-link') as HTMLAnchorElement[];
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/series/1', '/series/2']);
+  });
+
+  it('out-of-library rec with valid series_id is a Link AND still shows the "Add to Sonarr" hover overlay (542)', async () => {
+    mockApi.mockResolvedValueOnce({
+      ...payload,
+      items: [
+        { series_id: 99, title: 'Out Of Lib', year: 2020, tmdb_rating: 7.0, poster_asset: 'x',
+          in_library: false },
+      ],
+    });
+    wrap(<RecommendationsCarousel seriesId={140} />);
     await waitFor(() => expect(screen.getByTestId('recommendation-link')).toBeInTheDocument());
-    expect((screen.getByTestId('recommendation-link') as HTMLAnchorElement).getAttribute('href')).toBe('/series/1');
+    const link = screen.getByTestId('recommendation-link') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/series/99');
+    // The hover-CTA overlay is rendered (visibility gated by group-hover CSS, but presence is asserted).
+    expect(screen.getByTestId('recommendation-add-overlay')).toBeInTheDocument();
+  });
+
+  it('rec with invalid series_id (0) is rendered as a non-Link div (542 regression)', async () => {
+    mockApi.mockResolvedValueOnce({
+      ...payload,
+      items: [
+        { series_id: 0, title: 'Broken Row', year: 2020, tmdb_rating: 0, poster_asset: '',
+          in_library: false },
+      ],
+    });
+    wrap(<RecommendationsCarousel seriesId={140} />);
+    await waitFor(() => expect(screen.getByTestId('recommendation-card')).toBeInTheDocument());
+    expect(screen.queryByTestId('recommendation-link')).toBeNull();
   });
 
   it('renders skeleton + loading label when tmdbSeriesLoading=true and items=[]', async () => {
