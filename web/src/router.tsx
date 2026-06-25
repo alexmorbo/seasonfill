@@ -25,6 +25,7 @@ import { SeriesCast } from '@/pages/SeriesCast';
 import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
 import { DiscoveryPage } from '@/pages/DiscoveryPage';
+import { NotFound } from '@/pages/NotFound';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -74,5 +75,5 @@ export const router = createBrowserRouter([
       { path: '/settings/external-services', element: <SettingsExternalServices /> },
     ],
   },
-  { path: '*', element: <Navigate to="/" replace /> },
+  { path: '*', element: <NotFound /> },
 ]);

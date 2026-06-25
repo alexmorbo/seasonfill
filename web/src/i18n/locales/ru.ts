@@ -2307,4 +2307,10 @@ export const ru: Translations = {
       daysAgo_other: '{{count}} дней назад',
     },
   },
+  notFound: {
+    title: 'Страница не найдена',
+    message: 'Запрошенная страница не существует или была перенесена.',
+    path: 'Запрошенный путь',
+    backHome: 'На главную',
+  },
 };

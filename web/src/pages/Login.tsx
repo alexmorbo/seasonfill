@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api';
-import { loginWithPassword, sessionQueryKey } from '@/lib/auth';
+import { loginWithPassword, sessionQueryKey, useSession } from '@/lib/auth';
 import { useAuthConfig, type AuthConfig } from '@/lib/auth-config';
 import logoUrl from '@/assets/logo.svg';
 
@@ -174,6 +174,7 @@ export function Login() {
   const [params] = useSearchParams();
   const qc = useQueryClient();
   const cfg = useAuthConfig();
+  const session = useSession();
   const [serverErr, setServerErr] = useState<string | null>(null);
   const {
     register,
@@ -184,15 +185,17 @@ export function Login() {
     defaultValues: { username: '', password: '' },
   });
 
-  // Mode-aware redirect: under mode=basic the browser popup handles auth,
-  // so landing on /login is a stale URL and we send the user home.
-  // PRESERVED VERBATIM from the legacy Login.tsx — load-bearing security
-  // invariant covered by Login.test.tsx case "redirects to / when mode=basic".
+  // Mode-aware redirect: under mode=basic the browser popup handles auth
+  // (stale-URL guard), AND if the user already has a valid session cookie
+  // we send them home rather than render a redundant sign-in form (B-48).
+  // The basic-mode clause is a load-bearing security invariant covered by
+  // Login.test.tsx "redirects to / when mode=basic".
   useEffect(() => {
-    if (cfg.isSuccess && cfg.data.mode === 'basic') {
+    const basicMode = cfg.isSuccess && cfg.data.mode === 'basic';
+    if (basicMode || session.isSuccess) {
       navigate(safeNext(params.get('next')), { replace: true });
     }
-  }, [cfg.isSuccess, cfg.data?.mode, navigate, params]);
+  }, [cfg.isSuccess, cfg.data?.mode, session.isSuccess, navigate, params]);
 
   const onSubmit = handleSubmit(async ({ username, password }) => {
     setServerErr(null);

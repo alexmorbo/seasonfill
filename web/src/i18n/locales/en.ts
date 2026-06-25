@@ -2309,6 +2309,12 @@ export const en = {
       daysAgo_other: '{{count}} days ago',
     },
   },
+  notFound: {
+    title: 'Page not found',
+    message: 'The page you were looking for does not exist or was moved.',
+    path: 'Requested path',
+    backHome: 'Back to dashboard',
+  },
 };
 
 export type Translations = typeof en;
