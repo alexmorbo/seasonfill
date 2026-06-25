@@ -152,12 +152,18 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 	// not wired (tests), the fallback path keeps canon.title as before.
 	// ErrNotFound is a soft miss (no row at all — cold series); any
 	// other port error logs + appends tmdb_series to Degraded.
+	// Story 541 — when GetWithFallback returns a row in a language other
+	// than the request AND canon.OriginalLanguage matches the request,
+	// drop d.Text so mapHero renders canon.Title (the original-language
+	// title) instead of the en-US fallback row.
 	if u.d.SeriesTexts != nil {
 		t, terr := u.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang)
 		switch {
 		case terr == nil:
-			tt := t
-			d.Text = &tt
+			if !shouldPreferCanon(canon, lang, t.Language) {
+				tt := t
+				d.Text = &tt
+			}
 		case errors.Is(terr, ports.ErrNotFound):
 			// cold series — leave d.Text nil, mapHero falls back to canon
 		default:
@@ -238,10 +244,16 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 	}
 	if u.d.SeriesTexts != nil {
 		if t, terr := u.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang); terr == nil {
-			if t.Overview != nil {
-				out.Description = *t.Overview
+			// Story 541 — same canon-preference guard as GetCanonical:
+			// skip the row when it's the en-US fallback AND canon's
+			// original language matches the request. Overview language
+			// stays unset → DTO falls back to canon-derived description.
+			if !shouldPreferCanon(canon, lang, t.Language) {
+				if t.Overview != nil {
+					out.Description = *t.Overview
+				}
+				out.DescriptionLanguage = t.Language
 			}
-			out.DescriptionLanguage = t.Language
 		} else if !errors.Is(terr, ports.ErrNotFound) {
 			u.d.Logger.WarnContext(ctx, "tmdb_fallback_overview_texts_failed",
 				slog.Int64("series_id", int64(seriesID)),

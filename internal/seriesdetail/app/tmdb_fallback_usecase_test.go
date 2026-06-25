@@ -846,3 +846,129 @@ func TestTMDBFallbackUseCase_GetCanonical_NilSeriesTextsSafe(t *testing.T) {
 	assert.Nil(t, d.Text, "nil SeriesTexts port leaves Text nil — canon.title wins in DTO")
 	assert.Empty(t, d.Degraded)
 }
+
+// ─── Story 541 — canon-language preference for series_texts fallback ──
+
+// TestTMDBFallbackUseCase_GetCanonical_CanonPreferred_DropsEnUSFallback —
+// the live bug for series 25551 ("Новичок" / "The Rookie"). canon's
+// OriginalLanguage="ru" matches request "ru-RU"; series_texts has only
+// en-US row → fake returns en-US → usecase MUST drop d.Text so DTO
+// renders canon.Title.
+func TestTMDBFallbackUseCase_GetCanonical_CanonPreferred_DropsEnUSFallback(t *testing.T) {
+	t.Parallel()
+	enTitle := "The Rookie"
+	originalLang := "ru"
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			25551: {
+				ID:               25551,
+				Hydration:        series.HydrationFull,
+				Title:            "Новичок",
+				OriginalLanguage: &originalLang,
+			},
+		}},
+		SeriesTexts: &fakeFallbackTexts{
+			// fallback hit en-US row (no ru-RU row exists)
+			out: series.SeriesText{
+				SeriesID: 25551,
+				Language: "en-US",
+				Title:    &enTitle,
+			},
+		},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(t.Context(), domain.SeriesID(25551), "ru-RU")
+	require.NoError(t, err)
+	assert.Nil(t, d.Text, "canon.OriginalLanguage=ru matches request ru-RU, en-US row MUST be ignored → mapHero renders canon.Title")
+	assert.Empty(t, d.Degraded, "preference is a normal hit, not a degradation")
+}
+
+// TestTMDBFallbackUseCase_GetCanonical_CanonPreferred_AcceptsMatchingRow —
+// regression-safety: when SeriesTexts DOES return a matching row, keep it.
+func TestTMDBFallbackUseCase_GetCanonical_CanonPreferred_AcceptsMatchingRow(t *testing.T) {
+	t.Parallel()
+	ruTitle := "Новичок"
+	originalLang := "ru"
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			25551: {
+				ID:               25551,
+				Hydration:        series.HydrationFull,
+				Title:            "The Rookie",
+				OriginalLanguage: &originalLang,
+			},
+		}},
+		SeriesTexts: &fakeFallbackTexts{
+			out: series.SeriesText{
+				SeriesID: 25551,
+				Language: "ru-RU",
+				Title:    &ruTitle,
+			},
+		},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(t.Context(), domain.SeriesID(25551), "ru-RU")
+	require.NoError(t, err)
+	require.NotNil(t, d.Text, "matching ru-RU row MUST be used")
+	require.NotNil(t, d.Text.Title)
+	assert.Equal(t, "Новичок", *d.Text.Title)
+}
+
+// TestTMDBFallbackUseCase_GetCanonical_CanonPreferred_NoCanonOriginalLang —
+// when canon.OriginalLanguage is nil/empty, preference doesn't fire — en-US
+// fallback wins as before (current behavior preserved).
+func TestTMDBFallbackUseCase_GetCanonical_CanonPreferred_NoCanonOriginalLang(t *testing.T) {
+	t.Parallel()
+	enTitle := "The Mentalist"
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationFull, Title: "The Mentalist"},
+		}},
+		SeriesTexts: &fakeFallbackTexts{
+			out: series.SeriesText{
+				SeriesID: 8378,
+				Language: "en-US",
+				Title:    &enTitle,
+			},
+		},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	d, err := uc.GetCanonical(t.Context(), domain.SeriesID(8378), "ru-RU")
+	require.NoError(t, err)
+	require.NotNil(t, d.Text, "no canon.OriginalLanguage → fallback en-US wins as before")
+	assert.Equal(t, "en-US", d.Text.Language)
+}
+
+// TestTMDBFallbackUseCase_GetOverview_CanonPreferred_SkipsEnUSRow —
+// same canon-preference logic for the overview surface.
+func TestTMDBFallbackUseCase_GetOverview_CanonPreferred_SkipsEnUSRow(t *testing.T) {
+	t.Parallel()
+	enOverview := "A rookie cop story."
+	originalLang := "ru"
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			25551: {
+				ID:               25551,
+				Hydration:        series.HydrationFull,
+				Title:            "Новичок",
+				OriginalLanguage: &originalLang,
+			},
+		}},
+		SeriesTexts: &fakeFallbackTexts{
+			out: series.SeriesText{
+				SeriesID: 25551,
+				Language: "en-US",
+				Overview: &enOverview,
+			},
+		},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	out, err := uc.GetOverview(t.Context(), domain.SeriesID(25551), "ru-RU")
+	require.NoError(t, err)
+	assert.Empty(t, out.Description, "canon.OriginalLanguage=ru matches request — en-US overview MUST be skipped")
+	assert.Empty(t, out.DescriptionLanguage)
+}

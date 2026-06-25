@@ -246,3 +246,46 @@ func TestGlobalSeriesCastHandler_Get_TMDBFallback_PortError_500(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
+
+// Story 541 — spyCastFallback captures the limit arg so the test can
+// assert the handler passes CastFullPageDefaultLimit (200), not 0.
+type spyCastFallback struct {
+	out      *seriesdetail.CastFallbackResult
+	err      error
+	gotLimit int
+}
+
+func (s *spyCastFallback) GetCanonicalCast(_ context.Context, _ domain.SeriesID, _ string, limit int) (*seriesdetail.CastFallbackResult, error) {
+	s.gotLimit = limit
+	return s.out, s.err
+}
+
+// Story 541 — when cache lookup returns no library, handler MUST pass
+// CastFullPageDefaultLimit (200) to the fallback so the cast PAGE
+// returns the full DB list, not the hero-carousel 10-cap.
+func TestGlobalSeriesCastHandler_FallbackPassesFullPageLimit(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	cache := &stubGlobalCastCacheLookup{entries: nil}
+	spy := &spyCastFallback{out: &seriesdetail.CastFallbackResult{
+		SeriesID: 25551,
+		Lang:     "ru-RU",
+		Canon: series.Canon{
+			ID:        25551,
+			Title:     "Новичок",
+			Hydration: series.HydrationFull,
+		},
+		Cast:     []seriesdetail.CastDetail{},
+		Degraded: []string{},
+	}}
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, spy, quietLoggerCastWrapper())
+	r := gin.New()
+	r.GET("/api/v1/series/:id/cast", h.Get)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/25551/cast?lang=ru-RU", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, seriesdetail.CastFullPageDefaultLimit, spy.gotLimit,
+		"Story 541 — full cast page MUST pass 200 to the fallback, not 0")
+}

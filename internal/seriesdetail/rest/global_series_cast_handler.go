@@ -109,7 +109,11 @@ func (h *GlobalSeriesCastHandler) Get(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not in any library"})
 			return
 		}
-		cast, ferr := h.tmdbFallback.GetCanonicalCast(ctx, seriesID, lang, 0)
+		// Story 541 — pass the full-cast-page default (200) so the cast
+		// PAGE returns the full DB list. The hero-carousel inside
+		// /series/:id keeps CastDefaultLimit=10 via Composer.loadTopCast
+		// — distinct UX surface.
+		cast, ferr := h.tmdbFallback.GetCanonicalCast(ctx, seriesID, lang, seriesdetail.CastFullPageDefaultLimit)
 		if ferr != nil {
 			if errors.Is(ferr, ports.ErrNotFound) {
 				c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series_not_found"})

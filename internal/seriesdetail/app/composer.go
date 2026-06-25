@@ -188,6 +188,14 @@ type Deps struct {
 // (Story 533a) so the TMDB-fallback call site reads the same number.
 const CastDefaultLimit = 10
 
+// CastFullPageDefaultLimit caps the cast page surface
+// (GET /series/:id/cast). DB carries up to ~1500 credits per popular
+// series (Rick & Morty: 1411). The hero-carousel CastDefaultLimit=10 is
+// intentionally compact UX inside /series/:id; the dedicated cast PAGE
+// must return the full list. 200 matches TMDB's per-series upper bound
+// and keeps DTO payloads ≤ ~60KB. Story 541.
+const CastFullPageDefaultLimit = 200
+
 // Composer is the one application use case for the series detail
 // page composite read.
 type Composer struct {
@@ -271,7 +279,11 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 
 	g, gctx := errgroup.WithContext(ctx)
 
-	// Branch a — series_texts (lang fallback).
+	// Branch a — series_texts (lang fallback). Story 541: when fallback
+	// returns a row in a language other than the request AND canon's
+	// original_language matches the request, drop d.Text so mapHero
+	// renders canon.Title (the original-language title) instead of the
+	// en-US fallback row.
 	g.Go(func() error {
 		return branches.run("series_texts", enrichment.SourceTMDBSeries, c.d.Logger, func() error {
 			t, terr := c.d.SeriesTexts.GetWithFallback(gctx, seriesID, lang)
@@ -280,6 +292,9 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 					return nil // not an error — cold series
 				}
 				return terr
+			}
+			if shouldPreferCanon(canon, lang, t.Language) {
+				return nil // leave d.Text nil — mapHero falls back to canon.Title
 			}
 			d.Text = &t
 			return nil
@@ -822,6 +837,48 @@ func resolveLang(lang string) string {
 		return "en-US"
 	}
 	return lang
+}
+
+// primarySubtag returns the leading BCP-47 primary subtag, lowercased.
+// "ru-RU" → "ru"; "en" → "en"; "zh-Hant-TW" → "zh"; "" → "". Story 541.
+func primarySubtag(lang string) string {
+	lang = strings.TrimSpace(strings.ToLower(lang))
+	if lang == "" {
+		return ""
+	}
+	if i := strings.IndexByte(lang, '-'); i > 0 {
+		return lang[:i]
+	}
+	return lang
+}
+
+// shouldPreferCanon returns true when the SeriesTexts fallback returned a
+// row in a language that doesn't match the request AND canon's original
+// language matches the requested primary subtag. In that case mapHero
+// should fall back to canon.Title (which is the original-language title
+// the catalog stores) instead of the en-US series_texts row that
+// GetWithFallback returns by default.
+//
+// Example (live bug for series 25551 — "Новичок" / "The Rookie"):
+//
+//	canon.OriginalLanguage = "ru"
+//	requestedLang          = "ru-RU"
+//	got.Language           = "en-US"
+//	→ true → drop d.Text, let mapHero render canon.Title ("Новичок")
+//
+// Story 541.
+func shouldPreferCanon(canon series.Canon, requestedLang, gotLang string) bool {
+	if canon.OriginalLanguage == nil || *canon.OriginalLanguage == "" {
+		return false
+	}
+	reqSub := primarySubtag(requestedLang)
+	if reqSub == "" {
+		return false
+	}
+	if primarySubtag(*canon.OriginalLanguage) != reqSub {
+		return false
+	}
+	return primarySubtag(gotLang) != reqSub
 }
 
 func pickContentRating(rs []enrichpersistence.ContentRating, lang string) *enrichpersistence.ContentRating {
