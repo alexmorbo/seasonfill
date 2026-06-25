@@ -24,8 +24,17 @@ export function SeriesPosterTile({ item }: SeriesPosterTileProps) {
     label: formatSeriesTitle(item.title, item.year),
   });
 
+  // B-42a: prefer canonical series_id (matches /series/:id route).
+  // Fall back to the legacy 3-segment shape only when series_id is
+  // absent (pre-cutover broken rows) — LegacySeriesRedirect still
+  // strips the instance, so the URL ends up at /series/{sonarr_id}
+  // which 404s, but at least keeps existing behaviour for broken rows.
   const handleOpen = () =>
-    navigate(`/series/${encodeURIComponent(item.instance_name)}/${item.sonarr_series_id}`);
+    navigate(
+      typeof item.series_id === 'number'
+        ? `/series/${item.series_id}`
+        : `/series/${encodeURIComponent(item.instance_name)}/${item.sonarr_series_id}`,
+    );
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();

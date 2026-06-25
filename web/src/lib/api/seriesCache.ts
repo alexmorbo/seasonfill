@@ -6,6 +6,11 @@ import { ApiError, api } from '@/lib/api';
 export interface SeriesCacheItem {
   readonly sonarr_series_id: number;
   readonly instance_name: string;
+  // B-42a: canonical seasonfill series PK from series_cache → series
+  // JOIN. Used to navigate to /series/:id (Story 495 / N-1e). Absent
+  // on pre-cutover broken rows; the tile falls back to the legacy
+  // 3-segment URL in that case.
+  readonly series_id?: number;
   readonly title: string;
   readonly title_slug: string;
   readonly year?: number;

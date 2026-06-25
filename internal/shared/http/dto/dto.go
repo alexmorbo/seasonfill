@@ -698,9 +698,16 @@ type EpisodeFileList struct {
 type SeriesCacheItem struct {
 	SonarrSeriesID domain.SonarrSeriesID `json:"sonarr_series_id"        example:"122"`
 	InstanceName   domain.InstanceName   `json:"instance_name"           example:"homelab"`
-	Title          string                `json:"title"                   example:"For All Mankind"`
-	TitleSlug      string                `json:"title_slug"              example:"for-all-mankind"`
-	Year           *int                  `json:"year,omitempty"          example:"2019"`
+	// SeriesID is the canonical seasonfill series PK, resolved from the
+	// series_cache → series JOIN. Used by the FE to navigate to the
+	// global /series/:id detail page (Story 495 / N-1e routing). Nil
+	// when the row is pre-cutover/broken (no canon JOIN yet) — the FE
+	// falls back to the legacy /series/{instance}/{sonarr_series_id}
+	// redirect shape, which still 404s but at least doesn't crash. B-42a.
+	SeriesID  *domain.SeriesID `json:"series_id,omitempty"     example:"42"`
+	Title     string           `json:"title"                   example:"For All Mankind"`
+	TitleSlug string           `json:"title_slug"              example:"for-all-mankind"`
+	Year      *int             `json:"year,omitempty"          example:"2019"`
 	// Network field REMOVED in E-1 (Story 210). Network membership lives
 	// in series_networks join; the catalog tile omits the network line
 	// until the detail-card endpoint (future story) projects per-row.

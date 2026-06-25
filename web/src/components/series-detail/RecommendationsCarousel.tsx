@@ -30,8 +30,12 @@ function RecCard({ rec }: RecCardProps) {
   const title = rec.title ?? '';
   const year = rec.year;
   const rating = rec.tmdb_rating;
-  const inLibrary = Boolean(rec.in_library) && Boolean(rec.instance_name)
-    && typeof rec.sonarr_series_id === 'number' && rec.sonarr_series_id > 0;
+  // B-42d: navigate by canonical series_id (the /series/:id route).
+  // We still gate the Link on rec.in_library so out-of-library recs
+  // (which have no detail page) render as a static card with the
+  // "Add to Sonarr" overlay.
+  const inLibrary = Boolean(rec.in_library)
+    && typeof rec.series_id === 'number' && rec.series_id > 0;
 
   const body = (
     <div
@@ -96,7 +100,7 @@ function RecCard({ rec }: RecCardProps) {
   if (inLibrary) {
     return (
       <Link
-        to={`/series/${encodeURIComponent(rec.instance_name as string)}/${rec.sonarr_series_id}`}
+        to={`/series/${rec.series_id}`}
         className="block"
         data-testid="recommendation-link"
       >

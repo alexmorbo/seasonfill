@@ -918,6 +918,7 @@ func toSeriesCacheItem(e series.CacheEntry, lg ports.LastGrabInfo) dto.SeriesCac
 	return dto.SeriesCacheItem{
 		SonarrSeriesID:      e.SonarrSeriesID,
 		InstanceName:        e.InstanceName,
+		SeriesID:            e.SeriesID,
 		Title:               e.Title,
 		TitleSlug:           e.TitleSlug,
 		Year:                e.Year,

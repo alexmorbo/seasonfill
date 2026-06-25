@@ -69,7 +69,7 @@ describe('<RecommendationsCarousel /> (530)', () => {
     mockApi.mockResolvedValueOnce(payload);
     wrap(<RecommendationsCarousel seriesId={140} />);
     await waitFor(() => expect(screen.getByTestId('recommendation-link')).toBeInTheDocument());
-    expect((screen.getByTestId('recommendation-link') as HTMLAnchorElement).getAttribute('href')).toBe('/series/alpha/11');
+    expect((screen.getByTestId('recommendation-link') as HTMLAnchorElement).getAttribute('href')).toBe('/series/1');
   });
 
   it('renders skeleton + loading label when tmdbSeriesLoading=true and items=[]', async () => {

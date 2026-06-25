@@ -2954,8 +2954,10 @@ export type paths = {
          * @description Cast list for a series keyed by canonical series.id.
          *     Resolves the preferred Sonarr instance automatically
          *     (lex-first instance that carries the series in
-         *     series_cache). 404 when no library carries the series —
-         *     TMDB-only series have no cast surface in v1.
+         *     series_cache). When the series is TMDB-only (no library
+         *     carries it), returns a canon-only cast list with
+         *     degraded=["tmdb_series"] and instance="". 404 only when
+         *     the canonical id is truly unknown.
          */
         readonly get: {
             readonly parameters: {
@@ -5332,6 +5334,16 @@ export type components = {
              * @example 3a2b1c...
              */
             readonly poster_hash?: string;
+            /**
+             * @description SeriesID is the canonical seasonfill series PK, resolved from the
+             *     series_cache → series JOIN. Used by the FE to navigate to the
+             *     global /series/:id detail page (Story 495 / N-1e routing). Nil
+             *     when the row is pre-cutover/broken (no canon JOIN yet) — the FE
+             *     falls back to the legacy /series/{instance}/{sonarr_series_id}
+             *     redirect shape, which still 404s but at least doesn't crash. B-42a.
+             * @example 42
+             */
+            readonly series_id?: number;
             /** @example 122 */
             readonly sonarr_series_id?: number;
             /**
@@ -5371,6 +5383,14 @@ export type components = {
              *     series_people kind='crew' rows.
              */
             readonly crew?: readonly components["schemas"]["dto.CrewPageMember"][];
+            /**
+             * @description Degraded carries any source that's never-synced / errored /
+             *     stale and the response was returned anyway. Empty slice on the
+             *     per-instance happy path. Non-empty on the TMDB-fallback path
+             *     (Story 535) where the series is TMDB-only — value `"tmdb_series"`
+             *     signals canon-only origin so the FE can render an info banner.
+             */
+            readonly degraded?: readonly string[];
             /**
              * @description Instance is the Sonarr instance the request hit. Echoed so
              *     the client can disambiguate when a person is in multiple

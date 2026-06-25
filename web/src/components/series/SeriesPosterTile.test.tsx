@@ -22,6 +22,7 @@ function makeItem(overrides: Partial<SeriesCacheItem> = {}): SeriesCacheItem {
   return {
     sonarr_series_id: 122,
     instance_name: 'homelab',
+    series_id: 42,
     title: 'For All Mankind',
     title_slug: 'for-all-mankind',
     year: 2019,
@@ -52,6 +53,7 @@ function renderTile(item: SeriesCacheItem) {
           <MemoryRouter initialEntries={['/']}>
             <Routes>
               <Route path="/" element={<SeriesPosterTile item={item} />} />
+              <Route path="/series/:id" element={<LocationProbe />} />
               <Route path="/series/:instance/:id" element={<LocationProbe />} />
             </Routes>
           </MemoryRouter>
@@ -114,20 +116,23 @@ describe('<SeriesPosterTile />', () => {
     expect(screen.getByTestId('series-tile-missing-chip')).toBeInTheDocument();
   });
 
-  it('navigates to /series/:instance/:id on click', () => {
+  it('navigates to /series/{series_id} on click', () => {
     renderTile(makeItem());
     fireEvent.click(screen.getByTestId('series-poster-tile'));
-    expect(screen.getByTestId('probe-location').textContent).toBe(
-      '/series/homelab/122',
-    );
+    expect(screen.getByTestId('probe-location').textContent).toBe('/series/42');
   });
 
   it('navigates on Enter keypress', () => {
     renderTile(makeItem());
     const tile = screen.getByTestId('series-poster-tile');
     fireEvent.keyDown(tile, { key: 'Enter' });
-    expect(screen.getByTestId('probe-location').textContent).toBe(
-      '/series/homelab/122',
-    );
+    expect(screen.getByTestId('probe-location').textContent).toBe('/series/42');
+  });
+
+  it('falls back to legacy 3-segment URL when series_id is absent', () => {
+    const { series_id: _omit, ...rest } = makeItem();
+    renderTile(rest as SeriesCacheItem);
+    fireEvent.click(screen.getByTestId('series-poster-tile'));
+    expect(screen.getByTestId('probe-location').textContent).toBe('/series/homelab/122');
   });
 });

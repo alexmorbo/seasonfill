@@ -108,16 +108,12 @@ export function CastStrip({
           const src = mediaUrl(m.profile_asset);
           const name = m.name ?? '';
           const character = m.character_name ?? '';
-          return (
-            <Link
-              key={m.person_id ?? `${name}-${character}`}
-              to={`/people/${m.person_id ?? ''}`}
-              data-testid="cast-strip-card"
-              className={cn(
-                'flex items-center gap-2.5 rounded-md min-w-0 p-[7px_9px]',
-                'border border-transparent hover:border-border-faint hover:bg-bg-surface transition-colors',
-              )}
-            >
+          // B-42b: only wrap in Link when person_id is defined. BE always
+          // emits person_id today, but the DTO types it optional and an
+          // empty fallback would produce /people/ which 404s.
+          const hasPerson = typeof m.person_id === 'number' && m.person_id > 0;
+          const body = (
+            <>
               <span
                 className="shrink-0 w-[42px] h-[42px] rounded-full overflow-hidden border border-border-subtle bg-bg-surface-2"
                 data-testid="cast-strip-avatar"
@@ -153,7 +149,33 @@ export function CastStrip({
                   </span>
                 )}
               </span>
-            </Link>
+            </>
+          );
+          const className = cn(
+            'flex items-center gap-2.5 rounded-md min-w-0 p-[7px_9px]',
+            'border border-transparent hover:border-border-faint hover:bg-bg-surface transition-colors',
+          );
+          if (hasPerson) {
+            return (
+              <Link
+                key={m.person_id}
+                to={`/people/${m.person_id}`}
+                data-testid="cast-strip-card"
+                className={className}
+              >
+                {body}
+              </Link>
+            );
+          }
+          return (
+            <div
+              key={`${name}-${character}`}
+              data-testid="cast-strip-card"
+              data-no-link="true"
+              className={className}
+            >
+              {body}
+            </div>
           );
         })}
       </div>

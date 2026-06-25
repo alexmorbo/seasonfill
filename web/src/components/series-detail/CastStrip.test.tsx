@@ -73,4 +73,16 @@ describe('CastStrip', () => {
     // No flex-1 spacer in the header.
     expect(header.querySelector('.flex-1')).toBeNull();
   });
+
+  it('renders a non-link div for cast members without person_id (B-42b)', () => {
+    const cast: CastMember[] = [
+      { name: 'Unknown Actor', character_name: 'Background' } as CastMember,
+    ];
+    render(wrap(<CastStrip castHref="/series/369/cast" seriesId={369} cast={cast} />));
+    const card = screen.getByTestId('cast-strip-card');
+    // Plain div, not an anchor — clicking must not navigate.
+    expect(card.tagName).toBe('DIV');
+    expect(card.getAttribute('href')).toBeNull();
+    expect(card.getAttribute('data-no-link')).toBe('true');
+  });
 });

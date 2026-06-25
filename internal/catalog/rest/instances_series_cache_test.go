@@ -285,6 +285,10 @@ func TestInstancesHandler_ListSeriesCache_PosterHash(t *testing.T) {
 	for _, it := range body.Items {
 		byID[it.SonarrSeriesID] = it
 	}
+	// B-42a: series_id must be exposed for FE link navigation.
+	for _, it := range body.Items {
+		require.NotNil(t, it.SeriesID, "series_cache DTO must expose canonical series_id (B-42a)")
+	}
 	require.NotNil(t, byID[1].PosterHash, "row with canon path → poster_hash derived")
 	assert.Equal(t, expectedHash, *byID[1].PosterHash)
 	assert.Nil(t, byID[2].PosterHash, "row without canon path → poster_hash absent")
