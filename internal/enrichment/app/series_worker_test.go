@@ -1592,3 +1592,44 @@ func TestSeriesWorker_HandleForcedLang_BypassesFreshnessGate(t *testing.T) {
 		"Story 546: HandleForcedLang must write series_texts even when canon is fresh")
 	assert.Equal(t, "ru-RU", f.seriesTexts.rows[0].Language)
 }
+
+// TestSeriesWorker_ForceTreatsAsFirstHydration — Story 549.
+// On a fully-hydrated series (EnrichmentTMDBSyncedAt != nil), a forced
+// refresh (HandleForced / Freshener path) must fetch ALL seasons —
+// including old ones (>365d) that the refresh heuristic would normally
+// skip. Without this, requesting a new language on an already-hydrated
+// series never backfills old-season episode titles for that language.
+func TestSeriesWorker_ForceTreatsAsFirstHydration(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	// Add an OLD season (aired >365d ago) alongside the recent default one.
+	tv.Seasons = append(tv.Seasons, tmdb.TVSeasonStub{ID: 200, SeasonNumber: 2, Name: "S2", AirDate: "2018-01-01"})
+	seasons := map[int]*tmdb.SeasonResponse{
+		1: minimalSeason(),
+		2: {ID: 200, SeasonNumber: 2, AirDate: "2018-01-01"},
+	}
+	f := newWorkerFixture(t, tv, seasons)
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+	// Stamp the canon as already-hydrated long enough ago that the TTL gate
+	// would expire (continuing-series TTL is 24h; backdate 48h).
+	syncedAt := time.Now().UTC().Add(-48 * time.Hour)
+	row := f.series.rows[1]
+	row.EnrichmentTMDBSyncedAt = &syncedAt
+	f.series.rows[1] = row
+
+	require.NoError(t, f.worker.HandleForced(context.Background(), 1))
+
+	getSeason := 0
+	for _, c := range f.tmdb.calls {
+		if c == "GetSeason" {
+			getSeason++
+		}
+	}
+	// 2 seasons × len(Languages) — both seasons (incl. the old one) must
+	// be fetched per language. Without the Story 549 fix this would be
+	// 1 × len(Languages) (only the recent season per lang).
+	expected := 2 * len(f.worker.deps.Languages)
+	assert.Equal(t, expected, getSeason,
+		"force=true must fetch ALL seasons (firstHydration semantics) — old seasons would be skipped without the fix")
+}

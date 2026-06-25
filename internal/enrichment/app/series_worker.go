@@ -390,7 +390,7 @@ func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.Serie
 	var firstErr error
 	for _, lang := range w.deps.Languages {
 		langLog := log.With(slog.String("language", lang))
-		if err := w.refreshOneLanguage(ctx, canon, lang, &personsEnqueued, &prewarmEnqueued, langLog); err != nil {
+		if err := w.refreshOneLanguage(ctx, canon, lang, force, &personsEnqueued, &prewarmEnqueued, langLog); err != nil {
 			failedLangs = append(failedLangs, lang)
 			if firstErr == nil {
 				firstErr = err
@@ -441,6 +441,7 @@ func (w *SeriesWorker) refreshOneLanguage(
 	ctx context.Context,
 	canon series.Canon,
 	lang string,
+	force bool,
 	personsEnqueued *bool,
 	prewarmEnqueued *bool,
 	log *slog.Logger,
@@ -450,7 +451,11 @@ func (w *SeriesWorker) refreshOneLanguage(
 	if err != nil {
 		return fmt.Errorf("GetTV(%s): %w", lang, err)
 	}
-	firstHydration := canon.EnrichmentTMDBSyncedAt == nil
+	// Story 549: force=true (HandleForced / freshener-driven refresh)
+	// uses firstHydration semantics so missing-lang population fetches
+	// ALL seasons — otherwise old seasons (>365d) stay in en-US forever
+	// when ru-RU is requested on an already-hydrated series.
+	firstHydration := canon.EnrichmentTMDBSyncedAt == nil || force
 	seasonResponses := make(map[int]*tmdb.SeasonResponse, len(tv.Seasons))
 	for _, s := range tv.Seasons {
 		if !seasonNeedsFetch(s, firstHydration) {
