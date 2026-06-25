@@ -51,6 +51,17 @@ func (s *stubCounter) CountBySeries(_ context.Context, _ domain.SeriesID) (int, 
 	return s.n, s.err
 }
 
+// stubEpisodeTextsCoverage satisfies EpisodeTextsCoverageReader.
+type stubEpisodeTextsCoverage struct {
+	covered int
+	total   int
+	err     error
+}
+
+func (s *stubEpisodeTextsCoverage) CoverageBySeries(_ context.Context, _ domain.SeriesID, _ string) (int, int, error) {
+	return s.covered, s.total, s.err
+}
+
 func TestSeriesFreshenerProbe_RequiredFields(t *testing.T) {
 	t.Parallel()
 	_, err := adapters.NewSeriesFreshenerProbe(adapters.SeriesFreshenerProbeConfig{})
@@ -68,16 +79,21 @@ func TestSeriesFreshenerProbe_IsStale(t *testing.T) {
 		texts       *stubProbeTexts
 		seasonsCnt  *stubCounter
 		peopleCount *stubCounter
+		epTexts     *stubEpisodeTextsCoverage // nil → skip Story 548 check
 	}
 
 	makeProbe := func(f fakes) *adapters.SeriesFreshenerProbe {
-		p, err := adapters.NewSeriesFreshenerProbe(adapters.SeriesFreshenerProbeConfig{
+		cfg := adapters.SeriesFreshenerProbeConfig{
 			Series:       f.series,
 			SeriesTexts:  f.texts,
 			SeasonsCount: f.seasonsCnt,
 			PeopleCount:  f.peopleCount,
 			CanonTTL:     7 * 24 * time.Hour,
-		})
+		}
+		if f.epTexts != nil {
+			cfg.EpisodeTextsCoverage = f.epTexts
+		}
+		p, err := adapters.NewSeriesFreshenerProbe(cfg)
 		require.NoError(t, err)
 		return p
 	}
@@ -257,6 +273,71 @@ func TestSeriesFreshenerProbe_IsStale(t *testing.T) {
 				peopleCount: &stubCounter{n: 0, err: errors.New("boom")},
 			},
 			lang:       "en-US",
+			wantStale:  false,
+			wantReason: "fresh",
+		},
+		// Story 548 — partial episode_texts coverage detection.
+		{
+			name: "fresh when 80% of episodes have ru-RU text",
+			f: fakes{
+				series: &stubProbeSeries{canon: catalogseries.Canon{
+					ID: 1, Hydration: catalogseries.HydrationFull,
+					EnrichmentTMDBSyncedAt: &freshTime,
+				}},
+				texts:       &stubProbeTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+				seasonsCnt:  &stubCounter{n: 5},
+				peopleCount: &stubCounter{n: 5},
+				epTexts:     &stubEpisodeTextsCoverage{covered: 80, total: 100},
+			},
+			lang:       "ru-RU",
+			wantStale:  false,
+			wantReason: "fresh",
+		},
+		{
+			name: "missing_episodes_lang when ru-RU coverage is below 80%",
+			f: fakes{
+				series: &stubProbeSeries{canon: catalogseries.Canon{
+					ID: 1, Hydration: catalogseries.HydrationFull,
+					EnrichmentTMDBSyncedAt: &freshTime,
+				}},
+				texts:       &stubProbeTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+				seasonsCnt:  &stubCounter{n: 5},
+				peopleCount: &stubCounter{n: 5},
+				epTexts:     &stubEpisodeTextsCoverage{covered: 18, total: 100}, // Season 8 only
+			},
+			lang:       "ru-RU",
+			wantStale:  true,
+			wantReason: "missing_episodes_lang",
+		},
+		{
+			name: "en-US lang skips episode coverage check",
+			f: fakes{
+				series: &stubProbeSeries{canon: catalogseries.Canon{
+					ID: 1, Hydration: catalogseries.HydrationFull,
+					EnrichmentTMDBSyncedAt: &freshTime,
+				}},
+				texts:       &stubProbeTexts{row: catalogseries.SeriesText{Language: "en-US"}},
+				seasonsCnt:  &stubCounter{n: 5},
+				peopleCount: &stubCounter{n: 5},
+				epTexts:     &stubEpisodeTextsCoverage{covered: 0, total: 100},
+			},
+			lang:       "en-US",
+			wantStale:  false,
+			wantReason: "fresh",
+		},
+		{
+			name: "zero episodes skips episode coverage check",
+			f: fakes{
+				series: &stubProbeSeries{canon: catalogseries.Canon{
+					ID: 1, Hydration: catalogseries.HydrationFull,
+					EnrichmentTMDBSyncedAt: &freshTime,
+				}},
+				texts:       &stubProbeTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+				seasonsCnt:  &stubCounter{n: 5},
+				peopleCount: &stubCounter{n: 5},
+				epTexts:     &stubEpisodeTextsCoverage{covered: 0, total: 0},
+			},
+			lang:       "ru-RU",
 			wantStale:  false,
 			wantReason: "fresh",
 		},

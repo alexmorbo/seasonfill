@@ -197,6 +197,37 @@ func (r *EpisodeTextsRepository) GetWithFallback(ctx context.Context, episodeID 
 	return toEpisodeText(m), nil
 }
 
+// CoverageBySeries reports how many of the series's episodes have an
+// `episode_texts` row for the given language vs the total episode count.
+// Story 548: probe uses this to detect "episodes en-US fine but ru-RU
+// missing" — Story 547's async followup committed partial coverage and
+// stamped enrichment_tmdb_synced_at, so the canon TTL no longer flags
+// the gap and the per-lang invariant must catch it.
+//
+// Returns (0, 0, nil) when the series has no episodes — caller skips the
+// coverage check in that case (cold-boot / FAM / brand-new series).
+func (r *EpisodeTextsRepository) CoverageBySeries(ctx context.Context, seriesID domain.SeriesID, language string) (covered, total int, err error) {
+	var totalCnt int64
+	if e := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.EpisodeModel{}).
+		Where("series_id = ?", seriesID).
+		Count(&totalCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count episodes: %w", e)
+	}
+	if totalCnt == 0 {
+		return 0, 0, nil
+	}
+	var coveredCnt int64
+	if e := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("episode_texts AS et").
+		Joins("JOIN episodes e ON e.id = et.episode_id").
+		Where("e.series_id = ? AND et.language = ?", seriesID, language).
+		Count(&coveredCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count episode_texts: %w", e)
+	}
+	return int(coveredCnt), int(totalCnt), nil
+}
+
 func (r *EpisodeTextsRepository) Upsert(ctx context.Context, t series.EpisodeText) error {
 	if t.EpisodeID == 0 {
 		return fmt.Errorf("upsert episode_texts: episode_id must be non-zero")

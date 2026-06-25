@@ -221,11 +221,12 @@ func BuildSeriesDetail(
 	// EnsureFresh / EnqueueIfStale so cold-boot opens degrade gracefully.
 	onDemandEnricherHolder := adapters.NewOnDemandEnricherHolder(log)
 	seriesFreshenerProbe, err := adapters.NewSeriesFreshenerProbe(adapters.SeriesFreshenerProbeConfig{
-		Series:       sdSeriesRepo,
-		SeriesTexts:  sdSeriesTextsRepo,
-		SeasonsCount: sdSeasonsRepo,
-		PeopleCount:  adapters.NewSeriesPeopleCountAdapter(sdPersonCreditsRepo, sdSeriesRepo),
-		Logger:       composerLog,
+		Series:               sdSeriesRepo,
+		SeriesTexts:          sdSeriesTextsRepo,
+		SeasonsCount:         sdSeasonsRepo,
+		PeopleCount:          adapters.NewSeriesPeopleCountAdapter(sdPersonCreditsRepo, sdSeriesRepo),
+		EpisodeTextsCoverage: sdEpisodeTextsRepo,
+		Logger:               composerLog,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("seriesfreshener probe: %w", err)

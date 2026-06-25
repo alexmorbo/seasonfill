@@ -37,14 +37,26 @@ type CountByID interface {
 	CountBySeries(ctx context.Context, seriesID domain.SeriesID) (int, error)
 }
 
+// EpisodeTextsCoverageReader — narrow port answering "how many of the
+// series's episodes have an episode_texts row for the requested
+// language?". Story 548 added it so the probe can detect partial-
+// success enrichment that stamps synced_at + ru-RU on Season 8 only,
+// while Seasons 1-7 stay English forever.
+// *enrichpersistence.EpisodeTextsRepository satisfies it.
+type EpisodeTextsCoverageReader interface {
+	CoverageBySeries(ctx context.Context, seriesID domain.SeriesID, language string) (covered, total int, err error)
+}
+
 // SeriesFreshenerProbeConfig is the dep surface for the probe.
 type SeriesFreshenerProbeConfig struct {
-	Series       SeriesReader
-	SeriesTexts  SeriesTextsReader
-	SeasonsCount CountByID
-	PeopleCount  CountByID
-	CanonTTL     time.Duration // default 7d
-	Logger       *slog.Logger
+	Series                SeriesReader
+	SeriesTexts           SeriesTextsReader
+	SeasonsCount          CountByID
+	PeopleCount           CountByID
+	EpisodeTextsCoverage  EpisodeTextsCoverageReader // optional — nil disables the missing_episodes_lang check
+	EpisodeCoverageMinPct int                        // default 80 — covered*100 < total*pct → stale
+	CanonTTL              time.Duration              // default 7d
+	Logger                *slog.Logger
 }
 
 // SeriesFreshenerProbe — production StalenessProbe.
@@ -61,6 +73,9 @@ func NewSeriesFreshenerProbe(cfg SeriesFreshenerProbeConfig) (*SeriesFreshenerPr
 	}
 	if cfg.CanonTTL <= 0 {
 		cfg.CanonTTL = 7 * 24 * time.Hour
+	}
+	if cfg.EpisodeCoverageMinPct <= 0 || cfg.EpisodeCoverageMinPct > 100 {
+		cfg.EpisodeCoverageMinPct = 80
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
@@ -100,6 +115,17 @@ func (p *SeriesFreshenerProbe) IsStale(ctx context.Context, seriesID domain.Seri
 		}
 		if terr != nil && errors.Is(terr, ports.ErrNotFound) {
 			return true, "missing_lang"
+		}
+		// Story 548 — Story 547's async followup commits partial coverage
+		// (Season 8 ru-RU OK, Seasons 1-7 still en-US) but stamps
+		// enrichment_tmdb_synced_at, so canon TTL no longer flags the gap.
+		// The series_texts row above passes when one row matches the lang.
+		// Per-episode coverage is the only signal that catches the partial.
+		if p.cfg.EpisodeTextsCoverage != nil {
+			covered, total, cerr := p.cfg.EpisodeTextsCoverage.CoverageBySeries(ctx, seriesID, normLang)
+			if cerr == nil && total > 0 && covered*100 < total*p.cfg.EpisodeCoverageMinPct {
+				return true, "missing_episodes_lang"
+			}
 		}
 	}
 	return false, "fresh"

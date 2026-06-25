@@ -214,7 +214,11 @@ func (h *SeriesFreshenerHolder) EnsureFresh(ctx context.Context, seriesID domain
 // 3s sync budget because HandleForced does ALL stages (series + every active
 // season's GetSeason for every configured language) which is the expensive
 // 9-season × 2-lang path Story 546 explicitly moved off the sync budget.
-const asyncFollowupTimeout = 60 * time.Second
+// Story 548 bumped 60s → 180s because partial-commit on timeout left
+// Season 8 ru-RU enriched while Seasons 1-7 stayed en-US — and the synced_at
+// stamp suppressed the followup forever. 180s buys headroom for TMDB
+// rate-limit + adaptive pause across all 9 seasons × 2 langs.
+const asyncFollowupTimeout = 180 * time.Second
 
 // spawnAsyncFollowup kicks off the Stage 3-6 background pass that fills
 // episodes / episode_texts / episode_credits for every supported language
