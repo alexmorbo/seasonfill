@@ -162,15 +162,18 @@ func (h *SeriesFreshenerHolder) EnsureFresh(ctx context.Context, seriesID domain
 		if err := inner.HandleForcedLang(freshenCtx, seriesID, lang); err != nil {
 			return err, err
 		}
-		// Stage 1+2 committed (series-level data + lang text). Story 546:
-		// schedule the background pass that fills episodes/episode_texts
-		// via the dispatcher path. Fired INSIDE the singleflight Do() so a
-		// coalesced batch of N "first opens" produces ONE EnqueueIfStale
-		// call, not N — the OnDemandEnricher's 30s throttle would dedup
-		// in prod anyway, but keeping it tight here means tests + metrics
-		// observe a clean 1:1 between staged commits and follow-up
-		// enqueues. The worker's Handle freshness gate is intentionally
-		// NOT stamped by HandleForcedLang, so the follow-up runs end-to-end.
+		// Stage 1+2 committed (series-level data + lang text). Story 547:
+		// kick off the Stage 3-6 background pass via inner.HandleForced
+		// (TTL-bypassing, full language fan-out). Pre-547 we relied solely
+		// on AsyncEnricher.EnqueueIfStale which routes through the
+		// dispatcher → Worker.Handle, whose freshness gate now short-
+		// circuits with fresh_skip because HandleForcedLang DID stamp
+		// enrichment_tmdb_synced_at (verified live 2026-06-25 series 25551,
+		// episode_texts.ru-RU stayed at 0 rows). HandleForced sets
+		// force=true and skips the gate (see series_worker.go:355).
+		// EnqueueIfStale stays as belt-and-suspenders fallback for the
+		// rare goroutine panic / scheduler drop case.
+		h.spawnAsyncFollowup(inner, seriesID, lang)
 		h.cfg.AsyncEnricher.EnqueueIfStale(seriesID, catalogseries.HydrationStub)
 		return nil, nil
 	})
@@ -205,6 +208,49 @@ func (h *SeriesFreshenerHolder) EnsureFresh(ctx context.Context, seriesID domain
 		)
 		return seriesdetail.FreshenResult{Degraded: true}
 	}
+}
+
+// asyncFollowupTimeout caps the background HandleForced call. Generous vs the
+// 3s sync budget because HandleForced does ALL stages (series + every active
+// season's GetSeason for every configured language) which is the expensive
+// 9-season × 2-lang path Story 546 explicitly moved off the sync budget.
+const asyncFollowupTimeout = 60 * time.Second
+
+// spawnAsyncFollowup kicks off the Stage 3-6 background pass that fills
+// episodes / episode_texts / episode_credits for every supported language
+// (Story 547). Detached ctx so it survives caller cancellation. Uses
+// HandleForced (not Handle) so the freshness gate Stage 1+2 just stamped
+// doesn't short-circuit the follow-up — Story 534's force=true path skips
+// the canon.EnrichmentTMDBSyncedAt + TTL check.
+//
+// Best-effort: errors are logged but do not surface — the AsyncEnricher
+// EnqueueIfStale call site sibling stays in place as a panic / drop fallback.
+func (h *SeriesFreshenerHolder) spawnAsyncFollowup(inner SeriesWorkerHandle, seriesID domain.SeriesID, lang string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), asyncFollowupTimeout)
+		defer cancel()
+		start := time.Now()
+		err := inner.HandleForced(ctx, seriesID)
+		dur := time.Since(start).Milliseconds()
+		if err != nil {
+			observability.IncSeriesdetailFreshen("followup_error")
+			h.cfg.Logger.WarnContext(ctx, "freshen.followup",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.String("result", "error"),
+				slog.Int64("duration_ms", dur),
+				slog.String("error", err.Error()),
+			)
+			return
+		}
+		observability.IncSeriesdetailFreshen("followup_ok")
+		h.cfg.Logger.InfoContext(ctx, "freshen.followup",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.String("lang", lang),
+			slog.String("result", "ok"),
+			slog.Int64("duration_ms", dur),
+		)
+	}()
 }
 
 func freshenErrString(err error) string {
