@@ -11,6 +11,7 @@ import (
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -220,12 +221,11 @@ func BuildSeriesDetail(
 	// populates them after wireEnrichment returns. Each holder is nil-OK on
 	// EnsureFresh / EnqueueIfStale so cold-boot opens degrade gracefully.
 	onDemandEnricherHolder := adapters.NewOnDemandEnricherHolder(log)
-	seriesFreshenerProbe, err := adapters.NewSeriesFreshenerProbe(adapters.SeriesFreshenerProbeConfig{
+	seriesFreshenerProbe, err := freshener.NewDBProbe(freshener.DBProbeConfig{
 		Series:               sdSeriesRepo,
 		SeriesTexts:          sdSeriesTextsRepo,
-		SeasonsCount:         sdSeasonsRepo,
-		PeopleCount:          adapters.NewSeriesPeopleCountAdapter(sdPersonCreditsRepo, sdSeriesRepo),
 		EpisodeTextsCoverage: sdEpisodeTextsRepo,
+		Seasons:              sdSeasonsRepo,
 		Logger:               composerLog,
 	})
 	if err != nil {

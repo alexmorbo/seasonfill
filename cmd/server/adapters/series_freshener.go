@@ -13,14 +13,16 @@ import (
 	catalogseries "github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // SeriesFreshenerConfig configures the freshener. Probe + AsyncEnricher
 // are required; the rest fall back to safe defaults.
 type SeriesFreshenerConfig struct {
-	Probe         StalenessProbe
+	Probe         freshener.Probe
 	AsyncEnricher seriesdetail.OnDemandEnricher
 	SyncTimeout   time.Duration // default 3s
 	Logger        *slog.Logger
@@ -122,7 +124,41 @@ func (h *SeriesFreshenerHolder) EnsureFresh(ctx context.Context, seriesID domain
 	inner := h.inner
 	h.mu.Unlock()
 
-	stale, reason := h.cfg.Probe.IsStale(ctx, seriesID, lang)
+	langVO, langErr := values.NewLanguageTag(lang)
+	if langErr != nil {
+		// Invalid lang — treat as zero (en-US-equivalent skipping
+		// missing_lang). Log at Debug; composer never passes a bad lang
+		// through user input pre-A5.
+		h.cfg.Logger.DebugContext(ctx, "freshen.invalid_lang",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.String("lang", lang),
+			slog.String("error", langErr.Error()),
+		)
+		langVO = values.LanguageTag{}
+	}
+	verdicts, probeErr := h.cfg.Probe.IsStale(ctx, seriesID, langVO, nil /* seasons */)
+	if probeErr != nil {
+		// ctx canceled — degrade as before.
+		observability.IncSeriesdetailFreshen("error")
+		h.cfg.Logger.WarnContext(ctx, "freshen.probe_error",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.String("lang", lang),
+			slog.String("error", probeErr.Error()),
+		)
+		return seriesdetail.FreshenResult{Degraded: true}
+	}
+	// Skeleton is the legacy single-verdict semantics: pre-A5 the
+	// Freshener still treats "skeleton stale" as the full-Worker trigger.
+	// A5 will rewire EnsureFresh to dispatch narrow methods per verdict.
+	var stale bool
+	var reason string
+	for _, v := range verdicts {
+		if v.Section == freshener.SectionSkeleton {
+			stale = v.Stale
+			reason = v.Reason
+			break
+		}
+	}
 	if !stale {
 		observability.IncSeriesdetailFreshen("fresh")
 		h.cfg.Logger.DebugContext(ctx, "freshen.run",

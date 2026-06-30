@@ -56,6 +56,25 @@ func (r *SeasonsRepository) ListBySeries(ctx context.Context, seriesID domain.Se
 	return out, nil
 }
 
+// GetEpisodesSyncedAt reads seasons.episodes_synced_at for one
+// (series_id, season_number). Returns (nil, ports.ErrNotFound) when the
+// season row is absent. Used by the E-1-A1 Probe to decide whether the
+// SeasonSection verdict for this season is fresh.
+func (r *SeasonsRepository) GetEpisodesSyncedAt(ctx context.Context, seriesID domain.SeriesID, seasonNumber int) (*time.Time, error) {
+	var m database.SeasonModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Select("episodes_synced_at").
+		Where("series_id = ? AND season_number = ?", seriesID, seasonNumber).
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ports.ErrNotFound
+		}
+		return nil, fmt.Errorf("get episodes_synced_at: %w", err)
+	}
+	return m.EpisodesSyncedAt, nil
+}
+
 // CountBySeries returns the row count in `seasons` for the given series_id.
 // Used by the Story 533 staleness probe to detect canon rows whose stub
 // hydration left the relations empty even when EnrichmentTMDBSyncedAt is
@@ -106,32 +125,34 @@ func (r *SeasonsRepository) Upsert(ctx context.Context, s series.CanonSeason) (i
 
 func toCanonSeason(m database.SeasonModel) series.CanonSeason {
 	return series.CanonSeason{
-		ID:           m.ID,
-		SeriesID:     m.SeriesID,
-		SeasonNumber: m.SeasonNumber,
-		TMDBSeasonID: m.TMDBSeasonID,
-		Name:         m.Name,
-		Overview:     m.Overview,
-		AirDate:      m.AirDate,
-		EpisodeCount: m.EpisodeCount,
-		PosterAsset:  m.PosterAsset,
-		CreatedAt:    m.CreatedAt,
-		UpdatedAt:    m.UpdatedAt,
+		ID:               m.ID,
+		SeriesID:         m.SeriesID,
+		SeasonNumber:     m.SeasonNumber,
+		TMDBSeasonID:     m.TMDBSeasonID,
+		Name:             m.Name,
+		Overview:         m.Overview,
+		AirDate:          m.AirDate,
+		EpisodeCount:     m.EpisodeCount,
+		PosterAsset:      m.PosterAsset,
+		CreatedAt:        m.CreatedAt,
+		UpdatedAt:        m.UpdatedAt,
+		EpisodesSyncedAt: m.EpisodesSyncedAt,
 	}
 }
 
 func fromCanonSeason(s series.CanonSeason) database.SeasonModel {
 	return database.SeasonModel{
-		ID:           s.ID,
-		SeriesID:     s.SeriesID,
-		SeasonNumber: s.SeasonNumber,
-		TMDBSeasonID: s.TMDBSeasonID,
-		Name:         s.Name,
-		Overview:     s.Overview,
-		AirDate:      s.AirDate,
-		EpisodeCount: s.EpisodeCount,
-		PosterAsset:  s.PosterAsset,
-		CreatedAt:    s.CreatedAt,
-		UpdatedAt:    s.UpdatedAt,
+		ID:               s.ID,
+		SeriesID:         s.SeriesID,
+		SeasonNumber:     s.SeasonNumber,
+		TMDBSeasonID:     s.TMDBSeasonID,
+		Name:             s.Name,
+		Overview:         s.Overview,
+		AirDate:          s.AirDate,
+		EpisodeCount:     s.EpisodeCount,
+		PosterAsset:      s.PosterAsset,
+		CreatedAt:        s.CreatedAt,
+		UpdatedAt:        s.UpdatedAt,
+		EpisodesSyncedAt: s.EpisodesSyncedAt,
 	}
 }

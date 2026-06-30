@@ -390,6 +390,10 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 	omdbAwards := atlasschema.NewNullStringColumn("omdb_awards", "text")
 	enrichmentTMDBSyncedAt := timestampColumn(d, "enrichment_tmdb_synced_at", false, false)
 	enrichmentOMDBSyncedAt := timestampColumn(d, "enrichment_omdb_synced_at", false, false)
+	enrichmentTextSyncedAt := timestampColumn(d, "enrichment_text_synced_at", false, false)
+	enrichmentCastSyncedAt := timestampColumn(d, "enrichment_cast_synced_at", false, false)
+	enrichmentRecsSyncedAt := timestampColumn(d, "enrichment_recs_synced_at", false, false)
+	enrichmentMediaSyncedAt := timestampColumn(d, "enrichment_media_synced_at", false, false)
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
@@ -425,6 +429,10 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			omdbAwards,
 			enrichmentTMDBSyncedAt,
 			enrichmentOMDBSyncedAt,
+			enrichmentTextSyncedAt,
+			enrichmentCastSyncedAt,
+			enrichmentRecsSyncedAt,
+			enrichmentMediaSyncedAt,
 			createdAt,
 			updatedAt,
 		).
@@ -442,6 +450,10 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			partialIndex(d, "series_tmdb_type_idx",
 				[]*atlasschema.Column{tmdbType},
 				"tmdb_type IS NOT NULL"),
+			atlasschema.NewIndex("series_enrichment_text_synced_at_idx").AddColumns(enrichmentTextSyncedAt),
+			atlasschema.NewIndex("series_enrichment_cast_synced_at_idx").AddColumns(enrichmentCastSyncedAt),
+			atlasschema.NewIndex("series_enrichment_recs_synced_at_idx").AddColumns(enrichmentRecsSyncedAt),
+			atlasschema.NewIndex("series_enrichment_media_synced_at_idx").AddColumns(enrichmentMediaSyncedAt),
 		)
 	return t
 }
@@ -460,6 +472,7 @@ func buildSeasonsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.T
 	posterAsset := atlasschema.NewNullStringColumn("poster_asset", "text")
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
+	episodesSyncedAt := timestampColumn(d, "episodes_synced_at", false, false)
 
 	t := atlasschema.NewTable("seasons").
 		AddColumns(
@@ -474,6 +487,7 @@ func buildSeasonsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.T
 			posterAsset,
 			createdAt,
 			updatedAt,
+			episodesSyncedAt,
 		).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
 		AddIndexes(

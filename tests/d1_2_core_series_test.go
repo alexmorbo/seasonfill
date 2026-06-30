@@ -82,32 +82,34 @@ func TestD12_SchemaHasThreeCoreTables(t *testing.T) {
 	}
 }
 
-// TestD12_SeriesColumnCount asserts the canonical 32-column count per
-// PRD §4.1. Drift indicates a renamed/added column that should require
-// a follow-up story revision.
+// TestD12_SeriesColumnCount asserts the canonical 36-column count per
+// PRD §4.1 + E-1-A1 per-section freshness stamps (4 new columns added
+// in migration 000022). Drift indicates a renamed/added column that
+// should require a follow-up story revision.
 func TestD12_SeriesColumnCount(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			tbl := mustTable(t, schema.Schema(d), "series")
-			if len(tbl.Columns) != 32 {
-				t.Errorf("series column count = %d, want 32", len(tbl.Columns))
+			if len(tbl.Columns) != 36 {
+				t.Errorf("series column count = %d, want 36", len(tbl.Columns))
 			}
 		})
 	}
 }
 
-// TestD12_SeasonsColumnCount asserts the canonical 11-column count
-// (id + 10 domain columns) for the seasons table.
+// TestD12_SeasonsColumnCount asserts the canonical 12-column count
+// (id + 10 domain columns + episodes_synced_at added in E-1-A1
+// migration 000022) for the seasons table.
 func TestD12_SeasonsColumnCount(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			tbl := mustTable(t, schema.Schema(d), "seasons")
-			if len(tbl.Columns) != 11 {
-				t.Errorf("seasons column count = %d, want 11", len(tbl.Columns))
+			if len(tbl.Columns) != 12 {
+				t.Errorf("seasons column count = %d, want 12", len(tbl.Columns))
 			}
 		})
 	}

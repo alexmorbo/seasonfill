@@ -78,8 +78,19 @@ type Canon struct {
 	// /?i={imdb_id}&plot=short fetch. NULL = never OMDb-enriched —
 	// replaces the legacy sync_log(omdb, outcome='ok') TTL gate.
 	EnrichmentOMDBSyncedAt *time.Time
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	// EnrichmentTextSyncedAt is set by Worker.RefreshSeriesText (A2) on
+	// successful series_texts UPSERT. NULL = never section-refreshed —
+	// either pre-migration (backfilled from EnrichmentTMDBSyncedAt) or
+	// the row is a stub. PLAN §6.1.
+	EnrichmentTextSyncedAt *time.Time
+	// EnrichmentCastSyncedAt is set by Worker.RefreshCast (A2).
+	EnrichmentCastSyncedAt *time.Time
+	// EnrichmentRecsSyncedAt is set by Worker.RefreshRecommendations (A3b).
+	EnrichmentRecsSyncedAt *time.Time
+	// EnrichmentMediaSyncedAt is set by Worker.RefreshMediaAssets (A4).
+	EnrichmentMediaSyncedAt *time.Time
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // CanonSeason is one row of `seasons`. SeriesID is a foreign reference
@@ -96,6 +107,10 @@ type CanonSeason struct {
 	PosterAsset  *string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	// EpisodesSyncedAt is the E-1-A1 per-season freshness stamp. Set by
+	// Worker.RefreshSeasonSlim (A3a) on successful episode list UPSERT.
+	// NULL = never section-refreshed.
+	EpisodesSyncedAt *time.Time
 }
 
 // CanonEpisode is one row of `episodes`. Carries canonical TMDB+Sonarr

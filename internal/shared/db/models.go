@@ -546,8 +546,15 @@ type SeriesModel struct {
 	// column directly on success, no separate row write.
 	EnrichmentTMDBSyncedAt *time.Time `gorm:"column:enrichment_tmdb_synced_at"`
 	EnrichmentOMDBSyncedAt *time.Time `gorm:"column:enrichment_omdb_synced_at"`
-	CreatedAt              time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt              time.Time  `gorm:"column:updated_at;not null"`
+	// E-1-A1 per-section sync timestamps. Bumped by narrow Worker
+	// methods (A2-A5). NULL = never section-refreshed (backfilled from
+	// enrichment_tmdb_synced_at on rows present before migration 000022).
+	EnrichmentTextSyncedAt  *time.Time `gorm:"column:enrichment_text_synced_at"`
+	EnrichmentCastSyncedAt  *time.Time `gorm:"column:enrichment_cast_synced_at"`
+	EnrichmentRecsSyncedAt  *time.Time `gorm:"column:enrichment_recs_synced_at"`
+	EnrichmentMediaSyncedAt *time.Time `gorm:"column:enrichment_media_synced_at"`
+	CreatedAt               time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt               time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesModel) TableName() string { return "series" }
@@ -581,6 +588,10 @@ type SeasonModel struct {
 	PosterAsset  *string         `gorm:"column:poster_asset;type:text"`
 	CreatedAt    time.Time       `gorm:"column:created_at;not null"`
 	UpdatedAt    time.Time       `gorm:"column:updated_at;not null"`
+	// E-1-A1 per-season freshness stamp. Bumped by Worker.RefreshSeasonSlim
+	// (A3a) on a successful episode list UPSERT for this season. NULL =
+	// never section-refreshed.
+	EpisodesSyncedAt *time.Time `gorm:"column:episodes_synced_at"`
 }
 
 func (SeasonModel) TableName() string { return "seasons" }

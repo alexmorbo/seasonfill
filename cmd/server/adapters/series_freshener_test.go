@@ -13,10 +13,17 @@ import (
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	catalogseries "github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
 )
 
 // fakeProbe records IsStale calls and returns canned (stale, reason).
+// Implements freshener.Probe by emitting a DENSE 5-section verdict
+// slice where every section carries the canned (stale, reason). The
+// SeriesFreshenerHolder only inspects the SectionSkeleton verdict
+// pre-A5; emitting the same on every section keeps the fake
+// deterministic regardless of what A5 wiring lands later.
 type fakeProbe struct {
 	stale  bool
 	reason string
@@ -25,11 +32,22 @@ type fakeProbe struct {
 	calls int
 }
 
-func (p *fakeProbe) IsStale(_ context.Context, _ domain.SeriesID, _ string) (bool, string) {
+func (p *fakeProbe) IsStale(_ context.Context, _ domain.SeriesID, _ values.LanguageTag, seasonNumbers []int) ([]freshener.SectionVerdict, error) {
 	p.mu.Lock()
 	p.calls++
 	p.mu.Unlock()
-	return p.stale, p.reason
+	verdicts := make([]freshener.SectionVerdict, 0, len(freshener.FixedSections)+len(seasonNumbers))
+	for _, s := range freshener.FixedSections {
+		verdicts = append(verdicts, freshener.SectionVerdict{
+			Section: s, Stale: p.stale, Reason: p.reason,
+		})
+	}
+	for _, n := range seasonNumbers {
+		verdicts = append(verdicts, freshener.SectionVerdict{
+			Section: freshener.SeasonSection(n), Stale: p.stale, Reason: p.reason,
+		})
+	}
+	return verdicts, nil
 }
 
 // fakeAsyncEnricher records EnqueueIfStale calls.
@@ -110,7 +128,7 @@ func (f *fakeWorker) runBody(ctx context.Context) error {
 	return f.err
 }
 
-func newFreshener(t *testing.T, probe adapters.StalenessProbe, enr *fakeAsyncEnricher, timeout time.Duration) *adapters.SeriesFreshenerHolder {
+func newFreshener(t *testing.T, probe freshener.Probe, enr *fakeAsyncEnricher, timeout time.Duration) *adapters.SeriesFreshenerHolder {
 	t.Helper()
 	h, err := adapters.NewSeriesFreshenerHolder(adapters.SeriesFreshenerConfig{
 		Probe:         probe,
