@@ -48,6 +48,9 @@ func (f *cascadeFakeCache) GetInstancesBySeriesIDs(_ context.Context, _ []domain
 func (f *cascadeFakeCache) ListBySeriesID(_ context.Context, _ domain.SeriesID) ([]series.CacheEntry, error) {
 	return nil, nil
 }
+func (f *cascadeFakeCache) ListBySeriesIDs(_ context.Context, _ []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	return map[domain.SeriesID][]series.CacheEntry{}, nil
+}
 
 type cascadeFakeEpisodes struct {
 	calls        atomic.Int32

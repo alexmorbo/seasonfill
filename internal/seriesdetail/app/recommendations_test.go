@@ -38,6 +38,16 @@ func (f *recFakeCacheLookup) ListBySeriesID(_ context.Context, id domain.SeriesI
 	return f.rows[id], nil
 }
 
+func (f *recFakeCacheLookup) ListBySeriesIDs(_ context.Context, ids []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	out := make(map[domain.SeriesID][]series.CacheEntry, len(ids))
+	for _, id := range ids {
+		if rows, ok := f.rows[id]; ok && len(rows) > 0 {
+			out[id] = rows
+		}
+	}
+	return out, nil
+}
+
 func newRecComposer(
 	canonByID map[domain.SeriesID]series.Canon,
 	cache map[string]series.CacheEntry,

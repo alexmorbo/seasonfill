@@ -38,6 +38,11 @@ type SeriesPort interface {
 	Get(ctx context.Context, id domain.SeriesID) (series.Canon, error)
 	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (series.Canon, error)
 	ListByIDs(ctx context.Context, ids []domain.SeriesID) ([]series.Canon, error)
+	// Story 556 (E-1 Z7) — batch sibling of GetByTMDBID. CastComposer
+	// uses it to resolve every cast member's TV credits in one
+	// round-trip rather than per-credit. Returns rows in tmdb_id-asc
+	// order; missing tmdb_ids dropped silently.
+	ListByTMDBIDs(ctx context.Context, tmdbIDs []domain.TMDBID) ([]series.Canon, error)
 }
 
 // PersonCreditsPort is the narrow port for the H-1 in_library
@@ -219,6 +224,11 @@ type EnrichmentFreshnessPort interface {
 // story adds (see series_cache_repository.go::ListBySeriesID).
 type SeriesCacheLookupPort interface {
 	ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error)
+	// Story 556 (E-1 Z7) — batch sibling. CastComposer uses it to probe
+	// in_library for every resolved (person → tv credit → canon series)
+	// in one round-trip. Returns a map keyed on series.id; missing ids
+	// map to nil so callers can probe O(1).
+	ListBySeriesIDs(ctx context.Context, seriesIDs []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error)
 }
 
 // SonarrQueueLister is the single live port — the local Sonarr

@@ -55,6 +55,9 @@ func (f *refreshHandlerFakeCache) GetInstancesBySeriesIDs(_ context.Context, _ [
 func (f *refreshHandlerFakeCache) ListBySeriesID(_ context.Context, _ domain.SeriesID) ([]series.CacheEntry, error) {
 	return nil, nil
 }
+func (f *refreshHandlerFakeCache) ListBySeriesIDs(_ context.Context, _ []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	return map[domain.SeriesID][]series.CacheEntry{}, nil
+}
 
 type refreshHandlerFakeSeries struct{ canon seriesrefresh.CanonView }
 

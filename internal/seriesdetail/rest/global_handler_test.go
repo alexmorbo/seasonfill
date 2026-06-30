@@ -37,6 +37,17 @@ func (f *fakeGlobalCacheLookup) ListBySeriesID(_ context.Context, _ domain.Serie
 	return f.entries, nil
 }
 
+func (f *fakeGlobalCacheLookup) ListBySeriesIDs(_ context.Context, ids []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[domain.SeriesID][]series.CacheEntry, len(ids))
+	for _, id := range ids {
+		out[id] = f.entries
+	}
+	return out, nil
+}
+
 type fakeGlobalComposerDelegate struct {
 	resp *seriesdetail.Detail
 	err  error

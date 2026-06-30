@@ -3,6 +3,7 @@ package seriesdetail
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -495,4 +496,220 @@ func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
 	require.Len(t, d.Cast, 1)
 	require.NotNil(t, d.Cast[0].Person.ProfileAsset)
 	require.Equal(t, hashCast, *d.Cast[0].Person.ProfileAsset)
+}
+
+// --- Story 556 (E-1 Z7) batch in_library tests ---
+
+// countingSeries wraps fakeSeries and increments per-method counters
+// so the query-budget SLO test can assert that ListByTMDBIDs is the
+// only batch path hit (not the legacy per-credit GetByTMDBID).
+type countingSeries struct {
+	inner              *fakeSeries
+	listByTMDBIDsCalls atomic.Int32
+	getByTMDBIDCalls   atomic.Int32
+	getCalls           atomic.Int32
+	listByIDsCalls     atomic.Int32
+}
+
+func (f *countingSeries) Get(ctx context.Context, id domain.SeriesID) (series.Canon, error) {
+	f.getCalls.Add(1)
+	return f.inner.Get(ctx, id)
+}
+
+func (f *countingSeries) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (series.Canon, error) {
+	f.getByTMDBIDCalls.Add(1)
+	return f.inner.GetByTMDBID(ctx, tmdbID)
+}
+
+func (f *countingSeries) ListByIDs(ctx context.Context, ids []domain.SeriesID) ([]series.Canon, error) {
+	f.listByIDsCalls.Add(1)
+	return f.inner.ListByIDs(ctx, ids)
+}
+
+func (f *countingSeries) ListByTMDBIDs(ctx context.Context, tmdbIDs []domain.TMDBID) ([]series.Canon, error) {
+	f.listByTMDBIDsCalls.Add(1)
+	return f.inner.ListByTMDBIDs(ctx, tmdbIDs)
+}
+
+// countingSeriesCache wraps fakeSeriesCache and counts the batch path.
+type countingSeriesCache struct {
+	inner                *fakeSeriesCache
+	listBySeriesIDsCalls atomic.Int32
+	listBySeriesIDCalls  atomic.Int32
+}
+
+func (f *countingSeriesCache) Get(ctx context.Context, instance domain.InstanceName, sonarrID domain.SonarrSeriesID) (series.CacheEntry, error) {
+	return f.inner.Get(ctx, instance, sonarrID)
+}
+
+func (f *countingSeriesCache) ListBySeriesID(ctx context.Context, id domain.SeriesID) ([]series.CacheEntry, error) {
+	f.listBySeriesIDCalls.Add(1)
+	return f.inner.ListBySeriesID(ctx, id)
+}
+
+func (f *countingSeriesCache) ListBySeriesIDs(ctx context.Context, ids []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	f.listBySeriesIDsCalls.Add(1)
+	return f.inner.ListBySeriesIDs(ctx, ids)
+}
+
+func TestCastComposer_InLibraryBatchedAcrossCast(t *testing.T) {
+	t.Parallel()
+	deps, cache, canon, sp, persons, credits, _ := castBaseDeps(t)
+	// Person A (id=1) — 2 TV credits: TMDB 200 (in library) + TMDB 999 (no canon).
+	// Person B (id=2) — 1 TV credit on TMDB 100 (current series only) → not in library.
+	// Person C (id=3) — no TV credits at all.
+	seedPerson(persons, 1, "PersonA", tmdbIDPtr(1001))
+	seedPerson(persons, 2, "PersonB", tmdbIDPtr(1002))
+	seedPerson(persons, 3, "PersonC", tmdbIDPtr(1003))
+	sp.cast = []people.SeriesCredit{
+		castCredit(1, new(0), "cha", new(9)),
+		castCredit(2, new(1), "chb", new(9)),
+		castCredit(3, new(2), "chc", new(9)),
+	}
+	credits.rows[1] = []PersonCreditRef{
+		{MediaType: "tv", TMDBMediaID: 200},
+		{MediaType: "tv", TMDBMediaID: 999},
+	}
+	credits.rows[2] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
+	credits.rows[3] = nil
+	// Canon for tmdb=200 exists + lives in library; tmdb=999 has no canon row.
+	canon.rows[200] = series.Canon{ID: 200, Title: "GoT", TMDBID: tmdbIDPtr(200)}
+	cache.byCanon[200] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: seriesIDPtr(200)}}
+
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, d.Cast, 3)
+	require.True(t, d.Cast[0].InLibrary, "Person A has TMDB 200 hit")
+	require.False(t, d.Cast[1].InLibrary, "Person B only on current series")
+	require.False(t, d.Cast[2].InLibrary, "Person C has zero credits")
+}
+
+func TestCastComposer_InLibrarySelfSuppressed_Batched(t *testing.T) {
+	t.Parallel()
+	deps, _, _, sp, persons, credits, _ := castBaseDeps(t)
+	seedPerson(persons, 1, "Solo", tmdbIDPtr(5001))
+	sp.cast = []people.SeriesCredit{castCredit(1, new(0), "Hero", new(9))}
+	// TMDB 100 → current series id 42; pass 3 must drop it before cache lookup.
+	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, d.Cast, 1)
+	require.False(t, d.Cast[0].InLibrary, "self-link must be suppressed in batch path")
+}
+
+// failingListByTMDBIDsSeries wraps a base fakeSeries and only errors on
+// the batch ListByTMDBIDs call — Step 2's canon Get must still succeed
+// so the composer reaches the in_library batch path under test.
+type failingListByTMDBIDsSeries struct {
+	inner *fakeSeries
+	err   error
+}
+
+func (f *failingListByTMDBIDsSeries) Get(ctx context.Context, id domain.SeriesID) (series.Canon, error) {
+	return f.inner.Get(ctx, id)
+}
+
+func (f *failingListByTMDBIDsSeries) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (series.Canon, error) {
+	return f.inner.GetByTMDBID(ctx, tmdbID)
+}
+
+func (f *failingListByTMDBIDsSeries) ListByIDs(ctx context.Context, ids []domain.SeriesID) ([]series.Canon, error) {
+	return f.inner.ListByIDs(ctx, ids)
+}
+
+func (f *failingListByTMDBIDsSeries) ListByTMDBIDs(_ context.Context, _ []domain.TMDBID) ([]series.Canon, error) {
+	return nil, f.err
+}
+
+func TestCastComposer_InLibrarySeriesBatchFailure(t *testing.T) {
+	t.Parallel()
+	deps, _, canon, sp, persons, credits, _ := castBaseDeps(t)
+	seedPerson(persons, 1, "PersonA", tmdbIDPtr(1001))
+	seedPerson(persons, 2, "PersonB", tmdbIDPtr(1002))
+	sp.cast = []people.SeriesCredit{
+		castCredit(1, new(0), "cha", new(9)),
+		castCredit(2, new(1), "chb", new(9)),
+	}
+	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 200}}
+	credits.rows[2] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 300}}
+	deps.Series = &failingListByTMDBIDsSeries{inner: canon, err: errors.New("series batch down")}
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err, "series batch failure must NOT propagate — response ships degraded")
+	require.Len(t, d.Cast, 2)
+	require.False(t, d.Cast[0].InLibrary)
+	require.False(t, d.Cast[1].InLibrary)
+}
+
+func TestCastComposer_InLibraryCacheBatchFailure(t *testing.T) {
+	t.Parallel()
+	deps, cache, canon, sp, persons, credits, _ := castBaseDeps(t)
+	seedPerson(persons, 1, "PersonA", tmdbIDPtr(1001))
+	sp.cast = []people.SeriesCredit{castCredit(1, new(0), "cha", new(9))}
+	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 200}}
+	canon.rows[200] = series.Canon{ID: 200, Title: "GoT", TMDBID: tmdbIDPtr(200)}
+	cache.listErr = errors.New("cache batch down")
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err, "cache batch failure must NOT propagate")
+	require.Len(t, d.Cast, 1)
+	require.False(t, d.Cast[0].InLibrary)
+}
+
+func TestCastComposer_InLibraryZeroTMDBIDsIgnored(t *testing.T) {
+	t.Parallel()
+	deps, _, _, sp, persons, credits, _ := castBaseDeps(t)
+	seedPerson(persons, 1, "PersonA", tmdbIDPtr(1001))
+	sp.cast = []people.SeriesCredit{castCredit(1, new(0), "cha", new(9))}
+	// Only credit has TMDBMediaID=0 — must NOT trigger a canon lookup.
+	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 0}}
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, d.Cast, 1)
+	require.False(t, d.Cast[0].InLibrary, "TMDBMediaID=0 must be ignored")
+}
+
+func TestCastComposer_QueryCountBudget(t *testing.T) {
+	t.Parallel()
+	deps, baseCache, baseCanon, sp, persons, credits, _ := castBaseDeps(t)
+	// 5 cast members, each with 3 distinct TV credits → 15 unique tmdb ids.
+	// All non-current series live in library.
+	for i := 1; i <= 5; i++ {
+		seedPerson(persons, int64(i), "P", tmdbIDPtr(1000+i))
+		sp.cast = append(sp.cast, castCredit(int64(i), new(i-1), "c", new(9)))
+		var refs []PersonCreditRef
+		for j := range 3 {
+			tmdb := 2000 + i*10 + j
+			refs = append(refs, PersonCreditRef{MediaType: "tv", TMDBMediaID: tmdb})
+			baseCanon.rows[domain.SeriesID(tmdb)] = series.Canon{
+				ID: domain.SeriesID(tmdb), Title: "X", TMDBID: tmdbIDPtr(tmdb),
+			}
+			baseCache.byCanon[domain.SeriesID(tmdb)] = []series.CacheEntry{
+				{InstanceName: "alpha", SonarrSeriesID: domain.SonarrSeriesID(tmdb), SeriesID: seriesIDPtr(int64(tmdb))},
+			}
+		}
+		credits.rows[int64(i)] = refs
+	}
+	cs := &countingSeries{inner: baseCanon}
+	cc := &countingSeriesCache{inner: baseCache}
+	deps.Series = cs
+	deps.SeriesCache = cc
+	deps.SeriesCacheLookup = cc
+
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, d.Cast, 5)
+	for _, ent := range d.Cast {
+		require.True(t, ent.InLibrary, "every cast member has a library hit")
+	}
+	// SLO: per-credit GetByTMDBID + per-resolved ListBySeriesID MUST be zero
+	// (the legacy path); batched ListByTMDBIDs + ListBySeriesIDs hit once each.
+	require.Zero(t, cs.getByTMDBIDCalls.Load(), "legacy per-credit GetByTMDBID MUST be zero")
+	require.Zero(t, cc.listBySeriesIDCalls.Load(), "legacy per-resolved ListBySeriesID MUST be zero")
+	require.LessOrEqual(t, cs.listByTMDBIDsCalls.Load(), int32(1), "series batch fires at most once")
+	require.LessOrEqual(t, cc.listBySeriesIDsCalls.Load(), int32(1), "cache batch fires at most once")
 }

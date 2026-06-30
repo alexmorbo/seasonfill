@@ -948,6 +948,9 @@ func (s *stubSeriesCache) GetInstancesBySeriesIDs(_ context.Context, _ []sharedd
 func (s *stubSeriesCache) ListBySeriesID(_ context.Context, _ shareddomain.SeriesID) ([]series.CacheEntry, error) {
 	return nil, nil
 }
+func (s *stubSeriesCache) ListBySeriesIDs(_ context.Context, _ []shareddomain.SeriesID) (map[shareddomain.SeriesID][]series.CacheEntry, error) {
+	return map[shareddomain.SeriesID][]series.CacheEntry{}, nil
+}
 
 var _ ports.SeriesCacheRepository = (*stubSeriesCache)(nil)
 

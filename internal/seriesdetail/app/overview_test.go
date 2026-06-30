@@ -70,6 +70,22 @@ func (f *ovFakeSeries) ListByIDs(_ context.Context, ids []domain.SeriesID) ([]se
 	return out, nil
 }
 
+func (f *ovFakeSeries) ListByTMDBIDs(_ context.Context, tmdbIDs []domain.TMDBID) ([]series.Canon, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]series.Canon, 0, len(tmdbIDs))
+	for _, id := range tmdbIDs {
+		for _, c := range f.rows {
+			if c.TMDBID != nil && *c.TMDBID == id {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 type ovFakeTexts struct {
 	text series.SeriesText
 	err  error

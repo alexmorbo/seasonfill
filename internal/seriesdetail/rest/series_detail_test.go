@@ -46,6 +46,16 @@ func (f *fakeCachePort) ListBySeriesID(_ context.Context, id domain.SeriesID) ([
 	return f.byCanon[id], nil
 }
 
+func (f *fakeCachePort) ListBySeriesIDs(_ context.Context, ids []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	out := make(map[domain.SeriesID][]series.CacheEntry, len(ids))
+	for _, id := range ids {
+		if rows, ok := f.byCanon[id]; ok && len(rows) > 0 {
+			out[id] = rows
+		}
+	}
+	return out, nil
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"
@@ -91,6 +101,19 @@ func (f *fakeSeriesPort) ListByIDs(_ context.Context, ids []domain.SeriesID) ([]
 	for _, id := range ids {
 		if c, ok := f.rows[id]; ok {
 			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeSeriesPort) ListByTMDBIDs(_ context.Context, tmdbIDs []domain.TMDBID) ([]series.Canon, error) {
+	out := make([]series.Canon, 0, len(tmdbIDs))
+	for _, id := range tmdbIDs {
+		for _, c := range f.rows {
+			if c.TMDBID != nil && *c.TMDBID == id {
+				out = append(out, c)
+				break
+			}
 		}
 	}
 	return out, nil

@@ -37,6 +37,17 @@ func (s *stubGlobalTorrentsCacheLookup) ListBySeriesID(_ context.Context, _ doma
 	return s.entries, nil
 }
 
+func (s *stubGlobalTorrentsCacheLookup) ListBySeriesIDs(_ context.Context, ids []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make(map[domain.SeriesID][]series.CacheEntry, len(ids))
+	for _, id := range ids {
+		out[id] = s.entries
+	}
+	return out, nil
+}
+
 func quietLoggerTorrentsWrapper() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

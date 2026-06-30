@@ -42,6 +42,17 @@ func (s *stubGlobalOverviewCacheLookup) ListBySeriesID(_ context.Context, _ doma
 	return s.entries, nil
 }
 
+func (s *stubGlobalOverviewCacheLookup) ListBySeriesIDs(_ context.Context, ids []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make(map[domain.SeriesID][]series.CacheEntry, len(ids))
+	for _, id := range ids {
+		out[id] = s.entries
+	}
+	return out, nil
+}
+
 // stubOverviewFallback implements seriesdetailrest.TMDBFallbackOverviewPort.
 type stubOverviewFallback struct {
 	out *seriesdetail.Overview

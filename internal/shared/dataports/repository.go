@@ -533,6 +533,13 @@ type SeriesCacheRepository interface {
 	// series-scoped wrappers) can both pick the preferred instance and
 	// pass the matching per-instance Sonarr id to the inner handlers.
 	ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error)
+
+	// ListBySeriesIDs is the batch sibling — returns active cache rows
+	// for every series.id in one query, bucketed into a map keyed on
+	// series_id. Missing ids map to a nil slice. Used by the
+	// seriesdetail CastComposer to collapse the per-credit
+	// in_library probe N+1 in story 556 (E-1 Z7).
+	ListBySeriesIDs(ctx context.Context, seriesIDs []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error)
 }
 
 // MaxDistinctNetworks bounds the distinct-network result so a

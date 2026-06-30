@@ -115,6 +115,54 @@ func (r *SeriesRepository) ListByIDs(ctx context.Context, ids []domain.SeriesID)
 	return out, nil
 }
 
+// ListByTMDBIDs returns canon rows for the supplied TMDB ids in
+// tmdb_id-ascending order. Missing ids are silently dropped (callers
+// needing a presence check go through GetByTMDBID per id). Zero ids
+// are filtered out at the input boundary — the partial-unique index
+// `series_tmdb_id WHERE tmdb_id IS NOT NULL` would not catch them
+// anyway. Empty effective input returns (nil, nil) — callers MUST
+// tolerate a nil slice (matches the ListByIDs convention).
+//
+// Story 556 (E-1 Z7) — replaces the per-credit Series.GetByTMDBID loop
+// in CastComposer.probeInLibrary (cast.go:319-353). One round-trip per
+// /cast request regardless of M (typical M=200-500 for rich shows);
+// the `tmdb_id IN (?)` predicate rides the partial-unique
+// `series_tmdb_id` index on both Postgres and sqlite, so the read is
+// sub-millisecond for the M ≤ 1000 batch.
+//
+// Read shape is byte-equal to GetByTMDBID(): every row goes through
+// the same toCanon projector. The CastComposer builds a local
+// map[TMDBID]SeriesID from the slice; this method stays neutral and
+// returns the wire-stable slice form to mirror ListByIDs.
+func (r *SeriesRepository) ListByTMDBIDs(ctx context.Context, tmdbIDs []domain.TMDBID) ([]series.Canon, error) {
+	if len(tmdbIDs) == 0 {
+		return nil, nil
+	}
+	bound := make([]int64, 0, len(tmdbIDs))
+	for _, id := range tmdbIDs {
+		if id == 0 {
+			continue
+		}
+		bound = append(bound, int64(id))
+	}
+	if len(bound) == 0 {
+		return nil, nil
+	}
+	var models []database.SeriesModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("tmdb_id IN ?", bound).
+		Order("tmdb_id ASC").
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("list series by tmdb_ids: %w", err)
+	}
+	out := make([]series.Canon, 0, len(models))
+	for _, m := range models {
+		out = append(out, toCanon(m))
+	}
+	return out, nil
+}
+
 // FindByExternalIDs resolves a canon row by trying TMDB id first,
 // then TVDB id, then IMDB id, in that order — same priority the
 // Sonarr sync worker uses to attach `series_cache.series_id` (§5.4).

@@ -289,6 +289,57 @@ func (r *SeriesCacheRepository) ListBySeriesID(ctx context.Context, seriesID dom
 	return out, nil
 }
 
+// ListBySeriesIDs is the batch sibling of ListBySeriesID — returns
+// the active cache rows (deleted_at IS NULL) for every series.id in
+// one query, bucketed into a map[series_id] → []CacheEntry. Empty
+// input returns an empty (non-nil) map. Missing ids map to a nil
+// slice in the result so callers can probe O(1) and avoid a
+// per-id presence check.
+//
+// Story 556 (E-1 Z7) — replaces the per-credit
+// SeriesCacheLookup.ListBySeriesID loop in
+// CastComposer.probeInLibrary (cast.go:344). One round-trip per
+// /cast request regardless of M; the `series_id IN (?)` predicate
+// rides the `series_cache_series_id` index on both Postgres and
+// sqlite. Soft-deleted rows excluded for the same reason
+// ListBySeriesID excludes them — in_library reflects current
+// library state only.
+func (r *SeriesCacheRepository) ListBySeriesIDs(ctx context.Context, seriesIDs []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	out := make(map[domain.SeriesID][]series.CacheEntry, len(seriesIDs))
+	if len(seriesIDs) == 0 {
+		return out, nil
+	}
+	bound := make([]int64, 0, len(seriesIDs))
+	for _, id := range seriesIDs {
+		if id <= 0 {
+			continue
+		}
+		bound = append(bound, int64(id))
+	}
+	if len(bound) == 0 {
+		return out, nil
+	}
+	var rows []cacheRow
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Table("series_cache").
+		Select(seriesCacheSelect).
+		Joins(seriesCacheJoin).
+		Where("series_cache.series_id IN ? AND series_cache.deleted_at IS NULL", bound).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("list series_cache by series_ids: %w", err)
+	}
+	for _, row := range rows {
+		entry := rowToCacheEntry(row)
+		if entry.SeriesID == nil {
+			continue
+		}
+		sid := *entry.SeriesID
+		out[sid] = append(out[sid], entry)
+	}
+	return out, nil
+}
+
 // GetInstancesBySeriesID returns the sorted, distinct instance names
 // that currently carry this canonical series.id (deleted_at IS NULL).
 // Empty result when no active cache row points at the series.

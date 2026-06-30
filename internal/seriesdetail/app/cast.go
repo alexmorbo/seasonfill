@@ -217,16 +217,109 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 		}
 	}
 
-	// Step 7 — per-person in_library cache. One probe per unique
-	// person; bounded (typical N ≤ 100, indexed on
-	// `person_credits_person`). Computed once even though the
-	// person may appear in both cast and crew (or in multiple
-	// crew rows for different jobs). The cache is keyed by
-	// PersonID — this is just a lookup table, NOT a dedupe of
-	// the crew list itself.
-	inLibraryCache := map[int64]bool{}
-	for _, pid := range personIDs {
-		inLibraryCache[pid] = c.probeInLibrary(ctx, pid, seriesID)
+	// Step 7 — batch in_library probe (Story 556 / E-1 Z7). Collapses the
+	// per-person N+1 (each probeInLibrary fired
+	//   1 ListByPerson + N GetByTMDBID + M ListBySeriesID
+	// queries) into:
+	//   1 ListByPerson per unique person (unchanged — indexed, bounded)
+	//   1 Series.ListByTMDBIDs across ALL cast/crew credits
+	//   1 SeriesCacheLookup.ListBySeriesIDs across all resolved series ids
+	// For series 31 (Rick & Morty, ~235 persons) this drops ~800 statements
+	// to 2.
+	inLibraryCache := make(map[int64]bool, len(personIDs))
+	if len(personIDs) > 0 {
+		// Pass 1: per-person credits (one ListByPerson query per unique
+		// person — these stay since person_credits is keyed on person_id
+		// and the batch alternative would be a wider IN(?) scan with
+		// looser locality). Collect every TMDB media id that has
+		// media_type='tv' AND tmdb_media_id != 0 — those are the
+		// candidates we need canon rows for.
+		tmdbIDSet := make(map[domain.TMDBID]struct{})
+		creditsByPerson := make(map[int64][]PersonCreditRef, len(personIDs))
+		for _, pid := range personIDs {
+			credits, perr := c.d.PersonCredits.ListByPerson(ctx, pid)
+			if perr != nil {
+				if !errors.Is(perr, ports.ErrNotFound) {
+					c.d.Logger.WarnContext(ctx, "cast_in_library_probe_failed",
+						slog.Int64("person_id", pid),
+						slog.Int64("series_id", int64(seriesID)),
+						slog.String("code", sharedErrors.ErrorCode(perr)),
+						slog.String("error", perr.Error()))
+				}
+				continue
+			}
+			creditsByPerson[pid] = credits
+			for _, pc := range credits {
+				if pc.MediaType != "tv" {
+					continue
+				}
+				if pc.TMDBMediaID == 0 {
+					continue
+				}
+				tmdbIDSet[domain.TMDBID(pc.TMDBMediaID)] = struct{}{}
+			}
+		}
+
+		// Pass 2: one Series.ListByTMDBIDs across every collected id.
+		// Build a tmdbID → seriesID map for the in-loop lookup.
+		tmdbIDs := make([]domain.TMDBID, 0, len(tmdbIDSet))
+		for id := range tmdbIDSet {
+			tmdbIDs = append(tmdbIDs, id)
+		}
+		seriesByTMDB := make(map[domain.TMDBID]domain.SeriesID, len(tmdbIDs))
+		if len(tmdbIDs) > 0 {
+			canons, lerr := c.d.Series.ListByTMDBIDs(ctx, tmdbIDs)
+			if lerr != nil {
+				c.d.Logger.WarnContext(ctx, "cast_in_library_series_batch_failed",
+					slog.Int("tmdb_ids", len(tmdbIDs)),
+					slog.String("error", lerr.Error()))
+				// Degraded: no canon mapping — every person stays false.
+				// Continue so the response still ships (matches the
+				// per-person warn-and-skip posture).
+			}
+			for _, canon := range canons {
+				if canon.TMDBID == nil || *canon.TMDBID == 0 {
+					continue
+				}
+				seriesByTMDB[*canon.TMDBID] = canon.ID
+			}
+		}
+
+		// Pass 3: one SeriesCacheLookup.ListBySeriesIDs across every
+		// resolved series id (minus self — preserve the self-link
+		// suppression invariant from the legacy probeInLibrary).
+		cacheNeeded := make(map[domain.SeriesID]struct{}, len(seriesByTMDB))
+		for _, sid := range seriesByTMDB {
+			if sid == seriesID {
+				continue
+			}
+			cacheNeeded[sid] = struct{}{}
+		}
+		seriesIDs := make([]domain.SeriesID, 0, len(cacheNeeded))
+		for sid := range cacheNeeded {
+			seriesIDs = append(seriesIDs, sid)
+		}
+		var cachesBySeriesID map[domain.SeriesID][]series.CacheEntry
+		if len(seriesIDs) > 0 {
+			var lerr error
+			cachesBySeriesID, lerr = c.d.SeriesCacheLookup.ListBySeriesIDs(ctx, seriesIDs)
+			if lerr != nil {
+				c.d.Logger.WarnContext(ctx, "cast_in_library_cache_batch_failed",
+					slog.Int("series_ids", len(seriesIDs)),
+					slog.String("error", lerr.Error()))
+				cachesBySeriesID = nil
+			}
+		}
+
+		// Pass 4: O(1) probe per person.
+		for _, pid := range personIDs {
+			credits, ok := creditsByPerson[pid]
+			if !ok {
+				inLibraryCache[pid] = false
+				continue
+			}
+			inLibraryCache[pid] = personInLibrary(credits, seriesID, seriesByTMDB, cachesBySeriesID)
+		}
 	}
 
 	// Step 8 — assemble cast entries. ListBySeries already orders
@@ -303,69 +396,39 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 	return out, nil
 }
 
-// probeInLibrary returns true when the person appears as cast or
-// crew on at least one OTHER live library series. The current
-// series is excluded so the frontend's "what else are they in?"
-// affordance never renders a self-link.
+// personInLibrary collapses the per-credit probe into O(1) map
+// lookups. Matches the legacy probeInLibrary semantics exactly:
+// any TV credit whose canon series.id is in the operator's library
+// (and is NOT the current series) flips the flag.
 //
-// Implementation mirrors 215's recommendations branch in_library
-// pattern: ListByPerson → for each TV credit → GetByTMDBID on the
-// canon row matching the TMDB media id → ListBySeriesID on canon
-// series.id. N+1 bounded; all calls hit indexed paths.
-//
-// Errors are non-fatal — surface as "not in library" + warn log.
-// Same posture as the G-1 recommendations branch (best-effort,
-// degraded gracefully).
-func (c *CastComposer) probeInLibrary(ctx context.Context, personID int64, currentSeriesID domain.SeriesID) bool {
-	credits, err := c.d.PersonCredits.ListByPerson(ctx, personID)
-	if err != nil {
-		if !errors.Is(err, ports.ErrNotFound) {
-			c.d.Logger.WarnContext(ctx, "cast_in_library_probe_failed",
-				slog.Int64("person_id", personID),
-				slog.Int64("series_id", int64(currentSeriesID)),
-				slog.String("code", sharedErrors.ErrorCode(err)),
-				slog.String("error", err.Error()))
-		}
-		return false
-	}
+// Story 556 (E-1 Z7) — replaces the per-person probeInLibrary +
+// resolveSeriesByTMDB helpers; production callers go through the
+// 4-pass batch in CastComposer.Get.
+func personInLibrary(
+	credits []PersonCreditRef,
+	currentSeriesID domain.SeriesID,
+	seriesByTMDB map[domain.TMDBID]domain.SeriesID,
+	cachesBySeriesID map[domain.SeriesID][]series.CacheEntry,
+) bool {
 	for _, pc := range credits {
 		if pc.MediaType != "tv" {
 			continue
 		}
-		seriesID, ok := c.resolveSeriesByTMDB(ctx, domain.TMDBID(pc.TMDBMediaID))
+		if pc.TMDBMediaID == 0 {
+			continue
+		}
+		sid, ok := seriesByTMDB[domain.TMDBID(pc.TMDBMediaID)]
 		if !ok {
 			continue
 		}
-		// Self-link suppression: skip the current series so the
-		// boolean represents "in ANYTHING ELSE we own?".
-		if seriesID == currentSeriesID {
+		if sid == currentSeriesID {
 			continue
 		}
-		caches, lerr := c.d.SeriesCacheLookup.ListBySeriesID(ctx, seriesID)
-		if lerr != nil {
-			continue
-		}
-		if len(caches) > 0 {
+		if len(cachesBySeriesID[sid]) > 0 {
 			return true
 		}
 	}
 	return false
-}
-
-// resolveSeriesByTMDB is a thin helper that looks up canon
-// series.id by TMDB id via the SeriesPort. Cold path: most cast
-// members have credits only on series the operator doesn't own.
-// The lookup misses cheaply (one indexed `series_tmdb_id`
-// partial-unique probe) and returns false.
-func (c *CastComposer) resolveSeriesByTMDB(ctx context.Context, tmdbID domain.TMDBID) (domain.SeriesID, bool) {
-	if tmdbID == 0 {
-		return 0, false
-	}
-	canon, err := c.d.Series.GetByTMDBID(ctx, tmdbID)
-	if err != nil {
-		return 0, false
-	}
-	return canon.ID, true
 }
 
 func derefStr(s *string) string {

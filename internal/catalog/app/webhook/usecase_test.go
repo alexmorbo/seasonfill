@@ -265,6 +265,9 @@ func (f *fakeSeriesCache) GetInstancesBySeriesIDs(_ context.Context, _ []domain.
 func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, _ domain.SeriesID) ([]series.CacheEntry, error) {
 	return nil, nil
 }
+func (f *fakeSeriesCache) ListBySeriesIDs(_ context.Context, _ []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	return map[domain.SeriesID][]series.CacheEntry{}, nil
+}
 
 var _ ports.SeriesCacheRepository = (*fakeSeriesCache)(nil)
 

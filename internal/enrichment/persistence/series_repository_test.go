@@ -1338,3 +1338,113 @@ func TestSeriesRepository_ListByIDs_DualBackend(t *testing.T) {
 		})
 	}
 }
+
+// TestSeriesRepository_ListByTMDBIDs_DualBackend is the D-0 dual-backend
+// regression net for Story 556 (E-1 Z7). Mirrors
+// TestSeriesRepository_ListByIDs_DualBackend exactly except the index
+// touched is the partial-unique `series_tmdb_id WHERE tmdb_id IS NOT
+// NULL` rather than the PK. Covers ASC ordering, missing-id drops,
+// zero-filter shortcut, and the shape-byte-equality contract via
+// GetByTMDBID parity.
+func TestSeriesRepository_ListByTMDBIDs_DualBackend(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+
+			seedSeries := func(t *testing.T, n int) (*SeriesRepository, []domain.TMDBID) {
+				t.Helper()
+				gdb := backend.NewDB(t)
+				repo := NewSeriesRepository(gdb)
+				tmdbIDs := make([]domain.TMDBID, n)
+				for i := range n {
+					canon := sampleCanon(fmt.Sprintf("rec-tmdb-%d", i+1))
+					canon.TMDBID = ptrTMDBID(800100 + i)
+					canon.TVDBID = ptrTVDBID(800200 + i)
+					canon.IMDBID = ptrIMDBID(fmt.Sprintf("tt66100%02d", i))
+					_, err := repo.Upsert(ctx, canon)
+					require.NoError(t, err)
+					tmdbIDs[i] = domain.TMDBID(800100 + i)
+				}
+				return repo, tmdbIDs
+			}
+
+			t.Run("returns_all_rows_in_tmdb_ascending_order", func(t *testing.T) {
+				repo, tmdbIDs := seedSeries(t, 3)
+				shuffled := []domain.TMDBID{tmdbIDs[2], tmdbIDs[0], tmdbIDs[1]}
+				out, err := repo.ListByTMDBIDs(ctx, shuffled)
+				require.NoError(t, err)
+				require.Len(t, out, 3)
+				require.NotNil(t, out[0].TMDBID)
+				require.NotNil(t, out[1].TMDBID)
+				require.NotNil(t, out[2].TMDBID)
+				assert.Equal(t, tmdbIDs[0], *out[0].TMDBID, "must be ASC by tmdb_id regardless of input order")
+				assert.Equal(t, tmdbIDs[1], *out[1].TMDBID)
+				assert.Equal(t, tmdbIDs[2], *out[2].TMDBID)
+			})
+
+			t.Run("missing_ids_silently_dropped", func(t *testing.T) {
+				repo, tmdbIDs := seedSeries(t, 2)
+				out, err := repo.ListByTMDBIDs(ctx, []domain.TMDBID{tmdbIDs[0], 9999999, tmdbIDs[1]})
+				require.NoError(t, err)
+				require.Len(t, out, 2, "missing tmdb_ids drop silently")
+				require.NotNil(t, out[0].TMDBID)
+				require.NotNil(t, out[1].TMDBID)
+				assert.Equal(t, tmdbIDs[0], *out[0].TMDBID)
+				assert.Equal(t, tmdbIDs[1], *out[1].TMDBID)
+			})
+
+			t.Run("zero_filtered_before_sql", func(t *testing.T) {
+				repo, tmdbIDs := seedSeries(t, 1)
+				out, err := repo.ListByTMDBIDs(ctx, []domain.TMDBID{0, 0, tmdbIDs[0]})
+				require.NoError(t, err)
+				require.Len(t, out, 1)
+				require.NotNil(t, out[0].TMDBID)
+				assert.Equal(t, tmdbIDs[0], *out[0].TMDBID)
+			})
+
+			t.Run("all_zero_short_circuits", func(t *testing.T) {
+				repo, _ := seedSeries(t, 0)
+				out, err := repo.ListByTMDBIDs(ctx, []domain.TMDBID{0, 0})
+				require.NoError(t, err)
+				assert.Nil(t, out, "all-zero MUST short-circuit to nil")
+			})
+
+			t.Run("empty_input_returns_nil_no_sql", func(t *testing.T) {
+				repo, _ := seedSeries(t, 0)
+				out, err := repo.ListByTMDBIDs(ctx, nil)
+				require.NoError(t, err)
+				assert.Nil(t, out)
+				out, err = repo.ListByTMDBIDs(ctx, []domain.TMDBID{})
+				require.NoError(t, err)
+				assert.Nil(t, out)
+			})
+
+			t.Run("read_shape_matches_get_by_tmdb_id", func(t *testing.T) {
+				repo, tmdbIDs := seedSeries(t, 1)
+				viaGet, err := repo.GetByTMDBID(ctx, tmdbIDs[0])
+				require.NoError(t, err)
+				viaList, err := repo.ListByTMDBIDs(ctx, []domain.TMDBID{tmdbIDs[0]})
+				require.NoError(t, err)
+				require.Len(t, viaList, 1)
+				assert.Equal(t, viaGet, viaList[0],
+					"ListByTMDBIDs MUST go through toCanon — any divergence breaks the cast probe wire shape")
+			})
+
+			t.Run("dedup_input_drops_duplicates", func(t *testing.T) {
+				repo, tmdbIDs := seedSeries(t, 2)
+				out, err := repo.ListByTMDBIDs(ctx, []domain.TMDBID{tmdbIDs[0], tmdbIDs[0], tmdbIDs[1]})
+				require.NoError(t, err)
+				// Even when callers pass duplicates, the unique index guarantees
+				// at most one row per tmdb_id; the read SHOULD return one row
+				// each in ASC order.
+				require.Len(t, out, 2, "duplicate input ids must NOT produce duplicate rows")
+				require.NotNil(t, out[0].TMDBID)
+				require.NotNil(t, out[1].TMDBID)
+				assert.Equal(t, tmdbIDs[0], *out[0].TMDBID)
+				assert.Equal(t, tmdbIDs[1], *out[1].TMDBID)
+			})
+		})
+	}
+}

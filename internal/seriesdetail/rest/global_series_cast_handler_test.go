@@ -39,6 +39,17 @@ func (s *stubGlobalCastCacheLookup) ListBySeriesID(_ context.Context, _ domain.S
 	return s.entries, nil
 }
 
+func (s *stubGlobalCastCacheLookup) ListBySeriesIDs(_ context.Context, ids []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make(map[domain.SeriesID][]series.CacheEntry, len(ids))
+	for _, id := range ids {
+		out[id] = s.entries
+	}
+	return out, nil
+}
+
 func quietLoggerCastWrapper() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

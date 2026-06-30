@@ -52,6 +52,10 @@ func (s stubTorrentsSeriesPort) ListByIDs(_ context.Context, _ []domain.SeriesID
 	return nil, nil
 }
 
+func (s stubTorrentsSeriesPort) ListByTMDBIDs(_ context.Context, _ []domain.TMDBID) ([]series.Canon, error) {
+	return nil, nil
+}
+
 // stubTorrentsLookup adapts a literal hash list to the LookupRepo port.
 type stubTorrentsLookup struct {
 	hashes []string
@@ -298,6 +302,10 @@ func (errSeriesPort) GetByTMDBID(_ context.Context, _ domain.TMDBID) (series.Can
 }
 
 func (errSeriesPort) ListByIDs(_ context.Context, _ []domain.SeriesID) ([]series.Canon, error) {
+	return nil, errors.New("simulated series list failure")
+}
+
+func (errSeriesPort) ListByTMDBIDs(_ context.Context, _ []domain.TMDBID) ([]series.Canon, error) {
 	return nil, errors.New("simulated series list failure")
 }
 

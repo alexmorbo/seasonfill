@@ -57,6 +57,19 @@ func (f *fakeSeriesCache) ListBySeriesID(_ context.Context, seriesID domain.Seri
 	return f.byCanon[seriesID], nil
 }
 
+func (f *fakeSeriesCache) ListBySeriesIDs(_ context.Context, ids []domain.SeriesID) (map[domain.SeriesID][]series.CacheEntry, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	out := make(map[domain.SeriesID][]series.CacheEntry, len(ids))
+	for _, id := range ids {
+		if rows, ok := f.byCanon[id]; ok && len(rows) > 0 {
+			out[id] = rows
+		}
+	}
+	return out, nil
+}
+
 type fakeSeries struct {
 	rows map[domain.SeriesID]series.Canon
 	err  error
@@ -93,6 +106,22 @@ func (f *fakeSeries) ListByIDs(_ context.Context, ids []domain.SeriesID) ([]seri
 	for _, id := range ids {
 		if c, ok := f.rows[id]; ok {
 			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeSeries) ListByTMDBIDs(_ context.Context, tmdbIDs []domain.TMDBID) ([]series.Canon, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]series.Canon, 0, len(tmdbIDs))
+	for _, id := range tmdbIDs {
+		for _, c := range f.rows {
+			if c.TMDBID != nil && *c.TMDBID == id {
+				out = append(out, c)
+				break
+			}
 		}
 	}
 	return out, nil

@@ -65,6 +65,22 @@ func (f *fakeMapSeriesReader) ListByIDs(_ context.Context, ids []domain.SeriesID
 	return out, nil
 }
 
+func (f *fakeMapSeriesReader) ListByTMDBIDs(_ context.Context, tmdbIDs []domain.TMDBID) ([]series.Canon, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]series.Canon, 0, len(tmdbIDs))
+	for _, id := range tmdbIDs {
+		for _, c := range f.rows {
+			if c.TMDBID != nil && *c.TMDBID == id {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 // fakeFallbackTexts satisfies seriesdetail.SeriesTextsPort.
 type fakeFallbackTexts struct {
 	out series.SeriesText
@@ -178,6 +194,13 @@ func (s *stubSeriesReader) ListByIDs(_ context.Context, _ []domain.SeriesID) ([]
 	}
 	// stubSeriesReader carries a single canon row — return it if requested,
 	// otherwise an empty slice. Mirrors the single-row Get contract.
+	return []series.Canon{s.canon}, nil
+}
+
+func (s *stubSeriesReader) ListByTMDBIDs(_ context.Context, _ []domain.TMDBID) ([]series.Canon, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	return []series.Canon{s.canon}, nil
 }
 

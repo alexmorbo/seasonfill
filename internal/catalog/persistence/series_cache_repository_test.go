@@ -1490,3 +1490,114 @@ func TestSeriesCacheRepository_GetInstancesBySeriesIDs(t *testing.T) {
 		})
 	}
 }
+
+// TestSeriesCacheRepository_ListBySeriesIDs_DualBackend is the D-0
+// dual-backend regression net for Story 556 (E-1 Z7). The batch
+// sibling of ListBySeriesID — bucketed map return, soft-deleted
+// exclusion, presence-map semantics for missing ids.
+func TestSeriesCacheRepository_ListBySeriesIDs_DualBackend(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			ctx := context.Background()
+
+			// Seed two canon-shared rows (alpha + beta on shared external ids)
+			// plus an isolated gamma row.
+			sharedTVDB := domain.TVDBID(990001)
+			sharedTMDB := domain.TMDBID(990002)
+			sharedIMDB := domain.IMDBID("tt9900001")
+			alphaEntry := sampleEntry("alpha", 71)
+			alphaEntry.TVDBID = &sharedTVDB
+			alphaEntry.TMDBID = &sharedTMDB
+			alphaEntry.IMDBID = &sharedIMDB
+			betaEntry := sampleEntry("beta", 81)
+			betaEntry.TVDBID = &sharedTVDB
+			betaEntry.TMDBID = &sharedTMDB
+			betaEntry.IMDBID = &sharedIMDB
+			gammaEntry := sampleEntry("gamma", 91)
+
+			require.NoError(t, repo.Upsert(ctx, alphaEntry))
+			require.NoError(t, repo.Upsert(ctx, betaEntry))
+			require.NoError(t, repo.Upsert(ctx, gammaEntry))
+
+			alphaGot, err := repo.Get(ctx, "alpha", 71)
+			require.NoError(t, err)
+			require.NotNil(t, alphaGot.SeriesID)
+			sharedID := *alphaGot.SeriesID
+
+			gammaGot, err := repo.Get(ctx, "gamma", 91)
+			require.NoError(t, err)
+			require.NotNil(t, gammaGot.SeriesID)
+			gammaID := *gammaGot.SeriesID
+
+			t.Run("empty_input_returns_empty_non_nil_map", func(t *testing.T) {
+				got, err := repo.ListBySeriesIDs(ctx, nil)
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				assert.Empty(t, got)
+
+				got, err = repo.ListBySeriesIDs(ctx, []domain.SeriesID{})
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				assert.Empty(t, got)
+			})
+
+			t.Run("single_hit_returns_entry", func(t *testing.T) {
+				got, err := repo.ListBySeriesIDs(ctx, []domain.SeriesID{gammaID})
+				require.NoError(t, err)
+				require.Len(t, got, 1)
+				require.Len(t, got[gammaID], 1)
+				assert.Equal(t, domain.InstanceName("gamma"), got[gammaID][0].InstanceName)
+			})
+
+			t.Run("multiple_ids_each_bucketed", func(t *testing.T) {
+				got, err := repo.ListBySeriesIDs(ctx, []domain.SeriesID{sharedID, gammaID})
+				require.NoError(t, err)
+				require.Len(t, got, 2)
+				assert.Len(t, got[sharedID], 2, "alpha + beta share canon row")
+				assert.Len(t, got[gammaID], 1)
+			})
+
+			t.Run("missing_id_absent_from_map", func(t *testing.T) {
+				got, err := repo.ListBySeriesIDs(ctx, []domain.SeriesID{sharedID, 999999})
+				require.NoError(t, err)
+				_, has := got[999999]
+				assert.False(t, has, "missing id MUST be absent from map")
+				assert.Len(t, got[sharedID], 2)
+			})
+
+			t.Run("invalid_ids_filtered", func(t *testing.T) {
+				got, err := repo.ListBySeriesIDs(ctx, []domain.SeriesID{0, -1, sharedID})
+				require.NoError(t, err)
+				assert.Len(t, got[sharedID], 2)
+				_, hasZero := got[0]
+				assert.False(t, hasZero)
+			})
+
+			t.Run("only_invalid_short_circuits", func(t *testing.T) {
+				got, err := repo.ListBySeriesIDs(ctx, []domain.SeriesID{0, -1})
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				assert.Empty(t, got)
+			})
+
+			t.Run("dedup_input_no_duplicate_entries", func(t *testing.T) {
+				got, err := repo.ListBySeriesIDs(ctx, []domain.SeriesID{sharedID, sharedID, gammaID})
+				require.NoError(t, err)
+				assert.Len(t, got[sharedID], 2, "duplicate input id MUST NOT produce duplicate rows")
+				assert.Len(t, got[gammaID], 1)
+			})
+
+			t.Run("soft_deleted_excluded", func(t *testing.T) {
+				require.NoError(t, repo.SoftDelete(ctx, "alpha", 71))
+				got, err := repo.ListBySeriesIDs(ctx, []domain.SeriesID{sharedID})
+				require.NoError(t, err)
+				require.Len(t, got[sharedID], 1, "alpha soft-deleted; only beta remains")
+				assert.Equal(t, domain.InstanceName("beta"), got[sharedID][0].InstanceName)
+			})
+		})
+	}
+}
