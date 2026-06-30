@@ -123,6 +123,14 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 
 	// 5. Build canonical season payload (defensive UPSERT — A5 caller
 	//    may invoke without prior Handle ensuring the row exists).
+	//    EpisodeCount derived from the authoritative response payload
+	//    (len(Episodes)) — tmdb.SeasonResponse omits a series-level
+	//    EpisodeCount field (only tmdb.SeasonShort in TVResponse.Seasons
+	//    carries it), so we populate it ourselves. Defense-in-depth
+	//    paired with seasonsUpsertAssignments COALESCE on episode_count
+	//    (see seasons_repository.go) — if a future narrow writer leaves
+	//    the field unset the COALESCE wrap still preserves the prior
+	//    value (Story 552 regression class).
 	seasonPayload := series.CanonSeason{
 		SeriesID:     seriesID,
 		SeasonNumber: seasonNumber,
@@ -130,6 +138,7 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 		Name:         nonEmptyStringPtr(seasonResp.Name),
 		Overview:     nonEmptyStringPtr(seasonResp.Overview),
 		AirDate:      parseDateOrNilSlim(seasonResp.AirDate),
+		EpisodeCount: nonZeroIntPtrSlim(len(seasonResp.Episodes)),
 		PosterAsset:  nonEmptyStringPtr(seasonResp.PosterPath),
 	}
 

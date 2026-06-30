@@ -263,6 +263,52 @@ func TestSeriesWorker_RefreshSeasonSlim_TextsUpsertError_NoStamp(t *testing.T) {
 	assert.False(t, hasCall(f.rec.list(), "Seasons.MarkSeasonEpisodesSynced"), "stamp NOT written")
 }
 
+// TestSeriesWorker_RefreshSeasonSlim_PopulatesEpisodeCount — I-IMPORTANT
+// review finding: the writer must populate seasons.episode_count from
+// len(seasonResp.Episodes) because tmdb.SeasonResponse has no series-level
+// EpisodeCount field. Without this, every RefreshSeasonSlim call would
+// pass nil for EpisodeCount and (pre-COALESCE-wrap) overwrite a previously-
+// populated value with NULL — Story 552 regression class.
+//
+// Defense-in-depth pair: seasonsUpsertAssignments wraps episode_count with
+// COALESCE so even if a future writer leaves it nil the prior value
+// survives. This test exercises the writer-side fix.
+func TestSeriesWorker_RefreshSeasonSlim_PopulatesEpisodeCount(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	f := newSlimFixture(t, &tmdbID, nil)
+	// minimalSeason8() returns 3 episodes.
+	require.NoError(t, f.worker.RefreshSeasonSlim(context.Background(), 1, 8, "ru-RU", true))
+	require.True(t, hasCall(f.rec.list(), "Seasons.Upsert"))
+	got, ok := f.seasons.rows[8]
+	require.True(t, ok, "season 8 row must exist after Upsert")
+	require.NotNil(t, got.EpisodeCount,
+		"EpisodeCount must be populated from len(seasonResp.Episodes)")
+	assert.Equal(t, 3, *got.EpisodeCount,
+		"EpisodeCount must equal len(Episodes) on the TMDB response")
+}
+
+// TestSeriesWorker_RefreshSeasonSlim_EmptyEpisodes_NilEpisodeCount — when
+// TMDB returns a future-scheduled season with empty Episodes[],
+// nonZeroIntPtrSlim(0) returns nil so EpisodeCount stays nil — the COALESCE
+// wrap on the repository then preserves whatever prior value the row had.
+func TestSeriesWorker_RefreshSeasonSlim_EmptyEpisodes_NilEpisodeCount(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	f := newSlimFixture(t, &tmdbID, nil)
+	f.tmdb.seasons[8] = &tmdb.SeasonResponse{
+		ID:           555,
+		Name:         "Season 8",
+		AirDate:      "2027-01-01",
+		SeasonNumber: 8,
+	}
+	require.NoError(t, f.worker.RefreshSeasonSlim(context.Background(), 1, 8, "ru-RU", true))
+	got, ok := f.seasons.rows[8]
+	require.True(t, ok)
+	assert.Nil(t, got.EpisodeCount,
+		"empty Episodes[] → nil EpisodeCount (COALESCE protects any prior value)")
+}
+
 func TestSeriesWorker_RefreshSeasonSlim_EmptyEpisodes_StampStill(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)

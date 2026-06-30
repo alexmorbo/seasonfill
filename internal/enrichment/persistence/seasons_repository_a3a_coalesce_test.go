@@ -223,3 +223,73 @@ func TestSeasonsRepository_EpisodesSyncedAtSurvivesSonarrUpsert_ColumnInclude(t 
 		})
 	}
 }
+
+// TestSeasonsRepository_EpisodeCountSurvivesSonarrUpsert — I-IMPORTANT
+// review finding (carry-forward Story 552 regression class for episode_count).
+//
+// Scenario: prior writer populated seasons.episode_count (e.g. via TMDB
+// mapper). A subsequent narrow writer Upserts the row with EpisodeCount=nil
+// (legitimate when the caller doesn't have the count). The bare
+// `excluded.episode_count` ASSIGNMENT (pre-fix) overwrites the stored value
+// with NULL.
+//
+// EXPECTED post-fix: COALESCE(excluded.episode_count, seasons.episode_count)
+// preserves the prior count.
+//
+// Note: A3a's RefreshSeasonSlim writer ALSO populates EpisodeCount from
+// len(seasonResp.Episodes) (defense-in-depth pair fix). This test exercises
+// the repository COALESCE explicitly so any future narrow writer that
+// leaves the field nil — including writers that don't exist yet — still
+// preserves the prior value.
+func TestSeasonsRepository_EpisodeCountSurvivesSonarrUpsert(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repoS := NewSeriesRepository(db)
+			repo := NewSeasonsRepository(db)
+			ctx := context.Background()
+
+			seriesID, err := repoS.Upsert(ctx, sampleCanon("EpisodeCount survives"))
+			require.NoError(t, err)
+
+			// 1. Seed season row with EpisodeCount=10 (prior TMDB hydration).
+			count := 10
+			_, err = repo.Upsert(ctx, series.CanonSeason{
+				SeriesID:     seriesID,
+				SeasonNumber: 1,
+				Name:         new("Season 1"),
+				EpisodeCount: &count,
+			})
+			require.NoError(t, err)
+
+			// 2. Verify seed wrote the value.
+			seeded, err := repo.ListBySeries(ctx, seriesID)
+			require.NoError(t, err)
+			require.Len(t, seeded, 1)
+			require.NotNil(t, seeded[0].EpisodeCount)
+			assert.Equal(t, 10, *seeded[0].EpisodeCount, "seed must populate episode_count")
+
+			// 3. Re-Upsert with EpisodeCount=nil — simulates a narrow writer
+			//    that doesn't carry the count (Sonarr-only payload, or a
+			//    future A3a-style refresh that forgot to set the field).
+			_, err = repo.Upsert(ctx, series.CanonSeason{
+				SeriesID:     seriesID,
+				SeasonNumber: 1,
+				Name:         new("Season 1 (no count)"),
+				EpisodeCount: nil,
+			})
+			require.NoError(t, err)
+
+			// 4. Assert episode_count PRESERVED by COALESCE.
+			after, err := repo.ListBySeries(ctx, seriesID)
+			require.NoError(t, err)
+			require.Len(t, after, 1)
+			require.NotNil(t, after[0].EpisodeCount,
+				"episode_count must survive Upsert with nil payload (COALESCE)")
+			assert.Equal(t, 10, *after[0].EpisodeCount,
+				"episode_count value must be unchanged")
+		})
+	}
+}
