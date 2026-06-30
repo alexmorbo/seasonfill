@@ -26,9 +26,9 @@ func uniqueSWRCacheName(t *testing.T) string {
 
 // fakeFetcher is the injectable transport for swr_test.go. It counts calls
 // and returns a canned body/error pair per invocation. A optional barrier
-// channel blocks the call until released — used by the singleflight tests
-// to deterministically observe stale-window dedupe before the leader's
-// goroutine returns.
+// channel blocks the call until released — used by the stale-grace dedupe
+// tests to deterministically observe the first-claimer flag while the
+// leader's goroutine is blocked on the barrier.
 type fakeFetcher struct {
 	mu         sync.Mutex
 	calls      atomic.Int64
@@ -230,15 +230,25 @@ func TestSWR_StaleHit_KicksRefresh(t *testing.T) {
 	// confirm the refresh actually overwrites the cache entry.
 	bodyA := []byte(`{"page":1,"v":"A"}`)
 	bodyB := []byte(`{"page":1,"v":"B"}`)
-	var doneRefresh sync.WaitGroup
-	doneRefresh.Add(1)
 	f := &fakeFetcher{body: bodyA}
 	f.perCall = map[string][]byte{"/discover/tv": bodyA}
 
+	// refreshDone signals when the background goroutine has FULLY exited
+	// (defers settled, store.Add committed, pending flag cleared).
+	// Synchronising on this instead of "fetch returned" closes a race
+	// where the test reads the cache before store.Add has run.
+	refreshDone := make(chan struct{}, 4)
+
 	s := newTestSWR(t, clk, f)
+	s.onRefreshDone = func(string) {
+		select {
+		case refreshDone <- struct{}{}:
+		default:
+		}
+	}
 	setStamp := installFakeInsertedAt(s)
 
-	// Cold fetch — populates with bodyA.
+	// Cold fetch — populates with bodyA (synchronous, no refresh goroutine).
 	body, err := s.getRolling(context.Background(), "/discover/tv", nil)
 	require.NoError(t, err)
 	assert.Equal(t, bodyA, body)
@@ -250,16 +260,6 @@ func TestSWR_StaleHit_KicksRefresh(t *testing.T) {
 	// Switch the fake to return bodyB on the next call.
 	f.perCall["/discover/tv"] = bodyB
 
-	// Wrap fetch to release the WG once the refresh lands (calls.Load() > 1).
-	origFetch := f.fetch
-	s.fetch = func(ctx context.Context, path string, q url.Values) ([]byte, error) {
-		b, e := origFetch(ctx, path, q)
-		if f.calls.Load() > 1 {
-			doneRefresh.Done()
-		}
-		return b, e
-	}
-
 	// Advance into stale-grace window: TTL=30m, grace=90s → age must be in
 	// [28m30s, 30m). Pick 29m30s.
 	clk.Advance(29*time.Minute + 30*time.Second)
@@ -269,8 +269,13 @@ func TestSWR_StaleHit_KicksRefresh(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, bodyA, body, "stale hit serves the cached body INSTANTLY")
 
-	// Wait for background refresh to land (deterministic via WG).
-	doneRefresh.Wait()
+	// Wait for the background goroutine to fully exit — store.Add has
+	// run, pending flag cleared.
+	select {
+	case <-refreshDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("background refresh goroutine did not exit within 5s")
+	}
 	assert.EqualValues(t, 2, f.calls.Load(), "stale grace must spawn exactly one refresh")
 
 	// Next call should pick up the freshened body. Re-stamp insertedAt at
@@ -344,30 +349,42 @@ func TestSWR_StaleRefreshError_KeepsCachedBody(t *testing.T) {
 	bodyA := []byte(`{"v":"A"}`)
 	f := &fakeFetcher{body: bodyA}
 
-	// Use a channel-based barrier-counting wrapper installed ONCE so we
-	// don't mutate s.fetch concurrently with goroutine reads.
-	refreshLanded := make(chan int, 8)
+	// refreshFetched signals each time the inner s.fetch returns (before
+	// the goroutine's defers run). refreshDone signals each time the
+	// goroutine has FULLY exited — i.e. pending flag cleared and all
+	// defers settled. The second signal is required so the test can
+	// trigger the next stale-grace hit without racing the first
+	// goroutine's still-in-flight cleanup (which would cause the new
+	// caller to see pending=true and skip the spawn).
+	refreshFetched := make(chan int, 8)
+	refreshDone := make(chan string, 8)
 	wrappedFetch := func(ctx context.Context, path string, q url.Values) ([]byte, error) {
 		b, e := f.fetch(ctx, path, q)
-		// Best-effort non-blocking signal: each refresh lands a token.
 		select {
-		case refreshLanded <- int(f.calls.Load()):
+		case refreshFetched <- int(f.calls.Load()):
 		default:
 		}
 		return b, e
 	}
 	s := newSWRCache(uniqueSWRCacheName(t), clk, wrappedFetch)
 	t.Cleanup(func() { s.Close() })
+	s.onRefreshDone = func(key string) {
+		select {
+		case refreshDone <- key:
+		default:
+		}
+	}
 	setStamp := installFakeInsertedAt(s)
 
-	// Cold seed under /discover/tv (30m TTL).
+	// Cold seed under /discover/tv (30m TTL). Cold-seed is a SYNCHRONOUS
+	// fetch (no goroutine), so refreshDone is NOT signaled — only the
+	// fetch tick lands on refreshFetched.
 	body, err := s.getRolling(context.Background(), "/discover/tv", nil)
 	require.NoError(t, err)
 	assert.Equal(t, bodyA, body)
 	require.EqualValues(t, 1, f.calls.Load())
 	setStamp(cacheKey("/discover/tv", nil), clk.Now())
-	// Drain the cold-seed signal.
-	<-refreshLanded
+	<-refreshFetched // drain cold-seed fetch signal
 
 	// Configure refresh to error.
 	f.body = nil
@@ -380,24 +397,30 @@ func TestSWR_StaleRefreshError_KeepsCachedBody(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, bodyA, body, "stale hit serves the cached body even when the refresh is about to fail")
 
-	// Wait for the first refresh to complete.
+	// Wait for the first background refresh goroutine to fully exit
+	// (defers settled, pending flag cleared). Using refreshDone instead
+	// of refreshFetched closes a race window where the test would issue
+	// the second stale-grace call before the first goroutine's
+	// pending.Delete defer ran — the new caller would then see the
+	// pending flag still set and short-circuit without spawning.
 	select {
-	case <-refreshLanded:
+	case <-refreshDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("first background refresh did not land within 5s")
+		t.Fatal("first background refresh goroutine did not exit within 5s")
 	}
 	assert.EqualValues(t, 2, f.calls.Load(), "background refresh fired once")
 
 	// Subsequent stale hit — body MUST still be bodyA (failed refresh
-	// preserves the entry). A new background refresh fires.
+	// preserves the entry). A new background refresh fires because the
+	// pending flag is now clear.
 	body, err = s.getRolling(context.Background(), "/discover/tv", nil)
 	require.NoError(t, err)
 	assert.Equal(t, bodyA, body, "failed refresh must NOT evict the cache entry")
 
 	select {
-	case <-refreshLanded:
+	case <-refreshDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("second background refresh did not land within 5s")
+		t.Fatal("second background refresh goroutine did not exit within 5s")
 	}
 	assert.EqualValues(t, 3, f.calls.Load(), "second refresh fires after first failed")
 }

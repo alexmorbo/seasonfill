@@ -5,16 +5,22 @@
 //  1. Cache miss → SYNCHRONOUS fetch (existing do path), populate cache, return.
 //  2. Cache hit, age < (TTL - swrStaleGrace) → return cached body INSTANTLY.
 //  3. Cache hit, age within stale-grace window (TTL - swrStaleGrace ≤ age < TTL)
-//     → return cached body INSTANTLY + spawn background refresh under singleflight.
+//     → return cached body INSTANTLY + spawn background refresh under a
+//     first-claimer-wins sync.Map gate.
 //  4. Cache hit, age >= TTL → treat as miss (synchronous fetch). On fetch error
 //     the EXPIRED value is NOT returned — caller gets the error so they can
 //     decide to degrade. This matches Overseerr's behaviour and keeps the
 //     "stale data" exposure window bounded by TTL.
 //
 // Concurrency:
-//   - Background refresh uses singleflight.Group keyed on the same cache key
-//     (path + "?" + query.Encode()). 100 concurrent stale-window hits spawn
-//     ONE goroutine. swr_inflight_dedup_total ticks each deduped caller.
+//   - Background refresh dedupe uses a per-key sync.Map flag (pending). The
+//     FIRST stale-grace caller for a key wins LoadOrStore and spawns ONE
+//     goroutine; subsequent callers see the flag set and tick
+//     swr_inflight_dedup_total without spawning. The goroutine clears the
+//     flag in its defer. This replaces the earlier singleflight.Group:
+//     singleflight only dedupes IN-FLIGHT calls, and under a slow scheduler
+//     the leader can finish before late callers reach DoChan, opening a
+//     window for duplicate upstream calls (CI flake fixed in Story 553).
 //   - Goroutine uses context.Background() with a 30s timeout — caller's ctx
 //     would cancel the moment the user's HTTP request completes (we already
 //     served them stale). Panic-recover wraps the fetch so a malformed TMDB
@@ -32,8 +38,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"golang.org/x/sync/singleflight"
 
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/cachewatch"
@@ -78,16 +82,25 @@ const swrFetchTimeout = 30 * time.Second
 
 // swrCache is the in-package wrapper. Constructed once per *Client at New.
 // Fields:
-//   - store: byte-accounted LRU. Lifetime tied to *Client; Close() drains.
-//   - sf:    singleflight.Group for background refresh dedupe.
-//   - clk:   inherited from *Client for deterministic test boundary.
-//   - fetch: closure over the real Client.do — injected so swr_test.go can
+//   - store:   byte-accounted LRU. Lifetime tied to *Client; Close() drains.
+//   - pending: per-key first-claimer flag for refresh dedupe. A sync.Map of
+//     cacheKey → struct{} populated via LoadOrStore. The FIRST stale-grace
+//     caller for a key wins the slot and spawns the refresh goroutine;
+//     subsequent callers see the slot occupied and skip the spawn entirely.
+//     The goroutine clears the slot in its defer. Replaces the old
+//     singleflight.Group: singleflight only dedupes IN-FLIGHT calls, so under
+//     a slow scheduler (CI) the leader can return before late callers reach
+//     DoChan, opening a window where multiple refreshes fire for the same
+//     key. The LoadOrStore claim is atomic at the call site — no spawn-time
+//     race. Story 553 (E-1 Z4) CI race fix.
+//   - clk:     inherited from *Client for deterministic test boundary.
+//   - fetch:   closure over the real Client.do — injected so swr_test.go can
 //     replace it with a fake to assert on cache+TTL semantics without
 //     an httptest.NewServer.
 type swrCache struct {
-	store *cachewatch.Cache[string, []byte]
-	sf    singleflight.Group
-	clk   clock.Clock
+	store   *cachewatch.Cache[string, []byte]
+	pending sync.Map // map[string]struct{} — keys with an in-flight background refresh
+	clk     clock.Clock
 
 	// fetch is the underlying transport. In production it is Client.doDirect;
 	// tests inject a fake that returns canned bodies + counts calls. The
@@ -113,6 +126,15 @@ type swrCache struct {
 	// infrastructure.
 	tierOverride       func(path string) (time.Duration, string)
 	insertedAtOverride func(key string) (time.Time, bool)
+
+	// onRefreshDone — test-only hook fired AFTER the background refresh
+	// goroutine has cleared its pending flag and is about to exit. Tests
+	// that need to assert "the dedupe gate has reopened" hang a channel
+	// signal here instead of polling, dodging the race where the test
+	// observes f.fetch returning but the goroutine's defers (Delete of
+	// pending, DecPending) have not yet executed. nil in production.
+	// Story 553 (E-1 Z4) test infrastructure.
+	onRefreshDone func(key string)
 }
 
 // newSWRCache constructs the wrapper. cacheName is the cachewatch register
@@ -185,7 +207,7 @@ func (s *swrCache) getRolling(ctx context.Context, path string, query url.Values
 		return body, nil
 	case age < ttl:
 		// Stale grace window — return cached body INSTANTLY, kick a
-		// background refresh under singleflight.
+		// background refresh under the per-key first-claimer gate.
 		observability.IncTMDBSWRHit(tier, "stale")
 		s.kickRefresh(path, query, key, tier)
 		return body, nil
@@ -208,10 +230,20 @@ func (s *swrCache) syncFetch(ctx context.Context, path string, query url.Values,
 	return body, nil
 }
 
-// kickRefresh spawns a background refresh under singleflight. Concurrent
-// stale-grace hits with the same key share ONE in-flight refresh — the
-// surplus callers tick swr_inflight_dedup_total via the DoChan path's
-// shared = true detection.
+// kickRefresh spawns a background refresh under a first-claimer-wins
+// dedupe protocol. Concurrent stale-grace hits with the same key share ONE
+// refresh: the FIRST caller's LoadOrStore returns alreadyPending=false and
+// spawns the goroutine; subsequent callers see alreadyPending=true, tick
+// the dedup counter, and return immediately without spawning. The goroutine
+// clears the pending flag in its defer so the NEXT stale-grace window after
+// completion can fire a fresh refresh.
+//
+// Why not singleflight: singleflight.Group only dedupes calls that arrive
+// while the leader is in-flight. Under a slow scheduler (CI) the leader's
+// fn can complete (and singleflight's internal key cleared) BEFORE late
+// callers reach DoChan — they then become new leaders and fire duplicate
+// upstream calls. The pre-spawn LoadOrStore claim closes that window: the
+// dedupe decision is made BEFORE any goroutine spawn or scheduling slack.
 //
 // Goroutine context: context.Background() + swrFetchTimeout. The caller's
 // ctx is intentionally NOT propagated — the caller is about to return the
@@ -223,7 +255,25 @@ func (s *swrCache) syncFetch(ctx context.Context, path string, query url.Values,
 // UNCHANGED. The next stale-grace hit retries; the existing entry stays
 // serveable until it hits hard expiry.
 func (s *swrCache) kickRefresh(path string, query url.Values, key, tier string) {
+	// Atomic first-claimer wins: only the FIRST caller for this key spawns
+	// the refresh goroutine. Subsequent callers see the pending flag and
+	// tick the dedup counter. Story 553 (E-1 Z4) CI race fix.
+	if _, alreadyPending := s.pending.LoadOrStore(key, struct{}{}); alreadyPending {
+		s.store.RecordDedupHit()
+		observability.IncTMDBSWRInflightDedup(tier)
+		return
+	}
+
 	go func() {
+		// Test hook fires LAST (declared first → runs last on LIFO defer
+		// stack), AFTER the pending flag has been cleared and panic-recover
+		// has settled. Production never sets onRefreshDone; the nil-check
+		// is the gate.
+		defer func() {
+			if s.onRefreshDone != nil {
+				s.onRefreshDone(key)
+			}
+		}()
 		// Recover so a goroutine panic (malformed TMDB body, OOM on a
 		// huge response) doesn't crash a worker. The reporter's
 		// authReporter / quota tick already happen inside fetch on the
@@ -233,36 +283,27 @@ func (s *swrCache) kickRefresh(path string, query url.Values, key, tier string) 
 				observability.IncTMDBSWRRevalidate(tier, "panic")
 			}
 		}()
+		// Clear the pending flag whether the fetch succeeds, errors, or
+		// panics — so the next stale-grace hit can claim a fresh refresh
+		// slot. Runs BEFORE the recover defer (LIFO), so the flag is
+		// always cleared during normal exit, error return, or panic
+		// unwind. The onRefreshDone hook (above, declared earliest)
+		// fires AFTER this, guaranteeing tests observe the flag as
+		// already cleared when the hook fires.
+		defer s.pending.Delete(key)
 
 		s.store.IncPending()
 		defer s.store.DecPending()
 
-		// DoChan is non-blocking; the channel resolves when the in-flight
-		// call returns. Surplus callers landing during the in-flight
-		// window get shared=true on the result envelope — we tick the
-		// dedup counter for the surplus, not the leader.
-		ch := s.sf.DoChan(key, func() (any, error) {
-			ctx, cancel := context.WithTimeout(context.Background(), swrFetchTimeout)
-			defer cancel()
-			body, err := s.fetch(ctx, path, query)
-			if err != nil {
-				observability.IncTMDBSWRRevalidate(tier, "error")
-				return nil, err
-			}
-			s.store.Add(key, body)
-			observability.IncTMDBSWRRevalidate(tier, "ok")
-			return body, nil
-		})
-		res := <-ch
-		if res.Shared {
-			// We dedupe: the leader handled the work, we are surplus.
-			// IncPending/DecPending still balance (we held our own
-			// pending slot during the wait, which is correct — the
-			// pending-fetches gauge reflects "callers awaiting a fetch
-			// to settle", not "TMDB calls in flight").
-			s.store.RecordDedupHit()
-			observability.IncTMDBSWRInflightDedup(tier)
+		ctx, cancel := context.WithTimeout(context.Background(), swrFetchTimeout)
+		defer cancel()
+		body, err := s.fetch(ctx, path, query)
+		if err != nil {
+			observability.IncTMDBSWRRevalidate(tier, "error")
+			return
 		}
+		s.store.Add(key, body)
+		observability.IncTMDBSWRRevalidate(tier, "ok")
 	}()
 }
 

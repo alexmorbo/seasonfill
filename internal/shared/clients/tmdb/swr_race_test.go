@@ -16,8 +16,14 @@ import (
 
 // TestSWR_StaleConcurrentRefresh_SingleflightDedup verifies that 100
 // concurrent stale-grace callers spawn EXACTLY ONE upstream refresh —
-// singleflight.Group dedupes the rest. Mandatory under -race. Story 553
-// (E-1 Z4) acceptance criterion §5.
+// the per-key first-claimer LoadOrStore gate dedupes the rest. Mandatory
+// under -race. Story 553 (E-1 Z4) acceptance criterion §5.
+//
+// Test name retains the historical "Singleflight" word for git blame
+// continuity; implementation switched from singleflight.Group to the
+// sync.Map-based first-claimer pattern to close a CI race window where the
+// leader could finish before late callers reached DoChan. See swr.go
+// kickRefresh docstring for the rationale.
 func TestSWR_StaleConcurrentRefresh_SingleflightDedup(t *testing.T) {
 	clk := clock.NewFake(time.Unix(1_700_000_000, 0))
 	bodyA := []byte(`{"v":"A"}`)
@@ -86,26 +92,31 @@ func TestSWR_StaleConcurrentRefresh_SingleflightDedup(t *testing.T) {
 
 	// All N callers have returned. None have spawned new TMDB fetches yet
 	// (we're holding the barrier closed). refreshCalls is still 1 (cold).
-	// The N background goroutines are queued on singleflight.DoChan;
-	// exactly ONE will execute the upstream once the barrier opens.
+	// Exactly ONE of the N callers won the pending.LoadOrStore claim and
+	// spawned a background goroutine which is now blocked on the barrier;
+	// the other N-1 saw the flag set and returned without spawning,
+	// ticking swr_inflight_dedup_total instead.
 	assert.EqualValues(t, 1, refreshCalls.Load(),
 		"barrier still closed → exactly one cold-seed call; refresh not yet executed")
 
-	// Release the barrier — exactly one goroutine should perform the
-	// refresh; the other N-1 share the result via singleflight.
+	// Release the barrier — the ONE goroutine spawned by the first
+	// claimer performs the refresh; no other refresh goroutine exists
+	// because subsequent stale-grace callers saw the pending flag and
+	// short-circuited.
 	close(release)
 
 	// Wait for the refresh to land. We need a deterministic synchronisation
 	// point — sleep with a long timeout would be flaky. Instead, poll the
-	// counter with a tight loop bound. Singleflight resolves DoChan as
-	// soon as the leader returns.
+	// counter with a tight loop bound. The single spawned goroutine
+	// unblocks the moment the barrier closes and finishes its s.fetch call
+	// (which then increments refreshCalls).
 	deadline := time.Now().Add(5 * time.Second)
 	for refreshCalls.Load() < 2 && time.Now().Before(deadline) {
 		// Yield CPU to the runtime.
 		time.Sleep(time.Millisecond)
 	}
 	assert.EqualValues(t, 2, refreshCalls.Load(),
-		"exactly ONE refresh upstream call after barrier — singleflight dedupe held")
+		"exactly ONE refresh upstream call after barrier — first-claimer dedupe held")
 
 	// Drain pending goroutines. Use the cache's pending-fetch gauge as
 	// a proxy: a zero count means all background workers exited. Bound
