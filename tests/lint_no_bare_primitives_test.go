@@ -308,6 +308,33 @@ func TestBareValuePrimitivesRegression(t *testing.T) {
 		"SeriesStatus":  {"string": true},
 	}
 
+	// compositeTypedValues catches the COMPOSITE VO field names that
+	// MED-1 (E-1-A0 code-review) flagged as a guard-coverage gap. These
+	// are scoped to the strict-allow-list because the legacy wire DTOs
+	// (e.g., DiscoverySeriesItem in internal/discovery/rest) still
+	// carry Title/TMDBRating as bare types and will be migrated by
+	// Phase 2 B1a/B1b. The scalar typedValues map covers everywhere;
+	// these composite rules ONLY fire on Phase 2 strict-allow paths.
+	//
+	// Title / Tagline are language-tagged (composite has lang).
+	// TMDBRating et al. should be *values.Rating (bundles score + votes).
+	// NextEpisodeCanon bundles season + episode + air_at.
+	compositeTypedValues := map[string]map[string]bool{
+		"Title":            {"string": true},
+		"OriginalTitle":    {"string": true},
+		"EpisodeTitle":     {"string": true},
+		"Tagline":          {"string": true},
+		"Rating":           {"float64": true, "int": true, "string": true},
+		"TmdbRating":       {"float64": true, "int": true, "string": true},
+		"ImdbRating":       {"float64": true, "int": true, "string": true},
+		"OmdbRating":       {"float64": true, "int": true, "string": true},
+		"TMDBRating":       {"float64": true, "int": true, "string": true},
+		"IMDBRating":       {"float64": true, "int": true, "string": true},
+		"OMDBRating":       {"float64": true, "int": true, "string": true},
+		"NextEpisode":      {"string": true, "int": true, "int64": true},
+		"NextEpisodeCanon": {"string": true, "int": true, "int64": true},
+	}
+
 	// Allow-list of Phase 2+ DTO package paths. F-R2-6: scope NARROW so
 	// the guard never trips on legacy A-5-and-earlier code. Adding a
 	// new Phase 2+ DTO package requires a one-line addition here.
@@ -321,6 +348,24 @@ func TestBareValuePrimitivesRegression(t *testing.T) {
 		"internal/discovery/app/dto",
 		"internal/seriesdetail/rest",
 		"internal/discovery/rest",
+	}
+
+	// strictAllowList — composite VO rules apply ONLY here. Phase 2
+	// B1/B2/B3 NEW dto packages will be added when they land. Legacy
+	// wire DTOs (e.g., DiscoverySeriesItem) deliberately fall outside
+	// this set until their migration story ships.
+	strictAllowList := []string{
+		"internal/seriesdetail/app/dto",
+		"internal/discovery/app/dto",
+	}
+	isStrictPath := func(absPath string) bool {
+		slash := filepath.ToSlash(absPath)
+		for _, p := range strictAllowList {
+			if strings.Contains(slash, p) {
+				return true
+			}
+		}
+		return false
 	}
 
 	type hit struct {
@@ -373,6 +418,18 @@ func TestBareValuePrimitivesRegression(t *testing.T) {
 				t.Logf("parse %s: %v", path, perr)
 				return nil
 			}
+			strict := isStrictPath(path)
+			matches := func(fieldName, typeName string) bool {
+				if rules, ok := typedValues[fieldName]; ok && rules[typeName] {
+					return true
+				}
+				if strict {
+					if rules, ok := compositeTypedValues[fieldName]; ok && rules[typeName] {
+						return true
+					}
+				}
+				return false
+			}
 			ast.Inspect(f, func(n ast.Node) bool {
 				switch x := n.(type) {
 				case *ast.StructType:
@@ -385,7 +442,7 @@ func TestBareValuePrimitivesRegression(t *testing.T) {
 							continue
 						}
 						for _, name := range field.Names {
-							if rules, ok := typedValues[name.Name]; ok && rules[typeName] {
+							if matches(name.Name, typeName) {
 								pos := fset.Position(name.Pos())
 								hits = append(hits, hit{
 									path:  pos.Filename,
@@ -407,7 +464,7 @@ func TestBareValuePrimitivesRegression(t *testing.T) {
 							continue
 						}
 						for _, name := range field.Names {
-							if rules, ok := typedValues[name.Name]; ok && rules[typeName] {
+							if matches(name.Name, typeName) {
 								pos := fset.Position(name.Pos())
 								hits = append(hits, hit{
 									path:  pos.Filename,
@@ -449,6 +506,102 @@ func TestBareValuePrimitivesRegression(t *testing.T) {
 			sb.WriteString(")\n")
 		}
 		t.Fatal(sb.String())
+	}
+}
+
+// TestBareValuePrimitivesGuard_Synthetic feeds the guard machinery a
+// synthetic fake-DTO file (parsed from bytes, no filesystem) and
+// asserts that the composite-VO rules actually fire. Without this
+// check, the live-tree scan can stay silent forever because Phase 2
+// DTOs have not landed yet — and a no-op guard would defeat the whole
+// F-R2-6 intent.
+//
+// Covers the composite-VO entries added in the MED-1 fix: Title,
+// Tagline, TMDBRating, NextEpisodeCanon. Each is exercised with the
+// bare primitive a careless author would most plausibly reach for.
+func TestBareValuePrimitivesGuard_Synthetic(t *testing.T) {
+	t.Parallel()
+
+	// Mirror of typedValues for the composite cases under test. Kept
+	// local (not extracted from the main test) because the main test's
+	// map is intentionally exhaustive — this one is focused.
+	rules := map[string]map[string]bool{
+		"Title":            {"string": true},
+		"OriginalTitle":    {"string": true},
+		"Tagline":          {"string": true},
+		"TmdbRating":       {"float64": true},
+		"TMDBRating":       {"float64": true},
+		"NextEpisodeCanon": {"int": true, "string": true},
+	}
+
+	cases := []struct {
+		name string
+		src  string
+		want string // expected field name to be flagged
+	}{
+		{
+			name: "Title as bare string",
+			src:  "package fake\ntype SkeletonDTO struct { Title string }\n",
+			want: "Title",
+		},
+		{
+			name: "OriginalTitle as bare string",
+			src:  "package fake\ntype SkeletonDTO struct { OriginalTitle string }\n",
+			want: "OriginalTitle",
+		},
+		{
+			name: "Tagline as bare string",
+			src:  "package fake\ntype SkeletonDTO struct { Tagline string }\n",
+			want: "Tagline",
+		},
+		{
+			name: "TmdbRating as bare float64",
+			src:  "package fake\ntype SkeletonDTO struct { TmdbRating float64 }\n",
+			want: "TmdbRating",
+		},
+		{
+			name: "TMDBRating as bare float64",
+			src:  "package fake\ntype SkeletonDTO struct { TMDBRating float64 }\n",
+			want: "TMDBRating",
+		},
+		{
+			name: "NextEpisodeCanon as bare int",
+			src:  "package fake\ntype SkeletonDTO struct { NextEpisodeCanon int }\n",
+			want: "NextEpisodeCanon",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "fake.go", tc.src, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatalf("parse synthetic: %v", err)
+			}
+			var flagged []string
+			ast.Inspect(f, func(n ast.Node) bool {
+				st, ok := n.(*ast.StructType)
+				if !ok || st.Fields == nil {
+					return true
+				}
+				for _, field := range st.Fields.List {
+					typeName := bareTypeName(field.Type)
+					if typeName == "" {
+						continue
+					}
+					for _, name := range field.Names {
+						if r, ok := rules[name.Name]; ok && r[typeName] {
+							flagged = append(flagged, name.Name)
+						}
+					}
+				}
+				return true
+			})
+			if len(flagged) != 1 || flagged[0] != tc.want {
+				t.Fatalf("guard did not flag %q as expected: got %v", tc.want, flagged)
+			}
+		})
 	}
 }
 

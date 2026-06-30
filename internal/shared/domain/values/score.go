@@ -6,13 +6,20 @@ import (
 	"math"
 )
 
+// Score represents a numeric rating in the range (0, 10] — zero excluded
+// because zero would be indistinguishable from "absent" on the wire
+// (MarshalJSON emits null for IsZero values). Constructor and marshal
+// behavior are aligned: both treat 0 as absent.
 type Score struct {
 	value float64
 }
 
 func NewScore(v float64) (Score, error) {
-	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 10 {
-		return Score{}, fmt.Errorf("%w: got %v", ErrScoreInvalid, v)
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return Score{}, fmt.Errorf("%w: must be finite, got %v", ErrScoreInvalid, v)
+	}
+	if v <= 0 || v > 10 {
+		return Score{}, fmt.Errorf("%w: out of range (0,10], got %v", ErrScoreInvalid, v)
 	}
 	return Score{value: v}, nil
 }

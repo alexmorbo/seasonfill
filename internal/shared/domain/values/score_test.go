@@ -19,9 +19,10 @@ func TestNewScore(t *testing.T) {
 		wantErr bool
 	}{
 		{"valid 7.5", 7.5, false},
-		{"valid 0 boundary", 0, false},
+		{"valid smallest positive", 0.1, false},
 		{"valid 10 boundary", 10, false},
-		{"reject -0.1", -0.1, true},
+		{"reject 0 boundary", 0, true},
+		{"reject negative", -0.1, true},
 		{"reject 10.1", 10.1, true},
 		{"reject NaN", math.NaN(), true},
 		{"reject +Inf", math.Inf(1), true},
