@@ -80,9 +80,10 @@ func (f *fakeFallbackTexts) GetWithFallback(_ context.Context, _ domain.SeriesID
 
 // fakeFallbackKeywords satisfies seriesdetail.KeywordsPort.
 type fakeFallbackKeywords struct {
-	ids  []int64
-	byID map[int64]taxonomy.Keyword
-	err  error
+	ids      []int64
+	byID     map[int64]taxonomy.Keyword
+	err      error
+	batchErr error
 }
 
 func (f *fakeFallbackKeywords) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
@@ -97,6 +98,21 @@ func (f *fakeFallbackKeywords) Get(_ context.Context, id int64, lang string) (ta
 		return k, nil
 	}
 	return taxonomy.Keyword{ID: id, Name: "kw", Language: lang}, nil
+}
+
+func (f *fakeFallbackKeywords) ListByIDsWithFallback(_ context.Context, ids []int64, lang string) ([]taxonomy.Keyword, error) {
+	if f.batchErr != nil {
+		return nil, f.batchErr
+	}
+	out := make([]taxonomy.Keyword, 0, len(ids))
+	for _, id := range ids {
+		if k, ok := f.byID[id]; ok {
+			out = append(out, k)
+			continue
+		}
+		out = append(out, taxonomy.Keyword{ID: id, Name: "kw", Language: lang})
+	}
+	return out, nil
 }
 
 // fakeFallbackRecsPort satisfies seriesdetail.RecommendationsPort.
@@ -317,6 +333,29 @@ func TestTMDBFallbackUseCase_GetOverview_StubReturnsCanonOnly(t *testing.T) {
 	require.NotNil(t, ov.Awards)
 	assert.Equal(t, "Won 2 Emmys", *ov.Awards)
 	assert.Equal(t, []string{"tmdb_series"}, ov.Degraded)
+}
+
+// Story 552 (E-1 Z3) — batched keyword fetch failure must degrade with
+// tmdb_series mark, NOT fail the response. Mirrors the overview test in
+// overview_test.go.
+func TestTMDBFallbackUseCase_GetOverview_KeywordsBatchFailureMarksDegraded(t *testing.T) {
+	t.Parallel()
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{
+			8378: {ID: 8378, Hydration: series.HydrationStub},
+		}},
+		Keywords: &fakeFallbackKeywords{
+			ids:      []int64{1, 2, 3},
+			batchErr: errors.New("batch boom"), //nolint:err113
+		},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	ov, err := uc.GetOverview(t.Context(), 8378, "ru-RU")
+	require.NoError(t, err, "batch failure must degrade, not fail")
+	require.NotNil(t, ov)
+	assert.Empty(t, ov.Keywords)
+	assert.Contains(t, ov.Degraded, "tmdb_series")
 }
 
 func TestTMDBFallbackUseCase_GetOverview_UnknownIDReturnsErrNotFound(t *testing.T) {

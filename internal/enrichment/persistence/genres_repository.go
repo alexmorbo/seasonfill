@@ -65,6 +65,112 @@ func (r *GenresRepository) Get(ctx context.Context, id int64, language string) (
 	return g, nil
 }
 
+// ListByIDsWithFallback returns one Genre per requested id, applying
+// the §5.6 two-tier fallback (requested language first, en-US second)
+// in a bounded number of round-trips (at most three SELECTs total:
+// genres-by-id, genres_i18n requested-lang, genres_i18n en-US fill-in;
+// the en-US pass is skipped when lang == en-US).
+//
+// Story 552 (E-1 Z3) — replaces the per-genre Get loop in the
+// seriesdetail composer (composer.go loadTaxonomy genres branch).
+//
+// Semantics:
+//   - Empty ids slice            → nil slice, nil error (no SQL issued).
+//   - Genre with row in `lang`   → entry uses that name + language.
+//   - Genre with no `lang` row
+//     but en-US                  → entry uses en-US name + language.
+//   - Genre with no i18n rows    → entry returned with empty Name +
+//     empty Language (mirrors per-id Get
+//     behaviour: the row is real, the i18n
+//     side is just empty — never returned
+//     as ErrNotFound).
+//   - Genre id absent from
+//     `genres` table             → entry NOT included in the result
+//     (callers mirror the prior `gerr ==
+//     nil` skip).
+//
+// Result is ordered by id ASC. Callers needing input-order projection
+// build a `map[int64]Genre` locally and iterate the original ids slice
+// (composer pattern — same shape as loadTopCast).
+//
+// The third §5.6 tier ("first available row by language ASC") is NOT
+// applied on this batch path — see story-552 design notes. Per-id Get
+// retains the full three-tier behaviour for callers that need it.
+func (r *GenresRepository) ListByIDsWithFallback(
+	ctx context.Context,
+	ids []int64,
+	language string,
+) ([]taxonomy.Genre, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if language == "" {
+		language = fallbackLanguage
+	}
+
+	// 1. Parent rows.
+	var parents []database.GenreModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("id IN ?", ids).
+		Order("id ASC").
+		Find(&parents).Error; err != nil {
+		return nil, fmt.Errorf("list genres by ids: %w", err)
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+
+	parentIDs := make([]int64, 0, len(parents))
+	for _, p := range parents {
+		parentIDs = append(parentIDs, p.ID)
+	}
+
+	// 2. Requested-language i18n rows (one round-trip).
+	var primary []database.GenreI18nModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("genre_id IN ? AND language = ?", parentIDs, language).
+		Find(&primary).Error; err != nil {
+		return nil, fmt.Errorf("list genres_i18n by ids (lang=%s): %w", language, err)
+	}
+	i18nByID := make(map[int64]database.GenreI18nModel, len(primary))
+	for _, m := range primary {
+		i18nByID[m.GenreID] = m
+	}
+
+	// 3. en-US fill-in (skipped when lang IS en-US).
+	if language != fallbackLanguage {
+		remaining := make([]int64, 0, len(parentIDs))
+		for _, id := range parentIDs {
+			if _, ok := i18nByID[id]; !ok {
+				remaining = append(remaining, id)
+			}
+		}
+		if len(remaining) > 0 {
+			var fallback []database.GenreI18nModel
+			if err := dbFromContext(ctx, r.db).WithContext(ctx).
+				Where("genre_id IN ? AND language = ?", remaining, fallbackLanguage).
+				Find(&fallback).Error; err != nil {
+				return nil, fmt.Errorf("list genres_i18n en-US fallback: %w", err)
+			}
+			for _, m := range fallback {
+				i18nByID[m.GenreID] = m
+			}
+		}
+	}
+
+	// 4. Merge in id-ASC order.
+	out := make([]taxonomy.Genre, 0, len(parents))
+	for _, p := range parents {
+		g := toGenre(p)
+		if i, ok := i18nByID[p.ID]; ok {
+			g.Name = i.Name
+			g.Language = i.Language
+		}
+		out = append(out, g)
+	}
+	return out, nil
+}
+
 // GetByTMDBID looks up the genre by TMDB id. Name is NOT resolved
 // here — hot-path used by the series enrichment worker to answer "do
 // I already have this genre id?".

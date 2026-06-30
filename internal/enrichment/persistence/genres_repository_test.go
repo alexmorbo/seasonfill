@@ -300,3 +300,142 @@ func TestGenresRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 		})
 	}
 }
+
+// Story 552 (E-1 Z3) — batched ListByIDsWithFallback tests.
+
+func TestGenresRepository_ListByIDsWithFallback_LangPreferred(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewGenresRepository(db)
+			i18n := NewGenresI18nRepository(db)
+
+			idA, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(18)})
+			require.NoError(t, err)
+			idB, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(35)})
+			require.NoError(t, err)
+
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{
+				GenreID: idA, Language: "en-US", Name: "Drama",
+			}))
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{
+				GenreID: idA, Language: "ru-RU", Name: "Драма",
+			}))
+			// idB has en-US only — exercises the fill-in pass.
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{
+				GenreID: idB, Language: "en-US", Name: "Comedy",
+			}))
+
+			got, err := repo.ListByIDsWithFallback(ctx, []int64{idA, idB}, "ru-RU")
+			require.NoError(t, err)
+			require.Len(t, got, 2)
+
+			byID := map[int64]taxonomy.Genre{got[0].ID: got[0], got[1].ID: got[1]}
+			assert.Equal(t, "Драма", byID[idA].Name)
+			assert.Equal(t, "ru-RU", byID[idA].Language)
+			assert.Equal(t, "Comedy", byID[idB].Name)
+			assert.Equal(t, "en-US", byID[idB].Language)
+		})
+	}
+}
+
+func TestGenresRepository_ListByIDsWithFallback_MissingIdDropped(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewGenresRepository(db)
+			i18n := NewGenresI18nRepository(db)
+
+			id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(99)})
+			require.NoError(t, err)
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{
+				GenreID: id, Language: "en-US", Name: "Real",
+			}))
+
+			// Mix a non-existent id with a real one — silently dropped, no error.
+			got, err := repo.ListByIDsWithFallback(ctx, []int64{id, 999999}, "en-US")
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, id, got[0].ID)
+			assert.Equal(t, "Real", got[0].Name)
+		})
+	}
+}
+
+func TestGenresRepository_ListByIDsWithFallback_EmptyInput(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewGenresRepository(db)
+
+			got, err := repo.ListByIDsWithFallback(ctx, nil, "en-US")
+			require.NoError(t, err)
+			assert.Nil(t, got)
+		})
+	}
+}
+
+func TestGenresRepository_ListByIDsWithFallback_NoI18nRows(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewGenresRepository(db)
+
+			id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(42)})
+			require.NoError(t, err)
+
+			got, err := repo.ListByIDsWithFallback(ctx, []int64{id}, "en-US")
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, id, got[0].ID)
+			assert.Empty(t, got[0].Name)
+			assert.Empty(t, got[0].Language)
+		})
+	}
+}
+
+func TestGenresRepository_ListByIDsWithFallback_LangIsEnUS_OneRoundTrip(t *testing.T) {
+
+	// Implicit invariant: when lang == en-US, the en-US fill-in pass
+	// is short-circuited. We assert it ships byte-equal to the
+	// requested-lang-is-en-US path by feeding en-US-only data and
+	// verifying no spurious behaviour.
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewGenresRepository(db)
+			i18n := NewGenresI18nRepository(db)
+
+			id, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(7)})
+			require.NoError(t, err)
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{
+				GenreID: id, Language: "en-US", Name: "Action",
+			}))
+
+			got, err := repo.ListByIDsWithFallback(ctx, []int64{id}, "en-US")
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, "Action", got[0].Name)
+			assert.Equal(t, "en-US", got[0].Language)
+		})
+	}
+}

@@ -31,6 +31,9 @@ func (e *errGenres) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64,
 func (e *errGenres) Get(_ context.Context, _ int64, _ string) (taxonomy.Genre, error) {
 	return taxonomy.Genre{}, e.err
 }
+func (e *errGenres) ListByIDsWithFallback(_ context.Context, _ []int64, _ string) ([]taxonomy.Genre, error) {
+	return nil, e.err
+}
 
 type errKeywords struct{ err error }
 
@@ -39,6 +42,9 @@ func (e *errKeywords) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int6
 }
 func (e *errKeywords) Get(_ context.Context, _ int64, _ string) (taxonomy.Keyword, error) {
 	return taxonomy.Keyword{}, e.err
+}
+func (e *errKeywords) ListByIDsWithFallback(_ context.Context, _ []int64, _ string) ([]taxonomy.Keyword, error) {
+	return nil, e.err
 }
 
 type errNetworks struct {

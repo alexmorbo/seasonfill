@@ -58,6 +58,91 @@ func (r *KeywordsRepository) Get(ctx context.Context, id int64, language string)
 	return k, nil
 }
 
+// ListByIDsWithFallback returns one Keyword per requested id, applying
+// the §5.6 two-tier fallback (requested language first, en-US second)
+// in a bounded number of round-trips. Mirror of
+// GenresRepository.ListByIDsWithFallback — see that method for the full
+// semantics.
+//
+// Story 552 (E-1 Z3) — replaces the per-keyword Get loops in the
+// seriesdetail composer (composer.go loadTaxonomy keywords branch),
+// the overview rebuild (overview.go), and the TMDB-fallback overview
+// (tmdb_fallback_usecase.go).
+//
+// In v1 keywords are en-only (TMDB does not localise /tv/{id}/keywords),
+// so the second pass is hit constantly when callers request ru-RU /
+// other languages — same en-US fallback the per-id Get already serves.
+func (r *KeywordsRepository) ListByIDsWithFallback(
+	ctx context.Context,
+	ids []int64,
+	language string,
+) ([]taxonomy.Keyword, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if language == "" {
+		language = fallbackLanguage
+	}
+
+	var parents []database.KeywordModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("id IN ?", ids).
+		Order("id ASC").
+		Find(&parents).Error; err != nil {
+		return nil, fmt.Errorf("list keywords by ids: %w", err)
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+
+	parentIDs := make([]int64, 0, len(parents))
+	for _, p := range parents {
+		parentIDs = append(parentIDs, p.ID)
+	}
+
+	var primary []database.KeywordI18nModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("keyword_id IN ? AND language = ?", parentIDs, language).
+		Find(&primary).Error; err != nil {
+		return nil, fmt.Errorf("list keywords_i18n by ids (lang=%s): %w", language, err)
+	}
+	i18nByID := make(map[int64]database.KeywordI18nModel, len(primary))
+	for _, m := range primary {
+		i18nByID[m.KeywordID] = m
+	}
+
+	if language != fallbackLanguage {
+		remaining := make([]int64, 0, len(parentIDs))
+		for _, id := range parentIDs {
+			if _, ok := i18nByID[id]; !ok {
+				remaining = append(remaining, id)
+			}
+		}
+		if len(remaining) > 0 {
+			var fallback []database.KeywordI18nModel
+			if err := dbFromContext(ctx, r.db).WithContext(ctx).
+				Where("keyword_id IN ? AND language = ?", remaining, fallbackLanguage).
+				Find(&fallback).Error; err != nil {
+				return nil, fmt.Errorf("list keywords_i18n en-US fallback: %w", err)
+			}
+			for _, m := range fallback {
+				i18nByID[m.KeywordID] = m
+			}
+		}
+	}
+
+	out := make([]taxonomy.Keyword, 0, len(parents))
+	for _, p := range parents {
+		k := toKeyword(p)
+		if i, ok := i18nByID[p.ID]; ok {
+			k.Name = i.Name
+			k.Language = i.Language
+		}
+		out = append(out, k)
+	}
+	return out, nil
+}
+
 func (r *KeywordsRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (taxonomy.Keyword, error) {
 	var m database.KeywordModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).

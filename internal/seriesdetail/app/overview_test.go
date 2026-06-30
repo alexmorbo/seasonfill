@@ -102,6 +102,18 @@ func (f ovFakeKeywords) Get(_ context.Context, id int64, lang string) (taxonomy.
 	return taxonomy.Keyword{ID: id, Language: lang}, nil
 }
 
+func (f ovFakeKeywords) ListByIDsWithFallback(_ context.Context, ids []int64, lang string) ([]taxonomy.Keyword, error) {
+	out := make([]taxonomy.Keyword, 0, len(ids))
+	for _, id := range ids {
+		if k, ok := f.get[id]; ok {
+			out = append(out, k)
+			continue
+		}
+		out = append(out, taxonomy.Keyword{ID: id, Language: lang})
+	}
+	return out, nil
+}
+
 func itoaOV(n int) string {
 	if n == 0 {
 		return "0"
@@ -212,4 +224,38 @@ func TestComposerGetOverview_TextsLoadFailsDegrades(t *testing.T) {
 	require.NotNil(t, ov)
 	require.Equal(t, "", ov.Description)
 	require.Contains(t, ov.Degraded, "tmdb_series")
+}
+
+// Story 552 (E-1 Z3) — batched keyword fetch failure path. When
+// ListByIDsWithFallback errors (separate from ListBySeries), overview
+// must still degrade with tmdb_series tag, NOT fail the response.
+type ovFakeKeywordsBatchErr struct {
+	ids []int64
+}
+
+func (f ovFakeKeywordsBatchErr) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
+	return f.ids, nil
+}
+func (f ovFakeKeywordsBatchErr) Get(_ context.Context, id int64, lang string) (taxonomy.Keyword, error) {
+	return taxonomy.Keyword{ID: id, Language: lang}, nil
+}
+func (f ovFakeKeywordsBatchErr) ListByIDsWithFallback(_ context.Context, _ []int64, _ string) ([]taxonomy.Keyword, error) {
+	return nil, errors.New("batch boom") //nolint:err113
+}
+
+func TestComposerGetOverview_KeywordsBatchFailureMarksDegraded(t *testing.T) {
+	t.Parallel()
+	cache := map[string]series.CacheEntry{
+		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
+	}
+	canon := series.Canon{ID: 42}
+	c := newOverviewComposer(canon, cache,
+		ovFakeTexts{err: ports.ErrNotFound},
+		ovFakeKeywordsBatchErr{ids: []int64{1, 2, 3}})
+
+	ov, err := c.GetOverview(t.Context(), "alpha", 1, "en-US")
+	require.NoError(t, err, "batch failure must degrade, not fail")
+	require.NotNil(t, ov)
+	require.Contains(t, ov.Degraded, "tmdb_series")
+	require.Empty(t, ov.Keywords)
 }

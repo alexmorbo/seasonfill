@@ -193,3 +193,137 @@ func TestKeywordsRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 		})
 	}
 }
+
+// Story 552 (E-1 Z3) — batched ListByIDsWithFallback tests.
+
+func TestKeywordsRepository_ListByIDsWithFallback_LangPreferred(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewKeywordsRepository(db)
+			i18n := NewKeywordsI18nRepository(db)
+
+			idA, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(180)})
+			require.NoError(t, err)
+			idB, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(350)})
+			require.NoError(t, err)
+
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{
+				KeywordID: idA, Language: "en-US", Name: "drama",
+			}))
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{
+				KeywordID: idA, Language: "ru-RU", Name: "драма",
+			}))
+			// idB has en-US only — exercises the fill-in pass.
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{
+				KeywordID: idB, Language: "en-US", Name: "comedy",
+			}))
+
+			got, err := repo.ListByIDsWithFallback(ctx, []int64{idA, idB}, "ru-RU")
+			require.NoError(t, err)
+			require.Len(t, got, 2)
+
+			byID := map[int64]taxonomy.Keyword{got[0].ID: got[0], got[1].ID: got[1]}
+			assert.Equal(t, "драма", byID[idA].Name)
+			assert.Equal(t, "ru-RU", byID[idA].Language)
+			assert.Equal(t, "comedy", byID[idB].Name)
+			assert.Equal(t, "en-US", byID[idB].Language)
+		})
+	}
+}
+
+func TestKeywordsRepository_ListByIDsWithFallback_MissingIdDropped(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewKeywordsRepository(db)
+			i18n := NewKeywordsI18nRepository(db)
+
+			id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(990)})
+			require.NoError(t, err)
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{
+				KeywordID: id, Language: "en-US", Name: "real",
+			}))
+
+			got, err := repo.ListByIDsWithFallback(ctx, []int64{id, 999999}, "en-US")
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, id, got[0].ID)
+			assert.Equal(t, "real", got[0].Name)
+		})
+	}
+}
+
+func TestKeywordsRepository_ListByIDsWithFallback_EmptyInput(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewKeywordsRepository(db)
+
+			got, err := repo.ListByIDsWithFallback(ctx, nil, "en-US")
+			require.NoError(t, err)
+			assert.Nil(t, got)
+		})
+	}
+}
+
+func TestKeywordsRepository_ListByIDsWithFallback_NoI18nRows(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewKeywordsRepository(db)
+
+			id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(420)})
+			require.NoError(t, err)
+
+			got, err := repo.ListByIDsWithFallback(ctx, []int64{id}, "en-US")
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, id, got[0].ID)
+			assert.Empty(t, got[0].Name)
+			assert.Empty(t, got[0].Language)
+		})
+	}
+}
+
+func TestKeywordsRepository_ListByIDsWithFallback_LangIsEnUS_OneRoundTrip(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewKeywordsRepository(db)
+			i18n := NewKeywordsI18nRepository(db)
+
+			id, err := repo.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(70)})
+			require.NoError(t, err)
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{
+				KeywordID: id, Language: "en-US", Name: "action",
+			}))
+
+			got, err := repo.ListByIDsWithFallback(ctx, []int64{id}, "en-US")
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, "action", got[0].Name)
+			assert.Equal(t, "en-US", got[0].Language)
+		})
+	}
+}

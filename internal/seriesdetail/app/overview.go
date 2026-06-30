@@ -86,9 +86,26 @@ func (c *Composer) GetOverview(
 	}
 
 	if kwIDs, kerr := c.d.Keywords.ListBySeries(ctx, seriesID); kerr == nil {
-		for _, id := range kwIDs {
-			if k, gerr := c.d.Keywords.Get(ctx, id, lang); gerr == nil {
-				out.Keywords = append(out.Keywords, k)
+		if len(kwIDs) > 0 {
+			// Story 552 (E-1 Z3) — batch i18n fetch. Same pattern as
+			// composer.loadTaxonomy. Failure here is degraded-mode like
+			// the original — log + tag tmdb_series, keep the response.
+			kws, lerr := c.d.Keywords.ListByIDsWithFallback(ctx, kwIDs, lang)
+			if lerr != nil {
+				c.d.Logger.WarnContext(ctx, "overview_keywords_load_failed",
+					slog.Int64("series_id", int64(seriesID)),
+					slog.String("err", lerr.Error()))
+				out.Degraded = append(out.Degraded, "tmdb_series")
+			} else {
+				byID := make(map[int64]taxonomy.Keyword, len(kws))
+				for _, k := range kws {
+					byID[k.ID] = k
+				}
+				for _, id := range kwIDs {
+					if k, ok := byID[id]; ok {
+						out.Keywords = append(out.Keywords, k)
+					}
+				}
 			}
 		}
 	} else {

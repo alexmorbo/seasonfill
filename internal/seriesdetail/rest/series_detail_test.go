@@ -147,6 +147,13 @@ func (emptyTaxRefs) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64,
 func (emptyTaxRefs) Get(_ context.Context, id int64, lang string) (taxonomy.Genre, error) {
 	return taxonomy.Genre{ID: id, Language: lang}, nil
 }
+func (emptyTaxRefs) ListByIDsWithFallback(_ context.Context, ids []int64, lang string) ([]taxonomy.Genre, error) {
+	out := make([]taxonomy.Genre, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, taxonomy.Genre{ID: id, Language: lang})
+	}
+	return out, nil
+}
 
 type emptyKwRefs struct{}
 
@@ -155,6 +162,13 @@ func (emptyKwRefs) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, 
 }
 func (emptyKwRefs) Get(_ context.Context, id int64, lang string) (taxonomy.Keyword, error) {
 	return taxonomy.Keyword{ID: id, Language: lang}, nil
+}
+func (emptyKwRefs) ListByIDsWithFallback(_ context.Context, ids []int64, lang string) ([]taxonomy.Keyword, error) {
+	out := make([]taxonomy.Keyword, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, taxonomy.Keyword{ID: id, Language: lang})
+	}
+	return out, nil
 }
 
 type emptyNetCo struct{}

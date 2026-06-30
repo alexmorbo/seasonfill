@@ -630,22 +630,48 @@ func (c *Composer) loadTaxonomy(ctx context.Context, d *Detail, lang string) err
 	if err != nil {
 		return fmt.Errorf("list series_genres: %w", err)
 	}
-	for _, id := range genreIDs {
-		g, gerr := c.d.Genres.Get(ctx, id, lang)
-		if gerr == nil {
-			d.Genres = append(d.Genres, g)
+	if len(genreIDs) > 0 {
+		// Story 552 (E-1 Z3) — batch the per-genre i18n fetch. Prior
+		// shape issued one SELECT per genre (G=2-5 typical); batch is
+		// bounded at 3 SELECTs (genres + i18n primary + i18n en-US
+		// fill-in, last one short-circuited when lang == en-US).
+		genres, gerr := c.d.Genres.ListByIDsWithFallback(ctx, genreIDs, lang)
+		if gerr != nil {
+			return fmt.Errorf("list genres by ids: %w", gerr)
+		}
+		byID := make(map[int64]taxonomy.Genre, len(genres))
+		for _, g := range genres {
+			byID[g.ID] = g
+		}
+		for _, id := range genreIDs {
+			if g, ok := byID[id]; ok {
+				d.Genres = append(d.Genres, g)
+			}
 		}
 	}
+
 	kwIDs, err := c.d.Keywords.ListBySeries(ctx, d.SeriesID)
 	if err != nil {
 		return fmt.Errorf("list series_keywords: %w", err)
 	}
-	for _, id := range kwIDs {
-		k, kerr := c.d.Keywords.Get(ctx, id, lang)
-		if kerr == nil {
-			d.Keywords = append(d.Keywords, k)
+	if len(kwIDs) > 0 {
+		// Story 552 — same batch shape for keywords. Keywords are the
+		// dominant cost (K=10-30 typical) so the win compounds here.
+		kws, kerr := c.d.Keywords.ListByIDsWithFallback(ctx, kwIDs, lang)
+		if kerr != nil {
+			return fmt.Errorf("list keywords by ids: %w", kerr)
+		}
+		byID := make(map[int64]taxonomy.Keyword, len(kws))
+		for _, k := range kws {
+			byID[k.ID] = k
+		}
+		for _, id := range kwIDs {
+			if k, ok := byID[id]; ok {
+				d.Keywords = append(d.Keywords, k)
+			}
 		}
 	}
+
 	netIDs, err := c.d.Networks.ListBySeries(ctx, d.SeriesID)
 	if err != nil {
 		return fmt.Errorf("list series_networks: %w", err)

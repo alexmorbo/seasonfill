@@ -20,6 +20,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
@@ -263,9 +264,26 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 	}
 	if u.d.Keywords != nil {
 		if kwIDs, kerr := u.d.Keywords.ListBySeries(ctx, seriesID); kerr == nil {
-			for _, id := range kwIDs {
-				if k, gerr := u.d.Keywords.Get(ctx, id, lang); gerr == nil {
-					out.Keywords = append(out.Keywords, k)
+			if len(kwIDs) > 0 {
+				// Story 552 (E-1 Z3) — batch i18n fetch. Failure degrades
+				// quietly (mark + drop) like the original loop's missing
+				// keyword skip.
+				kws, lerr := u.d.Keywords.ListByIDsWithFallback(ctx, kwIDs, lang)
+				if lerr != nil {
+					u.d.Logger.WarnContext(ctx, "tmdb_fallback_overview_keywords_failed",
+						slog.Int64("series_id", int64(seriesID)),
+						slog.String("err", lerr.Error()))
+					mark()
+				} else {
+					byID := make(map[int64]taxonomy.Keyword, len(kws))
+					for _, k := range kws {
+						byID[k.ID] = k
+					}
+					for _, id := range kwIDs {
+						if k, ok := byID[id]; ok {
+							out.Keywords = append(out.Keywords, k)
+						}
+					}
 				}
 			}
 		} else {

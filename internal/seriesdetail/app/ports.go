@@ -132,18 +132,23 @@ type PeoplePort interface {
 }
 
 // GenresPort lists genre ids attached to a series + resolves each
-// via the localised name. Two methods because the composer needs
-// the id list to issue the i18n fetch, and we don't want a JOIN
-// repo method that locks both interfaces.
+// via the localised name. Story 552 (E-1 Z3) added
+// ListByIDsWithFallback: the seriesdetail composer batches the per-id
+// i18n fetch into one bounded-round-trip call rather than N
+// per-id Get calls.
 type GenresPort interface {
 	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error)
 	Get(ctx context.Context, id int64, language string) (taxonomy.Genre, error)
+	ListByIDsWithFallback(ctx context.Context, ids []int64, language string) ([]taxonomy.Genre, error)
 }
 
-// KeywordsPort — same shape as GenresPort for keywords.
+// KeywordsPort — same shape as GenresPort for keywords. Story 552
+// added ListByIDsWithFallback for the composer + overview +
+// tmdb_fallback batch path.
 type KeywordsPort interface {
 	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error)
 	Get(ctx context.Context, id int64, language string) (taxonomy.Keyword, error)
+	ListByIDsWithFallback(ctx context.Context, ids []int64, language string) ([]taxonomy.Keyword, error)
 }
 
 // NetworksPort lists network ids for a series + batch-fetches the

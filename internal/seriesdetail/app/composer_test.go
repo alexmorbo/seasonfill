@@ -214,6 +214,13 @@ func (f *fakeGenres) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64
 func (f *fakeGenres) Get(_ context.Context, id int64, lang string) (taxonomy.Genre, error) {
 	return taxonomy.Genre{ID: id, Name: "Drama", Language: lang}, nil
 }
+func (f *fakeGenres) ListByIDsWithFallback(_ context.Context, ids []int64, lang string) ([]taxonomy.Genre, error) {
+	out := make([]taxonomy.Genre, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, taxonomy.Genre{ID: id, Name: "Drama", Language: lang})
+	}
+	return out, nil
+}
 
 type fakeKeywords struct{ ids []int64 }
 
@@ -222,6 +229,13 @@ func (f *fakeKeywords) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int
 }
 func (f *fakeKeywords) Get(_ context.Context, id int64, lang string) (taxonomy.Keyword, error) {
 	return taxonomy.Keyword{ID: id, Name: "kw", Language: lang}, nil
+}
+func (f *fakeKeywords) ListByIDsWithFallback(_ context.Context, ids []int64, lang string) ([]taxonomy.Keyword, error) {
+	out := make([]taxonomy.Keyword, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, taxonomy.Keyword{ID: id, Name: "kw", Language: lang})
+	}
+	return out, nil
 }
 
 type fakeNetworks struct{ ids []int64 }
@@ -472,6 +486,9 @@ func (failingGenres) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64
 }
 func (failingGenres) Get(_ context.Context, _ int64, _ string) (taxonomy.Genre, error) {
 	return taxonomy.Genre{}, errors.New("genres boom")
+}
+func (failingGenres) ListByIDsWithFallback(_ context.Context, _ []int64, _ string) ([]taxonomy.Genre, error) {
+	return nil, errors.New("genres boom")
 }
 
 func TestComposer_Get_RecommendationsInLibrary(t *testing.T) {
