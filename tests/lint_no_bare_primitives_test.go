@@ -114,6 +114,12 @@ func TestBareIDIntRegression(t *testing.T) {
 		if strings.HasSuffix(path, "internal/shared/domain/ids.go") {
 			return true
 		}
+		// The values/ kit (Story 557 / E-1-A0) declarations also wrap
+		// bare primitives in private fields — that IS the type
+		// definition, not a regression.
+		if strings.Contains(filepath.ToSlash(path), "internal/shared/domain/values/") {
+			return true
+		}
 		return false
 	}
 
@@ -238,19 +244,212 @@ func TestBareIDIntRegression(t *testing.T) {
 }
 
 // bareTypeName returns the identifier name of a *bare* type expression
-// (`int`, `int64`, `string`), or "" for anything else (qualified
-// selectors, pointers, slices, maps, channels — all forms that already
-// route through a typed alias or are clearly not a primitive ID).
+// (`int`, `int64`, `string`, `float64`), or "" for anything else
+// (qualified selectors, pointers, slices, maps, channels — all forms
+// that already route through a typed alias or are clearly not a
+// primitive ID/value). `float64` was added in Story 557 (E-1-A0) for
+// the Score VO guard.
 func bareTypeName(expr ast.Expr) string {
 	id, ok := expr.(*ast.Ident)
 	if !ok {
 		return ""
 	}
 	switch id.Name {
-	case "int", "int64", "string":
+	case "int", "int64", "string", "float64":
 		return id.Name
 	}
 	return ""
+}
+
+// TestBareValuePrimitivesRegression scans NEW DTO packages for struct
+// fields and function params whose name matches a canonical
+// value-object identifier (Year, Score, LanguageTag, MediaHash, …)
+// but whose declared type is the bare underlying primitive instead
+// of the VO from internal/shared/domain/values/.
+//
+// Story 557 (E-1-A0) shipped the VO kit. Phase 2 DTOs (B1/B2/B3)
+// adopt the VOs end-to-end. This guard fires only on the Phase 2+
+// package allow-list — legacy A-5-and-earlier code is intentionally
+// excluded (its retrofit is the future E-2 epic).
+//
+// Adding a new typed-VO field requires a one-line addition to
+// typedValues below.
+func TestBareValuePrimitivesRegression(t *testing.T) {
+	t.Parallel()
+
+	typedValues := map[string]map[string]bool{
+		// Year semantics — anything called Year/YearStart/YearEnd should be values.Year, not int.
+		"Year":      {"int": true, "int64": true},
+		"YearStart": {"int": true, "int64": true},
+		"YearEnd":   {"int": true, "int64": true},
+		// Runtime / duration.
+		"RuntimeMinutes": {"int": true, "int64": true},
+		"Minutes":        {"int": true, "int64": true},
+		// Score / rating.
+		"Score":     {"float64": true},
+		"VoteCount": {"int": true, "int64": true},
+		"Votes":     {"int": true, "int64": true},
+		// Lang / locale.
+		"LanguageTag":      {"string": true},
+		"Lang":             {"string": true},
+		"OriginalLanguage": {"string": true},
+		"LangCode":         {"string": true},
+		// Geo.
+		"CountryCode": {"string": true},
+		// Media.
+		"PosterAsset":   {"string": true},
+		"BackdropAsset": {"string": true},
+		"LogoAsset":     {"string": true},
+		"MediaHash":     {"string": true},
+		// Trailer.
+		"TrailerKey": {"string": true},
+		// Content / status enums.
+		"ContentRating": {"string": true},
+		"SeriesStatus":  {"string": true},
+	}
+
+	// Allow-list of Phase 2+ DTO package paths. F-R2-6: scope NARROW so
+	// the guard never trips on legacy A-5-and-earlier code. Adding a
+	// new Phase 2+ DTO package requires a one-line addition here.
+	//
+	// Why allow-list (not skip-list): explicit "this is where new code
+	// lives" is easier to audit than an ever-growing skip list. Phase 2
+	// stories (B1/B2/B3) introduce new DTO packages — they extend this
+	// allow-list as they land.
+	allowList := []string{
+		"internal/seriesdetail/app/dto",
+		"internal/discovery/app/dto",
+		"internal/seriesdetail/rest",
+		"internal/discovery/rest",
+	}
+
+	type hit struct {
+		path  string
+		line  int
+		name  string
+		typ   string
+		where string
+	}
+	var hits []hit
+
+	repoRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	skipFile := func(path string) bool {
+		if strings.HasSuffix(path, "_test.go") {
+			return true
+		}
+		if strings.HasSuffix(path, "_gen.go") || strings.HasSuffix(path, ".pb.go") {
+			return true
+		}
+		if strings.Contains(filepath.ToSlash(path), "/mocks/") {
+			return true
+		}
+		return false
+	}
+
+	for _, root := range allowList {
+		abs := filepath.Join(repoRoot, root)
+		err := filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				// Allow-list entry may not exist yet (Phase 2 packages
+				// not landed) — skip silently.
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			if skipFile(path) {
+				return nil
+			}
+			f, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+			if perr != nil {
+				t.Logf("parse %s: %v", path, perr)
+				return nil
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.StructType:
+					if x.Fields == nil {
+						return true
+					}
+					for _, field := range x.Fields.List {
+						typeName := bareTypeName(field.Type)
+						if typeName == "" {
+							continue
+						}
+						for _, name := range field.Names {
+							if rules, ok := typedValues[name.Name]; ok && rules[typeName] {
+								pos := fset.Position(name.Pos())
+								hits = append(hits, hit{
+									path:  pos.Filename,
+									line:  pos.Line,
+									name:  name.Name,
+									typ:   typeName,
+									where: "struct field",
+								})
+							}
+						}
+					}
+				case *ast.FuncType:
+					if x.Params == nil {
+						return true
+					}
+					for _, field := range x.Params.List {
+						typeName := bareTypeName(field.Type)
+						if typeName == "" {
+							continue
+						}
+						for _, name := range field.Names {
+							if rules, ok := typedValues[name.Name]; ok && rules[typeName] {
+								pos := fset.Position(name.Pos())
+								hits = append(hits, hit{
+									path:  pos.Filename,
+									line:  pos.Line,
+									name:  name.Name,
+									typ:   typeName,
+									where: "function param",
+								})
+							}
+						}
+					}
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+
+	if len(hits) > 0 {
+		var sb strings.Builder
+		sb.WriteString("bare-value-primitive regression — typed-VO names declared as primitives:\n")
+		for _, h := range hits {
+			rel, _ := filepath.Rel(repoRoot, h.path)
+			sb.WriteString("  ")
+			sb.WriteString(rel)
+			sb.WriteString(":")
+			sb.WriteString(itoa(h.line))
+			sb.WriteString("  ")
+			sb.WriteString(h.where)
+			sb.WriteString("  ")
+			sb.WriteString(h.name)
+			sb.WriteString(" ")
+			sb.WriteString(h.typ)
+			sb.WriteString("  (expected values.")
+			sb.WriteString(h.name)
+			sb.WriteString(")\n")
+		}
+		t.Fatal(sb.String())
+	}
 }
 
 // itoa avoids strconv import (the build tag keeps this file out of
