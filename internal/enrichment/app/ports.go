@@ -144,6 +144,13 @@ type SeriesTextsRepo interface {
 type SeasonsRepo interface {
 	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonSeason, error)
 	Upsert(ctx context.Context, s series.CanonSeason) (int64, error)
+	// MarkSeasonEpisodesSynced — A3a: stamps seasons.episodes_synced_at = now
+	// для (series_id, season_number). Called by Worker.RefreshSeasonSlim
+	// after the episodes BatchUpsert + episode_texts.Upsert commits inside
+	// the same tx. Composite-key single-column UPDATE — concurrent
+	// Sonarr-driven Seasons.Upsert COALESCEs the stamp so this write is
+	// not silently overwritten (A1 carry-forward I-2).
+	MarkSeasonEpisodesSynced(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, now time.Time) error
 }
 
 type EpisodesRepo interface {

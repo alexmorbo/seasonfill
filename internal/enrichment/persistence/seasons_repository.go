@@ -95,6 +95,15 @@ func (r *SeasonsRepository) CountBySeries(ctx context.Context, seriesID domain.S
 // Upsert inserts or updates by natural key (series_id, season_number).
 // Idempotent: re-running with the same payload mutates only updated_at.
 // Returns the assigned id (or the existing id on update).
+//
+// E-1 A3a (carry-forward I-2 from A1 review): switched from
+// clause.AssignmentColumns([explicit list]) to clause.Assignments(
+// seasonsUpsertAssignments()) so that episodes_synced_at — stamped by
+// Worker.RefreshSeasonSlim — survives subsequent Sonarr-driven
+// Seasons.Upsert (which leaves the column NULL in canonOut). Without
+// COALESCE protection every 6h scan would silently drop the stamp
+// (Story 552 root cause class — see seriesUpsertAssignments for the
+// series table analogue).
 func (r *SeasonsRepository) Upsert(ctx context.Context, s series.CanonSeason) (int64, error) {
 	if s.SeriesID == 0 {
 		return 0, fmt.Errorf("upsert season: series_id must be non-zero")
@@ -111,16 +120,70 @@ func (r *SeasonsRepository) Upsert(ctx context.Context, s series.CanonSeason) (i
 			{Name: "series_id"},
 			{Name: "season_number"},
 		},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"tmdb_season_id", "name", "overview",
-			"air_date", "episode_count", "poster_asset",
-			"updated_at",
-		}),
+		DoUpdates: clause.Assignments(seasonsUpsertAssignments()),
 	}).Create(&m).Error
 	if err != nil {
 		return 0, fmt.Errorf("upsert season: %w", err)
 	}
 	return m.ID, nil
+}
+
+// seasonsUpsertAssignments builds the DO UPDATE SET map for Upsert.
+// Mirrors seriesUpsertAssignments shape (series_repository.go:737):
+// direct excluded.X for TMDB-owned columns + COALESCE for the freshness
+// stamp episodes_synced_at, ensuring a Sonarr-driven canonOut (PRD §5.4)
+// that leaves episodes_synced_at nil does NOT blank a previously-set
+// stamp written by Worker.RefreshSeasonSlim (A3a).
+//
+// The list mirrors the pre-A3a clause.AssignmentColumns explicit list
+// (tmdb_season_id / name / overview / air_date / episode_count /
+// poster_asset / updated_at) plus the new episodes_synced_at COALESCE
+// entry.
+func seasonsUpsertAssignments() map[string]any {
+	return map[string]any{
+		"tmdb_season_id": gorm.Expr("excluded.tmdb_season_id"),
+		"name":           gorm.Expr("excluded.name"),
+		"overview":       gorm.Expr("excluded.overview"),
+		"air_date":       gorm.Expr("excluded.air_date"),
+		"episode_count":  gorm.Expr("excluded.episode_count"),
+		"poster_asset":   gorm.Expr("excluded.poster_asset"),
+		// E-1 A1 carry-forward I-2 — Worker.RefreshSeasonSlim (A3a) stamps
+		// episodes_synced_at via a single-column UPDATE inside its own
+		// narrow tx. Without COALESCE the very next Sonarr-driven
+		// Seasons.Upsert (6h scan via applyAllForLanguage step 3 — see
+		// series_worker.go:792) writes NULL on top and silently drops the
+		// stamp (Story 552 root cause repeats — see seriesUpsertAssignments
+		// for the series-table analogue).
+		"episodes_synced_at": gorm.Expr("COALESCE(excluded.episodes_synced_at, seasons.episodes_synced_at)"),
+		"updated_at":         gorm.Expr("excluded.updated_at"),
+	}
+}
+
+// MarkSeasonEpisodesSynced stamps seasons.episodes_synced_at = now for the
+// (series_id, season_number) pair. A3a narrow refresh writer. The COALESCE
+// on the Upsert path (seasonsUpsertAssignments) ensures a concurrent
+// Sonarr scan does NOT overwrite this stamp with NULL.
+//
+// Composite-key UPDATE (matches the seasons natural key). Empty match (no
+// such row) returns nil — caller (Worker.RefreshSeasonSlim step 5e) runs
+// inside a tx that already invoked Upsert above, guaranteeing the row
+// exists; the defensive nil-on-zero-rows-matched preserves idempotency
+// against rare race where the row got deleted between Upsert and stamp.
+func (r *SeasonsRepository) MarkSeasonEpisodesSynced(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, now time.Time) error {
+	if seriesID == 0 {
+		return fmt.Errorf("mark season episodes synced: series_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("seasons").
+		Where("series_id = ? AND season_number = ?", seriesID, seasonNumber).
+		Updates(map[string]any{
+			"episodes_synced_at": now.UTC(),
+			"updated_at":         now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark season episodes synced: %w", err)
+	}
+	return nil
 }
 
 func toCanonSeason(m database.SeasonModel) series.CanonSeason {

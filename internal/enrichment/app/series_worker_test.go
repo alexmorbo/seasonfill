@@ -261,6 +261,20 @@ func (f *fakeSeasonsRepo) Upsert(ctx context.Context, s series.CanonSeason) (int
 	return s.ID, nil
 }
 
+// MarkSeasonEpisodesSynced — E-1 A3a narrow refresh stamp. Mirrors
+// production single-column composite-key UPDATE semantics: stamps
+// rows[seasonNumber].EpisodesSyncedAt if the row exists; missing row is
+// a no-op (defensive — matches production WHERE-zero-rows-matched).
+func (f *fakeSeasonsRepo) MarkSeasonEpisodesSynced(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, now time.Time) error {
+	f.rec.add("Seasons.MarkSeasonEpisodesSynced")
+	if s, ok := f.rows[seasonNumber]; ok {
+		t := now
+		s.EpisodesSyncedAt = &t
+		f.rows[seasonNumber] = s
+	}
+	return nil
+}
+
 type fakeEpisodesRepo struct {
 	rec    *callRecord
 	rows   []series.CanonEpisode
