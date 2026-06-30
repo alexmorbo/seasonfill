@@ -462,6 +462,46 @@ func (r *SeriesRepository) MarkOMDBSynced(ctx context.Context, seriesID domain.S
 	return nil
 }
 
+// MarkTextSynced stamps series.enrichment_text_synced_at = now. Same
+// shape as MarkTMDBSynced — A2 narrow refresh writer. The COALESCE on
+// the Upsert path (seriesUpsertAssignments) ensures a concurrent
+// Sonarr scan does NOT overwrite this stamp with NULL.
+func (r *SeriesRepository) MarkTextSynced(ctx context.Context, seriesID domain.SeriesID, now time.Time) error {
+	if seriesID == 0 {
+		return fmt.Errorf("mark series text synced: series_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", seriesID).
+		Updates(map[string]any{
+			"enrichment_text_synced_at": now.UTC(),
+			"updated_at":                now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark series text synced: %w", err)
+	}
+	return nil
+}
+
+// MarkCastSynced stamps series.enrichment_cast_synced_at = now. Same
+// shape as MarkTextSynced.
+func (r *SeriesRepository) MarkCastSynced(ctx context.Context, seriesID domain.SeriesID, now time.Time) error {
+	if seriesID == 0 {
+		return fmt.Errorf("mark series cast synced: series_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", seriesID).
+		Updates(map[string]any{
+			"enrichment_cast_synced_at": now.UTC(),
+			"updated_at":                now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark series cast synced: %w", err)
+	}
+	return nil
+}
+
 // ListStaleForTMDB returns series ids whose enrichment_tmdb_synced_at is
 // NULL or older than now-ttl, capped at `limit` rows ordered by id ASC.
 // Like ListLibraryWithIMDBStale but for TMDB source: requires a tmdb_id,
@@ -743,7 +783,18 @@ func seriesUpsertAssignments() map[string]any {
 		// storm.
 		"enrichment_tmdb_synced_at": gorm.Expr("COALESCE(excluded.enrichment_tmdb_synced_at, series.enrichment_tmdb_synced_at)"),
 		"enrichment_omdb_synced_at": gorm.Expr("COALESCE(excluded.enrichment_omdb_synced_at, series.enrichment_omdb_synced_at)"),
-		"updated_at":                gorm.Expr("excluded.updated_at"),
+		// E-1 A1 carry-forward I-1 — Worker.RefreshSeriesText (A2),
+		// RefreshCast (A2), RefreshRecommendations (A3b), RefreshMediaAssets
+		// (A4) stamp these via single-column UPDATE inside their own
+		// narrow tx. Without COALESCE the very next Sonarr-driven
+		// Upsert (6h scan) writes NULL on top and silently drops the
+		// stamp (Story 552 root cause repeats). All four added defensively
+		// even though A2 only writes text+cast — keeps A3a/A3b/A4 safe.
+		"enrichment_text_synced_at":  gorm.Expr("COALESCE(excluded.enrichment_text_synced_at, series.enrichment_text_synced_at)"),
+		"enrichment_cast_synced_at":  gorm.Expr("COALESCE(excluded.enrichment_cast_synced_at, series.enrichment_cast_synced_at)"),
+		"enrichment_recs_synced_at":  gorm.Expr("COALESCE(excluded.enrichment_recs_synced_at, series.enrichment_recs_synced_at)"),
+		"enrichment_media_synced_at": gorm.Expr("COALESCE(excluded.enrichment_media_synced_at, series.enrichment_media_synced_at)"),
+		"updated_at":                 gorm.Expr("excluded.updated_at"),
 	}
 }
 

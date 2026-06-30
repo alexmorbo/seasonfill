@@ -124,6 +124,17 @@ type SeriesRepo interface {
 	// tx commits, alongside EnrichmentErrors.ClearOnSuccess.
 	MarkTMDBSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
 	MarkOMDBSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
+	// MarkTextSynced — A2: stamps series.enrichment_text_synced_at = now.
+	// Called by Worker.RefreshSeriesText after the series_texts UPSERT
+	// commits inside the same tx. Single-column UPDATE — concurrent
+	// Sonarr-driven Series.Upsert COALESCEs the stamp so this write is
+	// not silently overwritten (A1 carry-forward I-1).
+	MarkTextSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
+	// MarkCastSynced — A2: stamps series.enrichment_cast_synced_at = now.
+	// Called by Worker.RefreshCast after the person_credits BatchUpsert
+	// commits inside the same tx. Same COALESCE protection as
+	// MarkTextSynced — see seriesUpsertAssignments().
+	MarkCastSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
 }
 
 type SeriesTextsRepo interface {

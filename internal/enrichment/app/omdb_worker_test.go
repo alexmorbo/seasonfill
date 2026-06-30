@@ -65,6 +65,17 @@ func (f *fakeOMDbSeries) MarkOMDBSynced(_ context.Context, id domain.SeriesID, n
 	return nil
 }
 
+// MarkTextSynced — E-1 A2: no-op for OMDb tests (OMDb worker does not
+// stamp this column; method is on the shared port).
+func (f *fakeOMDbSeries) MarkTextSynced(_ context.Context, _ domain.SeriesID, _ time.Time) error {
+	return nil
+}
+
+// MarkCastSynced — E-1 A2: no-op for OMDb tests.
+func (f *fakeOMDbSeries) MarkCastSynced(_ context.Context, _ domain.SeriesID, _ time.Time) error {
+	return nil
+}
+
 // fakeOMDbErrorRepo is the OMDb-side EnrichmentErrorRepo fake.
 // preexist seeds GetByEntitySource to exercise the retry-bump and
 // terminal-skip paths.

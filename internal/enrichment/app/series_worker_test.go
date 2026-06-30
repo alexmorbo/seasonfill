@@ -171,6 +171,29 @@ func (f *fakeSeriesRepo) MarkOMDBSynced(ctx context.Context, id domain.SeriesID,
 	return nil
 }
 
+// MarkTextSynced — E-1 A2 narrow refresh stamp. Mirrors production
+// single-column UPDATE semantics.
+func (f *fakeSeriesRepo) MarkTextSynced(ctx context.Context, id domain.SeriesID, now time.Time) error {
+	f.rec.add("Series.MarkTextSynced")
+	if c, ok := f.rows[id]; ok {
+		t := now
+		c.EnrichmentTextSyncedAt = &t
+		f.rows[id] = c
+	}
+	return nil
+}
+
+// MarkCastSynced — E-1 A2 narrow refresh stamp.
+func (f *fakeSeriesRepo) MarkCastSynced(ctx context.Context, id domain.SeriesID, now time.Time) error {
+	f.rec.add("Series.MarkCastSynced")
+	if c, ok := f.rows[id]; ok {
+		t := now
+		c.EnrichmentCastSyncedAt = &t
+		f.rows[id] = c
+	}
+	return nil
+}
+
 // UpsertStub mirrors the production COALESCE semantics: existing
 // non-NULL columns win over the stub's value. An existing 'full' row
 // keeps its hydration. Story 319 — see SeriesRepository.UpsertStub.

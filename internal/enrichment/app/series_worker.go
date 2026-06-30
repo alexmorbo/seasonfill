@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -70,6 +71,15 @@ type SeriesWorkerDeps struct {
 	Dispatcher Dispatcher
 	Logger     *slog.Logger
 	Clock      func() time.Time // injected for tests; defaults to time.Now
+
+	// Probe — A2: optional per-section freshness probe consumed by the
+	// narrow refresh methods (RefreshSeriesText, RefreshCast) when
+	// force=false. nil OK — narrow methods bypass the gate and fetch
+	// unconditionally. Production wiring will inject the production
+	// freshener.DBProbe alongside A5 EnsureFreshScope. Field added
+	// here (vs. a new SeriesWorkerNarrowDeps struct) to keep the
+	// constructor surface unchanged.
+	Probe freshener.Probe
 }
 
 // SeriesWorker is the bound worker. Construct via NewSeriesWorker.
