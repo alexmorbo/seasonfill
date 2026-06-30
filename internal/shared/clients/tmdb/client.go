@@ -129,6 +129,11 @@ type Client struct {
 	clk          clock.Clock
 	authReporter AuthFailureReporter // Story 489 (B-17) — nil-OK.
 	quota        quota.QuotaCounter  // B-1 — nil-OK observability sink for daily request volume.
+
+	// Story 553 (E-1 Z4) — SWR cache fronting do(). nil-OK at construction
+	// (newSWRCache is wired unconditionally by New); the nil-guard here is
+	// kept as defence-in-depth so a future "disable cache" knob can plug in.
+	swr *swrCache
 }
 
 // Config holds the constructor arguments. BaseURL defaults to
@@ -293,20 +298,45 @@ func New(cfg Config) (*Client, error) {
 			return float64(n)
 		})
 	}
+	// Story 553 (E-1 Z4) — wire the SWR cache. The fetch closure captures
+	// `c` AFTER all other fields are set so the closure sees the fully-built
+	// client. cachewatch.New panics on duplicate name and does NOT unregister
+	// on Close; mintSWRCacheName allocates a unique suffix so the reload
+	// subscriber's Close+New cycle (and per-process test fan-out) doesn't
+	// trip the duplicate guard. First client: "tmdb_swr"; subsequent:
+	// "tmdb_swr_<n>". See swr.go::mintSWRCacheName.
+	c.swr = newSWRCache(mintSWRCacheName(), c.clk, c.doDirect)
 	return c, nil
 }
 
-// Close stops the rate-limiter refill goroutine. Safe to call
-// multiple times. After Close the client MUST NOT be used; new
+// Close stops the rate-limiter refill goroutine and drains the SWR cache.
+// Safe to call multiple times. After Close the client MUST NOT be used; new
 // calls panic on a closed limiter channel.
-func (c *Client) Close() { c.limiter.Close() }
+func (c *Client) Close() {
+	if c.swr != nil {
+		c.swr.Close()
+	}
+	c.limiter.Close()
+}
 
-// do is the single transport path. Every endpoint method funnels
-// through do — it owns rate-limiting, Bearer auth, retry, and 429
-// handling. Returns the response body bytes ready for json.Unmarshal
-// OR an *APIError when the upstream surfaced a structured error
-// payload.
+// do is the public entry point. Every endpoint method calls do; do consults
+// the SWR cache before falling through to the transport. NO call site outside
+// this file should reach doDirect — the SWR layer is the single-source for
+// cache-key construction (cacheKey() in swr.go MUST mirror the URL builder at
+// doDirect's top, see invariant note there). Story 553 (E-1 Z4).
 func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	if c.swr == nil {
+		return c.doDirect(ctx, path, query)
+	}
+	return c.swr.getRolling(ctx, path, query)
+}
+
+// doDirect is the transport funnel (formerly do). Rate-limit wait + retry
+// + 429 handling + auth + quota tick. The SWR cache's `fetch` closure is
+// wired to this function; the synchronous-fetch and background-refresh paths
+// both land here. Returns the response body bytes ready for json.Unmarshal
+// OR an *APIError when the upstream surfaced a structured error payload.
+func (c *Client) doDirect(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	for attempt := range maxAttempts {
 		// Story 306 — observe wall-clock limiter wait. Always Update,
 		// even on a pre-filled (zero-wait) token; the histogram's p0

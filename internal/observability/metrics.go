@@ -378,6 +378,33 @@ func AddTMDBRateLimitPauseSeconds(seconds float64) {
 	metrics.GetOrCreateFloatCounter(`tmdb_rate_limit_pause_seconds_total`).Add(seconds)
 }
 
+// IncTMDBSWRHit ticks the SWR cache-hit counter. age ∈ {"miss","fresh","stale","expired"}:
+//   - miss     — key not in cache; synchronous fetch was issued.
+//   - fresh    — hit; age < (TTL − staleGrace); no refresh kicked.
+//   - stale    — hit; age within staleGrace of TTL; background refresh kicked.
+//   - expired  — hit; age >= TTL; synchronous fetch was issued (stale body discarded).
+//
+// tier is the resolved tier label (see resolveTier in swr_tiers.go).
+// Story 553 (E-1 Z4).
+func IncTMDBSWRHit(tier, age string) {
+	metrics.GetOrCreateCounter(`tmdb_swr_hit_total{tier="` + tier + `",age="` + age + `"}`).Inc()
+}
+
+// IncTMDBSWRRevalidate ticks the background revalidation outcome. result ∈
+// {"ok","error","panic"}. ok = refresh succeeded and overwrote the entry;
+// error = fetch returned an error (entry kept as-is); panic = goroutine
+// recovered from a panic during refresh. Story 553 (E-1 Z4).
+func IncTMDBSWRRevalidate(tier, result string) {
+	metrics.GetOrCreateCounter(`tmdb_swr_revalidate_total{tier="` + tier + `",result="` + result + `"}`).Inc()
+}
+
+// IncTMDBSWRInflightDedup ticks once per surplus caller that landed during an
+// already-in-flight background refresh. A high rate against revalidate_total
+// means the singleflight is paying off — many callers, one TMDB hit. Story 553.
+func IncTMDBSWRInflightDedup(tier string) {
+	metrics.GetOrCreateCounter(`tmdb_swr_inflight_dedup_total{tier="` + tier + `"}`).Inc()
+}
+
 // AddRecoverySweepEnqueued bumps the per-kind recovery-sweep enqueue
 // counter (Story 346) by n. kind ∈ {"poster", "backdrop"} — the boot
 // one-shot recovery sweep calls this with the count of canon rows it

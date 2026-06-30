@@ -178,6 +178,34 @@ func (c *Cache[K, V]) Get(k K) (V, bool) {
 	return e.value, true
 }
 
+// GetWithAge is the SWR variant of Get. Returns the value, the wall-clock
+// timestamp at which the entry was inserted, and the presence flag. UNLIKE
+// Get, GetWithAge does NOT lazy-evict on TTL boundary — the caller decides
+// fresh-vs-stale based on its own age budget (computed against an injected
+// clock if needed). This is required by the TMDB SWR wrapper which needs to
+// RETURN stale values within the "stale grace window" and only evict on hard
+// expiry.
+//
+// Hits and misses are still counted into cache_hits_total / cache_misses_total
+// so operators see traffic in the same panels as Get. Recency is still promoted
+// (the LRU order tracks "last accessed" — a heavily SWR-served entry stays
+// warm). Story 553 (E-1 Z4).
+func (c *Cache[K, V]) GetWithAge(k K) (V, time.Time, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	e, ok := c.store.Peek(k)
+	if !ok {
+		c.counterMisses.Inc()
+		var zero V
+		return zero, time.Time{}, false
+	}
+	// Promote recency — Peek doesn't touch LRU order, Get does.
+	_, _ = c.store.Get(k)
+	c.counterHits.Inc()
+	return e.value, e.insertedAt, true
+}
+
 // Add inserts or replaces (k, v). Bumps cache_entries / cache_bytes_estimated.
 // If insert would overflow capacity, the LRU evicts its tail (reason="capacity")
 // via the callback wired in New.

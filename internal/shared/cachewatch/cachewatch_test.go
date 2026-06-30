@@ -276,3 +276,91 @@ func TestCache_Replace_DoesNotBumpCapacityEviction(t *testing.T) {
 
 // hush the unused-import linter when running with strings only in places.
 var _ = strings.Contains
+
+// TestCache_GetWithAge_Miss verifies that GetWithAge on an absent key bumps
+// the misses counter and returns (zero, zero time, false). Story 553 (E-1 Z4).
+func TestCache_GetWithAge_Miss(t *testing.T) {
+	name := uniqueName(t)
+	c := New[string, string](name, 10, 0, stringSizer)
+	t.Cleanup(func() { _ = c.Close() })
+
+	v, inserted, ok := c.GetWithAge("absent")
+	require.False(t, ok)
+	assert.Equal(t, "", v)
+	assert.True(t, inserted.IsZero())
+
+	body := dumpMetrics(t)
+	assert.Contains(t, body, `cache_misses_total{cache="`+name+`"} 1`)
+}
+
+// TestCache_GetWithAge_HitNoLazyExpiry verifies the contract that
+// GetWithAge does NOT lazy-evict on TTL boundary — even with a tiny TTL
+// the entry is returned, leaving the caller to decide stale-vs-fresh.
+// Story 553 (E-1 Z4).
+func TestCache_GetWithAge_HitNoLazyExpiry(t *testing.T) {
+	name := uniqueName(t)
+	// TTL 50ms is shorter than the test sleep below; Get would lazy-expire,
+	// GetWithAge MUST NOT.
+	c := New[string, string](name, 10, 50*time.Millisecond, stringSizer)
+	t.Cleanup(func() { _ = c.Close() })
+
+	c.Add("k", "v")
+	before := time.Now()
+	time.Sleep(80 * time.Millisecond)
+
+	v, inserted, ok := c.GetWithAge("k")
+	require.True(t, ok, "GetWithAge must NOT lazy-expire on TTL boundary")
+	assert.Equal(t, "v", v)
+	// insertedAt is set at Add time, BEFORE our `before` snapshot.
+	assert.True(t, !inserted.After(before), "insertedAt should be at or before the Add timestamp")
+	age := time.Since(inserted)
+	assert.True(t, age >= 80*time.Millisecond, "age should reflect elapsed time, got %v", age)
+
+	body := dumpMetrics(t)
+	assert.Contains(t, body, `cache_hits_total{cache="`+name+`"} 1`)
+	// No TTL eviction should have fired — GetWithAge is the SWR contract.
+	assert.NotContains(t, body, `cache_evictions_total{cache="`+name+`",reason="ttl"} 1`)
+}
+
+// TestCache_GetWithAge_FreshHit verifies a recently-added entry is returned
+// with a small age. Story 553 (E-1 Z4).
+func TestCache_GetWithAge_FreshHit(t *testing.T) {
+	name := uniqueName(t)
+	c := New[string, string](name, 10, 0, stringSizer)
+	t.Cleanup(func() { _ = c.Close() })
+
+	c.Add("k", "v")
+
+	v, inserted, ok := c.GetWithAge("k")
+	require.True(t, ok)
+	assert.Equal(t, "v", v)
+	assert.False(t, inserted.IsZero())
+	assert.True(t, time.Since(inserted) < time.Second)
+}
+
+// TestCache_GetWithAge_LRUPromotion verifies that GetWithAge promotes the
+// entry's LRU recency (mirrors Get's behaviour). Inserts capacity entries,
+// touches the oldest via GetWithAge, adds a new entry — the touched entry
+// MUST still be present (LRU-saved) while a different one is evicted.
+// Story 553 (E-1 Z4).
+func TestCache_GetWithAge_LRUPromotion(t *testing.T) {
+	name := uniqueName(t)
+	c := New[string, string](name, 3, 0, stringSizer)
+	t.Cleanup(func() { _ = c.Close() })
+
+	c.Add("a", "1")
+	c.Add("b", "2")
+	c.Add("c", "3")
+
+	// Touch "a" — it should now be MRU.
+	_, _, ok := c.GetWithAge("a")
+	require.True(t, ok)
+
+	// Add "d" — LRU is now "b" (since "a" was promoted, then "c", then "d").
+	c.Add("d", "4")
+
+	_, _, ok = c.GetWithAge("a")
+	assert.True(t, ok, "a should survive — promoted by GetWithAge")
+	_, _, ok = c.GetWithAge("b")
+	assert.False(t, ok, "b should be evicted — never touched after add")
+}

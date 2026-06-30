@@ -361,3 +361,46 @@ func TestMetricConstants_ExternalHTTP_NotEmpty(t *testing.T) {
 	assert.Equal(t, "seasonfill_external_http_request_duration_seconds", MetricExternalHTTPRequestDuration)
 	assert.Equal(t, "seasonfill_external_http_requests_in_flight", MetricExternalHTTPRequestsInFlight)
 }
+
+// Story 553 (E-1 Z4) — SWR metric helpers.
+
+func TestIncTMDBSWRHit_RegistersAndIncrements(t *testing.T) {
+	IncTMDBSWRHit("tv_canon", "fresh")
+	IncTMDBSWRHit("tv_canon", "fresh")
+	IncTMDBSWRHit("discover_tv", "stale")
+	IncTMDBSWRHit("default", "miss")
+	IncTMDBSWRHit("tv_canon", "expired")
+
+	body := writeAndRead(t)
+	assert.Contains(t, body, `tmdb_swr_hit_total{tier="tv_canon",age="fresh"} 2`)
+	assert.Contains(t, body, `tmdb_swr_hit_total{tier="discover_tv",age="stale"} 1`)
+	assert.Contains(t, body, `tmdb_swr_hit_total{tier="default",age="miss"} 1`)
+	assert.Contains(t, body, `tmdb_swr_hit_total{tier="tv_canon",age="expired"} 1`)
+	require.Contains(t, body, "tmdb_swr_hit_total")
+	_ = strings.Contains
+}
+
+func TestIncTMDBSWRRevalidate_RegistersAndIncrements(t *testing.T) {
+	IncTMDBSWRRevalidate("tv_canon", "ok")
+	IncTMDBSWRRevalidate("tv_canon", "ok")
+	IncTMDBSWRRevalidate("person_canon", "error")
+	IncTMDBSWRRevalidate("discover_tv", "panic")
+
+	body := writeAndRead(t)
+	assert.Contains(t, body, `tmdb_swr_revalidate_total{tier="tv_canon",result="ok"} 2`)
+	assert.Contains(t, body, `tmdb_swr_revalidate_total{tier="person_canon",result="error"} 1`)
+	assert.Contains(t, body, `tmdb_swr_revalidate_total{tier="discover_tv",result="panic"} 1`)
+	require.Contains(t, body, "tmdb_swr_revalidate_total")
+}
+
+func TestIncTMDBSWRInflightDedup_RegistersAndIncrements(t *testing.T) {
+	IncTMDBSWRInflightDedup("tv_canon")
+	IncTMDBSWRInflightDedup("tv_canon")
+	IncTMDBSWRInflightDedup("tv_canon")
+	IncTMDBSWRInflightDedup("discover_tv")
+
+	body := writeAndRead(t)
+	assert.Contains(t, body, `tmdb_swr_inflight_dedup_total{tier="tv_canon"} 3`)
+	assert.Contains(t, body, `tmdb_swr_inflight_dedup_total{tier="discover_tv"} 1`)
+	require.Contains(t, body, "tmdb_swr_inflight_dedup_total")
+}
