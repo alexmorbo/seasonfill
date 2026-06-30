@@ -49,4 +49,28 @@ describe('<DiscoverySeriesCard />', () => {
     expect(screen.queryByTestId('discovery-card-year')).toBeNull();
     expect(screen.getByTestId('discovery-in-library-badge')).toBeInTheDocument();
   });
+
+  // Story 554 / E-1 Z5: when both poster_hash and poster_path are present,
+  // the new wire field wins. The legacy poster_path stays in the fixture
+  // as a stand-in for what a stale FE bundle would see — the new bundle
+  // must ignore it.
+  it('prefers poster_hash over poster_path when both are present', () => {
+    const item: DiscoverySeriesItem = {
+      ...baseItem,
+      poster_hash: 'cafebabe1234567890abcdef',
+      poster_path: '/legacy.jpg',
+    };
+    renderCard(item);
+    const img = screen.getByTestId('discovery-poster-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('/api/v1/media/cafebabe1234567890abcdef');
+  });
+
+  // Story 554 / E-1 Z5: when poster_hash is absent (BE rolled back, stale
+  // BE deploy, or a bug in projection), the legacy poster_path fallback
+  // keeps the card rendering. This is the rollback-safety invariant.
+  it('falls back to poster_path when poster_hash is absent', () => {
+    renderCard(baseItem); // baseItem only has poster_path
+    const img = screen.getByTestId('discovery-poster-img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('/api/v1/media/%2Fabc.jpg');
+  });
 });

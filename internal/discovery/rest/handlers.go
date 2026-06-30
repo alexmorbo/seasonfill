@@ -546,6 +546,13 @@ func (h *DiscoveryHandler) readAndProject(
 // for the eventual /series/{id} click-through. Nil resolver leaves
 // the raw path untouched (legacy behavior — matches the pre-526
 // projection contract verbatim).
+//
+// Story 554 — the resolved value is mirrored onto BOTH the new
+// PosterHash / BackdropHash wire fields AND the legacy PosterPath /
+// BackdropPath ones so a stale FE bundle that still reads the legacy
+// names continues to render correctly during the FE CDN cache
+// transition window. New FE bundles prefer the *_hash fields. See
+// internal/discovery/rest/types.go for the rename rationale.
 func projectItem(
 	ctx context.Context,
 	it disco.Item,
@@ -579,8 +586,10 @@ func projectItem(
 		ID:                 int64(it.SeriesID),
 		Title:              it.Title,
 		Year:               it.Year,
-		PosterPath:         posterPath,
-		BackdropPath:       backdropPath,
+		PosterHash:         posterPath,   // story 554 — same value, new wire name
+		PosterPath:         posterPath,   // legacy mirror
+		BackdropHash:       backdropPath, // story 554 — new wire name
+		BackdropPath:       backdropPath, // legacy mirror
 		OriginalLanguage:   it.OriginalLanguage,
 		InLibraryInstances: instances,
 	}

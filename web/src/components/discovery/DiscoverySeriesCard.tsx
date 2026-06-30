@@ -18,7 +18,11 @@ export interface DiscoverySeriesCardProps {
 // resolves the asset via cache → S3 → TMDB origin.
 export function DiscoverySeriesCard({ item, className }: DiscoverySeriesCardProps) {
   const [errored, setErrored] = useState(false);
-  const src = mediaUrl(item.poster_path);
+  // Story 554 / E-1 Z5: prefer the hash-addressed wire field. The
+  // legacy poster_path carries the same value during the FE CDN
+  // transition window — kept as a fallback so a new FE bundle running
+  // against a pre-554 BE still renders.
+  const src = mediaUrl(item.poster_hash) ?? mediaUrl(item.poster_path);
   const showImg = Boolean(src) && !errored;
   const inLibrary = item.in_library_instances ?? [];
 

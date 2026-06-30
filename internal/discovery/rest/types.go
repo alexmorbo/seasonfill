@@ -10,7 +10,7 @@ package rest
 import "time"
 
 // DiscoverySeriesItem is one row of GET /api/v1/discovery/* responses.
-// Shape per PRD §5.1 lines 483-499.
+// Shape per PRD §5.1 lines 483-499 + story 554 (Z5).
 //
 // SeriesID is the local catalog primary key. TMDBID is the public
 // TMDB id when present (a stub may have NULL tmdb_id). Pointer
@@ -36,6 +36,17 @@ import "time"
 // Genres is the localised genre name slice — populated by the handler
 // at projection time from the series_genres × genres_i18n join. The
 // repo leaves it nil; the handler renders [] when empty.
+//
+// PosterHash / BackdropHash (story 554, audit §10.4 F-1) carry the
+// sha256-hex content address that the FE feeds straight into
+// mediaUrl() → GET /api/v1/media/:hash. The legacy PosterPath /
+// BackdropPath fields ALSO carry the same hash value (not the raw
+// TMDB path) during the FE bundle CDN transition window — once stale
+// bundles are fully evicted (≥7d post-deploy of story 554) a follow-up
+// can drop the legacy field names. Story 554 motivation: PLAN §10.4
+// F-1 audit finding — the legacy name implied a raw TMDB path even
+// though story 526 had already wired the resolver to emit a hash; the
+// next contributor reading the type was a regression-bug-in-waiting.
 type DiscoverySeriesItem struct {
 	ID                 int64    `json:"series_id"`
 	TMDBID             *int     `json:"tmdb_id,omitempty"`
@@ -44,8 +55,10 @@ type DiscoverySeriesItem struct {
 	OriginalTitle      *string  `json:"original_title,omitempty"`
 	OriginalLanguage   *string  `json:"original_language,omitempty"`
 	Year               *int     `json:"year,omitempty"`
-	PosterPath         *string  `json:"poster_path,omitempty"`
-	BackdropPath       *string  `json:"backdrop_path,omitempty"`
+	PosterHash         *string  `json:"poster_hash,omitempty"`   // story 554 — new wire name
+	PosterPath         *string  `json:"poster_path,omitempty"`   // legacy mirror of PosterHash
+	BackdropHash       *string  `json:"backdrop_hash,omitempty"` // story 554 — new wire name
+	BackdropPath       *string  `json:"backdrop_path,omitempty"` // legacy mirror of BackdropHash
 	TMDBRating         *float64 `json:"tmdb_rating,omitempty"`
 	IMDBRating         *float64 `json:"imdb_rating,omitempty"`
 	Status             *string  `json:"status,omitempty"`

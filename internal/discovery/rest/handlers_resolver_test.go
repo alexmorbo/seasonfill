@@ -178,3 +178,157 @@ func TestDiscoveryHandler_NoResolver_LegacyRawPath(t *testing.T) {
 	assert.Equal(t, posterPath, *body.Items[0].PosterPath,
 		"nil resolver preserves raw TMDB path verbatim")
 }
+
+// TestDiscoveryHandler_PopulatesPosterHashAndBackdropHash confirms story
+// 554 (E-1 Z5): the new poster_hash / backdrop_hash wire fields carry
+// the resolved sha256-hex content address, AND the legacy poster_path /
+// backdrop_path fields ALSO mirror that hash value during the FE bundle
+// CDN transition window. Asserts a clean rollback story: stale FE
+// bundles reading poster_path still render correctly.
+func TestDiscoveryHandler_PopulatesPosterHashAndBackdropHash(t *testing.T) {
+	t.Parallel()
+	const wantPosterHash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	posterPath := "/abc.jpg"
+	backdropPath := "/def.jpg"
+
+	posterURL := appmedia.BuildTMDBImageURL("w342", posterPath)
+	lookup := resolverLookupStub{byURL: map[string]string{
+		posterURL: wantPosterHash,
+		// Backdrop deliberately missing → eager-hash branch under
+		// unified-resolve (production default).
+	}}
+	resolver := media.NewResolver(lookup, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Mirror production wiring: unified-resolve flag is default-on in
+	// cfg.Enrichment.MediaUnifiedResolve. Without it the backdrop-miss
+	// branch returns nil and the assertions on the new poster_hash /
+	// backdrop_hash fields don't exercise the eager-hash path.
+	resolver.SetUnifiedResolve(true)
+
+	repo := newFakeRepo()
+	seedItem := disco.Item{
+		SeriesID:     shareddomain.SeriesID(42),
+		Title:        "Series 42",
+		PosterPath:   &posterPath,
+		BackdropPath: &backdropPath,
+	}
+	repo.mu.Lock()
+	repo.pages[fakeKey(disco.KindTrendingDay, "", "en-US")] = disco.Page{
+		Items:       []disco.Item{seedItem},
+		RefreshedAt: time.Now(),
+		Total:       1,
+	}
+	repo.mu.Unlock()
+
+	gin.SetMode(gin.TestMode)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := discoveryrest.NewDiscoveryHandler(
+		repo,
+		&fakeWarming{},
+		&fakeRefresh{},
+		persistence.NewGenresPickerRepo(nil),
+		persistence.NewNetworksPickerRepo(nil),
+		nil,      // searchUC
+		resolver, // story 526
+		nil,      // libraryInstances — story 527
+		log,
+	)
+	r := gin.New()
+	r.GET("/discovery/trending", h.Trending)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/discovery/trending?scope=day", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+
+	var body struct {
+		Items []struct {
+			PosterPath   *string `json:"poster_path"`
+			PosterHash   *string `json:"poster_hash"`
+			BackdropPath *string `json:"backdrop_path"`
+			BackdropHash *string `json:"backdrop_hash"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Items, 1)
+	got := body.Items[0]
+
+	// New wire fields populated.
+	require.NotNil(t, got.PosterHash)
+	assert.Equal(t, wantPosterHash, *got.PosterHash,
+		"poster_hash must surface the stored sha256 hash")
+	require.NotNil(t, got.BackdropHash)
+	assert.Regexp(t, `^[a-f0-9]{64}$`, *got.BackdropHash,
+		"backdrop_hash must be a 64-char sha256 hex (eager-hash branch)")
+
+	// Legacy mirror — transition-window invariant.
+	require.NotNil(t, got.PosterPath)
+	assert.Equal(t, *got.PosterHash, *got.PosterPath,
+		"poster_path must mirror poster_hash during the FE CDN window")
+	require.NotNil(t, got.BackdropPath)
+	assert.Equal(t, *got.BackdropHash, *got.BackdropPath,
+		"backdrop_path must mirror backdrop_hash during the FE CDN window")
+}
+
+// TestDiscoveryHandler_NoResolver_BothHashFieldsMirrorRawPath confirms the
+// story 554 fallthrough behavior: when no resolver is wired, projectItem
+// copies the raw TMDB path onto BOTH the legacy poster_path AND the new
+// poster_hash slots. The raw path on poster_hash is degenerate (the FE
+// would still hit %2F encoding), but the wire shape stays stable so the
+// FE deserializer never sees a missing field. The resolver is always
+// non-nil in production wiring; this branch only fires in tests.
+func TestDiscoveryHandler_NoResolver_BothHashFieldsMirrorRawPath(t *testing.T) {
+	t.Parallel()
+	posterPath := "/abc.jpg"
+
+	repo := newFakeRepo()
+	repo.mu.Lock()
+	repo.pages[fakeKey(disco.KindTrendingDay, "", "en-US")] = disco.Page{
+		Items: []disco.Item{{
+			SeriesID:   shareddomain.SeriesID(1),
+			Title:      "X",
+			PosterPath: &posterPath,
+		}},
+		RefreshedAt: time.Now(),
+		Total:       1,
+	}
+	repo.mu.Unlock()
+
+	gin.SetMode(gin.TestMode)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := discoveryrest.NewDiscoveryHandler(
+		repo,
+		&fakeWarming{},
+		&fakeRefresh{},
+		persistence.NewGenresPickerRepo(nil),
+		persistence.NewNetworksPickerRepo(nil),
+		nil, // searchUC
+		nil, // resolver — story 526 nil-OK
+		nil, // libraryInstances — story 527 nil-OK
+		log,
+	)
+	r := gin.New()
+	r.GET("/discovery/trending", h.Trending)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/discovery/trending?scope=day", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+
+	var body struct {
+		Items []struct {
+			PosterPath *string `json:"poster_path"`
+			PosterHash *string `json:"poster_hash"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Items, 1)
+	require.NotNil(t, body.Items[0].PosterPath)
+	assert.Equal(t, posterPath, *body.Items[0].PosterPath,
+		"nil resolver preserves raw path on legacy slot")
+	require.NotNil(t, body.Items[0].PosterHash)
+	assert.Equal(t, posterPath, *body.Items[0].PosterHash,
+		"nil resolver also fills the new poster_hash slot from raw path "+
+			"(degenerate but wire-shape-stable)")
+}

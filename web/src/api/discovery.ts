@@ -18,8 +18,14 @@ export interface DiscoverySeriesItem {
   readonly tvdb_id?: number;
   readonly title: string;
   readonly year?: number;
-  readonly poster_path?: string;
-  readonly backdrop_path?: string;
+  // Story 554 / E-1 Z5: hash-addressed content URL for /api/v1/media/:hash.
+  // PREFER this over the legacy poster_path / backdrop_path pair below —
+  // the legacy fields will be dropped in a Z5-cleanup follow-up once the
+  // FE bundle CDN cache window expires (~7d post-deploy).
+  readonly poster_hash?: string;
+  readonly backdrop_hash?: string;
+  readonly poster_path?: string;   // legacy — mirror of poster_hash
+  readonly backdrop_path?: string; // legacy — mirror of backdrop_hash
   readonly origin_countries?: readonly string[];
   readonly genres?: readonly string[];
   readonly in_library_instances?: readonly string[];
