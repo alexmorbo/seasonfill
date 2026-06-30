@@ -197,6 +197,93 @@ func (r *EpisodeTextsRepository) GetWithFallback(ctx context.Context, episodeID 
 	return toEpisodeText(m), nil
 }
 
+// ListByEpisodeIDsWithFallback returns one EpisodeText per requested
+// episode_id, applying the §5.6 two-tier fallback (requested language
+// first, en-US second) in a single round-trip. Story 550 (E-1 Z1) —
+// replaces the per-episode GetWithFallback loop in the seriesdetail
+// composer (composer.go branch b + GetCanonicalSeasons).
+//
+// Semantics:
+//   - Empty episodeIDs slice → empty map, nil error (no SQL issued).
+//   - Episode with a row in `lang`            → entry uses that row.
+//   - Episode with no `lang` row but en-US    → entry uses en-US row.
+//   - Episode with neither row                → key absent from map
+//     (caller mirrors the existing ErrNotFound branch by leaving
+//     EpisodeDetail.Text nil).
+//
+// The third §5.6 tier ("first available row by language ASC") is NOT
+// applied on this batch path — see story-550 design notes. The composer
+// treats "no row" the same way today; degrading further would require a
+// per-row LATERAL/window subquery that does not survive sqlite parity.
+//
+// SQL: at most two index-driven SELECTs against episode_texts on the
+// (episode_id, language) PK — one for the requested language, one for
+// the en-US fallback restricted to the ids the first query did not
+// satisfy. Single SELECT when lang == en-US. Merge happens in Go to
+// avoid a COALESCE projection that sqlite cannot scan back into
+// *time.Time (no datetime affinity through COALESCE).
+func (r *EpisodeTextsRepository) ListByEpisodeIDsWithFallback(
+	ctx context.Context,
+	episodeIDs []domain.EpisodeID,
+	lang string,
+) (map[domain.EpisodeID]series.EpisodeText, error) {
+	if len(episodeIDs) == 0 {
+		return map[domain.EpisodeID]series.EpisodeText{}, nil
+	}
+	if lang == "" {
+		lang = fallbackLanguage
+	}
+
+	// Cast to int64 because GORM's `IN ?` expander walks `any` slices
+	// element-wise; using the typed primitive directly works on
+	// Postgres but trips sqlite's bind-conversion in older driver
+	// builds. The conversion is free at runtime — same kind underlying.
+	ids := make([]int64, len(episodeIDs))
+	for i, id := range episodeIDs {
+		ids[i] = int64(id)
+	}
+
+	// First pass: rows in the requested language. Scans the
+	// (episode_id, language) PK index directly — no `episodes` table
+	// touched, query stays cheap even when episode_texts is sparse.
+	var primary []database.EpisodeTextModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("episode_id IN ? AND language = ?", ids, lang).
+		Find(&primary).Error; err != nil {
+		return nil, fmt.Errorf("list episode_texts by ids (lang=%s): %w", lang, err)
+	}
+
+	out := make(map[domain.EpisodeID]series.EpisodeText, len(episodeIDs))
+	for _, m := range primary {
+		out[m.EpisodeID] = toEpisodeText(m)
+	}
+
+	// Second pass — only when lang != en-US: pick up episodes that
+	// have no row in `lang` but DO have one in en-US. Skipped when
+	// lang IS en-US (the first query already covered that case).
+	if lang != fallbackLanguage {
+		remaining := make([]int64, 0, len(ids))
+		for _, id := range ids {
+			if _, ok := out[domain.EpisodeID(id)]; !ok {
+				remaining = append(remaining, id)
+			}
+		}
+		if len(remaining) > 0 {
+			var fallback []database.EpisodeTextModel
+			if err := dbFromContext(ctx, r.db).WithContext(ctx).
+				Where("episode_id IN ? AND language = ?", remaining, fallbackLanguage).
+				Find(&fallback).Error; err != nil {
+				return nil, fmt.Errorf("list episode_texts en-US fallback: %w", err)
+			}
+			for _, m := range fallback {
+				out[m.EpisodeID] = toEpisodeText(m)
+			}
+		}
+	}
+
+	return out, nil
+}
+
 // CoverageBySeries reports how many of the series's episodes have an
 // `episode_texts` row for the given language vs the total episode count.
 // Story 548: probe uses this to detect "episodes en-US fine but ru-RU

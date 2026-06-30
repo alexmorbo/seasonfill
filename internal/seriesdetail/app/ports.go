@@ -97,14 +97,22 @@ type SeasonStatsPort interface {
 }
 
 // EpisodeTextsPort fetches localised episode text by composite PK.
-// The composer falls back per-row via the helper's two-LEFT-JOIN
-// pattern (PRD §5.6), but the simpler interface used here is the
-// per-episode GetWithFallback — N episodes × 1 call is still
-// cheap on local sqlite (< 100 episodes for a typical series).
-// E-1 may collapse this into one batched SQL later; for 215 the
-// per-row call is intentional simplicity.
+// Story 550 collapsed the per-episode N+1 in branch b of the composer
+// (composer.go loadSeasonsAndEpisodes + GetCanonicalSeasons) into the
+// batched ListByEpisodeIDsWithFallback. GetWithFallback is kept on the
+// port because it remains the natural choice for single-episode call
+// sites (the SeriesFreshener probe + tests).
+//
+// The batched method applies the §5.6 fallback chain's first two tiers
+// (requested language → en-US) in one round-trip; the §5.6 third tier
+// (first-available by language ASC) is intentionally NOT applied on the
+// batch path — the composer treats a missing entry the same way it
+// treats ErrNotFound from GetWithFallback today (EpisodeDetail.Text
+// stays nil), so dropping the third tier preserves observable behaviour
+// without requiring a sqlite-hostile LATERAL/window subquery.
 type EpisodeTextsPort interface {
 	GetWithFallback(ctx context.Context, episodeID domain.EpisodeID, language string) (series.EpisodeText, error)
+	ListByEpisodeIDsWithFallback(ctx context.Context, episodeIDs []domain.EpisodeID, language string) (map[domain.EpisodeID]series.EpisodeText, error)
 }
 
 // SeriesPeoplePort lists series_people rows. The composer filters

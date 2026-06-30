@@ -98,6 +98,10 @@ func (fakeNoEpTexts) GetWithFallback(_ context.Context, _ domain.EpisodeID, _ st
 	return series.EpisodeText{}, ports.ErrNotFound
 }
 
+func (fakeNoEpTexts) ListByEpisodeIDsWithFallback(_ context.Context, _ []domain.EpisodeID, _ string) (map[domain.EpisodeID]series.EpisodeText, error) {
+	return map[domain.EpisodeID]series.EpisodeText{}, nil
+}
+
 type emptyList struct{}
 
 func (emptyList) ListBySeries(_ context.Context, _ domain.SeriesID) ([]series.CanonSeason, error) {

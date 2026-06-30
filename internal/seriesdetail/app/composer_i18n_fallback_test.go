@@ -118,3 +118,86 @@ func TestComposer_I18nFallback_PRDSection5_6(t *testing.T) {
 		})
 	}
 }
+
+// fakeI18nEpisodeTexts mirrors fakeI18nSeriesTexts for the batch port.
+// Compile-time guard below pins it to the production interface so a
+// port-signature drift breaks the test rather than silently diverging.
+type fakeI18nEpisodeTexts struct {
+	// rowsByEpisode[episodeID][language] = row. The fake encodes the
+	// §5.6 first-two-tier semantics the batch implementation
+	// guarantees — requested lang first, then en-US — and stops
+	// (no third-tier first-available).
+	rowsByEpisode map[domain.EpisodeID]map[string]series.EpisodeText
+}
+
+func (f *fakeI18nEpisodeTexts) GetWithFallback(_ context.Context, episodeID domain.EpisodeID, lang string) (series.EpisodeText, error) {
+	rows, ok := f.rowsByEpisode[episodeID]
+	if !ok {
+		return series.EpisodeText{}, ports.ErrNotFound
+	}
+	if r, ok := rows[lang]; ok {
+		return r, nil
+	}
+	if r, ok := rows["en-US"]; ok {
+		return r, nil
+	}
+	return series.EpisodeText{}, ports.ErrNotFound
+}
+
+func (f *fakeI18nEpisodeTexts) ListByEpisodeIDsWithFallback(_ context.Context, episodeIDs []domain.EpisodeID, lang string) (map[domain.EpisodeID]series.EpisodeText, error) {
+	out := make(map[domain.EpisodeID]series.EpisodeText, len(episodeIDs))
+	for _, id := range episodeIDs {
+		rows, ok := f.rowsByEpisode[id]
+		if !ok {
+			continue
+		}
+		if r, ok := rows[lang]; ok {
+			out[id] = r
+			continue
+		}
+		if r, ok := rows["en-US"]; ok {
+			out[id] = r
+		}
+	}
+	return out, nil
+}
+
+// TestEpisodeTextsPort_BatchFallback_PRDSection5_6 covers the batch
+// path's contract: mixed seed where some episodes have the requested
+// lang, some only en-US, some neither. Episodes with neither row MUST
+// be absent from the map (caller leaves Text nil).
+func TestEpisodeTextsPort_BatchFallback_PRDSection5_6(t *testing.T) {
+	var _ EpisodeTextsPort = (*fakeI18nEpisodeTexts)(nil)
+
+	t.Parallel()
+	titleOf := func(label string) *string { s := "Title-" + label; return &s }
+	mk := func(lang, label string) series.EpisodeText {
+		return series.EpisodeText{Language: lang, Title: titleOf(label)}
+	}
+	fake := &fakeI18nEpisodeTexts{
+		rowsByEpisode: map[domain.EpisodeID]map[string]series.EpisodeText{
+			1: {"ru-RU": mk("ru-RU", "ep1-ru"), "en-US": mk("en-US", "ep1-en")},
+			2: {"en-US": mk("en-US", "ep2-en")},
+			3: {"ru-RU": mk("ru-RU", "ep3-ru")},
+			// id 4: no rows at all
+		},
+	}
+	out, err := fake.ListByEpisodeIDsWithFallback(context.Background(),
+		[]domain.EpisodeID{1, 2, 3, 4}, "ru-RU")
+	require.NoError(t, err)
+
+	require.Contains(t, out, domain.EpisodeID(1))
+	assert.Equal(t, "ru-RU", out[domain.EpisodeID(1)].Language,
+		"id1 has both rows — requested lang wins (tier 1)")
+
+	require.Contains(t, out, domain.EpisodeID(2))
+	assert.Equal(t, "en-US", out[domain.EpisodeID(2)].Language,
+		"id2 has only en-US — fallback (tier 2)")
+
+	require.Contains(t, out, domain.EpisodeID(3))
+	assert.Equal(t, "ru-RU", out[domain.EpisodeID(3)].Language,
+		"id3 has only ru-RU — direct hit")
+
+	assert.NotContains(t, out, domain.EpisodeID(4),
+		"id4 has no rows — MUST be absent so composer leaves Text nil")
+}

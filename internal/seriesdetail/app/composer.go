@@ -531,6 +531,31 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 	for _, e := range episodes {
 		bySeason[e.SeasonNumber] = append(bySeason[e.SeasonNumber], e)
 	}
+
+	// Story 550 (E-1 Z1) — batch i18n fallback. The previous shape
+	// issued one episode_texts SELECT per episode (~600 queries for
+	// SVU). One JOIN'd query now resolves the full language→en-US
+	// fallback chain. Episodes absent from the map have neither a
+	// `lang` nor 'en-US' row; the composer mirrors the prior
+	// ErrNotFound branch by leaving EpisodeDetail.Text nil.
+	episodeIDs := make([]domain.EpisodeID, 0, len(episodes))
+	for _, e := range episodes {
+		episodeIDs = append(episodeIDs, domain.EpisodeID(e.ID))
+	}
+	textsByID, terr := c.d.EpisodeTexts.ListByEpisodeIDsWithFallback(ctx, episodeIDs, lang)
+	if terr != nil {
+		// Failure of the i18n batch should NOT 5xx the composer —
+		// degrades the season list to canon titles (mirrors the
+		// per-row behaviour where each missing row was silently
+		// swallowed).
+		c.d.Logger.WarnContext(ctx, "episode_texts_batch_failed",
+			slog.Int64("series_id", int64(d.SeriesID)),
+			slog.String("lang", lang),
+			slog.Int("episode_count", len(episodeIDs)),
+			slog.String("error", terr.Error()))
+		textsByID = nil
+	}
+
 	out := make([]SeasonDetail, 0, len(seasons))
 	for _, s := range seasons {
 		eps := bySeason[s.SeasonNumber]
@@ -544,11 +569,7 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 				stCopy := st
 				ed.State = &stCopy
 			}
-			// Per-row i18n fallback. For 215 we do N calls — see
-			// §3 SeasonsPort note (collapse into one batched JOIN
-			// is a follow-up performance story).
-			t, terr := c.d.EpisodeTexts.GetWithFallback(ctx, domain.EpisodeID(e.ID), lang)
-			if terr == nil {
+			if t, ok := textsByID[domain.EpisodeID(e.ID)]; ok {
 				et := t
 				ed.Text = &et
 			}
@@ -1211,6 +1232,29 @@ func (c *Composer) GetCanonicalSeasons(ctx context.Context, seriesID domain.Seri
 	for _, e := range episodes {
 		bySeason[e.SeasonNumber] = append(bySeason[e.SeasonNumber], e)
 	}
+
+	// Story 550 — batch fallback (mirrors loadSeasonsAndEpisodes).
+	// EpisodeTexts is nil-OK on this fallback path (per port doc) —
+	// when wired we batch; when nil we leave every EpisodeDetail.Text
+	// blank (canon-only render).
+	var textsByID map[domain.EpisodeID]series.EpisodeText
+	if c.d.EpisodeTexts != nil {
+		episodeIDs := make([]domain.EpisodeID, 0, len(episodes))
+		for _, e := range episodes {
+			episodeIDs = append(episodeIDs, domain.EpisodeID(e.ID))
+		}
+		var terr error
+		textsByID, terr = c.d.EpisodeTexts.ListByEpisodeIDsWithFallback(ctx, episodeIDs, lang)
+		if terr != nil {
+			c.d.Logger.WarnContext(ctx, "canonical_episode_texts_batch_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.Int("episode_count", len(episodeIDs)),
+				slog.String("err", terr.Error()))
+			textsByID = nil
+		}
+	}
+
 	out := make([]SeasonDetail, 0, len(seasons))
 	for _, s := range seasons {
 		eps := bySeason[s.SeasonNumber]
@@ -1220,17 +1264,9 @@ func (c *Composer) GetCanonicalSeasons(ctx context.Context, seriesID domain.Seri
 		epDetails := make([]EpisodeDetail, 0, len(eps))
 		for _, e := range eps {
 			ed := EpisodeDetail{Canon: e}
-			if c.d.EpisodeTexts != nil {
-				t, terr := c.d.EpisodeTexts.GetWithFallback(ctx, domain.EpisodeID(e.ID), lang)
-				if terr == nil {
-					et := t
-					ed.Text = &et
-				} else if !errors.Is(terr, ports.ErrNotFound) {
-					c.d.Logger.WarnContext(ctx, "canonical_episode_text_failed",
-						slog.Int64("series_id", int64(seriesID)),
-						slog.Int64("episode_id", e.ID),
-						slog.String("err", terr.Error()))
-				}
+			if t, ok := textsByID[domain.EpisodeID(e.ID)]; ok {
+				et := t
+				ed.Text = &et
 			}
 			epDetails = append(epDetails, ed)
 		}

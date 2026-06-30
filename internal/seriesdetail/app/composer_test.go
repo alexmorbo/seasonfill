@@ -134,10 +134,30 @@ func (f *fakeEpisodeStates) ListBySeries(_ context.Context, _ domain.InstanceNam
 	return f.rows, f.err
 }
 
-type fakeEpisodeTexts struct{}
+type fakeEpisodeTexts struct {
+	// byEpisode optionally seeds individual rows. Empty/nil → every
+	// lookup returns ErrNotFound (preserves prior fake behaviour).
+	byEpisode map[domain.EpisodeID]series.EpisodeText
+}
 
-func (fakeEpisodeTexts) GetWithFallback(_ context.Context, _ domain.EpisodeID, _ string) (series.EpisodeText, error) {
+func (f fakeEpisodeTexts) GetWithFallback(_ context.Context, episodeID domain.EpisodeID, _ string) (series.EpisodeText, error) {
+	if t, ok := f.byEpisode[episodeID]; ok {
+		return t, nil
+	}
 	return series.EpisodeText{}, ports.ErrNotFound
+}
+
+func (f fakeEpisodeTexts) ListByEpisodeIDsWithFallback(_ context.Context, episodeIDs []domain.EpisodeID, _ string) (map[domain.EpisodeID]series.EpisodeText, error) {
+	if len(episodeIDs) == 0 || len(f.byEpisode) == 0 {
+		return map[domain.EpisodeID]series.EpisodeText{}, nil
+	}
+	out := make(map[domain.EpisodeID]series.EpisodeText, len(episodeIDs))
+	for _, id := range episodeIDs {
+		if t, ok := f.byEpisode[id]; ok {
+			out[id] = t
+		}
+	}
+	return out, nil
 }
 
 type fakeSeasonStatsPort struct {
