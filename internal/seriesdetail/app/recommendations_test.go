@@ -184,3 +184,63 @@ func TestComposerGetRecommendations_StubSkipped(t *testing.T) {
 	require.Equal(t, 1, out.TotalCount, "stub-only rows must be dropped from TotalCount")
 	require.Equal(t, 1, len(out.Items))
 }
+
+// TestComposerGetRecommendations_BatchOrderPreserved pins the
+// observable contract that Story 551's batch path holds the same
+// guarantees as the pre-batch shape: input id-order is preserved on
+// the wire even when the underlying ListByIDs returns rows in id ASC
+// (which differs from recIDs ordering on most real series — TMDB
+// returns by popularity, not id).
+func TestComposerGetRecommendations_BatchOrderPreserved(t *testing.T) {
+	t.Parallel()
+	cache := map[string]series.CacheEntry{
+		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
+	}
+	// Recs returned in TMDB-popularity order (30, 10, 20), but the
+	// underlying Series.ListByIDs sorts by id ASC (10, 20, 30) per
+	// the in-repo convention. The composer MUST project back into the
+	// recIDs sequence.
+	canonByID := map[domain.SeriesID]series.Canon{
+		42: {ID: 42, Title: "Source"},
+		10: {ID: 10, Title: "Rec-10"},
+		20: {ID: 20, Title: "Rec-20"},
+		30: {ID: 30, Title: "Rec-30"},
+	}
+	recs := recFakeRecs{ids: []domain.SeriesID{30, 10, 20}}
+	c := newRecComposer(canonByID, cache, recs, &recFakeCacheLookup{})
+
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 3, len(out.Items))
+	require.Equal(t, domain.SeriesID(30), out.Items[0].Series.ID,
+		"input slice order preserved on the wire (NOT id ASC)")
+	require.Equal(t, domain.SeriesID(10), out.Items[1].Series.ID)
+	require.Equal(t, domain.SeriesID(20), out.Items[2].Series.ID)
+}
+
+// TestComposerGetRecommendations_BatchListFailureDegradesQuiet pins
+// that a transient ListByIDs failure surfaces as an empty resolved
+// slice + a warn log (not a 500), matching the silent-degrade
+// semantics the prior per-row Get loop carried.
+func TestComposerGetRecommendations_BatchListFailureDegradesQuiet(t *testing.T) {
+	t.Parallel()
+	cache := map[string]series.CacheEntry{
+		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
+	}
+	// rows table errs on every Get / ListByIDs path.
+	failSeries := &ovFakeSeries{rows: map[domain.SeriesID]series.Canon{42: {ID: 42}}, err: errors.New("db down")} //nolint:err113
+	c := NewComposer(Deps{
+		SeriesCache:       &ovFakeCache{entries: cache},
+		SeriesCacheLookup: &recFakeCacheLookup{},
+		Series:            failSeries,
+		Recommendations:   recFakeRecs{ids: []domain.SeriesID{10, 20}},
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:               func() time.Time { return time.Now().UTC() },
+	})
+
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 20, 0)
+	require.NoError(t, err, "DB failure on canon batch must NOT 5xx the recs endpoint")
+	require.NotNil(t, out)
+	require.Equal(t, 0, len(out.Items))
+	require.Equal(t, 0, out.TotalCount)
+}

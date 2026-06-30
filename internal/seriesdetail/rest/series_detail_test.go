@@ -86,6 +86,16 @@ func (f *fakeSeriesPort) GetByTMDBID(_ context.Context, tmdbID domain.TMDBID) (s
 	return series.Canon{}, ports.ErrNotFound
 }
 
+func (f *fakeSeriesPort) ListByIDs(_ context.Context, ids []domain.SeriesID) ([]series.Canon, error) {
+	out := make([]series.Canon, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := f.rows[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 type fakeNoTexts struct{}
 
 func (fakeNoTexts) GetWithFallback(_ context.Context, _ domain.SeriesID, _ string) (series.SeriesText, error) {

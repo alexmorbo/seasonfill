@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -100,23 +101,45 @@ func (c *Composer) GetRecommendations(
 		return out, nil
 	}
 
-	// Resolve canon rows in id-order; drop misses (matches monolith).
+	// Story 551 (E-1 Z2) — batch the canon stub hydration. Mirrors the
+	// fat composer's loadRecommendations after Story 551. Order
+	// preservation is enforced by iterating `ids` in input sequence
+	// when projecting; misses are silently dropped (stub-skip parity
+	// with the prior shape).
 	resolved := make([]RecommendationDetail, 0, len(ids))
-	for _, recID := range ids {
-		s, sgerr := c.d.Series.Get(ctx, recID)
-		if sgerr != nil {
-			continue
+	canons, lerr := c.d.Series.ListByIDs(ctx, ids)
+	if lerr != nil {
+		// Treat a batch failure the same way the prior shape treated a
+		// per-row error: degrade silently (the `for _, recID := range ids`
+		// loop swallowed the `sgerr` already). Surfacing it as a
+		// `tmdb_series` degraded flag would over-report — the lookup
+		// table is the local canon, not TMDB. Log + continue with an
+		// empty resolved slice.
+		c.d.Logger.WarnContext(ctx, "recommendations_canons_batch_failed",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.Int("rec_count", len(ids)),
+			slog.String("err", lerr.Error()))
+	} else {
+		byID := make(map[domain.SeriesID]series.Canon, len(canons))
+		for _, canon := range canons {
+			byID[canon.ID] = canon
 		}
-		rd := RecommendationDetail{Series: s}
-		if c.d.SeriesCacheLookup != nil {
-			caches, _ := c.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
-			if len(caches) > 0 {
-				rd.InLibrary = true
-				rd.InstanceName = caches[0].InstanceName
-				rd.SonarrSeriesID = caches[0].SonarrSeriesID
+		for _, recID := range ids {
+			canon, ok := byID[recID]
+			if !ok {
+				continue
 			}
+			rd := RecommendationDetail{Series: canon}
+			if c.d.SeriesCacheLookup != nil {
+				caches, _ := c.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
+				if len(caches) > 0 {
+					rd.InLibrary = true
+					rd.InstanceName = caches[0].InstanceName
+					rd.SonarrSeriesID = caches[0].SonarrSeriesID
+				}
+			}
+			resolved = append(resolved, rd)
 		}
-		resolved = append(resolved, rd)
 	}
 
 	out.TotalCount = len(resolved)

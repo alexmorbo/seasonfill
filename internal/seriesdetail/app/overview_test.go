@@ -36,9 +36,13 @@ func (f *ovFakeCache) ListBySeriesID(_ context.Context, _ domain.SeriesID) ([]se
 
 type ovFakeSeries struct {
 	rows map[domain.SeriesID]series.Canon
+	err  error
 }
 
 func (f *ovFakeSeries) Get(_ context.Context, id domain.SeriesID) (series.Canon, error) {
+	if f.err != nil {
+		return series.Canon{}, f.err
+	}
 	c, ok := f.rows[id]
 	if !ok {
 		return series.Canon{}, ports.ErrNotFound
@@ -47,7 +51,23 @@ func (f *ovFakeSeries) Get(_ context.Context, id domain.SeriesID) (series.Canon,
 }
 
 func (f *ovFakeSeries) GetByTMDBID(_ context.Context, _ domain.TMDBID) (series.Canon, error) {
+	if f.err != nil {
+		return series.Canon{}, f.err
+	}
 	return series.Canon{}, ports.ErrNotFound
+}
+
+func (f *ovFakeSeries) ListByIDs(_ context.Context, ids []domain.SeriesID) ([]series.Canon, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]series.Canon, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := f.rows[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 type ovFakeTexts struct {

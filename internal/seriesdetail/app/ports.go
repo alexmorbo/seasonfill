@@ -30,10 +30,14 @@ type SeriesCachePort interface {
 // SeriesPort fetches the canonical series row by series.id. The
 // H-1 cast composer additionally uses GetByTMDBID to resolve a
 // person_credits.tmdb_media_id back to a canon series.id (see
-// cast.go probeInLibrary).
+// cast.go probeInLibrary). Story 551 added ListByIDs — the recommendations
+// branch (composer.go loadRecommendations + recommendations.go
+// GetRecommendations) batches the M=10-20 stub-hydration probe into
+// one query rather than M individual Get calls.
 type SeriesPort interface {
 	Get(ctx context.Context, id domain.SeriesID) (series.Canon, error)
 	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (series.Canon, error)
+	ListByIDs(ctx context.Context, ids []domain.SeriesID) ([]series.Canon, error)
 }
 
 // PersonCreditsPort is the narrow port for the H-1 in_library

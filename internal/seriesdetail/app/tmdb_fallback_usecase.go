@@ -348,10 +348,29 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 		mark()
 		return out, nil
 	}
+	// Story 551 (E-1 Z2) — batch the canon stub hydration, mirroring the
+	// composer.go loadRecommendations path. The previous shape issued one
+	// series SELECT per recommendation (M=10-20 per detail open). One
+	// `id IN (?)` query now resolves the whole set; id-order preservation
+	// is enforced by iterating the original `ids` slice when projecting
+	// into RecommendationDetail rows. Stubs absent from the map mirror the
+	// prior ErrNotFound continue branch (silently skipped).
+	canons, lerr := u.d.Series.ListByIDs(ctx, ids)
+	if lerr != nil {
+		u.d.Logger.WarnContext(ctx, "tmdb_fallback_recommendations_batch_failed",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.String("err", lerr.Error()))
+		mark()
+		return out, nil
+	}
+	byID := make(map[domain.SeriesID]series.Canon, len(canons))
+	for _, canon := range canons {
+		byID[canon.ID] = canon
+	}
 	resolved := make([]RecommendationDetail, 0, len(ids))
 	for _, recID := range ids {
-		s, sgerr := u.d.Series.Get(ctx, recID)
-		if sgerr != nil {
+		s, ok := byID[recID]
+		if !ok {
 			continue
 		}
 		rd := RecommendationDetail{Series: s}

@@ -69,6 +69,52 @@ func (r *SeriesRepository) GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID
 	return toCanon(m), nil
 }
 
+// ListByIDs returns canon rows for the supplied ids in id-ascending
+// order. Missing ids are silently dropped (callers needing a presence
+// check go through Get / GetByTMDBID per id). Empty input returns
+// (nil, nil) — callers MUST tolerate a nil slice (matches People.ListByIDs).
+//
+// Story 551 (E-1 Z2) — replaces the per-rec Series.Get loop in the
+// seriesdetail composer (composer.go loadRecommendations +
+// recommendations.go GetRecommendations). One round-trip per call site
+// regardless of M; the `id IN (?)` predicate rides the PK index on
+// both Postgres and sqlite, so the read is sub-millisecond for the
+// M=10-20 typical recommendations batch.
+//
+// Read shape is byte-equal to Get(): every row goes through the same
+// toCanon projector (origin_countries JSON, hydration enum, the
+// enrichment_*_synced_at columns). The Recommendation use-case wires
+// the slice into a map[SeriesID]series.Canon locally; this method
+// stays neutral and returns the wire-stable slice form to mirror
+// PeopleRepository.ListByIDs / NetworksRepository.ListByIDs.
+func (r *SeriesRepository) ListByIDs(ctx context.Context, ids []domain.SeriesID) ([]series.Canon, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	// Cast to int64 because GORM's `IN ?` expander walks `any` slices
+	// element-wise; using the typed primitive directly works on
+	// Postgres but trips sqlite's bind-conversion in older driver
+	// builds. Mirrors the same conversion in Story 550's
+	// ListByEpisodeIDsWithFallback.
+	bound := make([]int64, len(ids))
+	for i, id := range ids {
+		bound[i] = int64(id)
+	}
+	var models []database.SeriesModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("id IN ?", bound).
+		Order("id ASC").
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("list series by ids: %w", err)
+	}
+	out := make([]series.Canon, 0, len(models))
+	for _, m := range models {
+		out = append(out, toCanon(m))
+	}
+	return out, nil
+}
+
 // FindByExternalIDs resolves a canon row by trying TMDB id first,
 // then TVDB id, then IMDB id, in that order — same priority the
 // Sonarr sync worker uses to attach `series_cache.series_id` (§5.4).

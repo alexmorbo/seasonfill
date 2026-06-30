@@ -85,6 +85,19 @@ func (f *fakeSeries) GetByTMDBID(_ context.Context, tmdbID domain.TMDBID) (serie
 	return series.Canon{}, ports.ErrNotFound
 }
 
+func (f *fakeSeries) ListByIDs(_ context.Context, ids []domain.SeriesID) ([]series.Canon, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]series.Canon, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := f.rows[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 type fakeSeriesTexts struct {
 	rows map[string]series.SeriesText // key="seriesID|lang"
 	err  error

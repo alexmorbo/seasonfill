@@ -710,13 +710,35 @@ func (c *Composer) loadRecommendations(ctx context.Context, d *Detail) error {
 	if err != nil {
 		return fmt.Errorf("list recommendations: %w", err)
 	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	// Story 551 (E-1 Z2) — batch the canon stub hydration. The previous
+	// shape issued one series SELECT per recommendation (M=10-20 per
+	// detail open). One `id IN (?)` query now resolves the whole set;
+	// id-order preservation is enforced by iterating the original
+	// `ids` slice when projecting into RecommendationDetail rows. Stubs
+	// absent from the map mirror the prior ErrNotFound continue branch
+	// (silently skipped).
+	canons, lerr := c.d.Series.ListByIDs(ctx, ids)
+	if lerr != nil {
+		return fmt.Errorf("list series by ids: %w", lerr)
+	}
+	byID := make(map[domain.SeriesID]series.Canon, len(canons))
+	for _, canon := range canons {
+		byID[canon.ID] = canon
+	}
+
 	for _, recID := range ids {
-		s, sgerr := c.d.Series.Get(ctx, recID)
-		if sgerr != nil {
+		s, ok := byID[recID]
+		if !ok {
 			continue // recommendation stub not yet hydrated
 		}
 		rd := RecommendationDetail{Series: s}
 		// in_library probe: any cache row referencing this series.id?
+		// Out of scope for Z2 — separate port, separate table, separate
+		// follow-up story (see PLAN §10.4 backlog).
 		caches, _ := c.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
 		if len(caches) > 0 {
 			rd.InLibrary = true

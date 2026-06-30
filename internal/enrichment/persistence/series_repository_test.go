@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -1241,6 +1242,99 @@ func TestSeriesRepository_Upsert_RegressionCountriesAndRatingsLost_FIXB13HERO(t 
 
 			assert.Equal(t, series.HydrationFull, got.Hydration,
 				"REGRESSION: hydration downgraded full->stub")
+		})
+	}
+}
+
+// TestSeriesRepository_ListByIDs_DualBackend is the D-0 dual-backend
+// (sqlite + Postgres testcontainer) regression net for Story 551's
+// batch reader. Verifies id-ascending order, partial-miss tolerance,
+// empty-input shortcut, and that the read shape matches Get() byte-for-byte
+// (origin_countries JSON, hydration enum, the enrichment_*_synced_at
+// columns all round-trip through toCanon identically on both backends).
+func TestSeriesRepository_ListByIDs_DualBackend(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+
+			// seedSeries inserts N rows with distinct TMDB/TVDB/IMDB ids
+			// (sampleCanon's defaults collide on the partial unique
+			// indexes when called more than once) and returns the
+			// assigned series.id list in insertion order.
+			seedSeries := func(t *testing.T, n int) (*SeriesRepository, []domain.SeriesID) {
+				t.Helper()
+				gdb := backend.NewDB(t)
+				repo := NewSeriesRepository(gdb)
+				ids := make([]domain.SeriesID, n)
+				for i := range n {
+					canon := sampleCanon(fmt.Sprintf("rec-%d", i+1))
+					canon.TMDBID = ptrTMDBID(700100 + i)
+					canon.TVDBID = ptrTVDBID(700200 + i)
+					canon.IMDBID = ptrIMDBID(fmt.Sprintf("tt55100%02d", i))
+					id, err := repo.Upsert(ctx, canon)
+					require.NoError(t, err)
+					ids[i] = id
+				}
+				return repo, ids
+			}
+
+			t.Run("returns_all_rows_in_id_ascending_order", func(t *testing.T) {
+				repo, ids := seedSeries(t, 4)
+				// Pass in shuffled order to assert the repo sorts.
+				shuffled := []domain.SeriesID{ids[3], ids[0], ids[2], ids[1]}
+				out, err := repo.ListByIDs(ctx, shuffled)
+				require.NoError(t, err)
+				require.Len(t, out, 4)
+				assert.Equal(t, ids[0], out[0].ID, "must be ASC by id regardless of input order")
+				assert.Equal(t, ids[1], out[1].ID)
+				assert.Equal(t, ids[2], out[2].ID)
+				assert.Equal(t, ids[3], out[3].ID)
+			})
+
+			t.Run("missing_ids_silently_dropped", func(t *testing.T) {
+				repo, ids := seedSeries(t, 2)
+				// 99999 doesn't exist — must NOT 404; must return the
+				// hit subset.
+				out, err := repo.ListByIDs(ctx, []domain.SeriesID{ids[0], 99999, ids[1]})
+				require.NoError(t, err)
+				require.Len(t, out, 2, "missing ids drop silently; caller projects from the input slice")
+				assert.Equal(t, ids[0], out[0].ID)
+				assert.Equal(t, ids[1], out[1].ID)
+			})
+
+			t.Run("empty_input_returns_nil_no_sql", func(t *testing.T) {
+				repo, _ := seedSeries(t, 0)
+				out, err := repo.ListByIDs(ctx, nil)
+				require.NoError(t, err)
+				assert.Nil(t, out)
+				// Same for an explicit empty (non-nil) slice.
+				out, err = repo.ListByIDs(ctx, []domain.SeriesID{})
+				require.NoError(t, err)
+				assert.Nil(t, out)
+			})
+
+			t.Run("read_shape_matches_get", func(t *testing.T) {
+				// Pin one row with the full enrichment column set, fetch
+				// via both Get and ListByIDs, assert byte-equality on the
+				// projection (catches a future divergence in toCanon).
+				repo, ids := seedSeries(t, 1)
+				viaGet, err := repo.Get(ctx, ids[0])
+				require.NoError(t, err)
+				viaList, err := repo.ListByIDs(ctx, []domain.SeriesID{ids[0]})
+				require.NoError(t, err)
+				require.Len(t, viaList, 1)
+				assert.Equal(t, viaGet, viaList[0],
+					"ListByIDs MUST go through toCanon — any divergence breaks the recommendations wire shape")
+			})
+
+			t.Run("all_misses_returns_empty_no_error", func(t *testing.T) {
+				repo, _ := seedSeries(t, 0)
+				out, err := repo.ListByIDs(ctx, []domain.SeriesID{77777, 88888})
+				require.NoError(t, err, "all-miss MUST NOT surface ErrNotFound — caller drops misses")
+				assert.Empty(t, out)
+			})
 		})
 	}
 }

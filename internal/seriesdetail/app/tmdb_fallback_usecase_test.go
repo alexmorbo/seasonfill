@@ -52,6 +52,19 @@ func (f *fakeMapSeriesReader) GetByTMDBID(_ context.Context, _ domain.TMDBID) (s
 	return series.Canon{}, ports.ErrNotFound
 }
 
+func (f *fakeMapSeriesReader) ListByIDs(_ context.Context, ids []domain.SeriesID) ([]series.Canon, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]series.Canon, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := f.rows[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 // fakeFallbackTexts satisfies seriesdetail.SeriesTextsPort.
 type fakeFallbackTexts struct {
 	out series.SeriesText
@@ -141,6 +154,15 @@ func (s *stubSeriesReader) Get(_ context.Context, _ domain.SeriesID) (series.Can
 
 func (s *stubSeriesReader) GetByTMDBID(_ context.Context, _ domain.TMDBID) (series.Canon, error) {
 	return series.Canon{}, ports.ErrNotFound
+}
+
+func (s *stubSeriesReader) ListByIDs(_ context.Context, _ []domain.SeriesID) ([]series.Canon, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	// stubSeriesReader carries a single canon row — return it if requested,
+	// otherwise an empty slice. Mirrors the single-row Get contract.
+	return []series.Canon{s.canon}, nil
 }
 
 func TestTMDBFallbackUseCase_FullHydration(t *testing.T) {
