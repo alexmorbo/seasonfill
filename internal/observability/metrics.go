@@ -518,3 +518,36 @@ func ObserveDiscoveryRefreshPaceWait(kind, language string, d time.Duration) {
 		`seasonfill_discovery_refresh_pace_wait_seconds{kind="` + kind +
 			`",language="` + language + `"}`).Update(d.Seconds())
 }
+
+// Story 568 A2 — Discovery pre-warm observability.
+//
+// `seasonfill_discovery_prewarm_series_warmed_total{outcome}` is a
+// counter family bumped once per (item, activeLang) pair the worker's
+// pre-warm fan-out attempted after a successful ReplaceList. Labels:
+//   - outcome: closed set {warmed, skip_fresh, skip_no_tmdb_id, error,
+//     cancelled}. Any other value pollutes the cardinality
+//     budget — the worker is the sole writer.
+//
+// `seasonfill_discovery_prewarm_duration_seconds` is a scalar histogram
+// (no labels) — wall-clock spent inside preWarmSeriesTexts per
+// successful ReplaceList. Reads "how long did the pre-warm fan-out
+// take" on the operator dashboard.
+const (
+	MetricDiscoveryPrewarmSeriesWarmedTotal = `seasonfill_discovery_prewarm_series_warmed_total`
+	MetricDiscoveryPrewarmDurationSeconds   = `seasonfill_discovery_prewarm_duration_seconds`
+)
+
+// IncDiscoveryPrewarm ticks the per-outcome pre-warm counter (Story
+// 568 A2). outcome ∈ {"warmed","skip_fresh","skip_no_tmdb_id","error",
+// "cancelled"} per the closed label set.
+func IncDiscoveryPrewarm(outcome string) {
+	metrics.GetOrCreateCounter(
+		`seasonfill_discovery_prewarm_series_warmed_total{outcome="` + outcome + `"}`).Inc()
+}
+
+// ObserveDiscoveryPrewarmDuration records wall-clock spent inside the
+// pre-warm fan-out per successful ReplaceList (Story 568 A2). Seconds,
+// histogram, no labels.
+func ObserveDiscoveryPrewarmDuration(d time.Duration) {
+	metrics.GetOrCreateHistogram(`seasonfill_discovery_prewarm_duration_seconds`).Update(d.Seconds())
+}

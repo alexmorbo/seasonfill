@@ -459,6 +459,20 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		discoTMDB = enrichBundle.TMDBHolder
 	}
+
+	// Story 568 A2 — pre-warmer holder. Nil when the config toggle is
+	// off. Bound to the enrichment SeriesWorker.RefreshSeriesText below
+	// once we've confirmed the worker exists — same LATE BIND pattern
+	// as SeriesFreshenerHolder. Kept in this scope so the wiring layer
+	// hands the port to BuildDiscoveryRuntime and the worker's
+	// refresh() success branch fans out the pre-warm calls.
+	var discoPreWarmer discoapp.SeriesTextPreWarmer
+	var discoPreWarmerHolder *adapters.DiscoveryPreWarmerHolder
+	if bootCfg.Discovery.PreWarmEnabled {
+		discoPreWarmerHolder = adapters.NewDiscoveryPreWarmerHolder()
+		discoPreWarmer = discoPreWarmerHolder
+	}
+
 	var discoRuntime *wiring.DiscoveryRuntimeBundle
 	if discoTMDB != nil {
 		discoRuntime, err = wiring.BuildDiscoveryRuntime(wiring.DiscoveryRuntimeDeps{
@@ -466,9 +480,20 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			DB:          db,
 			TMDB:        discoTMDB,
 			Log:         sharedports.DomainLogger(log, "discovery"),
+			PreWarmer:   discoPreWarmer,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("wire discovery runtime: %w", err)
+		}
+		// Story 568 A2 — bind the pre-warmer holder to the enrichment
+		// SeriesWorker.RefreshSeriesText. Holder Set is idempotent + nil-
+		// safe (nil inner → PreWarm returns nil). The enrichBundle.SeriesWorker
+		// was already produced by BuildEnrichment above and threaded through
+		// the LATE BIND ZONE for SeriesFreshenerHolder — reusing the same
+		// pointer here keeps A2 pre-warm behavior identical to a live-user
+		// composer freshener call (probe-gated, single tx per row).
+		if discoPreWarmerHolder != nil && enrichBundle != nil && enrichBundle.SeriesWorker != nil {
+			discoPreWarmerHolder.Set(enrichBundle.SeriesWorker)
 		}
 		lifecycle.Go(rootCtx, "discovery-worker", func(ctx context.Context) {
 			loops.RunDiscovery(ctx, discoRuntime.Worker,

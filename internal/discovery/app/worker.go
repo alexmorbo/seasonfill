@@ -90,7 +90,9 @@ type Clock interface {
 
 // WorkerDeps groups the worker dependencies for constructor-arg
 // hygiene. Every field is required — NewWorker panics on nil — EXCEPT
-// Limiter, which defaults to a production-tuned rate.Limiter when nil.
+// Limiter, which defaults to a production-tuned rate.Limiter when nil,
+// and PreWarmer, which is nil-OK (A2 disabled → refresh() success
+// branch skips the pre-warm fan-out).
 type WorkerDeps struct {
 	Repo     DiscoveryListRepo
 	Langs    ActiveLanguagesProvider
@@ -104,6 +106,13 @@ type WorkerDeps struct {
 	// pass a faster limiter (e.g. rate.NewLimiter(rate.Inf, 1)) to keep
 	// runtime short, or a slower one to assert the throttle fires.
 	Limiter *rate.Limiter
+	// PreWarmer — Story 568 A2. Nil-OK; when nil the worker's
+	// refresh() success branch does NOT fan out per-lang RefreshSeriesText
+	// calls. Production wiring binds the SeriesTextPreWarmer adapter over
+	// the enrichment SeriesWorker.RefreshSeriesText when
+	// discoveryPreWarm.enabled=true (default true). PreWarmer shares
+	// the same Limiter — no dual TMDB rate budget.
+	PreWarmer SeriesTextPreWarmer
 }
 
 // Worker is the 1h refresh loop owner. Single-threaded — Tick is
@@ -124,6 +133,11 @@ type Worker struct {
 	// (RefreshNow) paths. See WorkerDeps.Limiter godoc for tuning notes
 	// and B-39 for the production failure mode this guards against.
 	limiter *rate.Limiter
+
+	// preWarmer — Story 568 A2. Nil-OK; when nil the refresh() success
+	// branch skips the per-lang RefreshSeriesText fan-out. Shares the
+	// same limiter as refresh() itself (§3.4 story spec).
+	preWarmer SeriesTextPreWarmer
 
 	// warmingOnce flips discovery_warming 1→0 exactly once, on the
 	// first successful ReplaceList of ANY kind. atomic.Bool +
@@ -163,14 +177,15 @@ func NewWorker(deps WorkerDeps) *Worker {
 		limiter = rate.NewLimiter(rate.Limit(DefaultRefreshRPS), DefaultRefreshBurst)
 	}
 	return &Worker{
-		repo:     deps.Repo,
-		langs:    deps.Langs,
-		stubs:    deps.Stubs,
-		tmdb:     deps.TMDB,
-		topKinds: deps.TopKinds,
-		log:      deps.Log,
-		clock:    deps.Clock,
-		limiter:  limiter,
+		repo:      deps.Repo,
+		langs:     deps.Langs,
+		stubs:     deps.Stubs,
+		tmdb:      deps.TMDB,
+		topKinds:  deps.TopKinds,
+		log:       deps.Log,
+		clock:     deps.Clock,
+		limiter:   limiter,
+		preWarmer: deps.PreWarmer,
 	}
 }
 
@@ -205,6 +220,8 @@ func (w *Worker) RunForever(ctx context.Context, interval time.Duration) {
 //  1. Queries repo.IsStale(kind, "", lang, ScheduleFor(kind)).
 //  2. If stale, fetches PagesFor(kind) pages from TMDB and atomically
 //     replaces the list via repo.ReplaceList.
+//  3. If PreWarmer wired, fans out RefreshSeriesText(force=false) per
+//     (item, activeLang) pair via preWarmSeriesTexts (Story 568 A2).
 //
 // Errors at any step short-circuit the (lang, kind) pair only — the
 // next pair continues. Tick itself returns only ctx.Err() or the
@@ -239,17 +256,17 @@ func (w *Worker) Tick(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			w.maybeRefresh(ctx, kind, "", lang)
+			w.maybeRefresh(ctx, kind, "", lang, langs)
 		}
 		// Curated by_genre / by_network — top-10 TMDB ids each.
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		w.maybeRefreshCurated(ctx, disco.KindByGenre, lang)
+		w.maybeRefreshCurated(ctx, disco.KindByGenre, lang, langs)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		w.maybeRefreshCurated(ctx, disco.KindByNetwork, lang)
+		w.maybeRefreshCurated(ctx, disco.KindByNetwork, lang, langs)
 	}
 
 	// Warming probe (hotfix): if Tick fired NO refresh because every list
@@ -274,7 +291,13 @@ func (w *Worker) Tick(ctx context.Context) error {
 // maybeRefresh runs one (kind, param, lang) refresh if the list is
 // stale. Errors are absorbed (logged) so the per-(lang, kind) loop
 // in Tick continues.
-func (w *Worker) maybeRefresh(ctx context.Context, kind disco.Kind, param, lang string) {
+//
+// activeLangs — Story 568 A2. The full set of user languages the outer
+// Tick loop is running for. Passed through so the successful
+// ReplaceList branch can fan out RefreshSeriesText(force=false) per
+// (item, activeLang) pair via preWarmSeriesTexts. Nil / empty →
+// pre-warm becomes a no-op (matches Nil PreWarmer semantics).
+func (w *Worker) maybeRefresh(ctx context.Context, kind disco.Kind, param, lang string, activeLangs []string) {
 	stale, err := w.repo.IsStale(ctx, kind, param, lang, ScheduleFor(kind))
 	if err != nil {
 		w.log.WarnContext(ctx, "discovery is_stale query failed",
@@ -287,7 +310,7 @@ func (w *Worker) maybeRefresh(ctx context.Context, kind disco.Kind, param, lang 
 	if !stale {
 		return
 	}
-	if err := w.refresh(ctx, kind, param, lang); err != nil {
+	if err := w.refresh(ctx, kind, param, lang, activeLangs); err != nil {
 		// refresh already logged + bumped the error metric.
 		_ = err
 	}
@@ -297,7 +320,7 @@ func (w *Worker) maybeRefresh(ctx context.Context, kind disco.Kind, param, lang 
 // by_network} and calls maybeRefresh per id. Empty catalog → no work
 // (the cold-start chicken-and-egg cover; story 507 on-demand handler
 // covers the alternative).
-func (w *Worker) maybeRefreshCurated(ctx context.Context, kind disco.Kind, lang string) {
+func (w *Worker) maybeRefreshCurated(ctx context.Context, kind disco.Kind, lang string, activeLangs []string) {
 	var (
 		ids []int
 		err error
@@ -320,7 +343,7 @@ func (w *Worker) maybeRefreshCurated(ctx context.Context, kind disco.Kind, lang 
 		if ctx.Err() != nil {
 			return
 		}
-		w.maybeRefresh(ctx, kind, strconv.Itoa(id), lang)
+		w.maybeRefresh(ctx, kind, strconv.Itoa(id), lang, activeLangs)
 	}
 }
 
@@ -328,7 +351,15 @@ func (w *Worker) maybeRefreshCurated(ctx context.Context, kind disco.Kind, lang 
 // it through repo.ReplaceList. Per-step errors abort the refresh and
 // bump outcome="error"; the OLD data stays in place until the next
 // successful Tick.
-func (w *Worker) refresh(ctx context.Context, kind disco.Kind, param, lang string) error {
+//
+// activeLangs — Story 568 A2. Full active-language set. After a
+// successful ReplaceList, the worker fans out preWarmSeriesTexts
+// which iterates items × activeLangs and calls
+// SeriesTextPreWarmer.PreWarm(force=false) per pair. When
+// PreWarmer is nil (config toggle OFF) the fan-out is a no-op.
+// activeLangs may be nil / empty for on-demand RefreshNow calls
+// (story 507 handler path); the fan-out becomes a no-op in that case.
+func (w *Worker) refresh(ctx context.Context, kind disco.Kind, param, lang string, activeLangs []string) error {
 	// B-39: pace refresh() so the cold-start sweep doesn't fan-out the full
 	// stub-upsert + enrichment-enqueue burst within a few seconds. Wait
 	// BEFORE the first TMDB fetch so the limiter accounts for the
@@ -412,6 +443,13 @@ func (w *Worker) refresh(ctx context.Context, kind disco.Kind, param, lang strin
 		slog.String("language", lang),
 		slog.Int("items", len(items)),
 		slog.Int64("duration_ms", duration.Milliseconds()))
+
+	// Story 568 A2 — pre-warm series_texts.{seriesID, activeLang} for
+	// every item across every active user language. Nil-OK receiver
+	// (config toggle OFF) + defensive empty-slice guards mean the call
+	// is safe unconditionally.
+	w.preWarmSeriesTexts(ctx, kind, param, lang, items, activeLangs)
+
 	return nil
 }
 
@@ -545,6 +583,14 @@ func (w *Worker) IsWarming() bool {
 // coalesce duplicate calls. The worker's main Tick loop is
 // single-threaded, but on-demand requests are concurrent per gin
 // request goroutine.
+//
+// A2 pre-warm: on-demand RefreshNow does NOT fan out the pre-warm
+// path — activeLangs is nil, and preWarmSeriesTexts short-circuits on
+// an empty slice. Rationale: on-demand callers are latency-sensitive
+// (composer sync mode), and A2's pre-warm is designed to piggyback
+// on the periodic Tick loop where cost is amortised over the 1h
+// cadence. The user click for the on-demand path will land Fresh via
+// Freshener's own path when the click lands.
 func (w *Worker) RefreshNow(ctx context.Context, kind disco.Kind, param, lang string) error {
-	return w.refresh(ctx, kind, param, lang)
+	return w.refresh(ctx, kind, param, lang, nil)
 }

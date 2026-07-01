@@ -74,6 +74,22 @@ type Bootstrap struct {
 	MediaStore       MediaStoreConfig
 	ExternalServices ExternalServicesEnv
 	Enrichment       EnrichmentConfig
+	Discovery        DiscoveryConfig
+}
+
+// DiscoveryConfig carries the env-only tuning knobs for the discovery
+// bounded context. Story 568 A2 introduces PreWarmEnabled — the toggle
+// for the per-refresh pre-warm fan-out that fills
+// series_texts.{seriesID, activeLang} before the user clicks a
+// discovery tile.
+type DiscoveryConfig struct {
+	// PreWarmEnabled gates the A2 pre-warm hook (Story 568). DEFAULT
+	// ON; when true (the default), the discovery Worker fans out
+	// RefreshSeriesText(force=false) per (item, activeLang) at the
+	// end of every successful ReplaceList. When false the worker's
+	// refresh() success branch skips the fan-out (config-toggle
+	// rollback path). Env var: SEASONFILL_DISCOVERY_PREWARM_ENABLED.
+	PreWarmEnabled bool
 }
 
 // EnrichmentConfig carries the env-only tuning knobs for the
@@ -322,6 +338,12 @@ func FromEnv() (*Bootstrap, error) {
 			// defeat that, so leave the env unset in production and let
 			// the code default win.
 			MediaUnifiedResolve: getenvBool("SEASONFILL_MEDIA_UNIFIED_RESOLVE", true),
+		},
+		Discovery: DiscoveryConfig{
+			// Story 568 A2 — default ON. The chart values.yaml pins the
+			// env var to "true" for prod; operators flip it to "false"
+			// only for a soft rollback (see story §7.1).
+			PreWarmEnabled: getenvBool("SEASONFILL_DISCOVERY_PREWARM_ENABLED", true),
 		},
 	}
 	if err := cfg.Validate(); err != nil {

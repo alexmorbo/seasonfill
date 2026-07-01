@@ -83,12 +83,20 @@ func (realDiscoveryClock) Now() time.Time { return time.Now() }
 
 // DiscoveryRuntimeDeps is the input contract for BuildDiscoveryRuntime.
 // All fields required — nil causes a wiring error before NewWorker is
-// reached.
+// reached — EXCEPT PreWarmer (Story 568 A2) which is nil-OK. When
+// PreWarmer is nil the worker's refresh() success branch skips the
+// A2 pre-warm fan-out (config toggle OFF or unwired boot race).
 type DiscoveryRuntimeDeps struct {
 	Persistence *DiscoveryPersistenceBundle
 	DB          *gorm.DB
 	TMDB        discoapp.TMDBClient
 	Log         *slog.Logger
+	// PreWarmer — Story 568 A2. Optional; nil disables the pre-warm
+	// fan-out. Production wiring passes an
+	// *adapters.DiscoveryPreWarmerHolder that binds
+	// enrichment.SeriesWorker.RefreshSeriesText after the LATE BIND
+	// ZONE in cmd/server/server.go.
+	PreWarmer discoapp.SeriesTextPreWarmer
 }
 
 // BuildDiscoveryRuntime wires the worker + top-kinds reader. The
@@ -136,6 +144,12 @@ func BuildDiscoveryRuntime(deps DiscoveryRuntimeDeps) (*DiscoveryRuntimeBundle, 
 			rate.Limit(discoapp.DefaultRefreshRPS),
 			discoapp.DefaultRefreshBurst,
 		),
+		// Story 568 A2 — PreWarmer shares the Worker.limiter internally
+		// (no dual TMDB rate budget). Nil-safe: when the operator sets
+		// discoveryPreWarm.enabled=false the caller passes nil here and
+		// the worker's refresh() success branch skips the pre-warm
+		// fan-out.
+		PreWarmer: deps.PreWarmer,
 	})
 	return &DiscoveryRuntimeBundle{
 		Worker:   worker,

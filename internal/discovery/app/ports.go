@@ -86,6 +86,32 @@ type RefreshOnDemand interface {
 	RefreshNow(ctx context.Context, kind disco.Kind, param, lang string) error
 }
 
+// SeriesTextPreWarmer is the narrow port the discovery worker uses to
+// pre-warm `series_texts.{seriesID, lang}` at the end of each
+// successful (kind, param, lang) refresh — Story 568 A2.
+//
+// Contract:
+//   - Behavior: idempotent, probe-gated. Implementations MUST honour
+//     force=false semantics — a fresh row short-circuits without a TMDB
+//     call. The worker never passes force=true (that would double-write
+//     every hourly Tick).
+//   - Cost: one TMDB call per (seriesID, lang) at worst, zero when the
+//     probe short-circuits.
+//   - Concurrency: the worker calls PreWarm sequentially from one
+//     goroutine. The implementation MUST NOT spawn goroutines of its
+//     own — pacing is handled by the shared *rate.Limiter injected at
+//     construction.
+//   - Failure: TMDB / canon errors MUST NOT panic and MUST NOT abort
+//     the outer worker loop. Implementations return an error; the
+//     worker classifies + logs + continues.
+//
+// Implementation: adapters/discovery_prewarmer.go wraps the enrichment
+// SeriesWorker.RefreshSeriesText — kept behind this port so discovery
+// never imports enrichment (PRD §3.3 vertical slice).
+type SeriesTextPreWarmer interface {
+	PreWarm(ctx context.Context, seriesID shareddomain.SeriesID, lang string) error
+}
+
 // LibraryInstancesPort is the narrow read-only contract that handlers
 // use to surface DiscoverySeriesItem.InLibraryInstances. The discovery
 // projection runs over the canon series_id keyspace; the implementation
