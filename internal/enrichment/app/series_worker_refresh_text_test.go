@@ -253,6 +253,10 @@ func (s *seriesNotFoundRepo) MarkRecsSynced(ctx context.Context, id domain.Serie
 	return s.inner.MarkRecsSynced(ctx, id, now)
 }
 
+func (s *seriesNotFoundRepo) MarkMediaSynced(ctx context.Context, id domain.SeriesID, now time.Time) error {
+	return s.inner.MarkMediaSynced(ctx, id, now)
+}
+
 func hasCall(list []string, target string) bool {
 	for _, c := range list {
 		if c == target {

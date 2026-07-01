@@ -65,6 +65,15 @@ type SeriesWorkerDeps struct {
 	Recommendations  RecommendationsRepoPort
 	EnrichmentErrors EnrichmentErrorRepo
 	MediaPrewarmer   MediaPrewarmer // nil OK — F-1 not yet shipped
+	// MediaResolver — A4: optional eager-hash + EnsurePending seam for
+	// RefreshMediaAssets. Under Story 347 unified-resolve contract, calling
+	// Resolve on a raw TMDB image path mints the deterministic sha256 hash
+	// + writes a media_assets pending row inline, so the composer's next
+	// cold /series/{id} read has a stable hash handle immediately (no async
+	// gap where cold read sees NULL poster_hash). nil OK — RefreshMediaAssets
+	// degrades to write raw paths + stamp only (production wiring passes the
+	// shared *media.Resolver instance from cmd/server/server.go).
+	MediaResolver MediaResolver
 	// Dispatcher (212): post-tx enqueue seam for the person worker.
 	// nil OK — keeps the existing test fixtures green; production
 	// wiring passes the shared *DispatcherImpl.

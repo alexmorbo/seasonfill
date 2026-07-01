@@ -27,6 +27,7 @@ import (
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -204,6 +205,12 @@ func BuildEnrichment(
 	repos EnrichmentRepoBundle,
 	tx appenrich.Transactor,
 	quotaCounter quota.QuotaCounter,
+	// mediaResolver — E-1 A4: shared *media.Resolver instance the composer
+	// + discovery handler already hold. Threaded into SeriesWorkerDeps so
+	// Worker.RefreshMediaAssets can mint eager sha256 hashes + write
+	// media_assets pending rows inline (Story 347 unified-resolve contract).
+	// nil-OK: A4 degrades to write raw paths + stamp only.
+	mediaResolver *media.Resolver,
 	log *slog.Logger,
 ) (*EnrichmentBundle, error) {
 	// F-4b-5 / F-4b-7: three domain loggers wrapped once each per §6.5.
@@ -417,6 +424,7 @@ func BuildEnrichment(
 		Recommendations:  repos.Recommendations,
 		EnrichmentErrors: repos.EnrichmentErrors,
 		MediaPrewarmer:   mediaPrewarmer, // 214 (F-1): nil-OK when MediaStore/MediaAssets absent
+		MediaResolver:    mediaResolver,  // E-1 A4: shared *media.Resolver instance
 		Dispatcher:       holder,
 		Logger:           enrichmentLog,
 	})

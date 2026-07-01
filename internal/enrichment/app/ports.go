@@ -142,6 +142,14 @@ type SeriesRepo interface {
 	// Sonarr-driven Series.Upsert COALESCEs the stamp so this write is
 	// not silently overwritten (see seriesUpsertAssignments()).
 	MarkRecsSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
+	// MarkMediaSynced — A4: stamps series.enrichment_media_synced_at = now.
+	// Called by Worker.RefreshMediaAssets after the series.Upsert +
+	// per-season Seasons.Upsert loop commits inside the same tx. Single-
+	// column UPDATE — concurrent Sonarr-driven Series.Upsert COALESCEs the
+	// stamp so this write is not silently overwritten (see
+	// seriesUpsertAssignments() line 818 — pre-reserved slot from A2 I-1
+	// defensive addition).
+	MarkMediaSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
 }
 
 type SeriesTextsRepo interface {
@@ -267,6 +275,26 @@ type MediaPrewarmRequest struct {
 	UpstreamURL string
 	Kind        string
 	Extension   string
+}
+
+// MediaResolver narrows shared/media.Resolver to the ONE method
+// RefreshMediaAssets (A4) calls. Kept as an interface so tests can pass
+// a stub; the wiring layer hands the concrete *media.Resolver — the same
+// instance the seriesdetail composer + discovery handler share.
+//
+// Under Story 347 unified-resolve contract (production default), Resolve
+// mints eager sha256 hash + writes media_assets pending row inline for
+// every non-nil rawPath, returning the hash pointer. The hash is NOT
+// persisted onto series/seasons rows by A4 (those tables carry raw TMDB
+// paths — poster_asset column is the raw path). A4 calls Resolve for the
+// SIDE-EFFECT: minting the media_assets pending row so the composer's
+// next cold Resolve() has a stable sha256 handle immediately.
+//
+// nil MediaResolver → A4 degrades gracefully (skips the eager-hash step,
+// still writes raw paths + stamp). Parallels MediaPrewarmer nil-OK
+// pattern in SeriesWorkerDeps.
+type MediaResolver interface {
+	Resolve(ctx context.Context, rawPath *string, size, kind string) *string
 }
 
 // VideoRow is the worker → VideosRepoPort transfer shape. Kept as

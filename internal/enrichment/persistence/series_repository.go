@@ -524,6 +524,28 @@ func (r *SeriesRepository) MarkRecsSynced(ctx context.Context, seriesID domain.S
 	return nil
 }
 
+// MarkMediaSynced stamps series.enrichment_media_synced_at = now. Same shape
+// as MarkTextSynced / MarkCastSynced / MarkRecsSynced — A4 narrow refresh
+// writer. The COALESCE on the Upsert path (seriesUpsertAssignments line
+// 818 — already shipped defensively in A2) ensures a concurrent Sonarr
+// scan does NOT overwrite this stamp with NULL.
+func (r *SeriesRepository) MarkMediaSynced(ctx context.Context, seriesID domain.SeriesID, now time.Time) error {
+	if seriesID == 0 {
+		return fmt.Errorf("mark series media synced: series_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", seriesID).
+		Updates(map[string]any{
+			"enrichment_media_synced_at": now.UTC(),
+			"updated_at":                 now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark series media synced: %w", err)
+	}
+	return nil
+}
+
 // ListStaleForTMDB returns series ids whose enrichment_tmdb_synced_at is
 // NULL or older than now-ttl, capped at `limit` rows ordered by id ASC.
 // Like ListLibraryWithIMDBStale but for TMDB source: requires a tmdb_id,

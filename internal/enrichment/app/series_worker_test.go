@@ -205,6 +205,17 @@ func (f *fakeSeriesRepo) MarkRecsSynced(ctx context.Context, id domain.SeriesID,
 	return nil
 }
 
+// MarkMediaSynced — E-1 A4 narrow refresh stamp.
+func (f *fakeSeriesRepo) MarkMediaSynced(ctx context.Context, id domain.SeriesID, now time.Time) error {
+	f.rec.add("Series.MarkMediaSynced")
+	if c, ok := f.rows[id]; ok {
+		t := now
+		c.EnrichmentMediaSyncedAt = &t
+		f.rows[id] = c
+	}
+	return nil
+}
+
 // UpsertStub mirrors the production COALESCE semantics: existing
 // non-NULL columns win over the stub's value. An existing 'full' row
 // keeps its hydration. Story 319 — see SeriesRepository.UpsertStub.
