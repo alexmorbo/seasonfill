@@ -26,6 +26,10 @@ export function buildSeasonsQuery(
   filters: WatchdogSeasonsFilters,
   cursor: string,
   limit: number,
+  // Story E-1-B7 — raw BCP-47 tag forwarded as `?lang=` so the BE
+  // emits localised series titles. Pass-through verbatim (no
+  // lowercasing / region-strip). Empty string omits the param.
+  lang: string = '',
 ): string {
   const sp = new URLSearchParams();
   if (filters.instance) sp.set('instance', filters.instance);
@@ -34,10 +38,16 @@ export function buildSeasonsQuery(
   if (filters.blacklistedOnly) sp.set('blacklisted_only', 'true');
   if (cursor) sp.set('cursor', cursor);
   sp.set('limit', String(limit));
+  if (lang) sp.set('lang', lang);
   return `/watchdog/seasons?${sp.toString()}`;
 }
 
-export const watchdogSeasonsKey = (filters: WatchdogSeasonsFilters) =>
+// Story E-1-B7 — `lang` is part of the key so switching language
+// refetches localised titles instead of serving en-US from cache.
+export const watchdogSeasonsKey = (
+  filters: WatchdogSeasonsFilters,
+  lang: string = '',
+) =>
   [
     'watchdog',
     'seasons',
@@ -45,11 +55,13 @@ export const watchdogSeasonsKey = (filters: WatchdogSeasonsFilters) =>
     filters.q.trim(),
     filters.cooldownOnly,
     filters.blacklistedOnly,
+    lang,
   ] as const;
 
 export function useWatchdogSeasons(
   filters: WatchdogSeasonsFilters,
   limit: number = DEFAULT_LIMIT,
+  lang: string = '',
 ): UseInfiniteQueryResult<
   { pages: WatchdogSeasonsList[]; pageParams: string[] },
   ApiError
@@ -61,9 +73,9 @@ export function useWatchdogSeasons(
     readonly unknown[],
     string
   >({
-    queryKey: watchdogSeasonsKey(filters),
+    queryKey: watchdogSeasonsKey(filters, lang),
     queryFn: ({ pageParam }) =>
-      api<WatchdogSeasonsList>(buildSeasonsQuery(filters, pageParam, limit)),
+      api<WatchdogSeasonsList>(buildSeasonsQuery(filters, pageParam, limit, lang)),
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor || undefined,
     refetchInterval: 60_000,
@@ -125,19 +137,25 @@ export function useWatchdogSeasonsTotals(): UseQueryResult<
 export const watchdogSeriesDetailKey = (
   instance: string | null,
   seriesID: number | null,
-) => ['watchdog', 'series', instance, seriesID] as const;
+  lang: string = '',
+) => ['watchdog', 'series', instance, seriesID, lang] as const;
 
 export function useWatchdogSeriesDetail(
   instance: string | null,
   seriesID: number | null,
+  lang: string = '',
 ): UseQueryResult<WatchdogSeriesDetail, ApiError> {
   const enabled = Boolean(instance) && seriesID !== null && Number.isFinite(seriesID);
   return useQuery<WatchdogSeriesDetail, ApiError>({
-    queryKey: watchdogSeriesDetailKey(instance, seriesID),
-    queryFn: () =>
-      api<WatchdogSeriesDetail>(
-        `/watchdog/series/${encodeURIComponent(instance!)}/${seriesID!}`,
-      ),
+    queryKey: watchdogSeriesDetailKey(instance, seriesID, lang),
+    queryFn: () => {
+      // Story E-1-B7 — raw BCP-47 `?lang=` so the per-series drill
+      // renders a localised title. Empty string omits the param.
+      const langQs = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+      return api<WatchdogSeriesDetail>(
+        `/watchdog/series/${encodeURIComponent(instance!)}/${seriesID!}${langQs}`,
+      );
+    },
     enabled,
     refetchInterval: enabled ? 60_000 : false,
     staleTime: 30_000,

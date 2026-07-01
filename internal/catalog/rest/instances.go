@@ -45,7 +45,22 @@ type InstancesHandler struct {
 	episodesCache  sonarr.EpisodesCache
 	mediaPending   adminrest.CatalogMediaPendingWriter // story 352, nil-OK
 	mediaPrewarmer adminrest.CatalogMediaPrewarmer     // story 352, nil-OK
+	localizer      SeriesTextLocalizer                 // nil-OK; Story E-1-B7
 	logger         *slog.Logger
+}
+
+// SeriesTextLocalizer is the narrow slice of the enrichment
+// SeriesTextsRepository the series-cache list handler needs to override
+// canon series titles with the caller's requested language (?lang=).
+// Production is satisfied directly by
+// *enrichmentpersistence.SeriesTextsRepository. nil-OK: when unwired the
+// list renders canon titles (identical to pre-B7). Story E-1-B7.
+type SeriesTextLocalizer interface {
+	ListByIDsWithFallback(
+		ctx context.Context,
+		seriesIDs []shareddomain.SeriesID,
+		lang string,
+	) (map[shareddomain.SeriesID]series.SeriesText, error)
 }
 
 // NewInstancesHandler — reg.Load may be nil (List then emits empty
@@ -88,6 +103,15 @@ func (h *InstancesHandler) WithEpisodesCache(cache sonarr.EpisodesCache) *Instan
 // minimal-boot tests).
 func (h *InstancesHandler) WithMediaPending(w adminrest.CatalogMediaPendingWriter) *InstancesHandler {
 	h.mediaPending = w
+	return h
+}
+
+// WithLocalizer wires the optional series-title localizer used by
+// ListSeriesCache when the caller passes ?lang=. nil is a no-op — the
+// list renders canon titles. Builder pattern keeps the constructor stable
+// across existing test call sites. Story E-1-B7.
+func (h *InstancesHandler) WithLocalizer(l SeriesTextLocalizer) *InstancesHandler {
+	h.localizer = l
 	return h
 }
 
@@ -710,6 +734,7 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 		items = append(items, toSeriesCacheItem(e, lastGrabs[e.SonarrSeriesID]))
 	}
 	h.kickPendingForSeriesCacheEntries(ctx, entries)
+	h.localizeSeriesCacheTitles(ctx, c.Query("lang"), items)
 	var nextStr string
 	if next != nil {
 		nextStr = next.String()
@@ -930,5 +955,54 @@ func toSeriesCacheItem(e series.CacheEntry, lg ports.LastGrabInfo) dto.SeriesCac
 		LastImportedEpisode: lg.LastImportedEpisode,
 		LastAiredAt:         e.LastAiredAt,
 		UpdatedAt:           e.UpdatedAt,
+	}
+}
+
+// localizeSeriesCacheTitles overrides canon item titles with the caller's
+// requested language in a single batch lookup. No-op (zero DB calls) when
+// the localizer is unwired, lang is blank, or no item carries a canon
+// SeriesID — preserving pre-B7 canon behavior. Items with a nil canon id,
+// a map miss, or a NULL/blank series_texts.title keep their canon title.
+// Story E-1-B7.
+func (h *InstancesHandler) localizeSeriesCacheTitles(
+	ctx context.Context,
+	lang string,
+	items []dto.SeriesCacheItem,
+) {
+	if h.localizer == nil || strings.TrimSpace(lang) == "" || len(items) == 0 {
+		return
+	}
+	ids := make([]shareddomain.SeriesID, 0, len(items))
+	seen := make(map[shareddomain.SeriesID]struct{}, len(items))
+	for _, it := range items {
+		if it.SeriesID == nil {
+			continue
+		}
+		if _, ok := seen[*it.SeriesID]; ok {
+			continue
+		}
+		seen[*it.SeriesID] = struct{}{}
+		ids = append(ids, *it.SeriesID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	texts, err := h.localizer.ListByIDsWithFallback(ctx, ids, lang)
+	if err != nil {
+		h.logger.WarnContext(ctx, "series_cache_localize_failed",
+			slog.String("lang", lang), slog.String("error", err.Error()))
+		return
+	}
+	for i := range items {
+		if items[i].SeriesID == nil {
+			continue
+		}
+		t, ok := texts[*items[i].SeriesID]
+		if !ok || t.Title == nil {
+			continue
+		}
+		if title := strings.TrimSpace(*t.Title); title != "" {
+			items[i].Title = title
+		}
 	}
 }

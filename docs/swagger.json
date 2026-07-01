@@ -7021,6 +7021,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "BCP-47 language for series titles (e.g. ru-RU); omit for canon",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -8161,6 +8169,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "BCP-47 language for series_title (e.g. ru-RU); omit for canon",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -8229,6 +8245,14 @@
                         "required": true,
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "BCP-47 language for series_title (e.g. ru-RU); omit for canon",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],

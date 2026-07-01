@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type UseQueryResult } from '@tanstack/react-query';
 import { ApiError } from './api';
 import {
@@ -59,13 +60,19 @@ export interface MissingSeriesList {
 export function useMissing(
   name: string | undefined,
 ): UseQueryResult<MissingSeriesList, ApiError> {
+  // Story E-1-B7: forward the user's raw BCP-47 language so the
+  // queue/missing rows render localised series titles. Included in
+  // the underlying infinite queryKey (via the `q` spread) so a
+  // language switch refetches instead of serving en-US from cache.
+  const { i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage ?? '';
   // B-46 (audit 2026-06-25): BE clamps `limit` to [1, 100]
   // (internal/catalog/rest/instances.go searchMaxLimit). 200 silently
   // 400s and the missing section never renders. useSeriesCacheInfinite
   // is cursor-paginated so capping per-page is lossless.
   const cache = useSeriesCacheInfinite(
     name ?? null,
-    { state: 'missing', limit: 100 },
+    { state: 'missing', limit: 100, lang },
   );
   const items = useMemo<readonly MissingSeries[]>(
     () => projectCacheToMissing(flattenSeriesCachePages(cache.data?.pages)),

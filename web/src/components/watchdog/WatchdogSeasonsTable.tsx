@@ -218,10 +218,12 @@ function useInfiniteScroll(
 }
 
 export function WatchdogSeasonsTable({ filters }: WatchdogSeasonsTableProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const query = useWatchdogSeasons(filters);
+  // Story E-1-B7 — forward the user's raw BCP-47 language so the
+  // rollup grid renders localised series titles (queryKey-scoped).
+  const query = useWatchdogSeasons(filters, undefined, i18n.resolvedLanguage ?? '');
   const items = useMemo(
     () => flattenSeasons(query.data?.pages),
     [query.data?.pages],

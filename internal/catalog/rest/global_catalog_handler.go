@@ -59,6 +59,7 @@ func NewGlobalCatalogHandler(inner *InstancesHandler, logger *slog.Logger) *Glob
 // @Param       q              query  string  false  "Substring (title / slug)"
 // @Param       monitored      query  string  false  "true|false (tri-state)"
 // @Param       networks       query  string  false  "Pipe-separated network names"
+// @Param       lang           query  string  false  "BCP-47 language for series titles (e.g. ru-RU); omit for canon"
 // @Success     200  {object}  dto.SeriesCacheList
 // @Failure     400  {object}  dto.ErrorResponse
 // @Failure     401  {object}  dto.ErrorResponse

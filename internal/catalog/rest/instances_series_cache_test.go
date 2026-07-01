@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -217,6 +218,75 @@ func (f *seriesCacheFixture) seedImportedGrab(t *testing.T, instance shareddomai
 		SeasonNumber: season, ScanRunID: uuid.New(),
 		Status: grab.StatusImported, CreatedAt: createdAt, UpdatedAt: createdAt,
 	}))
+}
+
+// withLocalizer rebuilds the router with a handler that also wires the
+// given series-title localizer. Hardcodes "homelab" like withMediaPending.
+// Story E-1-B7.
+func (f *seriesCacheFixture) withLocalizer(t *testing.T, loc SeriesTextLocalizer) {
+	t.Helper()
+	instMap := map[string]scan.Instance{
+		"homelab": {Config: config.SonarrInstance{Name: "homelab", URL: "http://x", Mode: "auto"}},
+	}
+	reg := InstanceRegistry{Load: func() map[string]scan.Instance { return instMap }}
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewInstancesHandler(&healthcheck.Checker{}, reg, lg).
+		WithSeriesCache(f.repo).
+		WithLocalizer(loc)
+	r := gin.New()
+	api := r.Group("/api/v1")
+	api.GET("/instances/:name/series-cache", h.ListSeriesCache)
+	f.router = r
+}
+
+// canonSeriesID reads the resolved canon series.id for a seeded
+// (instance, sonarr_id) series_cache row. Story E-1-B7.
+func (f *seriesCacheFixture) canonSeriesID(t *testing.T, instance shareddomain.InstanceName, sonarrID shareddomain.SonarrSeriesID) shareddomain.SeriesID {
+	t.Helper()
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "seeded row must have a resolved canon series_id")
+	return *sc.SeriesID
+}
+
+// fakeCatalogLocalizer counts calls (to assert no N+1) and returns a
+// seeded title map. Satisfies rest.SeriesTextLocalizer. Story E-1-B7.
+type fakeCatalogLocalizer struct {
+	calls    int
+	titles   map[shareddomain.SeriesID]string
+	lastLang string
+	err      error
+}
+
+func (fl *fakeCatalogLocalizer) ListByIDsWithFallback(
+	_ context.Context, ids []shareddomain.SeriesID, lang string,
+) (map[shareddomain.SeriesID]series.SeriesText, error) {
+	fl.calls++
+	fl.lastLang = lang
+	if fl.err != nil {
+		return nil, fl.err
+	}
+	out := make(map[shareddomain.SeriesID]series.SeriesText, len(ids))
+	for _, id := range ids {
+		if title, ok := fl.titles[id]; ok {
+			t := title
+			out[id] = series.SeriesText{SeriesID: id, Language: lang, Title: &t}
+		}
+	}
+	return out, nil
+}
+
+// newLocalizingHandler builds a handler for direct helper-level tests
+// (no HTTP/reg dependency). loc=nil leaves the localizer unwired.
+func newLocalizingHandler(loc SeriesTextLocalizer) *InstancesHandler {
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewInstancesHandler(&healthcheck.Checker{}, InstanceRegistry{}, lg)
+	if loc != nil {
+		h = h.WithLocalizer(loc)
+	}
+	return h
 }
 
 func (f *seriesCacheFixture) do(t *testing.T, path string) (*httptest.ResponseRecorder, dto.SeriesCacheList) {
@@ -755,4 +825,104 @@ func TestInstancesHandler_EnrichMissingFromCache_EnsuresPendingMediaAssets(t *te
 	}
 	assert.Equal(t, expectedHash, asset.Hash)
 	assert.Equal(t, media.StatusPending, asset.Status)
+}
+
+// Story E-1-B7 — ?lang=ru-RU overrides item titles in a single batch
+// call (no N+1), raw BCP-47 pass-through.
+func TestInstancesHandler_ListSeriesCache_Localize_RuRU(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "Rick and Morty", 0, now)
+	f.seed(t, "homelab", 2, "Friends", 0, now.Add(time.Minute))
+	canon1 := f.canonSeriesID(t, "homelab", 1)
+	canon2 := f.canonSeriesID(t, "homelab", 2)
+	loc := &fakeCatalogLocalizer{titles: map[shareddomain.SeriesID]string{
+		canon1: "Рик и Морти",
+		canon2: "Друзья",
+	}}
+	f.withLocalizer(t, loc)
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?lang=ru-RU")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, body.Items, 2)
+	byID := map[shareddomain.SonarrSeriesID]string{}
+	for _, it := range body.Items {
+		byID[it.SonarrSeriesID] = it.Title
+	}
+	assert.Equal(t, "Рик и Морти", byID[1])
+	assert.Equal(t, "Друзья", byID[2])
+	assert.Equal(t, 1, loc.calls, "single batch call, no N+1")
+	assert.Equal(t, "ru-RU", loc.lastLang, "raw BCP-47 pass-through, not normalized")
+}
+
+// Empty ?lang= → canon titles, zero DB calls (non-breaking).
+func TestInstancesHandler_ListSeriesCache_Localize_EmptyLangZeroCalls(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "Rick and Morty", 0, now)
+	canon1 := f.canonSeriesID(t, "homelab", 1)
+	loc := &fakeCatalogLocalizer{titles: map[shareddomain.SeriesID]string{canon1: "Рик и Морти"}}
+	f.withLocalizer(t, loc)
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Rick and Morty", body.Items[0].Title, "canon unchanged without ?lang=")
+	assert.Equal(t, 0, loc.calls, "zero DB work when lang absent")
+}
+
+// Map miss → canon title retained, still one batch call.
+func TestInstancesHandler_ListSeriesCache_Localize_MapMissKeepsCanon(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "Rick and Morty", 0, now)
+	loc := &fakeCatalogLocalizer{titles: map[shareddomain.SeriesID]string{}} // miss
+	f.withLocalizer(t, loc)
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?lang=ru-RU")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Rick and Morty", body.Items[0].Title)
+	assert.Equal(t, 1, loc.calls)
+}
+
+// Item with nil canon SeriesID (broken/pre-cutover row) keeps canon; a
+// sibling with a canon id is localized; exactly one batch call.
+func TestInstancesHandler_LocalizeSeriesCacheTitles_NilCanonSkipped(t *testing.T) {
+	t.Parallel()
+	id11 := shareddomain.SeriesID(11)
+	loc := &fakeCatalogLocalizer{titles: map[shareddomain.SeriesID]string{11: "Друзья"}}
+	h := newLocalizingHandler(loc)
+	items := []dto.SeriesCacheItem{
+		{Title: "Broken Canon", SeriesID: nil},
+		{Title: "Friends", SeriesID: &id11},
+	}
+	h.localizeSeriesCacheTitles(context.Background(), "ru-RU", items)
+	assert.Equal(t, "Broken Canon", items[0].Title)
+	assert.Equal(t, "Друзья", items[1].Title)
+	assert.Equal(t, 1, loc.calls)
+}
+
+// Unwired localizer → canon titles, no panic.
+func TestInstancesHandler_LocalizeSeriesCacheTitles_Unwired(t *testing.T) {
+	t.Parallel()
+	id := shareddomain.SeriesID(10)
+	h := newLocalizingHandler(nil)
+	items := []dto.SeriesCacheItem{{Title: "Canon", SeriesID: &id}}
+	h.localizeSeriesCacheTitles(context.Background(), "ru-RU", items)
+	assert.Equal(t, "Canon", items[0].Title)
+}
+
+// Localizer error → canon (soft-fail, no panic).
+func TestInstancesHandler_LocalizeSeriesCacheTitles_ErrorSoftFail(t *testing.T) {
+	t.Parallel()
+	id := shareddomain.SeriesID(10)
+	loc := &fakeCatalogLocalizer{err: errors.New("db down")}
+	h := newLocalizingHandler(loc)
+	items := []dto.SeriesCacheItem{{Title: "Canon", SeriesID: &id}}
+	h.localizeSeriesCacheTitles(context.Background(), "ru-RU", items)
+	assert.Equal(t, "Canon", items[0].Title, "soft-fail: canon on localizer error")
 }

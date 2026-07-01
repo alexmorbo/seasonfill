@@ -22,8 +22,13 @@ import (
 // from sibling tables. D-1 / 467b: replaced legacy NoBetterCounter
 // pointer with WatchdogState (which folds NoBetterCounter semantics).
 type WatchdogSeasonRow struct {
-	InstanceName      domain.InstanceName
-	SeriesID          domain.SonarrSeriesID
+	InstanceName domain.InstanceName
+	SeriesID     domain.SonarrSeriesID
+	// CanonSeriesID is the resolved canon series.id (from the
+	// series_cache → series JOIN). Story E-1-B7: keys the series_texts
+	// localization lookup. Zero only on a broken row with no canon JOIN
+	// (the handler then keeps the canon title).
+	CanonSeriesID     domain.SeriesID
 	SeasonNumber      int
 	SeriesTitle       string
 	Monitored         bool
@@ -90,18 +95,19 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 	}
 
 	type joined struct {
-		InstanceName domain.InstanceName   `gorm:"column:instance_name"`
-		SeriesID     domain.SonarrSeriesID `gorm:"column:series_id"`
-		SeasonNumber int                   `gorm:"column:season_number"`
-		GUID         string                `gorm:"column:guid"`
-		IndexerName  string                `gorm:"column:indexer_name"`
-		FirstSeenAt  time.Time             `gorm:"column:first_seen_at"`
-		LastSeenAt   time.Time             `gorm:"column:last_seen_at"`
-		LastUsedAt   *time.Time            `gorm:"column:last_used_at"`
-		Title        *string               `gorm:"column:title"`
-		Monitored    *bool                 `gorm:"column:monitored"`
-		MissingCount *int                  `gorm:"column:missing_count"`
-		LastAiredAt  *time.Time            `gorm:"column:last_aired_at"`
+		InstanceName  domain.InstanceName   `gorm:"column:instance_name"`
+		SeriesID      domain.SonarrSeriesID `gorm:"column:series_id"`
+		CanonSeriesID domain.SeriesID       `gorm:"column:canon_series_id"`
+		SeasonNumber  int                   `gorm:"column:season_number"`
+		GUID          string                `gorm:"column:guid"`
+		IndexerName   string                `gorm:"column:indexer_name"`
+		FirstSeenAt   time.Time             `gorm:"column:first_seen_at"`
+		LastSeenAt    time.Time             `gorm:"column:last_seen_at"`
+		LastUsedAt    *time.Time            `gorm:"column:last_used_at"`
+		Title         *string               `gorm:"column:title"`
+		Monitored     *bool                 `gorm:"column:monitored"`
+		MissingCount  *int                  `gorm:"column:missing_count"`
+		LastAiredAt   *time.Time            `gorm:"column:last_aired_at"`
 	}
 
 	// origin_releases is append-only. Two INNER JOINs filter ghosts:
@@ -112,6 +118,7 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 		Table("origin_releases o").
 		Select(`o.instance_name AS instance_name,
 			o.series_id AS series_id,
+			s.id AS canon_series_id,
 			o.season_number AS season_number,
 			o.guid AS guid,
 			o.indexer_name AS indexer_name,
@@ -162,6 +169,7 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 		row := WatchdogSeasonRow{
 			InstanceName:      j.InstanceName,
 			SeriesID:          j.SeriesID,
+			CanonSeriesID:     j.CanonSeriesID,
 			SeasonNumber:      j.SeasonNumber,
 			OriginGUID:        j.GUID,
 			OriginIndexerName: j.IndexerName,
@@ -335,14 +343,16 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 
 	// Series cache + canon row — title / monitored / aired metadata.
 	var sc struct {
-		Title        string     `gorm:"column:title"`
-		Monitored    bool       `gorm:"column:monitored"`
-		MissingCount int        `gorm:"column:missing_count"`
-		LastAiredAt  *time.Time `gorm:"column:last_aired_at"`
+		CanonSeriesID domain.SeriesID `gorm:"column:canon_series_id"`
+		Title         string          `gorm:"column:title"`
+		Monitored     bool            `gorm:"column:monitored"`
+		MissingCount  int             `gorm:"column:missing_count"`
+		LastAiredAt   *time.Time      `gorm:"column:last_aired_at"`
 	}
 	scFound := true
 	err := db.Table("series_cache").
-		Select(`s.title AS title,
+		Select(`s.id AS canon_series_id,
+			s.title AS title,
 			series_cache.monitored AS monitored,
 			series_cache.missing_count AS missing_count,
 			s.last_air_date AS last_aired_at`).
@@ -384,6 +394,7 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 
 	for k, row := range seasonSet {
 		if scFound {
+			row.CanonSeriesID = sc.CanonSeriesID
 			row.SeriesTitle = sc.Title
 			row.Monitored = sc.Monitored
 			row.MissingAiredCount = sc.MissingCount

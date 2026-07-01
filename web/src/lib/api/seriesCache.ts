@@ -96,6 +96,11 @@ export interface SeriesCacheInfiniteQuery {
   // ⇒ no filter. Pipe-separated server-side; we sort here so the
   // queryKey is stable across reorderings.
   readonly networks?: readonly string[];
+  // Story E-1-B7: raw BCP-47 tag forwarded as `?lang=` so the global
+  // catalog list emits localised series titles. Pass-through verbatim
+  // (no lowercasing / region-strip). Flows into the queryKey via the
+  // `q` spread in seriesCacheInfiniteKey. Empty / undefined omits it.
+  readonly lang?: string;
 }
 
 function buildInfinitePath(
@@ -115,6 +120,7 @@ function buildInfinitePath(
   if (q.networks && q.networks.length > 0) {
     p.set('networks', [...q.networks].sort().join('|'));
   }
+  if (q.lang) p.set('lang', q.lang);
   if (cursor) p.set('cursor', cursor);
   return `/series?${p.toString()}`;
 }

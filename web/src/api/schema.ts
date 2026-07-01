@@ -2793,6 +2793,8 @@ export type paths = {
                     readonly monitored?: string;
                     /** @description Pipe-separated network names */
                     readonly networks?: string;
+                    /** @description BCP-47 language for series titles (e.g. ru-RU); omit for canon */
+                    readonly lang?: string;
                 };
                 readonly header?: never;
                 readonly path?: never;
@@ -3875,6 +3877,8 @@ export type paths = {
                     readonly limit?: number;
                     /** @description Opaque next_cursor */
                     readonly cursor?: string;
+                    /** @description BCP-47 language for series_title (e.g. ru-RU); omit for canon */
+                    readonly lang?: string;
                 };
                 readonly header?: never;
                 readonly path?: never;
@@ -3932,7 +3936,10 @@ export type paths = {
          */
         readonly get: {
             readonly parameters: {
-                readonly query?: never;
+                readonly query?: {
+                    /** @description BCP-47 language for series_title (e.g. ru-RU); omit for canon */
+                    readonly lang?: string;
+                };
                 readonly header?: never;
                 readonly path: {
                     /** @description Instance name */

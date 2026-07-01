@@ -62,9 +62,11 @@ export function WatchdogSeriesDrawer({
   instance,
   onOpenChange,
 }: WatchdogSeriesDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const open = seriesID !== null && instance !== null;
-  const q = useWatchdogSeriesDetail(instance, seriesID);
+  // Story E-1-B7 — forward the user's raw BCP-47 language so the
+  // per-series drill renders a localised title (queryKey-scoped).
+  const q = useWatchdogSeriesDetail(instance, seriesID, i18n.resolvedLanguage ?? '');
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

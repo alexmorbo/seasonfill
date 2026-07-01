@@ -107,6 +107,8 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 			assert.Equal(t, "Prowlarr", row.OriginIndexerName)
 			assert.Equal(t, "Friends", row.SeriesTitle)
 			assert.False(t, row.Monitored)
+			// Story E-1-B7: canon series.id projected via the JOIN.
+			assert.NotZero(t, row.CanonSeriesID, "canon series_id projected on the list row")
 			assert.Nil(t, row.Cooldown, "no cooldown row")
 			assert.Nil(t, row.WatchdogState, "no watchdog_state row")
 			assert.Nil(t, row.Blacklist, "no blacklist row")
@@ -369,6 +371,10 @@ func TestWatchdogSeasons_SeasonsForSeries_FromOriginAndDecisions(t *testing.T) {
 			assert.Equal(t, "Friends", rows[1].SeriesTitle)
 			assert.Empty(t, rows[0].OriginGUID)
 			assert.NotEmpty(t, rows[1].OriginGUID)
+			// Story E-1-B7: canon series.id projected via the
+			// series_cache → series JOIN, on every season row.
+			assert.NotZero(t, rows[0].CanonSeriesID, "canon series_id projected")
+			assert.Equal(t, rows[0].CanonSeriesID, rows[1].CanonSeriesID, "same canon id across seasons")
 		})
 	}
 }

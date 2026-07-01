@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	series "github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
@@ -39,6 +40,19 @@ type WatchdogSeasonsSeriesLister interface {
 	RecentGrabsBySeason(ctx context.Context, instance domain.InstanceName, seriesID domain.SonarrSeriesID, perSeason int) (map[int][]watchdogpersistence.RecentGrabRow, error)
 }
 
+// SeriesTextLocalizer is the narrow slice of the enrichment
+// SeriesTextsRepository this handler needs to override canon series
+// titles with the caller's requested language (?lang=). Production is
+// satisfied directly by *enrichmentpersistence.SeriesTextsRepository.
+// nil-OK: when unwired the handler renders canon titles unchanged.
+type SeriesTextLocalizer interface {
+	ListByIDsWithFallback(
+		ctx context.Context,
+		seriesIDs []domain.SeriesID,
+		lang string,
+	) (map[domain.SeriesID]series.SeriesText, error)
+}
+
 // Limits for the `/watchdog/seasons` page. The defaults match the
 // other audit list handlers; the hard cap (500) is the task-spec
 // requirement.
@@ -55,11 +69,12 @@ const (
 // SPA can render the seasons-being-monitored page without a separate
 // per-row fetch.
 type WatchdogSeasonsHandler struct {
-	repo     WatchdogSeasonsLister
-	series   WatchdogSeasonsSeriesLister
-	settings regrab.SettingsLookup
-	logger   *slog.Logger
-	now      func() time.Time
+	repo      WatchdogSeasonsLister
+	series    WatchdogSeasonsSeriesLister
+	settings  regrab.SettingsLookup
+	localizer SeriesTextLocalizer // nil-OK; Story E-1-B7
+	logger    *slog.Logger
+	now       func() time.Time
 }
 
 // NewWatchdogSeasonsHandler wires the handler. logger=nil →
@@ -92,6 +107,15 @@ func (h *WatchdogSeasonsHandler) WithClock(f func() time.Time) *WatchdogSeasonsH
 	return h
 }
 
+// WithLocalizer wires the optional series-title localizer. nil is a
+// no-op: the seasons endpoints then render canon titles regardless of
+// ?lang=. Builder pattern keeps the constructor signature stable across
+// existing test call sites. Story E-1-B7.
+func (h *WatchdogSeasonsHandler) WithLocalizer(l SeriesTextLocalizer) *WatchdogSeasonsHandler {
+	h.localizer = l
+	return h
+}
+
 // List handles GET /api/v1/watchdog/seasons.
 //
 // @Summary     List watchdog-tracked seasons
@@ -104,6 +128,7 @@ func (h *WatchdogSeasonsHandler) WithClock(f func() time.Time) *WatchdogSeasonsH
 // @Param       blacklisted_only query  bool    false  "Only seasons with an active blacklist row"
 // @Param       limit            query  int     false  "Page size (default 100, max 500)"
 // @Param       cursor           query  string  false  "Opaque next_cursor"
+// @Param       lang             query  string  false  "BCP-47 language for series_title (e.g. ru-RU); omit for canon"
 // @Success     200  {object}  dto.WatchdogSeasonsList
 // @Failure     400  {object}  dto.ErrorResponse
 // @Failure     500  {object}  dto.ErrorResponse
@@ -147,6 +172,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 	for _, row := range rows {
 		out.Items = append(out.Items, h.toSeasonDTO(ctx, row))
 	}
+	h.localizeSeasonTitles(ctx, c.Query("lang"), rows, out.Items)
 	if next != nil {
 		out.NextCursor = encodeSeasonsCursor(*next)
 	}
@@ -161,6 +187,7 @@ func (h *WatchdogSeasonsHandler) List(c *gin.Context) {
 // @Produce     json
 // @Param       instance  path  string  true  "Instance name"
 // @Param       id        path  int     true  "Sonarr series id"
+// @Param       lang      query  string  false  "BCP-47 language for series_title (e.g. ru-RU); omit for canon"
 // @Success     200  {object}  dto.WatchdogSeriesDetail
 // @Failure     400  {object}  dto.ErrorResponse
 // @Failure     500  {object}  dto.ErrorResponse
@@ -221,6 +248,9 @@ func (h *WatchdogSeasonsHandler) Series(c *gin.Context) {
 	if len(rows) > 0 {
 		out.SeriesTitle = rows[0].SeriesTitle
 		out.Monitored = rows[0].Monitored
+		if title, ok := h.localizeOne(ctx, c.Query("lang"), rows[0].CanonSeriesID); ok {
+			out.SeriesTitle = title
+		}
 	}
 
 	noBetterMax := h.noBetterMaxFor(ctx, instance)
@@ -269,6 +299,88 @@ func (h *WatchdogSeasonsHandler) toSeasonDTO(ctx context.Context, row watchdogpe
 		LastAiredAt:       row.LastAiredAt,
 	}
 	return item
+}
+
+// localizeSeasonTitles overrides the canon SeriesTitle on each list item
+// with the caller's requested language, in a single batch lookup. No-op
+// (zero DB calls) when the localizer is unwired, lang is blank, or there
+// are no rows — preserving the pre-B7 canon-title behavior exactly.
+//
+// rows and items MUST be index-aligned (List builds items 1:1 from the
+// already-filtered rows). A map miss or a NULL/blank series_texts.title
+// keeps the canon title. Story E-1-B7.
+func (h *WatchdogSeasonsHandler) localizeSeasonTitles(
+	ctx context.Context,
+	lang string,
+	rows []watchdogpersistence.WatchdogSeasonRow,
+	items []dto.WatchdogSeason,
+) {
+	if h.localizer == nil || strings.TrimSpace(lang) == "" || len(rows) == 0 {
+		return
+	}
+	ids := make([]domain.SeriesID, 0, len(rows))
+	seen := make(map[domain.SeriesID]struct{}, len(rows))
+	for _, r := range rows {
+		if r.CanonSeriesID == 0 {
+			continue
+		}
+		if _, ok := seen[r.CanonSeriesID]; ok {
+			continue
+		}
+		seen[r.CanonSeriesID] = struct{}{}
+		ids = append(ids, r.CanonSeriesID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	texts, err := h.localizer.ListByIDsWithFallback(ctx, ids, lang)
+	if err != nil {
+		h.logger.WarnContext(ctx, "watchdog_seasons_localize_failed",
+			slog.String("lang", lang), slog.String("error", err.Error()))
+		return
+	}
+	for i := range items {
+		if title, ok := titleFromTexts(texts, rows[i].CanonSeriesID); ok {
+			items[i].SeriesTitle = title
+		}
+	}
+}
+
+// localizeOne resolves the localized title for a single canon series id.
+// Returns ok=false when localization is unwired, lang is blank, the id is
+// zero, or no non-blank series_texts row exists — the caller then keeps
+// the canon title. Uses the batch method (slice of one) so the endpoint
+// exercises a single, uniform code path. Story E-1-B7.
+func (h *WatchdogSeasonsHandler) localizeOne(
+	ctx context.Context,
+	lang string,
+	canonID domain.SeriesID,
+) (string, bool) {
+	if h.localizer == nil || strings.TrimSpace(lang) == "" || canonID == 0 {
+		return "", false
+	}
+	texts, err := h.localizer.ListByIDsWithFallback(ctx, []domain.SeriesID{canonID}, lang)
+	if err != nil {
+		h.logger.WarnContext(ctx, "watchdog_series_localize_failed",
+			slog.String("lang", lang), slog.String("error", err.Error()))
+		return "", false
+	}
+	return titleFromTexts(texts, canonID)
+}
+
+// titleFromTexts extracts a non-blank localized title for canonID from a
+// series_texts batch result. series.SeriesText.Title is *string (nullable);
+// a nil or whitespace-only title yields ok=false so the caller keeps canon.
+func titleFromTexts(texts map[domain.SeriesID]series.SeriesText, canonID domain.SeriesID) (string, bool) {
+	t, ok := texts[canonID]
+	if !ok || t.Title == nil {
+		return "", false
+	}
+	title := strings.TrimSpace(*t.Title)
+	if title == "" {
+		return "", false
+	}
+	return title, true
 }
 
 // noBetterMaxFor returns the per-instance MaxConsecutiveNoBetter

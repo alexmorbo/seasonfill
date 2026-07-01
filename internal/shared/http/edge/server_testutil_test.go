@@ -43,5 +43,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
+		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
 		logger)
 }

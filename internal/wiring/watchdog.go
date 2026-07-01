@@ -230,12 +230,15 @@ func BuildRegrab(
 
 	// 098a — watchdog seasons aggregate read view.
 	watchdogSeasonsRepo := watchdogpersistence.NewWatchdogSeasonsRepository(db)
+	// Story E-1-B7 — series-title localizer (?lang=) for the seasons
+	// endpoints. Stateless GORM wrapper, same pattern as seriesRepo above.
+	seriesTextsRepo := enrichpersistence.NewSeriesTextsRepository(db)
 	watchdogSeasonsHandler := watchdogrest.NewWatchdogSeasonsHandler(
 		watchdogSeasonsRepo,
 		watchdogSeasonsRepo,
 		qbitSettingsUC,
 		log,
-	)
+	).WithLocalizer(seriesTextsRepo)
 
 	webhooksAggregateHandler := catalogrest.NewWebhooksAggregateHandler(
 		webhookBundle.Reconciler,

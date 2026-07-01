@@ -811,6 +811,9 @@ func BuildHTTPServer(
 	// AddSeries dispatch). Inline for the same reason as N-4b: the
 	// bundle's only deps (auth+sonarr+persistence) are already wired.
 	addToSonarrHandler := BuildDiscoveryAddToSonarr(auth, sonarrBundle, persistence, log)
+	// Story E-1-B7 — series-title localizer for GET /api/v1/series?lang=.
+	// Stateless GORM wrapper over the enrichment series_texts repo.
+	seriesTitleLocalizer := enrichpersistence.NewSeriesTextsRepository(persistence.DB)
 	return httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -860,6 +863,7 @@ func BuildHTTPServer(
 		instanceMetadataBundle.Handler,
 		addToSonarrHandler,
 		seriesDetailBundle.ETagFreshness,
+		seriesTitleLocalizer,
 		log,
 	)
 }

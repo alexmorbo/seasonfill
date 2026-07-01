@@ -93,6 +93,9 @@ func NewServer(
 	// middleware. nil-OK: when nil the middleware is a pass-through, so
 	// minimal/test wirings keep working with zero behaviour change.
 	etagFreshness SectionSyncedAtReader,
+	// Story E-1-B7 — optional series-title localizer for the global
+	// series-cache list (?lang=). nil-OK: pass-through, canon titles.
+	seriesTitleLocalizer catalogrest.SeriesTextLocalizer,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -125,7 +128,8 @@ func NewServer(
 	instancesHandler := catalogrest.NewInstancesHandler(checker, instanceReg, logger).
 		WithSeriesCache(seriesCacheRepo).
 		WithEpisodesCache(episodesCache).
-		WithMediaPending(mediaPending)
+		WithMediaPending(mediaPending).
+		WithLocalizer(seriesTitleLocalizer)
 	// Story 491 / N-1a — global catalog handler over the per-instance one.
 	globalCatalogHandler := catalogrest.NewGlobalCatalogHandler(instancesHandler, logger)
 	// Story 492 / N-1b — global series-scoped wrappers + global grab

@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	seriesdomain "github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
@@ -368,4 +370,208 @@ func TestWatchdogSeasons_Series_OriginTorrentHash_Absent(t *testing.T) {
 	origin := seasons[0].(map[string]any)["origin"].(map[string]any)
 	_, hasHash := origin["torrent_hash"]
 	assert.False(t, hasHash, "torrent_hash key omitted when no grab has a hash")
+}
+
+// fakeSeriesTextLocalizer counts calls (to assert no N+1) and returns a
+// seeded title map. Satisfies rest.SeriesTextLocalizer. Story E-1-B7.
+type fakeSeriesTextLocalizer struct {
+	calls    int
+	titles   map[domain.SeriesID]string // canonID -> localized title
+	lastIDs  []domain.SeriesID
+	lastLang string
+	err      error
+}
+
+func (f *fakeSeriesTextLocalizer) ListByIDsWithFallback(
+	_ context.Context, ids []domain.SeriesID, lang string,
+) (map[domain.SeriesID]seriesdomain.SeriesText, error) {
+	f.calls++
+	f.lastIDs = ids
+	f.lastLang = lang
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[domain.SeriesID]seriesdomain.SeriesText, len(f.titles))
+	for _, id := range ids {
+		if title, ok := f.titles[id]; ok {
+			t := title // local copy for &
+			out[id] = seriesdomain.SeriesText{SeriesID: id, Language: lang, Title: &t}
+		}
+	}
+	return out, nil
+}
+
+func seasonRowWithCanon(canonID domain.SeriesID, sonarrID domain.SonarrSeriesID, title string) watchdogpersistence.WatchdogSeasonRow {
+	return watchdogpersistence.WatchdogSeasonRow{
+		InstanceName:      "homelab",
+		SeriesID:          sonarrID,
+		CanonSeriesID:     canonID,
+		SeasonNumber:      1,
+		SeriesTitle:       title,
+		Monitored:         true,
+		OriginGUID:        "g1",
+		OriginIndexerName: "Prowlarr",
+	}
+}
+
+func doSeasonsList(t *testing.T, h *WatchdogSeasonsHandler, url string) dto.WatchdogSeasonsList {
+	t.Helper()
+	r := newSeasonsRouter(h)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var got dto.WatchdogSeasonsList
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	return got
+}
+
+func TestWatchdogSeasons_List_Localize_RuRU(t *testing.T) {
+	t.Parallel()
+	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{
+		seasonRowWithCanon(10, 169, "Rick and Morty"),
+		seasonRowWithCanon(11, 170, "Friends"),
+	}}
+	loc := &fakeSeriesTextLocalizer{titles: map[domain.SeriesID]string{
+		10: "Рик и Морти",
+		11: "Друзья",
+	}}
+	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil).WithLocalizer(loc)
+
+	got := doSeasonsList(t, h, "/api/v1/watchdog/seasons?lang=ru-RU")
+	require.Len(t, got.Items, 2)
+	assert.Equal(t, "Рик и Морти", got.Items[0].SeriesTitle)
+	assert.Equal(t, "Друзья", got.Items[1].SeriesTitle)
+	assert.Equal(t, 1, loc.calls, "single batch call, no N+1")
+	assert.Equal(t, "ru-RU", loc.lastLang, "raw BCP-47 pass-through, not normalized")
+}
+
+func TestWatchdogSeasons_List_Localize_EnFallbackModeledByRepo(t *testing.T) {
+	t.Parallel()
+	// The repo's fallback is modeled by the fake returning the en-US row
+	// under the ru request; the handler just overrides with whatever came back.
+	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{
+		seasonRowWithCanon(10, 169, "Canon Title"),
+	}}
+	loc := &fakeSeriesTextLocalizer{titles: map[domain.SeriesID]string{10: "English Title"}}
+	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil).WithLocalizer(loc)
+
+	got := doSeasonsList(t, h, "/api/v1/watchdog/seasons?lang=ru-RU")
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, "English Title", got.Items[0].SeriesTitle)
+	assert.Equal(t, 1, loc.calls)
+}
+
+func TestWatchdogSeasons_List_Localize_BothMissingKeepsCanon(t *testing.T) {
+	t.Parallel()
+	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{
+		seasonRowWithCanon(10, 169, "Canon Title"),
+	}}
+	loc := &fakeSeriesTextLocalizer{titles: map[domain.SeriesID]string{}} // empty map => miss
+	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil).WithLocalizer(loc)
+
+	got := doSeasonsList(t, h, "/api/v1/watchdog/seasons?lang=ru-RU")
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, "Canon Title", got.Items[0].SeriesTitle)
+	assert.Equal(t, 1, loc.calls)
+}
+
+func TestWatchdogSeasons_List_Localize_EmptyLangZeroCalls(t *testing.T) {
+	t.Parallel()
+	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{
+		seasonRowWithCanon(10, 169, "Canon Title"),
+	}}
+	loc := &fakeSeriesTextLocalizer{titles: map[domain.SeriesID]string{10: "Рик и Морти"}}
+	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil).WithLocalizer(loc)
+
+	got := doSeasonsList(t, h, "/api/v1/watchdog/seasons")
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, "Canon Title", got.Items[0].SeriesTitle, "canon unchanged without ?lang=")
+	assert.Equal(t, 0, loc.calls, "zero DB work when lang absent (non-breaking)")
+}
+
+func TestWatchdogSeasons_List_Localize_Unwired(t *testing.T) {
+	t.Parallel()
+	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{
+		seasonRowWithCanon(10, 169, "Canon Title"),
+	}}
+	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil) // no WithLocalizer
+
+	got := doSeasonsList(t, h, "/api/v1/watchdog/seasons?lang=ru-RU")
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, "Canon Title", got.Items[0].SeriesTitle)
+}
+
+func TestWatchdogSeasons_List_Localize_ZeroCanonSkipped(t *testing.T) {
+	t.Parallel()
+	// Row with CanonSeriesID==0 keeps canon; sibling with valid id localizes.
+	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{
+		seasonRowWithCanon(0, 169, "Broken Canon"),
+		seasonRowWithCanon(11, 170, "Friends"),
+	}}
+	loc := &fakeSeriesTextLocalizer{titles: map[domain.SeriesID]string{11: "Друзья"}}
+	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil).WithLocalizer(loc)
+
+	got := doSeasonsList(t, h, "/api/v1/watchdog/seasons?lang=ru-RU")
+	require.Len(t, got.Items, 2)
+	assert.Equal(t, "Broken Canon", got.Items[0].SeriesTitle)
+	assert.Equal(t, "Друзья", got.Items[1].SeriesTitle)
+	assert.Equal(t, 1, loc.calls)
+	assert.NotContains(t, loc.lastIDs, domain.SeriesID(0), "zero canon id not sent to the batch")
+}
+
+func TestWatchdogSeasons_List_Localize_ErrorSoftFail(t *testing.T) {
+	t.Parallel()
+	lister := &stubSeasonsLister{rows: []watchdogpersistence.WatchdogSeasonRow{
+		seasonRowWithCanon(10, 169, "Canon Title"),
+	}}
+	loc := &fakeSeriesTextLocalizer{err: errors.New("db down")}
+	h := NewWatchdogSeasonsHandler(lister, &stubSeriesLister{}, stubSettingsLookup{}, nil).WithLocalizer(loc)
+
+	got := doSeasonsList(t, h, "/api/v1/watchdog/seasons?lang=ru-RU")
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, "Canon Title", got.Items[0].SeriesTitle, "soft-fail: canon on localizer error")
+}
+
+func TestWatchdogSeasons_Series_Localize_RuRU(t *testing.T) {
+	t.Parallel()
+	row := seasonRowWithCanon(10, 169, "Rick and Morty")
+	row.SeasonNumber = 2
+	series := &stubSeriesLister{rows: []watchdogpersistence.WatchdogSeasonRow{row}}
+	loc := &fakeSeriesTextLocalizer{titles: map[domain.SeriesID]string{10: "Рик и Морти"}}
+	h := NewWatchdogSeasonsHandler(&stubSeasonsLister{}, series, stubSettingsLookup{}, nil).WithLocalizer(loc)
+	r := newSeasonsRouter(h)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/watchdog/series/homelab/169?lang=ru-RU", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var got dto.WatchdogSeriesDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "Рик и Морти", got.SeriesTitle)
+	assert.Equal(t, 1, loc.calls)
+	assert.Equal(t, "ru-RU", loc.lastLang)
+}
+
+func TestWatchdogSeasons_Series_Localize_EmptyLangZeroCalls(t *testing.T) {
+	t.Parallel()
+	row := seasonRowWithCanon(10, 169, "Rick and Morty")
+	row.SeasonNumber = 2
+	series := &stubSeriesLister{rows: []watchdogpersistence.WatchdogSeasonRow{row}}
+	loc := &fakeSeriesTextLocalizer{titles: map[domain.SeriesID]string{10: "Рик и Морти"}}
+	h := NewWatchdogSeasonsHandler(&stubSeasonsLister{}, series, stubSettingsLookup{}, nil).WithLocalizer(loc)
+	r := newSeasonsRouter(h)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/watchdog/series/homelab/169", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var got dto.WatchdogSeriesDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "Rick and Morty", got.SeriesTitle, "canon unchanged without ?lang=")
+	assert.Equal(t, 0, loc.calls)
 }
