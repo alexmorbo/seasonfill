@@ -167,14 +167,16 @@ export function RecommendationsCarousel({
   staleBadge,
   tmdbSeriesLoading,
 }: RecommendationsCarouselProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const ref = useRef<HTMLElement | null>(null);
   const visible = useIsSectionVisible(ref);
+  const lang = i18n.resolvedLanguage;
 
   const query = useSeriesRecommendations({
     seriesId,
     limit,
     offset: 0,
+    ...(lang ? { lang } : {}),
     enabled: visible,
     pollWhileDegraded: true,
   });

@@ -125,6 +125,10 @@ func (fakeNoTexts) GetWithFallback(_ context.Context, _ domain.SeriesID, _ strin
 	return series.SeriesText{}, ports.ErrNotFound
 }
 
+func (fakeNoTexts) ListByIDsWithFallback(_ context.Context, _ []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesText, error) {
+	return map[domain.SeriesID]series.SeriesText{}, nil
+}
+
 type fakeNoEpTexts struct{}
 
 func (fakeNoEpTexts) GetWithFallback(_ context.Context, _ domain.EpisodeID, _ string) (series.EpisodeText, error) {

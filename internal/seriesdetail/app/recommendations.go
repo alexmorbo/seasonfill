@@ -49,6 +49,12 @@ const (
 // response — a slow / cold TMDB recommendations row is the same UX as
 // a slow descriptive blurb (Story 529 §3).
 //
+// lang (Story 565 B-recs-lang) — BCP-47 tag used to override each
+// rec's canon.Title with the localised series_texts row when present.
+// Empty / invalid values normalise to en-US via resolveLang (defensive
+// bounds check + trim). No new port failures degrade the response —
+// series_texts load failure falls back to canon titles + a warn log.
+//
 // limit/offset are pre-clamped by the caller — this method asserts they
 // are within bounds and falls back to safe defaults if they are not.
 // This makes the method safe to call directly from tests + future
@@ -57,6 +63,7 @@ func (c *Composer) GetRecommendations(
 	ctx context.Context,
 	instanceName domain.InstanceName,
 	sonarrSeriesID domain.SonarrSeriesID,
+	lang string,
 	limit, offset int,
 ) (*Recommendations, error) {
 	if limit <= 0 {
@@ -68,6 +75,7 @@ func (c *Composer) GetRecommendations(
 	if offset < 0 {
 		offset = 0
 	}
+	lang = resolveLang(lang)
 
 	cache, err := c.d.SeriesCache.Get(ctx, instanceName, sonarrSeriesID)
 	if err != nil {
@@ -124,10 +132,48 @@ func (c *Composer) GetRecommendations(
 		for _, canon := range canons {
 			byID[canon.ID] = canon
 		}
+
+		// Story 565 (B-recs-lang) — batch-load localised titles for
+		// the resolved rec ids. Failure degrades quietly to canon
+		// titles + warn log; missing entries in the map are the norm
+		// for cold series (freshener hasn't populated ru-RU yet).
+		var localised map[domain.SeriesID]series.SeriesText
+		if c.d.SeriesTexts != nil && len(ids) > 0 {
+			resolvedIDs := make([]domain.SeriesID, 0, len(ids))
+			for _, recID := range ids {
+				if _, ok := byID[recID]; ok {
+					resolvedIDs = append(resolvedIDs, recID)
+				}
+			}
+			if len(resolvedIDs) > 0 {
+				var terr error
+				localised, terr = c.d.SeriesTexts.ListByIDsWithFallback(ctx, resolvedIDs, lang)
+				if terr != nil {
+					c.d.Logger.WarnContext(ctx, "recommendations_texts_batch_failed",
+						slog.Int64("series_id", int64(seriesID)),
+						slog.String("lang", lang),
+						slog.Int("rec_count", len(resolvedIDs)),
+						slog.String("err", terr.Error()))
+					// nil map — projection below no-ops the override.
+					localised = nil
+				}
+			}
+		}
+
 		for _, recID := range ids {
 			canon, ok := byID[recID]
 			if !ok {
 				continue
+			}
+			// Story 565 — override canon.Title with the localised row
+			// when present (non-nil, non-empty). Empty / missing keeps
+			// canon.Title. Same posture as composer.go branch a in
+			// GetDetail: series_texts is the source of truth for the
+			// display title when a row exists.
+			if localised != nil {
+				if t, has := localised[recID]; has && t.Title != nil && *t.Title != "" {
+					canon.Title = *t.Title
+				}
 			}
 			rd := RecommendationDetail{Series: canon}
 			if c.d.SeriesCacheLookup != nil {
@@ -160,6 +206,7 @@ func (c *Composer) GetRecommendations(
 		slog.String("instance_name", string(instanceName)),
 		slog.Int("sonarr_series_id", int(sonarrSeriesID)),
 		slog.Int64("series_id", int64(seriesID)),
+		slog.String("lang", lang),
 		slog.Int("limit", limit),
 		slog.Int("offset", offset),
 		slog.Int("total_count", out.TotalCount),

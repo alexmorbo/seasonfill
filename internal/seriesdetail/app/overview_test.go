@@ -98,6 +98,19 @@ func (f ovFakeTexts) GetWithFallback(_ context.Context, _ domain.SeriesID, _ str
 	return f.text, nil
 }
 
+func (f ovFakeTexts) ListByIDsWithFallback(_ context.Context, ids []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesText, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	// Default fake: return the single seeded text for every requested id.
+	// Tests that need per-id control should embed / wrap this fake.
+	out := make(map[domain.SeriesID]series.SeriesText, len(ids))
+	for _, id := range ids {
+		out[id] = f.text
+	}
+	return out, nil
+}
+
 type ovFakeKeywords struct {
 	ids    []int64
 	listEr error

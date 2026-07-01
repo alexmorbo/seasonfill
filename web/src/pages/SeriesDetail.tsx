@@ -67,6 +67,7 @@ export function SeriesDetail() {
   // key (default limit/offset), so TanStack dedupes — no extra traffic.
   const recsQ = useSeriesRecommendations({
     seriesId,
+    ...(lang ? { lang } : {}),
     enabled: typeof seriesId === 'number' && seriesId > 0,
     pollWhileDegraded: true,
   });

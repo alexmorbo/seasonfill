@@ -84,8 +84,9 @@ func (f *fakeMapSeriesReader) ListByTMDBIDs(_ context.Context, tmdbIDs []domain.
 
 // fakeFallbackTexts satisfies seriesdetail.SeriesTextsPort.
 type fakeFallbackTexts struct {
-	out series.SeriesText
-	err error
+	out   series.SeriesText
+	batch map[domain.SeriesID]series.SeriesText
+	err   error
 }
 
 func (f *fakeFallbackTexts) GetWithFallback(_ context.Context, _ domain.SeriesID, _ string) (series.SeriesText, error) {
@@ -93,6 +94,21 @@ func (f *fakeFallbackTexts) GetWithFallback(_ context.Context, _ domain.SeriesID
 		return series.SeriesText{}, f.err
 	}
 	return f.out, nil
+}
+
+// ListByIDsWithFallback — Story 565 (B-recs-lang). Returns per-id map
+// when `batch` seeded; empty map otherwise.
+func (f *fakeFallbackTexts) ListByIDsWithFallback(_ context.Context, ids []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesText, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[domain.SeriesID]series.SeriesText, len(ids))
+	for _, id := range ids {
+		if t, ok := f.batch[id]; ok {
+			out[id] = t
+		}
+	}
+	return out, nil
 }
 
 // fakeFallbackKeywords satisfies seriesdetail.KeywordsPort.
@@ -419,7 +435,7 @@ func TestTMDBFallbackUseCase_GetRecommendations_StubReturnsItems(t *testing.T) {
 		Recommendations: &fakeFallbackRecsPort{ids: []domain.SeriesID{101, 102}},
 		Logger:          discardLogger(),
 	})
-	rec, err := uc.GetRecommendations(t.Context(), 8378, 20, 0)
+	rec, err := uc.GetRecommendations(t.Context(), 8378, "", 20, 0)
 	require.NoError(t, err)
 	assert.Equal(t, 2, rec.TotalCount)
 	assert.Len(t, rec.Items, 2)
@@ -433,7 +449,7 @@ func TestTMDBFallbackUseCase_GetRecommendations_UnknownIDReturnsErrNotFound(t *t
 		Series: &fakeMapSeriesReader{err: ports.ErrNotFound},
 		Logger: discardLogger(),
 	})
-	_, err := uc.GetRecommendations(t.Context(), 9999, 20, 0)
+	_, err := uc.GetRecommendations(t.Context(), 9999, "", 20, 0)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ports.ErrNotFound)
 }
@@ -446,7 +462,7 @@ func TestTMDBFallbackUseCase_GetRecommendations_NilRecsPortReturnsEmpty(t *testi
 		}},
 		Logger: discardLogger(),
 	})
-	rec, err := uc.GetRecommendations(t.Context(), 8378, 20, 0)
+	rec, err := uc.GetRecommendations(t.Context(), 8378, "", 20, 0)
 	require.NoError(t, err)
 	assert.Empty(t, rec.Items)
 	assert.Equal(t, 0, rec.TotalCount)
@@ -522,7 +538,7 @@ func TestTMDBFallbackUseCase_GetRecommendations_FullHydration_NoDegraded(t *test
 		Recommendations: &fakeFallbackRecsPort{ids: []domain.SeriesID{101}},
 		Logger:          discardLogger(),
 	})
-	rec, err := uc.GetRecommendations(t.Context(), 25551, 20, 0)
+	rec, err := uc.GetRecommendations(t.Context(), 25551, "", 20, 0)
 	require.NoError(t, err)
 	assert.Empty(t, rec.Degraded)
 }
@@ -537,7 +553,7 @@ func TestTMDBFallbackUseCase_GetRecommendations_ListError_Degrades(t *testing.T)
 		Recommendations: &fakeFallbackRecsPort{err: errors.New("tmdb down")},
 		Logger:          discardLogger(),
 	})
-	rec, err := uc.GetRecommendations(t.Context(), 25551, 20, 0)
+	rec, err := uc.GetRecommendations(t.Context(), 25551, "", 20, 0)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"tmdb_series"}, rec.Degraded)
 }
@@ -680,7 +696,7 @@ func TestTMDBFallbackUseCase_Freshener_GetRecommendations_Called(t *testing.T) {
 		Freshener: fr,
 		Logger:    discardLogger(),
 	})
-	_, err := uc.GetRecommendations(context.Background(), 8378, 20, 0)
+	_, err := uc.GetRecommendations(context.Background(), 8378, "", 20, 0)
 	require.NoError(t, err)
 	calls := fr.Calls()
 	require.Len(t, calls, 1)

@@ -29,8 +29,11 @@ import (
 // consumes for the TMDB-only fallback. *seriesdetail.TMDBFallbackUseCase
 // satisfies it. nil-OK at construction — when nil, the wrapper falls
 // back to the legacy 404 "series not in any library" response.
+//
+// Story 565 (B-recs-lang) — lang parameter added to propagate ?lang=
+// through the fallback path.
 type TMDBFallbackRecommendationsPort interface {
-	GetRecommendations(ctx context.Context, seriesID domain.SeriesID, limit, offset int) (*seriesdetail.Recommendations, error)
+	GetRecommendations(ctx context.Context, seriesID domain.SeriesID, lang string, limit, offset int) (*seriesdetail.Recommendations, error)
 }
 
 type GlobalSeriesRecommendationsHandler struct {
@@ -99,6 +102,7 @@ func (h *GlobalSeriesRecommendationsHandler) Get(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not in any library"})
 			return
 		}
+		lang := c.Query("lang")
 		limit, lok := parseRecLimit(c)
 		if !lok {
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid limit"})
@@ -109,7 +113,7 @@ func (h *GlobalSeriesRecommendationsHandler) Get(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid offset"})
 			return
 		}
-		rec, ferr := h.tmdbFallback.GetRecommendations(ctx, seriesID, limit, offset)
+		rec, ferr := h.tmdbFallback.GetRecommendations(ctx, seriesID, lang, limit, offset)
 		if ferr != nil {
 			if errors.Is(ferr, ports.ErrNotFound) {
 				c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series_not_found"})

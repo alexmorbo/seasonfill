@@ -104,6 +104,85 @@ func (r *SeriesTextsRepository) GetWithFallback(ctx context.Context, seriesID do
 	return toSeriesText(m), nil
 }
 
+// ListByIDsWithFallback returns one SeriesText per requested series_id,
+// applying the §5.6 two-tier fallback (requested language first, en-US
+// second) in a single round-trip. Story 565 (B-recs-lang) — used by
+// Composer.GetRecommendations to localise recommendation card titles
+// without N+1 SELECTs against series_texts.
+//
+// Semantics (mirrors EpisodeTextsRepository.ListByEpisodeIDsWithFallback):
+//   - Empty seriesIDs slice → empty map, nil error (no SQL issued).
+//   - Series with a row in `lang`             → entry uses that row.
+//   - Series with no `lang` row but en-US     → entry uses en-US row.
+//   - Series with neither row                 → key absent from map
+//     (caller keeps canon.Title).
+//
+// The §5.6 third tier ("first available row by language ASC") is NOT
+// applied — same posture as ListByEpisodeIDsWithFallback. The recs
+// carousel treats a missing entry the same way: keep the canon title
+// (which is what the FE renders today anyway).
+//
+// SQL: at most two index-driven SELECTs against series_texts on the
+// (series_id, language) PK — one for the requested language, one for
+// the en-US fallback restricted to the ids the first query did not
+// satisfy. Single SELECT when lang == en-US.
+func (r *SeriesTextsRepository) ListByIDsWithFallback(
+	ctx context.Context,
+	seriesIDs []domain.SeriesID,
+	lang string,
+) (map[domain.SeriesID]series.SeriesText, error) {
+	if len(seriesIDs) == 0 {
+		return map[domain.SeriesID]series.SeriesText{}, nil
+	}
+	if lang == "" {
+		lang = fallbackLanguage
+	}
+
+	// Cast to int64 for GORM's `IN ?` expander — same rationale as
+	// ListByEpisodeIDsWithFallback (sqlite bind-conversion parity).
+	ids := make([]int64, len(seriesIDs))
+	for i, id := range seriesIDs {
+		ids[i] = int64(id)
+	}
+
+	// First pass: rows in the requested language.
+	var primary []database.SeriesTextModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("series_id IN ? AND language = ?", ids, lang).
+		Find(&primary).Error; err != nil {
+		return nil, fmt.Errorf("list series_texts by ids (lang=%s): %w", lang, err)
+	}
+
+	out := make(map[domain.SeriesID]series.SeriesText, len(seriesIDs))
+	for _, m := range primary {
+		out[m.SeriesID] = toSeriesText(m)
+	}
+
+	// Second pass — only when lang != en-US: pick up series with no
+	// row in `lang` but a row in en-US.
+	if lang != fallbackLanguage {
+		remaining := make([]int64, 0, len(ids))
+		for _, id := range ids {
+			if _, ok := out[domain.SeriesID(id)]; !ok {
+				remaining = append(remaining, id)
+			}
+		}
+		if len(remaining) > 0 {
+			var fallback []database.SeriesTextModel
+			if err := dbFromContext(ctx, r.db).WithContext(ctx).
+				Where("series_id IN ? AND language = ?", remaining, fallbackLanguage).
+				Find(&fallback).Error; err != nil {
+				return nil, fmt.Errorf("list series_texts en-US fallback: %w", err)
+			}
+			for _, m := range fallback {
+				out[m.SeriesID] = toSeriesText(m)
+			}
+		}
+	}
+
+	return out, nil
+}
+
 // Upsert writes a text row by composite PK. Idempotent.
 func (r *SeriesTextsRepository) Upsert(ctx context.Context, t series.SeriesText) error {
 	if t.SeriesID == 0 {

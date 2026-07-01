@@ -52,6 +52,13 @@ func (f *fakeI18nSeriesTexts) GetWithFallback(_ context.Context, _ domain.Series
 	return f.byLang[smallest], nil
 }
 
+// ListByIDsWithFallback — Story 565 (B-recs-lang). This test doesn't
+// exercise the recs path; stub returns an empty map so the port
+// interface is satisfied without changing observable behaviour.
+func (f *fakeI18nSeriesTexts) ListByIDsWithFallback(_ context.Context, _ []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesText, error) {
+	return map[domain.SeriesID]series.SeriesText{}, nil
+}
+
 // TestComposer_I18nFallback_PRDSection5_6 covers the four PRD §5.6
 // fallback branches under the port contract: requested-hit, en-US
 // fallback, first-available, and the not-found terminal. This is the

@@ -47,8 +47,13 @@ func (h *SeriesRecommendationsHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// Story 565 (B-recs-lang) — pass ?lang= through to the composer so
+	// recommendation card titles come out localised. Empty / invalid
+	// values are normalised by the composer's resolveLang.
+	lang := c.Query("lang")
+
 	ctx := c.Request.Context()
-	rec, err := h.composer.GetRecommendations(ctx, domain.InstanceName(name), sonarrID, limit, offset)
+	rec, err := h.composer.GetRecommendations(ctx, domain.InstanceName(name), sonarrID, lang, limit, offset)
 	if err != nil {
 		_ = c.Error(err)
 		return

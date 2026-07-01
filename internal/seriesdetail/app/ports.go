@@ -75,8 +75,21 @@ type EpisodesCountPort interface {
 
 // SeriesTextsPort fetches the localised title/overview/tagline row
 // with the §5.6 language-fallback semantics.
+//
+// GetWithFallback: single-series read used by the detail / overview
+// paths (Composer branch a, TMDBFallbackUseCase.GetCanonical /
+// GetOverview).
+//
+// ListByIDsWithFallback: batch read used by the recommendations path
+// (Composer.GetRecommendations + TMDBFallbackUseCase.GetRecommendations)
+// to override canon.Title with the localised title in one round-trip.
+// Missing entries in the returned map mean neither the requested
+// language nor the en-US fallback row exists — the caller keeps
+// canon.Title in that case (same silent-fallback semantics as
+// EpisodeTextsPort.ListByEpisodeIDsWithFallback, Story 550).
 type SeriesTextsPort interface {
 	GetWithFallback(ctx context.Context, seriesID domain.SeriesID, language string) (series.SeriesText, error)
+	ListByIDsWithFallback(ctx context.Context, seriesIDs []domain.SeriesID, language string) (map[domain.SeriesID]series.SeriesText, error)
 }
 
 // SeasonsPort lists every season row for a series, ordered by

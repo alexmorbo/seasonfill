@@ -19,9 +19,12 @@ function wrapper() {
 describe('useSeriesRecommendations', () => {
   beforeEach(() => mockApi.mockReset());
 
-  it('exposes a stable query key', () => {
-    expect(seriesRecommendationsQueryKey(140, 20, 0)).toEqual([
-      'series-recommendations', 140, 20, 0,
+  it('exposes a stable query key including lang', () => {
+    expect(seriesRecommendationsQueryKey(140, 20, 0, 'ru-RU')).toEqual([
+      'series-recommendations', 140, 20, 0, 'ru-RU',
+    ]);
+    expect(seriesRecommendationsQueryKey(140, 20, 0, '')).toEqual([
+      'series-recommendations', 140, 20, 0, '',
     ]);
   });
 
@@ -46,6 +49,22 @@ describe('useSeriesRecommendations', () => {
     );
     await waitFor(() => expect(mockApi).toHaveBeenCalled());
     expect(mockApi).toHaveBeenCalledWith('/series/42/recommendations?limit=8&offset=16');
+  });
+
+  it('appends &lang=ru-RU when lang is passed', async () => {
+    mockApi.mockResolvedValueOnce({ items: [], total_count: 0, has_more: false, limit: 20, offset: 0, degraded: [] });
+    renderHook(
+      () => useSeriesRecommendations({ seriesId: 140, lang: 'ru-RU', enabled: true }),
+      { wrapper: wrapper() },
+    );
+    await waitFor(() => expect(mockApi).toHaveBeenCalled());
+    expect(mockApi).toHaveBeenCalledWith('/series/140/recommendations?limit=20&offset=0&lang=ru-RU');
+  });
+
+  it('isolates cache per language via queryKey', () => {
+    const ruKey = seriesRecommendationsQueryKey(140, 20, 0, 'ru-RU');
+    const enKey = seriesRecommendationsQueryKey(140, 20, 0, 'en-US');
+    expect(ruKey).not.toEqual(enKey);
   });
 
   it('does NOT fetch when enabled=false', () => {

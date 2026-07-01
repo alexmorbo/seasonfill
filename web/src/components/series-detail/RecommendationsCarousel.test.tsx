@@ -60,7 +60,12 @@ describe('<RecommendationsCarousel /> (530)', () => {
   it('fetches and renders cards once visible', async () => {
     mockApi.mockResolvedValueOnce(payload);
     wrap(<RecommendationsCarousel seriesId={140} />);
-    await waitFor(() => expect(mockApi).toHaveBeenCalledWith('/series/140/recommendations?limit=20&offset=0'));
+    // Story 565 (B-recs-lang) — carousel now forwards i18n.resolvedLanguage as ?lang=.
+    await waitFor(() =>
+      expect(mockApi).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/series\/140\/recommendations\?limit=20&offset=0(&lang=[A-Za-z-]+)?$/),
+      ),
+    );
     await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());
     expect(screen.getAllByTestId('recommendation-card')).toHaveLength(2);
   });

@@ -145,6 +145,25 @@ func (f *fakeSeriesTexts) GetWithFallback(_ context.Context, sid domain.SeriesID
 	return series.SeriesText{}, ports.ErrNotFound
 }
 
+// ListByIDsWithFallback — Story 565 (B-recs-lang). Applies the same
+// two-tier lookup semantics as GetWithFallback across every requested id.
+func (f *fakeSeriesTexts) ListByIDsWithFallback(_ context.Context, ids []domain.SeriesID, lang string) (map[domain.SeriesID]series.SeriesText, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[domain.SeriesID]series.SeriesText, len(ids))
+	for _, id := range ids {
+		if t, ok := f.rows[seriesTextKey(id, lang)]; ok {
+			out[id] = t
+			continue
+		}
+		if t, ok := f.rows[seriesTextKey(id, "en-US")]; ok {
+			out[id] = t
+		}
+	}
+	return out, nil
+}
+
 func seriesTextKey(id domain.SeriesID, lang string) string {
 	return lang + "|" + intToStr(int(id))
 }

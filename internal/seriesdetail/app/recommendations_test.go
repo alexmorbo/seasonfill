@@ -80,7 +80,7 @@ func TestComposerGetRecommendations_HappyPath(t *testing.T) {
 	}}
 	c := newRecComposer(canonByID, cache, recs, lookup)
 
-	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 20, 0)
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "", 20, 0)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	require.Equal(t, 2, out.TotalCount)
@@ -104,7 +104,7 @@ func TestComposerGetRecommendations_Pagination_HasMore(t *testing.T) {
 	c := newRecComposer(canonByID, cache, recs, &recFakeCacheLookup{})
 
 	// Page 1: limit=2 offset=0 → 2 items, has_more=true.
-	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 2, 0)
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "", 2, 0)
 	require.NoError(t, err)
 	require.Equal(t, 4, out.TotalCount)
 	require.Equal(t, 2, len(out.Items))
@@ -112,14 +112,14 @@ func TestComposerGetRecommendations_Pagination_HasMore(t *testing.T) {
 	require.Equal(t, domain.SeriesID(10), out.Items[0].Series.ID)
 
 	// Page 2: limit=2 offset=2 → 2 items, has_more=false.
-	out, err = c.GetRecommendations(t.Context(), "alpha", 1, 2, 2)
+	out, err = c.GetRecommendations(t.Context(), "alpha", 1, "", 2, 2)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(out.Items))
 	require.False(t, out.HasMore)
 	require.Equal(t, domain.SeriesID(30), out.Items[0].Series.ID)
 
 	// Past end: offset >= total → empty items, has_more=false.
-	out, err = c.GetRecommendations(t.Context(), "alpha", 1, 2, 99)
+	out, err = c.GetRecommendations(t.Context(), "alpha", 1, "", 2, 99)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(out.Items))
 	require.False(t, out.HasMore)
@@ -134,11 +134,11 @@ func TestComposerGetRecommendations_LimitClamp(t *testing.T) {
 	c := newRecComposer(canonByID, cache, recFakeRecs{}, &recFakeCacheLookup{})
 
 	// limit=0 → default. offset=-5 → 0.
-	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 0, -5)
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "", 0, -5)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	// limit=999 → clamped to 50. (no items here, just exercises the path)
-	out, err = c.GetRecommendations(t.Context(), "alpha", 1, 999, 0)
+	out, err = c.GetRecommendations(t.Context(), "alpha", 1, "", 999, 0)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 }
@@ -150,7 +150,7 @@ func TestComposerGetRecommendations_NoCacheRow(t *testing.T) {
 	}
 	c := newRecComposer(map[domain.SeriesID]series.Canon{}, cache, recFakeRecs{}, &recFakeCacheLookup{})
 
-	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 20, 0)
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "", 20, 0)
 	require.Nil(t, out)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ports.ErrNotFound))
@@ -168,7 +168,7 @@ func TestComposerGetRecommendations_ListFailureDegrades(t *testing.T) {
 		&recFakeCacheLookup{},
 	)
 
-	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 20, 0)
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "", 20, 0)
 	require.NoError(t, err, "list failure must NOT fail the response")
 	require.NotNil(t, out)
 	require.Equal(t, 0, len(out.Items))
@@ -189,7 +189,7 @@ func TestComposerGetRecommendations_StubSkipped(t *testing.T) {
 	recs := recFakeRecs{ids: []domain.SeriesID{10, 20}}
 	c := newRecComposer(canonByID, cache, recs, &recFakeCacheLookup{})
 
-	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 20, 0)
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "", 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, out.TotalCount, "stub-only rows must be dropped from TotalCount")
 	require.Equal(t, 1, len(out.Items))
@@ -219,7 +219,7 @@ func TestComposerGetRecommendations_BatchOrderPreserved(t *testing.T) {
 	recs := recFakeRecs{ids: []domain.SeriesID{30, 10, 20}}
 	c := newRecComposer(canonByID, cache, recs, &recFakeCacheLookup{})
 
-	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 20, 0)
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "", 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 3, len(out.Items))
 	require.Equal(t, domain.SeriesID(30), out.Items[0].Series.ID,
@@ -248,7 +248,7 @@ func TestComposerGetRecommendations_BatchListFailureDegradesQuiet(t *testing.T) 
 		Now:               func() time.Time { return time.Now().UTC() },
 	})
 
-	out, err := c.GetRecommendations(t.Context(), "alpha", 1, 20, 0)
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "", 20, 0)
 	require.NoError(t, err, "DB failure on canon batch must NOT 5xx the recs endpoint")
 	require.NotNil(t, out)
 	require.Equal(t, 0, len(out.Items))

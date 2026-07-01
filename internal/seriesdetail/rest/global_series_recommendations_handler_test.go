@@ -49,11 +49,13 @@ func (s *stubGlobalRecsCacheLookup) ListBySeriesIDs(_ context.Context, ids []dom
 // stubRecommendationsFallback implements
 // seriesdetailrest.TMDBFallbackRecommendationsPort.
 type stubRecommendationsFallback struct {
-	out *seriesdetail.Recommendations
-	err error
+	out     *seriesdetail.Recommendations
+	err     error
+	gotLang string // Story 565 — captured for assertion
 }
 
-func (s *stubRecommendationsFallback) GetRecommendations(_ context.Context, _ domain.SeriesID, _, _ int) (*seriesdetail.Recommendations, error) {
+func (s *stubRecommendationsFallback) GetRecommendations(_ context.Context, _ domain.SeriesID, lang string, _, _ int) (*seriesdetail.Recommendations, error) {
+	s.gotLang = lang
 	return s.out, s.err
 }
 
@@ -179,6 +181,27 @@ func TestGlobalSeriesRecommendationsHandler_Get_TMDBFallback_Returns200(t *testi
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), `"tmdb_series"`)
 	assert.Contains(t, w.Body.String(), `"series_id":8378`)
+}
+
+// TestGlobalSeriesRecommendationsHandler_Get_TMDBFallback_LangQueryPassed —
+// Story 565 (B-recs-lang). Confirms ?lang=ru-RU reaches the fallback UC.
+func TestGlobalSeriesRecommendationsHandler_Get_TMDBFallback_LangQueryPassed(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	cache := &stubGlobalRecsCacheLookup{entries: nil}
+	fallback := &stubRecommendationsFallback{out: &seriesdetail.Recommendations{
+		SeriesID: 8378,
+		Items:    []seriesdetail.RecommendationDetail{},
+	}}
+	h := seriesdetailrest.NewGlobalSeriesRecommendationsHandler(nil, cache, fallback, quietLoggerRecsWrapper())
+	r := gin.New()
+	r.GET("/api/v1/series/:id/recommendations", h.Get)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/8378/recommendations?limit=20&lang=ru-RU", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "ru-RU", fallback.gotLang, "?lang=ru-RU must reach the fallback UC")
 }
 
 // Story 532 — TMDB-fallback path returns 404 series_not_found when the

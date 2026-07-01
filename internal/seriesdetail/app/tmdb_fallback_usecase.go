@@ -332,7 +332,13 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 // limit/offset are clamped per Composer.GetRecommendations defaults.
 // Returns the upstream error (e.g. ports.ErrNotFound wrapped) when the
 // canon row for the source series is absent. Story 532.
-func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID domain.SeriesID, limit, offset int) (*Recommendations, error) {
+//
+// lang (Story 565 B-recs-lang) — BCP-47 tag; passed to freshener for
+// the missing_lang trip (matches Composer.GetCanonical semantics) and
+// used to batch-load localised series_texts for each rec so
+// canon.Title is overridden with the ru-RU (or configured) title.
+// Empty / invalid values normalise to en-US via resolveLang.
+func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID domain.SeriesID, lang string, limit, offset int) (*Recommendations, error) {
 	if limit <= 0 {
 		limit = RecommendationsLimitDefault
 	}
@@ -342,13 +348,15 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 	if offset < 0 {
 		offset = 0
 	}
-	// Story 533 → Story 563 — read-through TMDB freshener. lang isn't a
-	// parameter on GetRecommendations (handler doesn't pass it), so the
-	// freshener probe runs with en-US semantics (no missing_lang trip —
-	// text rules don't apply to recommendation lists).
+	resolvedLang := resolveLang(lang)
+	// Story 533 → Story 563 — read-through TMDB freshener. Story 565
+	// upgrades the freshener probe language from the previous "en-US
+	// hard-coded" to the request lang so a missing-ru-RU on a
+	// TMDB-only series can trip the missing_lang refresh instead of
+	// silently returning stale en-US titles.
 	var freshen FreshenResult
 	if u.d.Freshener != nil {
-		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, "en-US",
+		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, resolvedLang,
 			[]freshener.Section{
 				freshener.SectionSkeleton,
 				freshener.SectionOverview,
@@ -410,11 +418,44 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 	for _, canon := range canons {
 		byID[canon.ID] = canon
 	}
+
+	// Story 565 (B-recs-lang) — batch-load localised titles. Failure
+	// degrades quietly to canon titles + warn log; missing entries are
+	// the norm for cold recs (freshener hasn't populated ru-RU yet).
+	var localised map[domain.SeriesID]series.SeriesText
+	if u.d.SeriesTexts != nil && len(ids) > 0 {
+		resolvedIDs := make([]domain.SeriesID, 0, len(ids))
+		for _, recID := range ids {
+			if _, ok := byID[recID]; ok {
+				resolvedIDs = append(resolvedIDs, recID)
+			}
+		}
+		if len(resolvedIDs) > 0 {
+			var terr error
+			localised, terr = u.d.SeriesTexts.ListByIDsWithFallback(ctx, resolvedIDs, resolvedLang)
+			if terr != nil {
+				u.d.Logger.WarnContext(ctx, "tmdb_fallback_recommendations_texts_failed",
+					slog.Int64("series_id", int64(seriesID)),
+					slog.String("lang", resolvedLang),
+					slog.Int("rec_count", len(resolvedIDs)),
+					slog.String("err", terr.Error()))
+				localised = nil
+			}
+		}
+	}
+
 	resolved := make([]RecommendationDetail, 0, len(ids))
 	for _, recID := range ids {
 		s, ok := byID[recID]
 		if !ok {
 			continue
+		}
+		// Story 565 — override canon.Title with the localised row when
+		// present. Same guard as Composer.GetRecommendations.
+		if localised != nil {
+			if t, has := localised[recID]; has && t.Title != nil && *t.Title != "" {
+				s.Title = *t.Title
+			}
 		}
 		rd := RecommendationDetail{Series: s}
 		if u.d.SeriesCacheLookup != nil {
@@ -444,6 +485,7 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 	u.d.Logger.InfoContext(ctx, "tmdb_fallback_recommendations_composed",
 		slog.Int64("series_id", int64(seriesID)),
 		slog.String("hydration", string(canon.Hydration)),
+		slog.String("lang", resolvedLang),
 		slog.Int("limit", limit),
 		slog.Int("offset", offset),
 		slog.Int("total_count", out.TotalCount),
