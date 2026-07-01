@@ -225,6 +225,7 @@ func BuildSeriesDetail(
 		Series:               sdSeriesRepo,
 		SeriesTexts:          sdSeriesTextsRepo,
 		EpisodeTextsCoverage: sdEpisodeTextsRepo,
+		SeriesTextsCoverage:  sdSeriesTextsRepo, // Story 566 — reuses SeriesTextsRepository (new RecommendationsCoverage method)
 		Seasons:              sdSeasonsRepo,
 		Logger:               composerLog,
 	})

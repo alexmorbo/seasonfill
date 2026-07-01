@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -100,6 +101,141 @@ func TestSeriesTextsRepository_Fallback_NoRows(t *testing.T) {
 			repo := NewSeriesTextsRepository(db)
 			_, err = repo.GetWithFallback(ctx, seriesID, "ru-RU")
 			assert.True(t, errors.Is(err, ports.ErrNotFound))
+		})
+	}
+}
+
+// Story 566 — RecommendationsCoverage validates the parent-scoped
+// coverage counter used by Probe SectionRecommendations. Dual-backend
+// (testcontainers Postgres + SQLite) via testhelpers.AllBackends.
+func TestSeriesTextsRepository_RecommendationsCoverage(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+
+			cases := []struct {
+				name        string
+				recCount    int // 0 == no recommendations
+				coverRuRU   int // subset of recs with a ru-RU series_texts row
+				coverEnUS   int // additional recs with only en-US row (to prove filter)
+				queryLang   string
+				wantCovered int
+				wantTotal   int
+			}{
+				{
+					name:        "no recommendations at all",
+					recCount:    0,
+					queryLang:   "ru-RU",
+					wantCovered: 0,
+					wantTotal:   0,
+				},
+				{
+					name:        "all recs have requested lang",
+					recCount:    3,
+					coverRuRU:   3,
+					queryLang:   "ru-RU",
+					wantCovered: 3,
+					wantTotal:   3,
+				},
+				{
+					name:        "partial coverage — 4 of 20 (series 691 live)",
+					recCount:    20,
+					coverRuRU:   4,
+					queryLang:   "ru-RU",
+					wantCovered: 4,
+					wantTotal:   20,
+				},
+				{
+					name:        "zero coverage — 20 recs, 0 ru-RU (series 701 live)",
+					recCount:    20,
+					coverRuRU:   0,
+					queryLang:   "ru-RU",
+					wantCovered: 0,
+					wantTotal:   20,
+				},
+				{
+					name:        "different lang requested — en-US present, ru-RU counted",
+					recCount:    3,
+					coverRuRU:   1,
+					coverEnUS:   2, // rec[1], rec[2] have en-US only — must NOT count for ru-RU
+					queryLang:   "ru-RU",
+					wantCovered: 1,
+					wantTotal:   3,
+				},
+			}
+
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+					db := backend.NewDB(t)
+					seriesRepo := NewSeriesRepository(db)
+					recsRepo := NewRecommendationsRepository(db)
+					textsRepo := NewSeriesTextsRepository(db)
+
+					// Seed parent series (assigned auto id).
+					parentID, err := seriesRepo.Upsert(ctx, sampleCanon("Parent "+tc.name))
+					require.NoError(t, err)
+
+					// Seed rec target series (assigned auto ids); tmdb_id unique
+					// per-row to avoid partial-unique conflict across test cases.
+					recIDs := make([]domain.SeriesID, 0, tc.recCount)
+					for i := 0; i < tc.recCount; i++ {
+						c := sampleCanon(fmt.Sprintf("Rec %s %d", tc.name, i))
+						c.TMDBID = ptrTMDBID(500000 + int(parentID)*100 + i)
+						rid, err := seriesRepo.Upsert(ctx, c)
+						require.NoError(t, err)
+						recIDs = append(recIDs, rid)
+					}
+
+					if tc.recCount > 0 {
+						require.NoError(t, recsRepo.Set(ctx, parentID, recIDs))
+					}
+					for i := 0; i < tc.coverRuRU; i++ {
+						require.NoError(t, textsRepo.Upsert(ctx, series.SeriesText{
+							SeriesID: recIDs[i],
+							Language: "ru-RU",
+							Title:    new("ru title"),
+						}))
+					}
+					// en-US rows go on the recs AFTER the ru-RU-covered subset.
+					for i := tc.coverRuRU; i < tc.coverRuRU+tc.coverEnUS && i < len(recIDs); i++ {
+						require.NoError(t, textsRepo.Upsert(ctx, series.SeriesText{
+							SeriesID: recIDs[i],
+							Language: "en-US",
+							Title:    new("en title"),
+						}))
+					}
+
+					covered, total, err := textsRepo.RecommendationsCoverage(ctx, parentID, tc.queryLang)
+					require.NoError(t, err)
+					assert.Equal(t, tc.wantCovered, covered, "covered")
+					assert.Equal(t, tc.wantTotal, total, "total")
+				})
+			}
+		})
+	}
+}
+
+// TestSeriesTextsRepository_RecommendationsCoverage_QueryError — table
+// pair with NULL/error case: repository with a closed DB pool returns
+// error, matching Radarr fail-open expectation в probe wiring.
+func TestSeriesTextsRepository_RecommendationsCoverage_QueryError(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesTextsRepository(db)
+
+			// Close the underlying sql.DB to force IO error on the next query.
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			require.NoError(t, sqlDB.Close())
+
+			_, _, err = repo.RecommendationsCoverage(context.Background(), 1, "ru-RU")
+			require.Error(t, err)
 		})
 	}
 }

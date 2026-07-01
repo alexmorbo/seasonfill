@@ -51,6 +51,15 @@ func (s *stubEpisodeTexts) CoverageBySeries(_ context.Context, _ domain.SeriesID
 	return s.covered, s.total, s.err
 }
 
+type stubSeriesTextsCoverage struct {
+	covered, total int
+	err            error
+}
+
+func (s *stubSeriesTextsCoverage) RecommendationsCoverage(_ context.Context, _ domain.SeriesID, _ string) (int, int, error) {
+	return s.covered, s.total, s.err
+}
+
 type stubSeasons struct {
 	syncedByNumber map[int]*time.Time
 	notFound       map[int]bool
@@ -451,6 +460,182 @@ func TestProbe_ContextCanceledSurfacedAsError(t *testing.T) {
 	_, err := probe.IsStale(ctx, 1, mustLang(t, "ru-RU"), nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// Story 566 — SectionRecommendations coverage check parity with
+// SectionOverview/Cast missing_lang and SeasonMissingEpisodesLang.
+
+func TestProbe_RecommendationsCoverageHigh_Fresh(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:              &stubSeries{canon: canon},
+		SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+		Seasons:             &stubSeasons{},
+		SeriesTextsCoverage: &stubSeriesTextsCoverage{covered: 20, total: 20}, // 100% ≥ 80%
+		Now:                 func() time.Time { return now },
+	})
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+	require.NoError(t, err)
+	assertVerdict(t, verdicts, freshener.SectionRecommendations, false, "fresh")
+}
+
+func TestProbe_RecommendationsCoverageLow_StaleMissingRecsLang(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh, // TTL says fresh — coverage must override
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:              &stubSeries{canon: canon},
+		SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+		Seasons:             &stubSeasons{},
+		SeriesTextsCoverage: &stubSeriesTextsCoverage{covered: 4, total: 20}, // 20% < 80% (series 691 live)
+		Now:                 func() time.Time { return now },
+	})
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+	require.NoError(t, err)
+	assertVerdict(t, verdicts, freshener.SectionRecommendations, true, "missing_recs_lang")
+}
+
+func TestProbe_RecommendationsCoverage_SkippedForEnUS(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:              &stubSeries{canon: canon},
+		SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "en-US"}},
+		Seasons:             &stubSeasons{},
+		SeriesTextsCoverage: &stubSeriesTextsCoverage{covered: 0, total: 20}, // Would fire if not skipped
+		Now:                 func() time.Time { return now },
+	})
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "en-US"), nil)
+	require.NoError(t, err)
+	// Coverage check skipped for en-US → TTL-only → fresh.
+	assertVerdict(t, verdicts, freshener.SectionRecommendations, false, "fresh")
+}
+
+func TestProbe_RecommendationsCoverage_ZeroRecs_Fresh(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:              &stubSeries{canon: canon},
+		SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+		Seasons:             &stubSeasons{},
+		SeriesTextsCoverage: &stubSeriesTextsCoverage{covered: 0, total: 0}, // no recs at all
+		Now:                 func() time.Time { return now },
+	})
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+	require.NoError(t, err)
+	// total == 0 → skip check → TTL-only → fresh.
+	assertVerdict(t, verdicts, freshener.SectionRecommendations, false, "fresh")
+}
+
+func TestProbe_RecommendationsCoverage_QueryError_FailOpenProbeError(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:              &stubSeries{canon: canon},
+		SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+		Seasons:             &stubSeasons{},
+		SeriesTextsCoverage: &stubSeriesTextsCoverage{err: errors.New("db boom")},
+		Now:                 func() time.Time { return now },
+	})
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+	require.NoError(t, err)
+	// Fail-open → Stale probe_error.
+	assertVerdict(t, verdicts, freshener.SectionRecommendations, true, "probe_error")
+}
+
+func TestProbe_RecommendationsCoverage_ThresholdBoundary(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+
+	// Exactly 80% (16/20) → NOT stale (strict < comparison).
+	probeAt := mustProbe(t, freshener.DBProbeConfig{
+		Series:              &stubSeries{canon: canon},
+		SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+		Seasons:             &stubSeasons{},
+		SeriesTextsCoverage: &stubSeriesTextsCoverage{covered: 16, total: 20},
+		Now:                 func() time.Time { return now },
+	})
+	v, err := probeAt.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+	require.NoError(t, err)
+	assertVerdict(t, v, freshener.SectionRecommendations, false, "fresh")
+
+	// 79% (15/19 → 78.9%) → Stale.
+	probeBelow := mustProbe(t, freshener.DBProbeConfig{
+		Series:              &stubSeries{canon: canon},
+		SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+		Seasons:             &stubSeasons{},
+		SeriesTextsCoverage: &stubSeriesTextsCoverage{covered: 15, total: 19},
+		Now:                 func() time.Time { return now },
+	})
+	v2, err := probeBelow.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+	require.NoError(t, err)
+	assertVerdict(t, v2, freshener.SectionRecommendations, true, "missing_recs_lang")
 }
 
 // assertVerdict finds the (single) verdict for section in verdicts and

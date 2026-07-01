@@ -183,6 +183,51 @@ func (r *SeriesTextsRepository) ListByIDsWithFallback(
 	return out, nil
 }
 
+// RecommendationsCoverage reports how many of the series's
+// recommendation targets have a `series_texts` row in the requested
+// language vs the total number of series_recommendations rows for the
+// parent series. Story 566: probe uses this to detect "recs stamped
+// in en-US but ru-RU never populated" — a pattern that predates
+// Story 565's FE lang fix and now surfaces as English titles в russian
+// carousels.
+//
+// Distinct is applied on both sides (SERIES_RECOMMENDATIONS PK is
+// (series_id, recommended_series_id) so distinct is a no-op on the
+// total side, but semantically clearer). Coverage counts DISTINCT
+// recommended_series_id — one rec cannot double-count itself.
+//
+// Returns (0, 0, nil) when the parent has no recommendations rows —
+// caller skips the coverage check in that case (cold-boot / never-
+// enriched-recs series). Fallback тут не применяется: probe хочет
+// знать "есть ли у нас именно ЭТОТ lang", а не "хоть что-то из fallback
+// chain".
+func (r *SeriesTextsRepository) RecommendationsCoverage(
+	ctx context.Context,
+	seriesID domain.SeriesID,
+	language string,
+) (covered, total int, err error) {
+	var totalCnt int64
+	if e := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.SeriesRecommendationModel{}).
+		Where("series_id = ?", seriesID).
+		Count(&totalCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count series_recommendations: %w", e)
+	}
+	if totalCnt == 0 {
+		return 0, 0, nil
+	}
+	var coveredCnt int64
+	if e := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series_recommendations AS sr").
+		Joins("JOIN series_texts st ON st.series_id = sr.recommended_series_id AND st.language = ?", language).
+		Where("sr.series_id = ?", seriesID).
+		Distinct("sr.recommended_series_id").
+		Count(&coveredCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count series_texts for recommendations: %w", e)
+	}
+	return int(coveredCnt), int(totalCnt), nil
+}
+
 // Upsert writes a text row by composite PK. Idempotent.
 func (r *SeriesTextsRepository) Upsert(ctx context.Context, t series.SeriesText) error {
 	if t.SeriesID == 0 {

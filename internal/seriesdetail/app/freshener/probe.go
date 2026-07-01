@@ -44,6 +44,23 @@ type EpisodeTextsCoverageReader interface {
 	CoverageBySeries(ctx context.Context, seriesID domain.SeriesID, language string) (covered, total int, err error)
 }
 
+// SeriesTextsCoverageReader — narrow port answering "what fraction of
+// this series's recommendations have a row in series_texts for this
+// lang?". Story 566 catches the en-US-stamp/ru-RU-empty gap: A3b fires
+// TMDB /recommendations?language=en-US, N×UPSERT lands en-US rows,
+// enrichment_recs_synced_at stamped → subsequent ru-RU visits see Fresh
+// verdict and never trigger A3b(lang=ru-RU). Coverage check turns that
+// into missing_recs_lang and lets EnsureFreshScope re-fire A3b until
+// the gap closes.
+type SeriesTextsCoverageReader interface {
+	// RecommendationsCoverage returns (covered, total). covered =
+	// distinct recommended_series_id which have a row in series_texts
+	// with language == lang. total = distinct recommended_series_id
+	// in series_recommendations for parentID. Returns (0, 0, nil) when
+	// total == 0.
+	RecommendationsCoverage(ctx context.Context, seriesID domain.SeriesID, language string) (covered, total int, err error)
+}
+
 // SeasonSyncedAtReader — narrow port reading
 // seasons.episodes_synced_at for one (seriesID, seasonNumber). Returns
 // (nil, dataports.ErrNotFound) if the season row is absent (caller
@@ -62,6 +79,17 @@ type DBProbeConfig struct {
 	// EpisodeCoverageMinPct — covered*100 < total*pct → stale.
 	// Default 80 (Story 548 baseline).
 	EpisodeCoverageMinPct int
+
+	// SeriesTextsCoverage — optional. Story 566: probe checks that the
+	// recommendations for the parent series have series_texts rows in the
+	// requested lang, and marks SectionRecommendations Stale if coverage
+	// falls below RecsCoverageMinPct. Nil disables the check (defensive
+	// для non-prod wiring).
+	SeriesTextsCoverage SeriesTextsCoverageReader
+
+	// RecsCoverageMinPct — covered*100 < total*pct → stale. Default 80
+	// (Story 548 baseline; symmetric across coverage checks).
+	RecsCoverageMinPct int
 
 	// Now is the clock injection. nil → time.Now.
 	Now func() time.Time
@@ -86,6 +114,9 @@ func NewDBProbe(cfg DBProbeConfig) (*DBProbe, error) {
 	}
 	if cfg.EpisodeCoverageMinPct <= 0 || cfg.EpisodeCoverageMinPct > 100 {
 		cfg.EpisodeCoverageMinPct = 80
+	}
+	if cfg.RecsCoverageMinPct <= 0 || cfg.RecsCoverageMinPct > 100 {
+		cfg.RecsCoverageMinPct = 80
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -171,13 +202,38 @@ func (p *DBProbe) IsStale(
 	}
 	verdicts = append(verdicts, cast)
 
-	// SectionRecommendations: enrichment_recs_synced_at; no per-rec lang
-	// check (A3b N×UPSERT side-effect handles localisation, missing_lang
-	// here would over-trigger).
-	verdicts = append(verdicts, ttlSectionVerdict(
+	// SectionRecommendations: enrichment_recs_synced_at + per-lang
+	// coverage check. Story 566: A1's original "no per-rec lang check"
+	// stance turned out wrong — recs get stamped in en-US on first visit,
+	// then subsequent ru-RU visits see Fresh timestamp and never trigger
+	// A3b to populate ru-RU series_texts rows. Coverage check catches that
+	// gap and lets A5 EnsureFreshScope re-fire A3b until closed.
+	recs := ttlSectionVerdict(
 		SectionRecommendations, canon.EnrichmentRecsSyncedAt, canon.Status,
 		SectionTTLs[SectionRecommendations], now,
-	))
+	)
+	if !recs.Stale && p.cfg.SeriesTextsCoverage != nil && !lang.IsZero() &&
+		!strings.EqualFold(lang.Value(), "en-US") {
+		covered, total, cerr := p.cfg.SeriesTextsCoverage.RecommendationsCoverage(ctx, seriesID, lang.Value())
+		switch {
+		case cerr != nil:
+			// Fail-open: prefer to over-fire A3b (cheap, de-duped) than
+			// strand user with en-US carousel. Radarr lesson: never let an
+			// IO error look like Fresh.
+			p.cfg.Logger.WarnContext(ctx, "freshener.probe.recs_coverage_error",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang.Value()),
+				slog.String("error", cerr.Error()),
+			)
+			recs.Stale = true
+			recs.Reason = "probe_error"
+		case total > 0 && covered*100 < total*p.cfg.RecsCoverageMinPct:
+			recs.Stale = true
+			recs.Reason = "missing_recs_lang"
+		}
+		// total == 0 → intentional no-op: series has no recs to cover.
+	}
+	verdicts = append(verdicts, recs)
 
 	// SectionMedia: enrichment_media_synced_at; lang-agnostic.
 	verdicts = append(verdicts, ttlSectionVerdict(
