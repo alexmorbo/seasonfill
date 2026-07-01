@@ -1,0 +1,549 @@
+package seriesdetail
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sort"
+	"time"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
+)
+
+// SkeletonDTO is the above-fold canon document returned by
+// SkeletonComposer.Compose (PLAN §7.1). Every scalar is an A0 typed VO
+// (Object Calisthenics §4.3) — a zero VO marshals to JSON null. Sonarr /
+// qBit per-instance state is intentionally absent (§7.0 bounded-context):
+// in_library_instances points the FE at the separate /library endpoint.
+type SkeletonDTO struct {
+	SeriesID domain.SeriesID    `json:"series_id"`
+	Lang     values.LanguageTag `json:"lang"`
+
+	Hero struct {
+		Title            values.Title             `json:"title"`
+		OriginalTitle    values.Title             `json:"original_title"`
+		Tagline          values.Tagline           `json:"tagline,omitempty"`
+		YearStart        values.Year              `json:"year_start"`
+		YearEnd          *values.Year             `json:"year_end,omitempty"`
+		RuntimeMinutes   values.Minutes           `json:"runtime_minutes"`
+		ContentRating    values.ContentRating     `json:"content_rating,omitempty"`
+		Genres           []GenreRef               `json:"genres"`
+		TmdbRating       *values.Rating           `json:"tmdb_rating,omitempty"`
+		ImdbRating       *values.Rating           `json:"imdb_rating,omitempty"`
+		OmdbRating       *values.Rating           `json:"omdb_rating,omitempty"`
+		NextEpisodeCanon *values.NextEpisodeCanon `json:"next_episode,omitempty"`
+		PosterAsset      values.MediaHash         `json:"poster_asset"`
+		BackdropAsset    values.MediaHash         `json:"backdrop_asset"`
+		TrailerKey       *values.TrailerKey       `json:"trailer_key,omitempty"`
+	} `json:"hero"`
+
+	Sidebar struct {
+		Status              values.SeriesStatus  `json:"status"`
+		Networks            []NetworkRef         `json:"networks"`
+		ProductionCompanies []CompanyRef         `json:"production_companies"`
+		FirstAirDate        *time.Time           `json:"first_air_date,omitempty"`
+		OriginCountries     []values.CountryCode `json:"origin_countries"`
+		OriginalLanguage    values.LangCode      `json:"original_language"`
+		Keywords            []KeywordRef         `json:"keywords"`
+	} `json:"sidebar"`
+
+	SeasonCount        int      `json:"season_count"`
+	InLibraryInstances []string `json:"in_library_instances"`
+
+	Degraded []string  `json:"degraded,omitempty"`
+	SyncedAt time.Time `json:"synced_at"`
+}
+
+// GenreRef / NetworkRef / CompanyRef / KeywordRef mirror PLAN §7.1 exactly.
+// tmdb_id is a wire number (not an internal typed ID) and name is the
+// localized display string — neither is covered by the bare-ID guard.
+type GenreRef struct {
+	TmdbID int    `json:"tmdb_id"`
+	Name   string `json:"name"`
+}
+
+type NetworkRef struct {
+	TmdbID    int    `json:"tmdb_id"`
+	Name      string `json:"name"`
+	LogoAsset string `json:"logo_asset,omitempty"`
+}
+
+type CompanyRef struct {
+	TmdbID    int    `json:"tmdb_id"`
+	Name      string `json:"name"`
+	LogoAsset string `json:"logo_asset,omitempty"`
+}
+
+type KeywordRef struct {
+	TmdbID int    `json:"tmdb_id"`
+	Name   string `json:"name"`
+}
+
+// NextEpisodeRef is the single next-aired canon episode projection read by
+// the skeleton hero. Season/episode are 1-based wire numbers.
+type NextEpisodeRef struct {
+	SeasonNumber  int
+	EpisodeNumber int
+	Title         string
+	AirDate       time.Time
+}
+
+// NextEpisodePort returns ONLY the soonest future-aired canon episode for a
+// series (title localized via the language-fallback chain). This is the one
+// new port B1a introduces; its concrete repository impl is delivered in B1b.
+// ok=false means the series has no future-dated episode (ended / no schedule).
+type NextEpisodePort interface {
+	NextAired(ctx context.Context, seriesID domain.SeriesID, language string) (NextEpisodeRef, bool, error)
+}
+
+// SkeletonDeps groups the canon-only dependencies. No episode_states,
+// season_stats, Sonarr client, or qBit client (§7.0). NextEpisode and
+// Freshener are nil-OK.
+type SkeletonDeps struct {
+	Series            SeriesPort
+	SeriesTexts       SeriesTextsPort
+	Genres            GenresPort
+	Keywords          KeywordsPort
+	Networks          NetworksPort
+	Companies         CompaniesPort
+	ContentRatings    ContentRatingsPort
+	Videos            VideosPort
+	Seasons           SeasonsPort
+	SeriesCacheLookup SeriesCacheLookupPort
+	NextEpisode       NextEpisodePort
+	Freshener         SeriesFreshener
+	MediaResolver     *media.Resolver
+	Logger            *slog.Logger
+	Now               func() time.Time
+}
+
+// SkeletonComposer builds the above-fold canon document. Testable in
+// isolation — every dependency is a narrow port or nil-OK seam.
+type SkeletonComposer struct {
+	d SkeletonDeps
+}
+
+// NewSkeletonComposer applies the package defaults (Logger, Now, nop
+// resolver) identical to NewComposer / NewCastComposer.
+func NewSkeletonComposer(d SkeletonDeps) *SkeletonComposer {
+	if d.Logger == nil {
+		d.Logger = sharedports.DomainLogger(slog.Default(), "composer")
+	}
+	if d.Now == nil {
+		d.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if d.MediaResolver == nil {
+		d.MediaResolver = media.NewNopResolver()
+	}
+	return &SkeletonComposer{d: d}
+}
+
+// posterResolveBudget caps the per-asset first-fold media resolve, matching
+// Composer.Get (composer.go:1040).
+const posterResolveBudget = 1500 * time.Millisecond
+
+// Compose runs the 3-branch skeleton read. lang is a BCP-47 LanguageTag
+// ("ru-RU") — passed verbatim to repos, EnsureFreshScope, and title VOs
+// (no server-side normalization, operator directive §4.1).
+func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesID, lang values.LanguageTag) (SkeletonDTO, error) {
+	langTag := lang
+	langStr := lang.Value()
+
+	var freshen FreshenResult
+	if sc.d.Freshener != nil {
+		freshen, _ = sc.d.Freshener.EnsureFreshScope(
+			ctx, seriesID, langStr,
+			[]freshener.Section{freshener.SectionSkeleton},
+			nil,   // seasonNumbers — skeleton renders no season episodes
+			false, // force — TTL respected
+			ModeSync,
+		)
+	}
+
+	canon, err := sc.d.Series.Get(ctx, seriesID)
+	if err != nil {
+		return SkeletonDTO{}, fmt.Errorf("skeleton canon load: %w", err)
+	}
+
+	dto := SkeletonDTO{SeriesID: seriesID, Lang: lang}
+	dto.SyncedAt = canon.UpdatedAt
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	// Branch a — hero.
+	g.Go(func() error {
+		return sc.buildHero(gctx, &dto, canon, seriesID, langStr, langTag)
+	})
+
+	// Branch b — sidebar.
+	g.Go(func() error {
+		return sc.buildSidebar(gctx, &dto, canon, seriesID, langStr)
+	})
+
+	// Branch c — season_count + in_library_instances.
+	g.Go(func() error {
+		return sc.buildCounts(gctx, &dto, seriesID)
+	})
+
+	if gerr := g.Wait(); gerr != nil {
+		return SkeletonDTO{}, gerr
+	}
+
+	dto.Degraded = sc.computeDegraded(canon, freshen)
+	return dto, nil
+}
+
+func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, canon series.Canon, seriesID domain.SeriesID, langStr string, langTag values.LanguageTag) error {
+	// Localized title/tagline via fallback chain; canon.Title on miss.
+	display := canon.Title
+	text, terr := sc.d.SeriesTexts.GetWithFallback(ctx, seriesID, langStr)
+	if terr == nil {
+		if text.Title != nil && *text.Title != "" && !shouldPreferCanon(canon, langStr, text.Language) {
+			display = *text.Title
+		}
+		if text.Tagline != nil {
+			dto.Hero.Tagline = buildTagline(*text.Tagline, langTag)
+		}
+	}
+	dto.Hero.Title = buildTitle(display, langTag)
+	if canon.OriginalTitle != nil && *canon.OriginalTitle != "" {
+		// IN-11: request langTag as lang carrier (no origin-lang expansion).
+		dto.Hero.OriginalTitle = buildTitle(*canon.OriginalTitle, langTag)
+	}
+
+	dto.Hero.YearStart = yearOrZero(canon.Year)
+	dto.Hero.YearEnd = yearEnd(canon)
+	dto.Hero.RuntimeMinutes = minutesOrZero(canon.RuntimeMinutes)
+
+	dto.Hero.TmdbRating = buildRating(canon.TMDBRating, canon.TMDBVotes)
+	dto.Hero.ImdbRating = buildRating(canon.IMDBRating, canon.IMDBVotes)
+	// OmdbRating: canon carries no numeric OMDb rating (IN-8) — stays nil.
+
+	// Content rating (locale-picked, guard against non-enum TMDB values).
+	ratings, crErr := sc.d.ContentRatings.ListBySeries(ctx, seriesID)
+	if crErr == nil {
+		if picked := pickContentRating(ratings, langStr); picked != nil {
+			dto.Hero.ContentRating = contentRatingOrZero(picked.Rating)
+		}
+	}
+
+	// Genres (localized).
+	genreIDs, gErr := sc.d.Genres.ListBySeries(ctx, seriesID)
+	if gErr != nil {
+		return fmt.Errorf("skeleton genres: %w", gErr)
+	}
+	if len(genreIDs) > 0 {
+		genres, err := sc.d.Genres.ListByIDsWithFallback(ctx, genreIDs, langStr)
+		if err != nil {
+			return fmt.Errorf("skeleton genres i18n: %w", err)
+		}
+		byID := make(map[int64]taxonomy.Genre, len(genres))
+		for _, gg := range genres {
+			byID[gg.ID] = gg
+		}
+		for _, id := range genreIDs {
+			if gg, ok := byID[id]; ok {
+				dto.Hero.Genres = append(dto.Hero.Genres, GenreRef{TmdbID: tmdbIntOf(gg.TMDBID), Name: gg.Name})
+			}
+		}
+	}
+
+	// Trailer key (best official YouTube).
+	if videos, verr := sc.d.Videos.ListBySeriesAndType(ctx, seriesID, "Trailer"); verr == nil {
+		dto.Hero.TrailerKey = pickTrailerKey(videos)
+	}
+
+	// Next episode (nil-OK port).
+	if sc.d.NextEpisode != nil {
+		if ref, ok, nerr := sc.d.NextEpisode.NextAired(ctx, seriesID, langStr); nerr == nil && ok {
+			if title := buildTitle(ref.Title, langTag); !title.IsZero() {
+				days := int(ref.AirDate.Sub(sc.d.Now()).Hours() / 24)
+				if ne, cerr := values.NewNextEpisodeCanon(ref.SeasonNumber, ref.EpisodeNumber, title, ref.AirDate, days); cerr == nil {
+					dto.Hero.NextEpisodeCanon = &ne
+				}
+			}
+		}
+	}
+
+	// Poster / backdrop first-fold sync resolve.
+	syncCtx, cancel := context.WithTimeout(ctx, posterResolveBudget)
+	dto.Hero.PosterAsset = mediaHashOrZero(sc.d.MediaResolver.ResolveSync(syncCtx, canon.PosterAsset, "w342", "poster_w342"))
+	dto.Hero.BackdropAsset = mediaHashOrZero(sc.d.MediaResolver.ResolveSync(syncCtx, canon.BackdropAsset, "w1280", "backdrop_w1280"))
+	cancel()
+
+	return nil
+}
+
+func (sc *SkeletonComposer) buildSidebar(ctx context.Context, dto *SkeletonDTO, canon series.Canon, seriesID domain.SeriesID, langStr string) error {
+	if canon.Status != nil {
+		dto.Sidebar.Status = seriesStatusOrZero(*canon.Status)
+	}
+	dto.Sidebar.FirstAirDate = canon.FirstAirDate
+	dto.Sidebar.OriginalLanguage = langCodeOrZero(canon.OriginalLanguage)
+
+	for _, cc := range canon.OriginCountries {
+		if code, err := values.NewCountryCode(cc); err == nil {
+			dto.Sidebar.OriginCountries = append(dto.Sidebar.OriginCountries, code)
+		}
+	}
+
+	// Networks.
+	netIDs, nErr := sc.d.Networks.ListBySeries(ctx, seriesID)
+	if nErr != nil {
+		return fmt.Errorf("skeleton networks: %w", nErr)
+	}
+	if len(netIDs) > 0 {
+		nets, err := sc.d.Networks.ListByIDs(ctx, netIDs)
+		if err != nil {
+			return fmt.Errorf("skeleton networks by ids: %w", err)
+		}
+		for _, n := range nets {
+			dto.Sidebar.Networks = append(dto.Sidebar.Networks, NetworkRef{
+				TmdbID: tmdbIntOf(n.TMDBID), Name: n.Name, LogoAsset: strOrEmpty(n.LogoAsset),
+			})
+		}
+	}
+
+	// Companies (non-fatal — reserved surface).
+	if coIDs, cErr := sc.d.Companies.ListBySeries(ctx, seriesID); cErr == nil && len(coIDs) > 0 {
+		if cos, err := sc.d.Companies.ListByIDs(ctx, coIDs); err == nil {
+			for _, c := range cos {
+				dto.Sidebar.ProductionCompanies = append(dto.Sidebar.ProductionCompanies, CompanyRef{
+					TmdbID: tmdbIntOf(c.TMDBID), Name: c.Name, LogoAsset: strOrEmpty(c.LogoAsset),
+				})
+			}
+		}
+	}
+
+	// Keywords (localized, embedded per §7.1.5).
+	kwIDs, kErr := sc.d.Keywords.ListBySeries(ctx, seriesID)
+	if kErr != nil {
+		return fmt.Errorf("skeleton keywords: %w", kErr)
+	}
+	if len(kwIDs) > 0 {
+		kws, err := sc.d.Keywords.ListByIDsWithFallback(ctx, kwIDs, langStr)
+		if err != nil {
+			return fmt.Errorf("skeleton keywords i18n: %w", err)
+		}
+		byID := make(map[int64]taxonomy.Keyword, len(kws))
+		for _, k := range kws {
+			byID[k.ID] = k
+		}
+		for _, id := range kwIDs {
+			if k, ok := byID[id]; ok {
+				dto.Sidebar.Keywords = append(dto.Sidebar.Keywords, KeywordRef{TmdbID: tmdbIntOf(k.TMDBID), Name: k.Name})
+			}
+		}
+	}
+
+	return nil
+}
+
+func (sc *SkeletonComposer) buildCounts(ctx context.Context, dto *SkeletonDTO, seriesID domain.SeriesID) error {
+	seasons, err := sc.d.Seasons.ListBySeries(ctx, seriesID)
+	if err != nil {
+		return fmt.Errorf("skeleton seasons count: %w", err)
+	}
+	dto.SeasonCount = len(seasons)
+
+	caches, cErr := sc.d.SeriesCacheLookup.ListBySeriesID(ctx, seriesID)
+	if cErr != nil {
+		return fmt.Errorf("skeleton in_library lookup: %w", cErr)
+	}
+	seen := make(map[string]struct{}, len(caches))
+	names := make([]string, 0, len(caches))
+	for _, c := range caches {
+		name := string(c.InstanceName)
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	dto.InLibraryInstances = names // non-nil empty slice → JSON []
+	return nil
+}
+
+func (sc *SkeletonComposer) computeDegraded(canon series.Canon, freshen FreshenResult) []string {
+	var out []string
+	if canon.Hydration != series.HydrationFull {
+		out = append(out, "tmdb_series")
+	}
+	if freshen.Degraded {
+		out = append(out, "freshener")
+	}
+	return out
+}
+
+// --- helpers ---
+
+func buildTitle(value string, tag values.LanguageTag) values.Title {
+	t, err := values.NewTitle(value, tag)
+	if err != nil {
+		return values.Title{}
+	}
+	return t
+}
+
+func buildTagline(value string, tag values.LanguageTag) values.Tagline {
+	t, err := values.NewTagline(value, tag)
+	if err != nil {
+		return values.Tagline{}
+	}
+	return t
+}
+
+func buildRating(score *float64, votes *int) *values.Rating {
+	if score == nil {
+		return nil
+	}
+	sc, err := values.NewScore(*score)
+	if err != nil {
+		return nil
+	}
+	v := 0
+	if votes != nil {
+		v = *votes
+	}
+	vc, err := values.NewVoteCount(v)
+	if err != nil {
+		return nil
+	}
+	r, err := values.NewRating(sc, vc)
+	if err != nil {
+		return nil
+	}
+	return &r
+}
+
+func yearOrZero(y *int) values.Year {
+	if y == nil {
+		return values.Year{}
+	}
+	yr, err := values.NewYear(*y)
+	if err != nil {
+		return values.Year{}
+	}
+	return yr
+}
+
+// yearEnd returns the last-air year only when the show has ended; ongoing
+// shows return nil so the UI renders "2026—".
+func yearEnd(canon series.Canon) *values.Year {
+	if canon.LastAirDate == nil {
+		return nil
+	}
+	if canon.InProduction {
+		return nil
+	}
+	yr, err := values.NewYear(canon.LastAirDate.Year())
+	if err != nil {
+		return nil
+	}
+	return &yr
+}
+
+func minutesOrZero(m *int) values.Minutes {
+	if m == nil {
+		return values.Minutes{}
+	}
+	mn, err := values.NewMinutes(*m)
+	if err != nil {
+		return values.Minutes{}
+	}
+	return mn
+}
+
+func contentRatingOrZero(s string) values.ContentRating {
+	cr, err := values.NewContentRating(s)
+	if err != nil {
+		return values.ContentRating{}
+	}
+	return cr
+}
+
+func seriesStatusOrZero(s string) values.SeriesStatus {
+	st, err := values.NewSeriesStatus(s)
+	if err != nil {
+		return values.SeriesStatus{}
+	}
+	return st
+}
+
+func langCodeOrZero(s *string) values.LangCode {
+	if s == nil {
+		return values.LangCode{}
+	}
+	lc, err := values.NewLangCode(*s)
+	if err != nil {
+		return values.LangCode{}
+	}
+	return lc
+}
+
+func mediaHashOrZero(hash *string) values.MediaHash {
+	if hash == nil {
+		return values.MediaHash{}
+	}
+	mh, err := values.NewMediaHash(*hash)
+	if err != nil {
+		return values.MediaHash{}
+	}
+	return mh
+}
+
+func pickTrailerKey(videos []enrichpersistence.Video) *values.TrailerKey {
+	var bestKey *string
+	var bestPublished *time.Time
+	for i := range videos {
+		v := videos[i]
+		if v.Site == nil || v.Key == nil {
+			continue
+		}
+		if !v.Official {
+			continue
+		}
+		if len(*v.Site) == 0 {
+			continue
+		}
+		if bestKey == nil || (v.PublishedAt != nil && (bestPublished == nil || v.PublishedAt.After(*bestPublished))) {
+			bestKey = v.Key
+			bestPublished = v.PublishedAt
+		}
+	}
+	if bestKey == nil {
+		return nil
+	}
+	tk, err := values.NewTrailerKey(*bestKey)
+	if err != nil {
+		return nil
+	}
+	return &tk
+}
+
+func tmdbIntOf(id *domain.TMDBID) int {
+	if id == nil {
+		return 0
+	}
+	return int(*id)
+}
+
+func strOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
