@@ -286,7 +286,7 @@ type OnDemandEnricher interface {
 // Implementations MUST:
 //   - singleflight per (seriesID, section, lang) to coalesce concurrent
 //     first-time opens of the same series+section.
-//   - hard ≤SyncTimeout (default 3s) for Mode==Sync; longer detached
+//   - hard ≤SyncTimeout (default 5s) for Mode==Sync; longer detached
 //     budget for Mode==Async (~180s).
 //   - on timeout/error: enqueue async refresh (Story 528 path),
 //     return FreshenResult{Degraded: true} WITHOUT blocking past

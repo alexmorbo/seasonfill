@@ -24,7 +24,7 @@ import (
 type SeriesFreshenerConfig struct {
 	Probe         freshener.Probe
 	AsyncEnricher seriesdetail.OnDemandEnricher
-	SyncTimeout   time.Duration // default 3s (Story 533 policy)
+	SyncTimeout   time.Duration // default 5s (Story 567 — up from 3s)
 	Logger        *slog.Logger
 }
 
@@ -80,7 +80,7 @@ func NewSeriesFreshenerHolder(cfg SeriesFreshenerConfig) (*SeriesFreshenerHolder
 		return nil, errors.New("seriesfreshener: AsyncEnricher required")
 	}
 	if cfg.SyncTimeout <= 0 {
-		cfg.SyncTimeout = 3 * time.Second
+		cfg.SyncTimeout = 5 * time.Second
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = sharedports.DomainLogger(slog.Default(), "enrichment")
