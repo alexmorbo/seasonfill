@@ -41,9 +41,11 @@ func TestSupportedUserLanguages_ContainsDefault(t *testing.T) {
 }
 
 // TestSupportedUserLanguages_FEParity is the drift canary. Read the FE
-// SUPPORTED_LANGS constant out of the source file and assert there is
-// one BE BCP-47 tag whose 2-letter prefix matches every FE short code.
-// This catches "FE added 'de' without BE adding 'de-DE'" at CI time.
+// SUPPORTED_LANGS constant out of the source file and assert every FE
+// tag has a matching entry (by 2-letter family prefix) in the BE list.
+// Story 564 (B-lang): FE migrated к full BCP-47 codes ('en-US', 'ru-RU')
+// to align with server contract; the parity check now matches on
+// family prefix so a future FE 'de-DE' still requires a BE 'de-DE'.
 //
 // The FE source path is resolved relative to the test file (runtime.Caller),
 // so the test runs from any working directory. When the FE file is not
@@ -51,17 +53,22 @@ func TestSupportedUserLanguages_ContainsDefault(t *testing.T) {
 // fails: a missing file is an infrastructure issue, not a drift signal.
 func TestSupportedUserLanguages_FEParity(t *testing.T) {
 	t.Parallel()
-	feShortCodes := readFESupportedLangs(t)
-	if len(feShortCodes) == 0 {
+	feCodes := readFESupportedLangs(t)
+	if len(feCodes) == 0 {
 		t.Skip("FE i18n source not on disk; skipping drift check")
 	}
 	bePrefixes := make(map[string]bool, len(SupportedUserLanguages))
 	for _, tag := range SupportedUserLanguages {
 		bePrefixes[tag[:2]] = true
 	}
-	for _, short := range feShortCodes {
-		assert.True(t, bePrefixes[short],
-			"FE SUPPORTED_LANGS has %q but BE locale.SupportedUserLanguages has no matching BCP-47 tag (drift!)", short)
+	for _, code := range feCodes {
+		if len(code) < 2 {
+			t.Errorf("FE SUPPORTED_LANGS entry %q is too short to compare", code)
+			continue
+		}
+		family := code[:2]
+		assert.True(t, bePrefixes[family],
+			"FE SUPPORTED_LANGS has %q but BE locale.SupportedUserLanguages has no matching BCP-47 tag (drift!)", code)
 	}
 }
 
