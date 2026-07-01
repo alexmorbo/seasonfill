@@ -76,6 +76,11 @@ func (f *fakeOMDbSeries) MarkCastSynced(_ context.Context, _ domain.SeriesID, _ 
 	return nil
 }
 
+// MarkRecsSynced — E-1 A3b: no-op for OMDb tests.
+func (f *fakeOMDbSeries) MarkRecsSynced(_ context.Context, _ domain.SeriesID, _ time.Time) error {
+	return nil
+}
+
 // fakeOMDbErrorRepo is the OMDb-side EnrichmentErrorRepo fake.
 // preexist seeds GetByEntitySource to exercise the retry-bump and
 // terminal-skip paths.

@@ -135,6 +135,13 @@ type SeriesRepo interface {
 	// commits inside the same tx. Same COALESCE protection as
 	// MarkTextSynced — see seriesUpsertAssignments().
 	MarkCastSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
+	// MarkRecsSynced — A3b: stamps series.enrichment_recs_synced_at = now.
+	// Called by Worker.RefreshRecommendations after the
+	// series_recommendations.Set + N×UPSERT series_texts side-effect
+	// commits inside the same tx. Single-column UPDATE — concurrent
+	// Sonarr-driven Series.Upsert COALESCEs the stamp so this write is
+	// not silently overwritten (see seriesUpsertAssignments()).
+	MarkRecsSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
 }
 
 type SeriesTextsRepo interface {

@@ -1088,6 +1088,14 @@ func buildSeriesRecommendationsTable(d Dialect, seriesTable *atlasschema.Table) 
 	position := atlasschema.NewNullIntColumn("position", "integer")
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
+	// E-1 A3b: DB-level self-reference defense (triple-layer with the
+	// app-side Set/Upsert guards). TMDB sometimes lists the parent in
+	// its own recs (recursive bias); the worker skips + drops in-loop
+	// AND the CHECK constraint rejects at the storage layer.
+	selfRefCheck := atlasschema.NewCheck().
+		SetName("series_recommendations_no_self_ref").
+		SetExpr("recommended_series_id != series_id")
+
 	refCol := parentRefCol(seriesTable)
 	return atlasschema.NewTable("series_recommendations").
 		AddColumns(seriesID, recommendedID, position, updatedAt).
@@ -1109,7 +1117,8 @@ func buildSeriesRecommendationsTable(d Dialect, seriesTable *atlasschema.Table) 
 				AddRefColumns(refCol).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
-		)
+		).
+		AddChecks(selfRefCheck)
 }
 
 // buildDiscoveryListsTable returns discovery_lists — 6 cols, composite-4
