@@ -5,12 +5,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -253,4 +255,153 @@ func TestComposerGetRecommendations_BatchListFailureDegradesQuiet(t *testing.T) 
 	require.NotNil(t, out)
 	require.Equal(t, 0, len(out.Items))
 	require.Equal(t, 0, out.TotalCount)
+}
+
+// ─── B-recs-probe-lang follow-up: freshener wiring ────────────────────
+
+// recFakeFreshener records EnsureFreshScope calls for assertion. Nil
+// return errors are configurable via `err`.
+type recFakeFreshener struct {
+	mu     sync.Mutex
+	calls  []recFakeFreshenCall
+	result FreshenResult
+	err    error
+}
+
+type recFakeFreshenCall struct {
+	seriesID domain.SeriesID
+	lang     string
+	sections []freshener.Section
+	force    bool
+	mode     EnsureFreshMode
+}
+
+func (f *recFakeFreshener) EnsureFresh(_ context.Context, _ domain.SeriesID, _ string) FreshenResult {
+	return f.result
+}
+
+func (f *recFakeFreshener) EnsureFreshScope(
+	_ context.Context,
+	id domain.SeriesID,
+	lang string,
+	sections []freshener.Section,
+	_ []int,
+	force bool,
+	mode EnsureFreshMode,
+) (FreshenResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, recFakeFreshenCall{
+		seriesID: id,
+		lang:     lang,
+		sections: sections,
+		force:    force,
+		mode:     mode,
+	})
+	if f.err != nil {
+		return f.result, f.err
+	}
+	return f.result, nil
+}
+
+func (f *recFakeFreshener) Calls() []recFakeFreshenCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]recFakeFreshenCall, len(f.calls))
+	copy(out, f.calls)
+	return out
+}
+
+// TestComposer_GetRecommendations_TriggersFreshenerOnScope pins that
+// the endpoint dispatches EnsureFreshScope scoped to
+// SectionRecommendations at the request lang, ModeSync, force=false.
+// Live evidence B-recs-probe-lang follow-up: the recs handler was the
+// only handler that never invoked the freshener, so the lang-coverage
+// probe never fired for ru-RU misses on TMDB-only rec titles.
+func TestComposer_GetRecommendations_TriggersFreshenerOnScope(t *testing.T) {
+	t.Parallel()
+	cache := map[string]series.CacheEntry{
+		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
+	}
+	canonByID := map[domain.SeriesID]series.Canon{
+		42: {ID: 42, Title: "Source"},
+		10: {ID: 10, Title: "Rec A"},
+	}
+	fr := &recFakeFreshener{result: FreshenResult{Refreshed: true}}
+	c := NewComposer(Deps{
+		SeriesCache:     &ovFakeCache{entries: cache},
+		Series:          &ovFakeSeries{rows: canonByID},
+		Recommendations: recFakeRecs{ids: []domain.SeriesID{10}},
+		Freshener:       fr,
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:             func() time.Time { return time.Now().UTC() },
+	})
+
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	calls := fr.Calls()
+	require.Len(t, calls, 1, "freshener must be invoked exactly once")
+	require.Equal(t, domain.SeriesID(42), calls[0].seriesID)
+	require.Equal(t, "ru-RU", calls[0].lang)
+	require.Equal(t, []freshener.Section{freshener.SectionRecommendations}, calls[0].sections,
+		"scope MUST be exactly SectionRecommendations — not the main-composer 4-section list")
+	require.False(t, calls[0].force, "force=false — TTL respected")
+	require.Equal(t, ModeSync, calls[0].mode, "ModeSync — user needs updated data NOW")
+}
+
+// TestComposer_GetRecommendations_FreshenerErrorDegrades — a freshener
+// error must NOT 5xx the endpoint. The recs still render from canon
+// fallback (existing behaviour is preserved).
+func TestComposer_GetRecommendations_FreshenerErrorDegrades(t *testing.T) {
+	t.Parallel()
+	cache := map[string]series.CacheEntry{
+		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
+	}
+	canonByID := map[domain.SeriesID]series.Canon{
+		42: {ID: 42, Title: "Source"},
+		10: {ID: 10, Title: "Rec Canon"},
+	}
+	fr := &recFakeFreshener{err: errors.New("tmdb timeout")} //nolint:err113
+	c := NewComposer(Deps{
+		SeriesCache:     &ovFakeCache{entries: cache},
+		Series:          &ovFakeSeries{rows: canonByID},
+		Recommendations: recFakeRecs{ids: []domain.SeriesID{10}},
+		Freshener:       fr,
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:             func() time.Time { return time.Now().UTC() },
+	})
+
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
+	require.NoError(t, err, "freshener error MUST NOT fail the response")
+	require.NotNil(t, out)
+	require.Equal(t, 1, len(out.Items), "canon fallback preserves recs on freshener failure")
+	require.Equal(t, "Rec Canon", out.Items[0].Series.Title)
+}
+
+// TestComposer_GetRecommendations_NilFreshenerBypasses pins the
+// nil-OK guard: no Freshener wired → no crash, no calls, response
+// still produced from canon.
+func TestComposer_GetRecommendations_NilFreshenerBypasses(t *testing.T) {
+	t.Parallel()
+	cache := map[string]series.CacheEntry{
+		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
+	}
+	canonByID := map[domain.SeriesID]series.Canon{
+		42: {ID: 42, Title: "Source"},
+		10: {ID: 10, Title: "Rec Canon"},
+	}
+	c := NewComposer(Deps{
+		SeriesCache:     &ovFakeCache{entries: cache},
+		Series:          &ovFakeSeries{rows: canonByID},
+		Recommendations: recFakeRecs{ids: []domain.SeriesID{10}},
+		// Freshener nil — nil-OK guard
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:    func() time.Time { return time.Now().UTC() },
+	})
+
+	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(out.Items))
 }

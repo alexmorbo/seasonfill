@@ -15,6 +15,7 @@ import (
 	"log/slog"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -91,6 +92,32 @@ func (c *Composer) GetRecommendations(
 		)
 	}
 	seriesID := *cache.SeriesID
+
+	// B-recs-probe-lang follow-up — trigger EnsureFreshScope for
+	// SectionRecommendations at the recs endpoint entry. The main
+	// composer's /series/{id} scope deliberately excludes recs
+	// (Story 563 comment), so this handler is the only site that
+	// probes recommendation-lang coverage. Fresh case fast-paths
+	// without TMDB call; Stale/Cold dispatches Sync refresh so the
+	// user gets ru-RU titles on the same request. Failure is
+	// degraded, not blocking — recs may render with canon fallback.
+	if c.d.Freshener != nil {
+		_, freshErr := c.d.Freshener.EnsureFreshScope(
+			ctx,
+			seriesID,
+			lang,
+			[]freshener.Section{freshener.SectionRecommendations},
+			nil,   // no season numbers
+			false, // force=false — TTL respected
+			ModeSync,
+		)
+		if freshErr != nil {
+			c.d.Logger.WarnContext(ctx, "recommendations_freshener_error",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.String("err", freshErr.Error()))
+		}
+	}
 
 	out := &Recommendations{
 		Instance:       instanceName,

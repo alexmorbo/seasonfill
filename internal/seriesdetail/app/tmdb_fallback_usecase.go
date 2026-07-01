@@ -349,20 +349,16 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 		offset = 0
 	}
 	resolvedLang := resolveLang(lang)
-	// Story 533 → Story 563 — read-through TMDB freshener. Story 565
-	// upgrades the freshener probe language from the previous "en-US
-	// hard-coded" to the request lang so a missing-ru-RU on a
-	// TMDB-only series can trip the missing_lang refresh instead of
-	// silently returning stale en-US titles.
+	// Story 533 → Story 563 → B-recs-probe-lang follow-up — read-through
+	// TMDB freshener scoped to SectionRecommendations. Prior shape probed
+	// Skeleton+Overview+Cast+Media on the recs endpoint, which never
+	// triggered the recommendation-lang coverage probe — the only site
+	// that guards ru-RU rec titles on TMDB-only series. Fresh case
+	// fast-paths without TMDB call; Stale/Cold dispatches Sync refresh.
 	var freshen FreshenResult
 	if u.d.Freshener != nil {
 		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, resolvedLang,
-			[]freshener.Section{
-				freshener.SectionSkeleton,
-				freshener.SectionOverview,
-				freshener.SectionCast,
-				freshener.SectionMedia,
-			},
+			[]freshener.Section{freshener.SectionRecommendations},
 			nil, false, ModeSync,
 		)
 	}

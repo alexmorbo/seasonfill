@@ -570,6 +570,7 @@ type fakeFreshener struct {
 type fakeFreshenCall struct {
 	seriesID domain.SeriesID
 	lang     string
+	sections []freshener.Section
 }
 
 func (f *fakeFreshener) EnsureFresh(_ context.Context, id domain.SeriesID, lang string) seriesdetail.FreshenResult {
@@ -582,19 +583,20 @@ func (f *fakeFreshener) EnsureFresh(_ context.Context, id domain.SeriesID, lang 
 // EnsureFreshScope — Story 563 A5 method. Records the call under the
 // same calls[] slice so existing test assertions on `Calls()` stay green
 // (both entry points count identically for the "was the freshener
-// invoked?" question).
+// invoked?" question). B-recs-probe-lang follow-up: records `sections`
+// so recs endpoint tests can pin the SectionRecommendations scope.
 func (f *fakeFreshener) EnsureFreshScope(
 	_ context.Context,
 	id domain.SeriesID,
 	lang string,
-	_ []freshener.Section,
+	sections []freshener.Section,
 	_ []int,
 	_ bool,
 	_ seriesdetail.EnsureFreshMode,
 ) (seriesdetail.FreshenResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, fakeFreshenCall{seriesID: id, lang: lang})
+	f.calls = append(f.calls, fakeFreshenCall{seriesID: id, lang: lang, sections: sections})
 	return f.result, nil
 }
 
@@ -700,8 +702,32 @@ func TestTMDBFallbackUseCase_Freshener_GetRecommendations_Called(t *testing.T) {
 	require.NoError(t, err)
 	calls := fr.Calls()
 	require.Len(t, calls, 1)
-	// Recommendations doesn't take lang — freshener probes with en-US.
+	// Empty lang normalises to en-US via resolveLang.
 	assert.Equal(t, "en-US", calls[0].lang)
+}
+
+// TestTMDBFallbackUseCase_Freshener_GetRecommendations_ScopeIsRecommendations
+// pins the B-recs-probe-lang follow-up contract: the recs endpoint
+// dispatches EnsureFreshScope scoped to SectionRecommendations, NOT
+// the main-composer 4-section list (Skeleton+Overview+Cast+Media).
+// This is the only site that triggers the recommendation-lang
+// coverage probe on TMDB-only series.
+func TestTMDBFallbackUseCase_Freshener_GetRecommendations_ScopeIsRecommendations(t *testing.T) {
+	t.Parallel()
+	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Refreshed: true}}
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:    &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{8378: fullCanon}},
+		Freshener: fr,
+		Logger:    discardLogger(),
+	})
+	_, err := uc.GetRecommendations(context.Background(), 8378, "ru-RU", 20, 0)
+	require.NoError(t, err)
+	calls := fr.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "ru-RU", calls[0].lang)
+	assert.Equal(t, []freshener.Section{freshener.SectionRecommendations}, calls[0].sections,
+		"recs endpoint MUST probe SectionRecommendations scope only")
 }
 
 // ─── Story 533a: GetCanonical populates seasons + cast from DB ────
