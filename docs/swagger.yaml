@@ -770,9 +770,9 @@ components:
       type: object
     dto.InProgress:
       description: |-
-        InProgress — story 379. Live Sonarr queue best pick for the
-        in-progress pill. nil when no record is downloading OR Sonarr
-        is unreachable (then degraded[] includes "sonarr").
+        InProgress is the best in-flight Sonarr queue download. nil when the
+        queue is empty OR Sonarr is unreachable. Also mirrored under
+        Library.in_progress for FE parity with the legacy fat response.
       properties:
         episode_number:
           example: 3
@@ -1260,10 +1260,8 @@ components:
           type: integer
       type: object
     dto.LibraryStrip:
-      description: |-
-        Library is the Sonarr-derived "what's on disk" tile. Always
-        present — Sonarr is the system of record per design brief §2.4.
-        Counts come from series_cache.missing_count + episode_states.
+      description: Library is the Sonarr "what's on disk" tile (counts + dominant
+        quality).
       properties:
         dominant_quality:
           description: |-
@@ -1397,9 +1395,9 @@ components:
       type: object
     dto.NextEpisode:
       description: |-
-        NextEpisode is the "Next Episode" card data when available;
-        nil collapses the card to text-only states ("not yet
-        scheduled" / "ended" / "in production").
+        NextEpisodeToAir is the earliest future-dated episode (monitored
+        preferred). Title is nil by design — titles live in the canon episode
+        endpoints, not this Sonarr-state handle.
       properties:
         air_date:
           type: string
@@ -2444,6 +2442,48 @@ components:
         year_start:
           example: 2008
           type: integer
+      type: object
+    dto.SeriesLibraryResponse:
+      properties:
+        in_progress:
+          $ref: '#/components/schemas/dto.InProgress'
+        instance:
+          example: homelab
+          type: string
+        last_grab_at:
+          description: |-
+            LastGrabAt is the created_at of the most recent grab_records row. nil
+            when the series has no grab history.
+          type: string
+        last_imported_episode_at:
+          description: |-
+            LastImportedAt is the updated_at of the most recent imported grab. nil
+            when nothing has imported yet.
+          type: string
+        library:
+          $ref: '#/components/schemas/dto.LibraryStrip'
+        monitored:
+          description: Monitored is the series-level Sonarr monitored flag.
+          type: boolean
+        next_episode_to_air:
+          $ref: '#/components/schemas/dto.NextEpisode'
+        recent:
+          description: |-
+            Recent is the last-5 grab_records activity strip, newest-first. Always a
+            present (possibly empty) slice.
+          items:
+            $ref: '#/components/schemas/dto.RecentEvent'
+          type: array
+          uniqueItems: false
+        series_id:
+          example: 42
+          type: integer
+        sonarr_series_id:
+          example: 123
+          type: integer
+        synced_at:
+          description: SyncedAt = max(series_cache.updated_at, newest episode_states.updated_at).
+          type: string
       type: object
     dto.SeriesOverviewResponse:
       properties:
@@ -5224,6 +5264,67 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Full series cast & crew (global)
+      tags:
+      - series
+  /series/{id}/library:
+    get:
+      description: |-
+        Per-instance Sonarr library state keyed by canonical series.id:
+        monitored flag, episodes-on-disk, missing count, recent grab
+        events, next-episode-to-air, in-progress download, and
+        last-grab / last-import stamps. The instance query param is
+        optional (defaults to the lex-first instance carrying the
+        series). 204 when the series is in zero libraries (TMDB-only);
+        404 instance_not_found when the named instance does not carry it.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: 'Sonarr instance name (default: lex-first)'
+        in: query
+        name: instance
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesLibraryResponse'
+          description: OK
+        "204":
+          description: no content — series is in zero libraries (TMDB-only)
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Per-series Sonarr library state (global)
       tags:
       - series
   /series/{id}/overview:

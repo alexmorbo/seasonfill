@@ -939,7 +939,7 @@
                 "type": "object"
             },
             "dto.InProgress": {
-                "description": "InProgress — story 379. Live Sonarr queue best pick for the\nin-progress pill. nil when no record is downloading OR Sonarr\nis unreachable (then degraded[] includes \"sonarr\").",
+                "description": "InProgress is the best in-flight Sonarr queue download. nil when the\nqueue is empty OR Sonarr is unreachable. Also mirrored under\nLibrary.in_progress for FE parity with the legacy fat response.",
                 "properties": {
                     "episode_number": {
                         "example": 3,
@@ -1544,7 +1544,7 @@
                 "type": "object"
             },
             "dto.LibraryStrip": {
-                "description": "Library is the Sonarr-derived \"what's on disk\" tile. Always\npresent — Sonarr is the system of record per design brief §2.4.\nCounts come from series_cache.missing_count + episode_states.",
+                "description": "Library is the Sonarr \"what's on disk\" tile (counts + dominant quality).",
                 "properties": {
                     "dominant_quality": {
                         "description": "DominantQuality is the most common quality string across\non-disk episode_states rows (e.g., \"WEB-DL 1080p\"). Empty\nwhen nothing on disk.",
@@ -1723,7 +1723,7 @@
                 "type": "object"
             },
             "dto.NextEpisode": {
-                "description": "NextEpisode is the \"Next Episode\" card data when available;\nnil collapses the card to text-only states (\"not yet\nscheduled\" / \"ended\" / \"in production\").",
+                "description": "NextEpisodeToAir is the earliest future-dated episode (monitored\npreferred). Title is nil by design — titles live in the canon episode\nendpoints, not this Sonarr-state handle.",
                 "properties": {
                     "air_date": {
                         "type": "string"
@@ -2972,6 +2972,56 @@
                     "year_start": {
                         "example": 2008,
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.SeriesLibraryResponse": {
+                "properties": {
+                    "in_progress": {
+                        "$ref": "#/components/schemas/dto.InProgress"
+                    },
+                    "instance": {
+                        "example": "homelab",
+                        "type": "string"
+                    },
+                    "last_grab_at": {
+                        "description": "LastGrabAt is the created_at of the most recent grab_records row. nil\nwhen the series has no grab history.",
+                        "type": "string"
+                    },
+                    "last_imported_episode_at": {
+                        "description": "LastImportedAt is the updated_at of the most recent imported grab. nil\nwhen nothing has imported yet.",
+                        "type": "string"
+                    },
+                    "library": {
+                        "$ref": "#/components/schemas/dto.LibraryStrip"
+                    },
+                    "monitored": {
+                        "description": "Monitored is the series-level Sonarr monitored flag.",
+                        "type": "boolean"
+                    },
+                    "next_episode_to_air": {
+                        "$ref": "#/components/schemas/dto.NextEpisode"
+                    },
+                    "recent": {
+                        "description": "Recent is the last-5 grab_records activity strip, newest-first. Always a\npresent (possibly empty) slice.",
+                        "items": {
+                            "$ref": "#/components/schemas/dto.RecentEvent"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "series_id": {
+                        "example": 42,
+                        "type": "integer"
+                    },
+                    "sonarr_series_id": {
+                        "example": 123,
+                        "type": "integer"
+                    },
+                    "synced_at": {
+                        "description": "SyncedAt = max(series_cache.updated_at, newest episode_states.updated_at).",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -7289,6 +7339,97 @@
                     }
                 ],
                 "summary": "Full series cast \u0026 crew (global)",
+                "tags": [
+                    "series"
+                ]
+            }
+        },
+        "/series/{id}/library": {
+            "get": {
+                "description": "Per-instance Sonarr library state keyed by canonical series.id:\nmonitored flag, episodes-on-disk, missing count, recent grab\nevents, next-episode-to-air, in-progress download, and\nlast-grab / last-import stamps. The instance query param is\noptional (defaults to the lex-first instance carrying the\nseries). 204 when the series is in zero libraries (TMDB-only);\n404 instance_not_found when the named instance does not carry it.",
+                "parameters": [
+                    {
+                        "description": "Canonical series.id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "Sonarr instance name (default: lex-first)",
+                        "in": "query",
+                        "name": "instance",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.SeriesLibraryResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "204": {
+                        "description": "no content — series is in zero libraries (TMDB-only)"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Per-series Sonarr library state (global)",
                 "tags": [
                     "series"
                 ]

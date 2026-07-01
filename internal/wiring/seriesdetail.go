@@ -5,11 +5,13 @@ import (
 	"log/slog"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
+	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
@@ -104,6 +106,8 @@ type SeriesDetailBundle struct {
 	// now lives in the bundle (was: edge.NewServer inline construction) so
 	// the wiring site shares scope with tmdbFallbackUC.
 	GlobalCastHandler *seriesdetailrest.GlobalSeriesCastHandler
+	// Story 577 / E-1-B2 — per-instance Sonarr library-state endpoint.
+	GlobalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler
 }
 
 // BuildSeriesDetail wires the Story 215 / 216 / 217 / 218 series-detail
@@ -139,6 +143,8 @@ func BuildSeriesDetail(
 	persistence *PersistenceBundle,
 	sonarrBundle *SonarrBundle,
 	mediaBundle *MediaBundle,
+	grabRepo *grabpersistence.GrabRepository, // Story 577 — grab history source
+	scanUC *scan.UseCase, // Story 577 — sonarr_sync trigger source
 	unifiedResolve bool,
 	log *slog.Logger,
 ) (*SeriesDetailBundle, error) {
@@ -241,6 +247,24 @@ func BuildSeriesDetail(
 		return nil, fmt.Errorf("seriesfreshener holder: %w", err)
 	}
 
+	// Story 577 — hoisted so the LibraryComposer reuses the identical
+	// live-instance-map lookup the fat Composer's Sonarr /queue branch uses.
+	sonarrForFn := func(name domain.InstanceName) (seriesdetail.SonarrQueueLister, bool) {
+		h := holder.Load()
+		if h == nil {
+			return nil, false
+		}
+		inst, ok := h[string(name)]
+		if !ok || inst.Client == nil {
+			return nil, false
+		}
+		concrete, ok := inst.Client.(*sonarr.Client)
+		if !ok {
+			return nil, false
+		}
+		return concrete, true
+	}
+
 	composer := seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       sdSeriesCacheRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,
@@ -262,24 +286,10 @@ func BuildSeriesDetail(
 		ExternalIDs:       sdExternalIDsRepo,
 		Recommendations:   sdRecommendationsRepo,
 		Freshness:         sdFreshness,
-		SonarrFor: func(name domain.InstanceName) (seriesdetail.SonarrQueueLister, bool) {
-			h := holder.Load()
-			if h == nil {
-				return nil, false
-			}
-			inst, ok := h[string(name)]
-			if !ok || inst.Client == nil {
-				return nil, false
-			}
-			concrete, ok := inst.Client.(*sonarr.Client)
-			if !ok {
-				return nil, false
-			}
-			return concrete, true
-		},
-		Logger:        composerLog,
-		MediaResolver: mediaResolver,
-		Freshener:     seriesFreshenerHolder, // Story 533 — read-through sync TMDB refresh
+		SonarrFor:         sonarrForFn,
+		Logger:            composerLog,
+		MediaResolver:     mediaResolver,
+		Freshener:         seriesFreshenerHolder, // Story 533 — read-through sync TMDB refresh
 	})
 	detailHandler := seriesdetailrest.NewSeriesDetailHandler(composer, log)
 	seasonHandler := seriesdetailrest.NewSeriesSeasonHandler(composer, log)
@@ -401,6 +411,20 @@ func BuildSeriesDetail(
 	// surface when the series isn't in any library.
 	globalCastHandler := seriesdetailrest.NewGlobalSeriesCastHandler(castHandler, sdSeriesCacheRepo, tmdbFallbackUC, log)
 
+	// Story 577 / E-1-B2 — per-instance Sonarr library-state composer +
+	// handler. Reuses the same repo handles as the fat composer; the grab
+	// history + sync trigger come in as new params. No new SQL.
+	libraryComposer := seriesdetail.NewLibraryComposer(seriesdetail.LibraryDeps{
+		CacheLookup:   sdSeriesCacheRepo,
+		Episodes:      sdEpisodesRepo,
+		EpisodeStates: sdEpisodeStatesRepo,
+		GrabHistory:   adapters.NewGrabHistoryAdapter(grabRepo),
+		SonarrFor:     sonarrForFn,
+		SyncTrigger:   adapters.NewLibrarySyncTrigger(scanUC, composerLog),
+		Logger:        composerLog,
+	})
+	globalLibraryHandler := seriesdetailrest.NewGlobalSeriesLibraryHandler(libraryComposer, sdSeriesCacheRepo, log)
+
 	return &SeriesDetailBundle{
 		MediaResolver:                mediaResolver,
 		Composer:                     composer,
@@ -423,5 +447,6 @@ func BuildSeriesDetail(
 		RecommendationsHandler:       recommendationsHandler,
 		GlobalRecommendationsHandler: globalRecommendationsHandler,
 		GlobalCastHandler:            globalCastHandler,
+		GlobalLibraryHandler:         globalLibraryHandler,
 	}, nil
 }

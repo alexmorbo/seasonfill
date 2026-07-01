@@ -854,6 +854,7 @@ func BuildHTTPServer(
 		seriesDetailBundle.GlobalCastHandler,
 		seriesDetailBundle.GlobalOverviewHandler,
 		seriesDetailBundle.GlobalRecommendationsHandler,
+		seriesDetailBundle.GlobalLibraryHandler,
 		discoveryHandler,
 		discoverHandler,
 		instanceMetadataBundle.Handler,

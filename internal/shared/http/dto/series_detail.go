@@ -408,3 +408,36 @@ type SeasonDetailResponse struct {
 	Degraded       []string              `json:"degraded"`
 	SyncedAt       time.Time             `json:"synced_at"`
 }
+
+// SeriesLibraryResponse — wire shape of GET /api/v1/series/:id/library
+// (Story 577 / E-1-B2). Per-instance Sonarr library state, carved out of the
+// fat SeriesDetailResponse into its own endpoint (bounded-context separation,
+// PLAN §7.0). Mirrors SeriesTorrentsResponse's envelope shape.
+type SeriesLibraryResponse struct {
+	Instance       domain.InstanceName   `json:"instance" example:"homelab"`
+	SonarrSeriesID domain.SonarrSeriesID `json:"sonarr_series_id" example:"123"`
+	SeriesID       domain.SeriesID       `json:"series_id" example:"42"`
+	// Library is the Sonarr "what's on disk" tile (counts + dominant quality).
+	Library LibraryStrip `json:"library"`
+	// Recent is the last-5 grab_records activity strip, newest-first. Always a
+	// present (possibly empty) slice.
+	Recent []RecentEvent `json:"recent"`
+	// InProgress is the best in-flight Sonarr queue download. nil when the
+	// queue is empty OR Sonarr is unreachable. Also mirrored under
+	// Library.in_progress for FE parity with the legacy fat response.
+	InProgress *InProgress `json:"in_progress,omitempty"`
+	// NextEpisodeToAir is the earliest future-dated episode (monitored
+	// preferred). Title is nil by design — titles live in the canon episode
+	// endpoints, not this Sonarr-state handle.
+	NextEpisodeToAir *NextEpisode `json:"next_episode_to_air,omitempty"`
+	// LastGrabAt is the created_at of the most recent grab_records row. nil
+	// when the series has no grab history.
+	LastGrabAt *time.Time `json:"last_grab_at,omitempty"`
+	// LastImportedAt is the updated_at of the most recent imported grab. nil
+	// when nothing has imported yet.
+	LastImportedAt *time.Time `json:"last_imported_episode_at,omitempty"`
+	// Monitored is the series-level Sonarr monitored flag.
+	Monitored bool `json:"monitored"`
+	// SyncedAt = max(series_cache.updated_at, newest episode_states.updated_at).
+	SyncedAt time.Time `json:"synced_at"`
+}

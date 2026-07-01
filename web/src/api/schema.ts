@@ -3029,6 +3029,100 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/series/{id}/library": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Per-series Sonarr library state (global)
+         * @description Per-instance Sonarr library state keyed by canonical series.id:
+         *     monitored flag, episodes-on-disk, missing count, recent grab
+         *     events, next-episode-to-air, in-progress download, and
+         *     last-grab / last-import stamps. The instance query param is
+         *     optional (defaults to the lex-first instance carrying the
+         *     series). 204 when the series is in zero libraries (TMDB-only);
+         *     404 instance_not_found when the named instance does not carry it.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description Sonarr instance name (default: lex-first) */
+                    readonly instance?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Canonical series.id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesLibraryResponse"];
+                    };
+                };
+                /** @description no content — series is in zero libraries (TMDB-only) */
+                readonly 204: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/series/{id}/overview": {
         readonly parameters: {
             readonly query?: never;
@@ -4471,9 +4565,9 @@ export type components = {
             readonly status?: string;
         };
         /**
-         * @description InProgress — story 379. Live Sonarr queue best pick for the
-         *     in-progress pill. nil when no record is downloading OR Sonarr
-         *     is unreachable (then degraded[] includes "sonarr").
+         * @description InProgress is the best in-flight Sonarr queue download. nil when the
+         *     queue is empty OR Sonarr is unreachable. Also mirrored under
+         *     Library.in_progress for FE parity with the legacy fat response.
          */
         readonly "dto.InProgress": {
             /** @example 3 */
@@ -4792,11 +4886,7 @@ export type components = {
             /** @example 42 */
             readonly sonarr_series_id?: number;
         };
-        /**
-         * @description Library is the Sonarr-derived "what's on disk" tile. Always
-         *     present — Sonarr is the system of record per design brief §2.4.
-         *     Counts come from series_cache.missing_count + episode_states.
-         */
+        /** @description Library is the Sonarr "what's on disk" tile (counts + dominant quality). */
         readonly "dto.LibraryStrip": {
             /**
              * @description DominantQuality is the most common quality string across
@@ -4889,9 +4979,9 @@ export type components = {
             readonly name?: string;
         };
         /**
-         * @description NextEpisode is the "Next Episode" card data when available;
-         *     nil collapses the card to text-only states ("not yet
-         *     scheduled" / "ended" / "in production").
+         * @description NextEpisodeToAir is the earliest future-dated episode (monitored
+         *     preferred). Title is nil by design — titles live in the canon episode
+         *     endpoints, not this Sonarr-state handle.
          */
         readonly "dto.NextEpisode": {
             readonly air_date?: string;
@@ -5613,6 +5703,36 @@ export type components = {
             readonly year_end?: number;
             /** @example 2008 */
             readonly year_start?: number;
+        };
+        readonly "dto.SeriesLibraryResponse": {
+            readonly in_progress?: components["schemas"]["dto.InProgress"];
+            /** @example homelab */
+            readonly instance?: string;
+            /**
+             * @description LastGrabAt is the created_at of the most recent grab_records row. nil
+             *     when the series has no grab history.
+             */
+            readonly last_grab_at?: string;
+            /**
+             * @description LastImportedAt is the updated_at of the most recent imported grab. nil
+             *     when nothing has imported yet.
+             */
+            readonly last_imported_episode_at?: string;
+            readonly library?: components["schemas"]["dto.LibraryStrip"];
+            /** @description Monitored is the series-level Sonarr monitored flag. */
+            readonly monitored?: boolean;
+            readonly next_episode_to_air?: components["schemas"]["dto.NextEpisode"];
+            /**
+             * @description Recent is the last-5 grab_records activity strip, newest-first. Always a
+             *     present (possibly empty) slice.
+             */
+            readonly recent?: readonly components["schemas"]["dto.RecentEvent"][];
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @example 123 */
+            readonly sonarr_series_id?: number;
+            /** @description SyncedAt = max(series_cache.updated_at, newest episode_states.updated_at). */
+            readonly synced_at?: string;
         };
         readonly "dto.SeriesOverviewResponse": {
             readonly degraded?: readonly string[];
