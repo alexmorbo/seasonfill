@@ -140,11 +140,19 @@ func (w *SeriesWorker) RefreshRecommendations(
 
 	// 5. Extract recommendations. Two parallel slices: stubs (for UpsertStub)
 	//    keyed by tmdb_id-sorted order (deadlock-avoidance), and side-effect
-	//    payloads keyed by tmdb_id → {Name, Overview} for the post-UpsertStub
-	//    series_texts.Upsert loop.
+	//    payloads keyed by tmdb_id → {Name, Overview, PosterPath, BackdropPath}
+	//    for the post-UpsertStub series_texts.Upsert + UpdateRecCanonMedia loop.
+	//
+	//    Story 571 B-54: PosterPath + BackdropPath carried through so the
+	//    tx step 6b can call RecCanonWriter.UpdateRecCanonMedia to overwrite
+	//    each rec child's canon poster_asset/backdrop_asset with the TMDB
+	//    lang-preferred paths (bypassing UpsertStub's COALESCE-preserve
+	//    which would otherwise lock in a stale en-US path forever).
 	type recSideEffect struct {
-		Name     string
-		Overview string
+		Name         string
+		Overview     string
+		PosterPath   string // Story 571 B-54
+		BackdropPath string // Story 571 B-54
 	}
 	var stubs []series.Canon
 	var recOrder []domain.TMDBID // TMDB-rank order
@@ -175,8 +183,10 @@ func (w *SeriesWorker) RefreshRecommendations(
 			stubs = append(stubs, c)
 			recOrder = append(recOrder, tmdbRecID)
 			sideEffects[tmdbRecID] = recSideEffect{
-				Name:     r.Name,
-				Overview: r.Overview,
+				Name:         r.Name,
+				Overview:     r.Overview,
+				PosterPath:   r.PosterPath,
+				BackdropPath: r.BackdropPath,
 			}
 		}
 	}
@@ -245,6 +255,21 @@ func (w *SeriesWorker) RefreshRecommendations(
 			}
 			if err := w.deps.SeriesTexts.Upsert(txCtx, txt); err != nil {
 				return fmt.Errorf("upsert series_texts side-effect (rec_series_id=%d): %w", recSeriesID, err)
+			}
+
+			// Story 571 B-54 — overwrite rec child's canon poster/backdrop
+			// with TMDB's lang-preferred paths. UpsertStub's COALESCE
+			// preserves the existing (usually en-US) values for these two
+			// columns; this narrow UPDATE unconditionally overwrites so
+			// the rec carousel serves ru-RU posters on cold visit. Nil
+			// writer preserves pre-571 behavior (backwards-compat with
+			// test fixtures that don't wire RecCanonWriter). Failure
+			// rolls back the entire tx so the stamp is NOT written
+			// without a successful media overwrite.
+			if w.deps.RecCanonWriter != nil {
+				if err := w.deps.RecCanonWriter.UpdateRecCanonMedia(txCtx, recSeriesID, payload.PosterPath, payload.BackdropPath); err != nil {
+					return fmt.Errorf("update rec canon media (rec_series_id=%d): %w", recSeriesID, err)
+				}
 			}
 			recIDs = append(recIDs, recSeriesID)
 		}

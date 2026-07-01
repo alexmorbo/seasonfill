@@ -365,6 +365,57 @@ func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (doma
 	return m.ID, nil
 }
 
+// UpdateRecCanonMedia — Story 571 B-54. Narrow UPDATE that overwrites
+// series.poster_asset + series.backdrop_asset for a rec child from A3b's
+// TMDB summary payload. Bypasses UpsertStub's COALESCE-preserve on
+// poster_asset/backdrop_asset (which locks legacy en-US paths permanently
+// for existing rec children — the operator-surfaced bug this story
+// closes).
+//
+// Uses UPDATE (not Upsert) so we ONLY touch the two media columns —
+// never mutate other Sonarr-authoritative fields (title, first_air_date,
+// status, tmdb_rating, etc). Safe to call within A3b's tx alongside
+// UpsertStub for the same row: UpsertStub COALESCE runs FIRST on ON
+// CONFLICT (preserves existing values), then this narrow UPDATE
+// unconditionally overwrites the two media columns with TMDB's
+// lang-preferred paths.
+//
+// Both paths empty → no-op (avoids writing NULL and triggering the
+// Story 319 image-null cold-start recovery loop). Single non-empty path
+// updates only that column.
+//
+// Row-not-found → returns nil (rec child stub upsert may have raced with
+// a delete; A3b overall degrades gracefully). Loud errors on DB IO.
+func (r *SeriesRepository) UpdateRecCanonMedia(ctx context.Context, recSeriesID domain.SeriesID, posterPath, backdropPath string) error {
+	if posterPath == "" && backdropPath == "" {
+		return nil
+	}
+	if recSeriesID == 0 {
+		return fmt.Errorf("update rec canon media: series_id must be non-zero")
+	}
+	updates := map[string]any{
+		"updated_at": time.Now().UTC(),
+	}
+	if posterPath != "" {
+		updates["poster_asset"] = posterPath
+	}
+	if backdropPath != "" {
+		updates["backdrop_asset"] = backdropPath
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", recSeriesID).
+		Updates(updates).Error
+	if err != nil {
+		return fmt.Errorf("update rec canon media (series_id=%d): %w", recSeriesID, err)
+	}
+	// Row-not-found silently OK per docstring — RowsAffected=0 is
+	// treated as no-op (rec child stub might have been deleted between
+	// UpsertStub and this UPDATE within the same tx; A3b overall
+	// degrades gracefully rather than rolling back the whole recs sync).
+	return nil
+}
+
 // ListCanonImagesCorrupted returns series.id rows where the canon row
 // finished a full enrichment pass (tmdb_id IS NOT NULL AND
 // hydration = 'full') but EITHER poster_asset OR backdrop_asset is

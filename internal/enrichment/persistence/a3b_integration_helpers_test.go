@@ -15,11 +15,14 @@ import (
 )
 
 // recPayload mirrors tmdb.TVRecommendation just for fixture clarity.
+// Story 571 B-54: BackdropPath field added so the A3b integration test
+// can seed both media paths and assert both land via UpdateRecCanonMedia.
 type recPayload struct {
-	ID         int64
-	Name       string
-	Overview   string
-	PosterPath string
+	ID           int64
+	Name         string
+	Overview     string
+	PosterPath   string
+	BackdropPath string
 }
 
 type tmdbResponse struct {
@@ -37,10 +40,11 @@ func newA3bFakeTMDB(payload *tmdbResponse) *a3bFakeTMDB {
 	recs := make([]tmdb.TVRecommendation, 0, len(payload.Recommendations))
 	for _, r := range payload.Recommendations {
 		recs = append(recs, tmdb.TVRecommendation{
-			ID:         r.ID,
-			Name:       r.Name,
-			Overview:   r.Overview,
-			PosterPath: r.PosterPath,
+			ID:           r.ID,
+			Name:         r.Name,
+			Overview:     r.Overview,
+			PosterPath:   r.PosterPath,
+			BackdropPath: r.BackdropPath,
 		})
 	}
 	return &a3bFakeTMDB{

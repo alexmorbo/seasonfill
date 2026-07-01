@@ -64,7 +64,15 @@ type SeriesWorkerDeps struct {
 	ExternalIDs      ExternalIDsRepoPort
 	Recommendations  RecommendationsRepoPort
 	EnrichmentErrors EnrichmentErrorRepo
-	MediaPrewarmer   MediaPrewarmer // nil OK — F-1 not yet shipped
+	// RecCanonWriter — Story 571 B-54. A3b RefreshRecommendations calls
+	// UpdateRecCanonMedia after the series_texts.Upsert side-effect to
+	// overwrite each rec child's canon poster_asset + backdrop_asset with
+	// TMDB's lang-preferred paths from Recommendations.Results[*]. Nil-OK
+	// — preserves pre-571 behavior where UpsertStub's COALESCE locked in
+	// whatever poster path was first written (typically en-US from Sonarr
+	// scan or first-hydration enrichment).
+	RecCanonWriter SeriesRecCanonWriter
+	MediaPrewarmer MediaPrewarmer // nil OK — F-1 not yet shipped
 	// MediaResolver — A4: optional eager-hash + EnsurePending seam for
 	// RefreshMediaAssets. Under Story 347 unified-resolve contract, calling
 	// Resolve on a raw TMDB image path mints the deterministic sha256 hash

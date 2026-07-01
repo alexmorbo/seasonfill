@@ -327,6 +327,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		ContentRatings:    wiring.ContentRatingsRepoAdapter{Inner: contentRatingsRepo},
 		ExternalIDs:       wiring.ExternalIDsRepoAdapter{Inner: externalIDsRepo},
 		Recommendations:   recommendationsRepo,
+		SeriesRecCanon:    seriesRepo, // Story 571 B-54: same repo, narrow SeriesRecCanonWriter view
 		EnrichmentErrors:  enrichmentErrorsRepo,
 		PersonBiographies: personBiographiesRepo,
 		PersonCredits:     wiring.PersonCreditsRepoAdapter{Inner: personCreditsRepo},

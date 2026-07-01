@@ -156,6 +156,37 @@ type SeriesTextsRepo interface {
 	Upsert(ctx context.Context, t series.SeriesText) error
 }
 
+// SeriesRecCanonWriter — Story 571 B-54: narrow port used by A3b
+// RefreshRecommendations to overwrite rec children's canon
+// poster_asset + backdrop_asset with TMDB's lang-preferred paths
+// returned in Recommendations.Results[*].{PosterPath,BackdropPath}.
+//
+// Separate from SeriesRepo.Upsert (Sonarr-authoritative full-column
+// merge) and SeriesRepo.UpsertStub (COALESCE-preserve, which is the
+// exact bug — existing en-US poster wins over new ru-RU path). This
+// narrow writer overwrites ONLY the two media columns; other Sonarr
+// authoritative columns stay untouched.
+//
+// Nil-OK — SeriesWorkerDeps.RecCanonWriter=nil degrades A3b to the
+// pre-571 behavior (rec children keep whatever poster_asset was first
+// written, usually en-US). Preserves backwards compat for test
+// fixtures that don't wire the writer.
+type SeriesRecCanonWriter interface {
+	// UpdateRecCanonMedia sets series.poster_asset + series.backdrop_asset
+	// for recSeriesID from the TMDB rec-summary paths. Overwrites
+	// regardless of existing value (TMDB is authoritative for media per
+	// PRD §5.4).
+	//
+	// No-op when both posterPath and backdropPath are empty — TMDB
+	// returned no signal to overwrite with, and writing NULL would
+	// trigger Story 319 image-null cold-start recovery loop.
+	//
+	// Row-missing → returns nil (rec child stub upsert may have raced
+	// with a delete; A3b overall degrades gracefully). DB IO errors
+	// bubble as fmt.Errorf-wrapped.
+	UpdateRecCanonMedia(ctx context.Context, recSeriesID domain.SeriesID, posterPath, backdropPath string) error
+}
+
 type SeasonsRepo interface {
 	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonSeason, error)
 	Upsert(ctx context.Context, s series.CanonSeason) (int64, error)

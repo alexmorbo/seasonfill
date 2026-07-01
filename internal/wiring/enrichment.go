@@ -423,10 +423,16 @@ func BuildEnrichment(
 		ExternalIDs:      repos.ExternalIDs,
 		Recommendations:  repos.Recommendations,
 		EnrichmentErrors: repos.EnrichmentErrors,
-		MediaPrewarmer:   mediaPrewarmer, // 214 (F-1): nil-OK when MediaStore/MediaAssets absent
-		MediaResolver:    mediaResolver,  // E-1 A4: shared *media.Resolver instance
-		Dispatcher:       holder,
-		Logger:           enrichmentLog,
+		// Story 571 B-54: rec children's canon poster/backdrop overwrite writer.
+		// Same *SeriesRepository already provides SeriesRepo above; the bundle
+		// exposes RecCanonWriter as its own field so main.go can pass the
+		// concrete repository (which now carries UpdateRecCanonMedia) without
+		// widening the SeriesRepo port surface.
+		RecCanonWriter: repos.SeriesRecCanon,
+		MediaPrewarmer: mediaPrewarmer, // 214 (F-1): nil-OK when MediaStore/MediaAssets absent
+		MediaResolver:  mediaResolver,  // E-1 A4: shared *media.Resolver instance
+		Dispatcher:     holder,
+		Logger:         enrichmentLog,
 	})
 	if err != nil {
 		return nil, err
@@ -936,6 +942,12 @@ type EnrichmentRepoBundle struct {
 	ContentRatings  appenrich.ContentRatingsRepoPort
 	ExternalIDs     appenrich.ExternalIDsRepoPort
 	Recommendations appenrich.RecommendationsRepoPort
+	// SeriesRecCanon — Story 571 B-54: narrow rec-media overwrite port
+	// consumed by A3b RefreshRecommendations. Production impl is the same
+	// *SeriesRepository that satisfies Series above (Go duck-typing on
+	// UpdateRecCanonMedia). Nil-OK — degrades A3b to pre-571 behavior
+	// (rec children stay locked to en-US poster on cold visit).
+	SeriesRecCanon appenrich.SeriesRecCanonWriter
 	// EnrichmentErrors — D-3 failure write surface (RecordFailure /
 	// ClearOnSuccess / ListDueForRetry / GetForEntity /
 	// GetByEntitySource). Used by all three workers + the composer's
