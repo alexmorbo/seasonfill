@@ -15,7 +15,7 @@ export function LanguageName({ code }: LanguageNameProps) {
   if (!code) return null;
   let name = code;
   try {
-    const locale = i18n.resolvedLanguage || 'en';
+    const locale = i18n.resolvedLanguage || 'en-US';
     const dn = new Intl.DisplayNames([locale], { type: 'language' });
     name = dn.of(code) ?? code;
   } catch {

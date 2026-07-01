@@ -16,7 +16,7 @@ export function CountryName({ code }: CountryNameProps) {
   const upper = code.toUpperCase();
   let name = upper;
   try {
-    const locale = i18n.resolvedLanguage || 'en';
+    const locale = i18n.resolvedLanguage || 'en-US';
     const dn = new Intl.DisplayNames([locale], { type: 'region' });
     name = dn.of(upper) ?? upper;
   } catch {

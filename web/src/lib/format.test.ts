@@ -4,18 +4,18 @@ import { relativeTime } from './format';
 
 describe('relativeTime locale', () => {
   let saved: string;
-  beforeEach(() => { saved = i18n.resolvedLanguage ?? 'en'; });
+  beforeEach(() => { saved = i18n.resolvedLanguage ?? 'en-US'; });
   afterEach(async () => { await i18n.changeLanguage(saved); });
 
   it('renders English narrow units by default', async () => {
-    await i18n.changeLanguage('en');
+    await i18n.changeLanguage('en-US');
     const out = relativeTime(new Date(Date.now() - 3_600_000).toISOString());
     // narrow style: "1h ago" / "1 hr. ago" depending on the JS runtime.
     expect(out).toMatch(/h/);
   });
 
   it('renders Russian units when language is ru', async () => {
-    await i18n.changeLanguage('ru');
+    await i18n.changeLanguage('ru-RU');
     const out = relativeTime(new Date(Date.now() - 3_600_000).toISOString());
     // Cyrillic presence is the assertion — exact substring varies by
     // engine ("ч" vs "час назад").
@@ -23,9 +23,9 @@ describe('relativeTime locale', () => {
   });
 
   it('reverts cleanly back to en on subsequent calls', async () => {
-    await i18n.changeLanguage('ru');
+    await i18n.changeLanguage('ru-RU');
     relativeTime(new Date().toISOString());
-    await i18n.changeLanguage('en');
+    await i18n.changeLanguage('en-US');
     const out = relativeTime(new Date(Date.now() - 60_000).toISOString());
     expect(out).not.toMatch(/[а-я]/i);
   });

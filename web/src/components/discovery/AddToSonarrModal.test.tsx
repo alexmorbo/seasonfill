@@ -68,7 +68,7 @@ function renderModal(
 const ME_PAYLOAD = {
   id: 1, username: 'alex', email: null, role: 'admin',
   auth_mode: 'forms', avatar_mode: 'auto', avatar_resolved_mode: 'monogram',
-  avatar_hash: 'h', preferred_language: 'en',
+  avatar_hash: 'h', preferred_language: 'en-US',
   idp_profile_url: null, oidc_subject: null, last_login_at: null,
 };
 const INSTANCES_PAYLOAD = {

@@ -14,8 +14,8 @@ import { SUPPORTED_LANGS } from '@/i18n';
 const LANG_LOCAL_STORAGE_KEY = 'seasonfill.lang';
 
 export interface UseLanguageHandle {
-  /** Current language code — preferred_language from /me, falls back
-   *  to i18n.resolvedLanguage, then 'en'. */
+  /** Current language code (BCP-47) — preferred_language from /me,
+   *  falls back to i18n.resolvedLanguage, then 'en-US'. */
   readonly current: string;
   /** Dual-write language change: optimistic cache update + i18n
    *  switch + localStorage + PATCH. Rollback + toast on PATCH error. */
@@ -46,7 +46,7 @@ export function useLanguage(): UseLanguageHandle {
   const current =
     cached?.preferred_language ??
     i18n.resolvedLanguage ??
-    'en';
+    'en-US';
 
   const setLanguage = useCallback(
     async (code: string) => {
@@ -54,7 +54,7 @@ export function useLanguage(): UseLanguageHandle {
         return;
       }
       const previous = qc.getQueryData<MeResponse>(ME_QUERY_KEY);
-      const previousI18nLang = i18n.resolvedLanguage ?? 'en';
+      const previousI18nLang = i18n.resolvedLanguage ?? 'en-US';
 
       // Optimistic apply
       if (previous) {

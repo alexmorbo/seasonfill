@@ -6,7 +6,7 @@ describe('RU plural — missing episodes count', () => {
 
   beforeAll(async () => {
     originalLang = i18n.language;
-    await i18n.changeLanguage('ru');
+    await i18n.changeLanguage('ru-RU');
   });
 
   afterAll(async () => {

@@ -10,7 +10,7 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
 ];
 
 function rtf(): Intl.RelativeTimeFormat {
-  const lng = i18n.resolvedLanguage ?? 'en';
+  const lng = i18n.resolvedLanguage ?? 'en-US';
   return new Intl.RelativeTimeFormat(lng, { numeric: 'auto', style: 'short' });
 }
 

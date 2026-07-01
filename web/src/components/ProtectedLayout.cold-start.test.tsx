@@ -22,7 +22,7 @@ const BASE_ME: MeResponse = {
   avatar_mode: 'auto',
   avatar_resolved_mode: 'gravatar',
   avatar_hash: 'abc',
-  preferred_language: 'ru',
+  preferred_language: 'ru-RU',
   idp_profile_url: null,
   oidc_subject: null,
   last_login_at: null,
@@ -64,7 +64,7 @@ function useColdStartHydrate() {
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  void i18n.changeLanguage('en');
+  void i18n.changeLanguage('en-US');
 });
 
 describe('cold-start i18n hydration', () => {
@@ -78,13 +78,13 @@ describe('cold-start i18n hydration', () => {
     const qc = mkClient();
     const { result } = renderHook(() => useColdStartHydrate(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    await waitFor(() => expect(i18n.resolvedLanguage).toBe('ru'));
+    await waitFor(() => expect(i18n.resolvedLanguage).toBe('ru-RU'));
   });
 
   it('does not switch when preferred_language matches i18n.language', async () => {
-    void i18n.changeLanguage('ru');
+    void i18n.changeLanguage('ru-RU');
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ ...BASE_ME, preferred_language: 'ru' }), {
+      new Response(JSON.stringify({ ...BASE_ME, preferred_language: 'ru-RU' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -96,7 +96,7 @@ describe('cold-start i18n hydration', () => {
     // changeLanguage should NOT have been called from the effect path
     // (only the manual beforeEach call counts, which happens before
     // the spy attaches).
-    expect(spy).not.toHaveBeenCalledWith('ru');
+    expect(spy).not.toHaveBeenCalledWith('ru-RU');
   });
 
   it('does not switch when preferred_language is null', async () => {
@@ -109,7 +109,7 @@ describe('cold-start i18n hydration', () => {
     const qc = mkClient();
     const { result } = renderHook(() => useColdStartHydrate(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(i18n.resolvedLanguage).toBe('en');
+    expect(i18n.resolvedLanguage).toBe('en-US');
   });
 
   it('only hydrates once per mount (subsequent /me updates do not re-switch)', async () => {
@@ -122,15 +122,15 @@ describe('cold-start i18n hydration', () => {
     const qc = mkClient();
     const { result } = renderHook(() => useColdStartHydrate(), { wrapper: wrapper(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    await waitFor(() => expect(i18n.resolvedLanguage).toBe('ru'));
+    await waitFor(() => expect(i18n.resolvedLanguage).toBe('ru-RU'));
 
-    // Operator manually switches back to 'en' (simulates header
-    // switcher use). A subsequent cache update with preferred=ru must
-    // NOT re-hydrate (user just chose 'en').
+    // Operator manually switches back to 'en-US' (simulates header
+    // switcher use). A subsequent cache update with preferred=ru-RU must
+    // NOT re-hydrate (user just chose 'en-US').
     await act(async () => {
-      await i18n.changeLanguage('en');
-      qc.setQueryData<MeResponse>(ME_QUERY_KEY, { ...BASE_ME, preferred_language: 'ru' });
+      await i18n.changeLanguage('en-US');
+      qc.setQueryData<MeResponse>(ME_QUERY_KEY, { ...BASE_ME, preferred_language: 'ru-RU' });
     });
-    expect(i18n.resolvedLanguage).toBe('en');
+    expect(i18n.resolvedLanguage).toBe('en-US');
   });
 });

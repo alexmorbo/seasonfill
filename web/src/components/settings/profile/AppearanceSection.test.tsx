@@ -14,7 +14,7 @@ const baseMe = (overrides: Partial<MeResponse> = {}): MeResponse => ({
   avatar_mode: 'auto',
   avatar_resolved_mode: 'gravatar',
   avatar_hash: 'abc',
-  preferred_language: 'en',
+  preferred_language: 'en-US',
   idp_profile_url: null,
   oidc_subject: null,
   last_login_at: null,
@@ -27,7 +27,7 @@ beforeEach(() => {
 
 describe('<AppearanceSection />', () => {
   it('renders the language select with the current language preselected', () => {
-    const me = baseMe({ preferred_language: 'ru' });
+    const me = baseMe({ preferred_language: 'ru-RU' });
     const { qc } = renderWithProviders(<AppearanceSection me={me} />);
     qc.setQueryData(ME_QUERY_KEY, me);
     expect(screen.getByTestId('appearance-language')).toBeInTheDocument();

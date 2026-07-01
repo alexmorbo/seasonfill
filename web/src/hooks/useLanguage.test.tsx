@@ -16,7 +16,7 @@ const BASE_ME: MeResponse = {
   avatar_mode: 'auto',
   avatar_resolved_mode: 'gravatar',
   avatar_hash: 'abc',
-  preferred_language: 'en',
+  preferred_language: 'en-US',
   idp_profile_url: null,
   oidc_subject: null,
   last_login_at: null,
@@ -38,7 +38,7 @@ function wrapper(qc: QueryClient) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  void i18n.changeLanguage('en');
+  void i18n.changeLanguage('en-US');
   window.localStorage.clear();
 });
 
@@ -46,13 +46,13 @@ describe('useLanguage', () => {
   it('reads current from useMe cache (preferred_language)', () => {
     const qc = mkClient();
     const { result } = renderHook(() => useLanguage(), { wrapper: wrapper(qc) });
-    expect(result.current.current).toBe('en');
+    expect(result.current.current).toBe('en-US');
   });
 
   it('setLanguage optimistically updates cache + calls i18n + writes localStorage + fires PATCH', async () => {
     const qc = mkClient();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ ...BASE_ME, preferred_language: 'ru' }), {
+      new Response(JSON.stringify({ ...BASE_ME, preferred_language: 'ru-RU' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -60,16 +60,16 @@ describe('useLanguage', () => {
     const { result } = renderHook(() => useLanguage(), { wrapper: wrapper(qc) });
 
     await act(async () => {
-      await result.current.setLanguage('ru');
+      await result.current.setLanguage('ru-RU');
     });
 
     // Optimistic cache update
     const cached = qc.getQueryData<MeResponse>(ME_QUERY_KEY);
-    expect(cached?.preferred_language).toBe('ru');
+    expect(cached?.preferred_language).toBe('ru-RU');
     // i18n switched
-    expect(i18n.resolvedLanguage).toBe('ru');
+    expect(i18n.resolvedLanguage).toBe('ru-RU');
     // localStorage
-    expect(window.localStorage.getItem('seasonfill.lang')).toBe('ru');
+    expect(window.localStorage.getItem('seasonfill.lang')).toBe('ru-RU');
     // PATCH wire
     const call = fetchSpy.mock.calls.find(
       (c) => String(c[0]).endsWith('/me/settings'),
@@ -77,7 +77,7 @@ describe('useLanguage', () => {
     expect(call).toBeDefined();
     expect((call?.[1] as RequestInit | undefined)?.method).toBe('PATCH');
     expect((call?.[1] as RequestInit | undefined)?.body).toContain(
-      '"preferred_language":"ru"',
+      '"preferred_language":"ru-RU"',
     );
   });
 
@@ -92,14 +92,14 @@ describe('useLanguage', () => {
     const { result } = renderHook(() => useLanguage(), { wrapper: wrapper(qc) });
 
     await act(async () => {
-      await result.current.setLanguage('ru');
+      await result.current.setLanguage('ru-RU');
     });
 
     // Optimistic update was reverted
     const cached = qc.getQueryData<MeResponse>(ME_QUERY_KEY);
-    expect(cached?.preferred_language).toBe('en');
+    expect(cached?.preferred_language).toBe('en-US');
     // i18n was reverted
-    await waitFor(() => expect(i18n.resolvedLanguage).toBe('en'));
+    await waitFor(() => expect(i18n.resolvedLanguage).toBe('en-US'));
   });
 
   it('ignores unsupported language codes', async () => {
@@ -113,6 +113,6 @@ describe('useLanguage', () => {
       await result.current.setLanguage('xx-XX');
     });
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(i18n.resolvedLanguage).toBe('en');
+    expect(i18n.resolvedLanguage).toBe('en-US');
   });
 });

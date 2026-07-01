@@ -5,7 +5,7 @@ const BYTES_PER_MB = 1024 ** 2;
 
 export function formatSize(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return '—';
-  const lng = i18n.resolvedLanguage ?? 'en';
+  const lng = i18n.resolvedLanguage ?? 'en-US';
   if (bytes >= BYTES_PER_GB) {
     const gb = bytes / BYTES_PER_GB;
     return new Intl.NumberFormat(lng, { maximumFractionDigits: 1 }).format(gb) + ' GB';
@@ -42,7 +42,7 @@ export function formatImportDuration(
   if (!grabbedAt || !importedAt) return '';
   const ms = new Date(importedAt).getTime() - new Date(grabbedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return '';
-  const lng = i18n.resolvedLanguage ?? 'en';
+  const lng = i18n.resolvedLanguage ?? 'en-US';
   const sShort = lng.startsWith('ru') ? 'с' : 's';
   const mShort = lng.startsWith('ru') ? 'м' : 'm';
   const secs = Math.floor(ms / 1000);

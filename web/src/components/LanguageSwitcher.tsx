@@ -11,9 +11,10 @@ import {
 import { SUPPORTED_LANGS } from '@/i18n';
 import { useLanguage } from '@/hooks/useLanguage';
 
+// Labels keyed by BCP-47 codes (story 564 B-lang alignment).
 const LABELS: Record<string, string> = {
-  en: 'English',
-  ru: 'Русский',
+  'en-US': 'English',
+  'ru-RU': 'Русский',
 };
 
 // LanguageSwitcher — header dropdown. N-7c wires it to useLanguage's
@@ -29,7 +30,7 @@ export function LanguageSwitcher() {
   const language = useLanguage();
   const current = (SUPPORTED_LANGS as readonly string[]).includes(language.current)
     ? language.current
-    : 'en';
+    : 'en-US';
 
   return (
     <DropdownMenu>

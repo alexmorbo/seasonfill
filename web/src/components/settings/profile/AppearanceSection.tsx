@@ -19,9 +19,10 @@ import { SUPPORTED_LANGS } from '@/i18n';
 
 type AvatarMode = MeResponse['avatar_mode']; // 'auto' | 'monogram' | 'gravatar'
 
+// Labels keyed by BCP-47 (story 564 B-lang alignment).
 const LANG_LABELS: Record<string, string> = {
-  en: 'English',
-  ru: 'Русский',
+  'en-US': 'English',
+  'ru-RU': 'Русский',
 };
 
 export interface AppearanceSectionProps {

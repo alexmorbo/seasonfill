@@ -13,7 +13,7 @@ const baseMe = (overrides: Partial<MeResponse> = {}): MeResponse => ({
   avatar_mode: 'auto',
   avatar_resolved_mode: 'gravatar',
   avatar_hash: '0bc83cb571cd1c50ba6f3e8a78ef1346',
-  preferred_language: 'en',
+  preferred_language: 'en-US',
   idp_profile_url: null,
   oidc_subject: null,
   last_login_at: '2026-06-22T20:30:00Z',

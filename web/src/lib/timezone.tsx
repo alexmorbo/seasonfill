@@ -114,7 +114,7 @@ export function formatDate(
   const fallback = options.fallback ?? '—';
   if (!d) return fallback;
   const tz = options.tz ?? currentTimezone;
-  const locale = options.locale ?? i18n.resolvedLanguage ?? 'en';
+  const locale = options.locale ?? i18n.resolvedLanguage ?? 'en-US';
   try {
     if (preset === 'shortDateTime') {
       // dd.MM HH:mm rendered with the chosen tz so cooldown chips agree

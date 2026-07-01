@@ -28,7 +28,7 @@ export function PremiereDate({ iso }: PremiereDateProps) {
   }
   let text = iso;
   try {
-    const locale = i18n.resolvedLanguage || 'en';
+    const locale = i18n.resolvedLanguage || 'en-US';
     const fmt = new Intl.DateTimeFormat(locale, {
       year: 'numeric',
       month: 'short',

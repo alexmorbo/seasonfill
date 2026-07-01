@@ -15,7 +15,7 @@ const ADMIN_PAYLOAD: MeResponse = {
   avatar_mode: 'auto',
   avatar_resolved_mode: 'gravatar',
   avatar_hash: '0bc83cb571cd1c50ba6f3e8a78ef1346',
-  preferred_language: 'ru',
+  preferred_language: 'ru-RU',
   idp_profile_url: null,
   oidc_subject: null,
   last_login_at: '2026-06-22T20:30:00Z',
