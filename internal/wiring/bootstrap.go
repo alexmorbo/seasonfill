@@ -859,6 +859,7 @@ func BuildHTTPServer(
 		discoverHandler,
 		instanceMetadataBundle.Handler,
 		addToSonarrHandler,
+		seriesDetailBundle.ETagFreshness,
 		log,
 	)
 }

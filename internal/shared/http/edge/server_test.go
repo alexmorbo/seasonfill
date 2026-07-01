@@ -326,6 +326,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
+		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		lg)
 }
 
@@ -396,6 +397,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
+		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		lg)
 }
 
@@ -582,6 +584,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
+		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

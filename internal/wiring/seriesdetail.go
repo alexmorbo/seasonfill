@@ -108,6 +108,10 @@ type SeriesDetailBundle struct {
 	GlobalCastHandler *seriesdetailrest.GlobalSeriesCastHandler
 	// Story 577 / E-1-B2 — per-instance Sonarr library-state endpoint.
 	GlobalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler
+	// Story 578 / E-1-B5 — per-section freshness reader for the edge ETag
+	// middleware. Reuses sdSeriesRepo + sdSeasonsRepo (stateless GORM
+	// wrappers already in scope).
+	ETagFreshness *seriesdetail.ETagFreshnessAdapter
 }
 
 // BuildSeriesDetail wires the Story 215 / 216 / 217 / 218 series-detail
@@ -210,6 +214,9 @@ func BuildSeriesDetail(
 	// from during the 464a kernel cutover.
 	sdEnrichmentErrorsRepo := enrichpersistence.NewEnrichmentErrorsRepository(db)
 	sdFreshness := seriesdetail.NewEnrichmentFreshnessAdapter(sdSeriesRepo, sdEnrichmentErrorsRepo)
+	// Story 578 / E-1-B5 — per-section freshness for the ETag middleware.
+	// Reuses the same stateless repo handles the composer uses.
+	sdETagFreshness := seriesdetail.NewETagFreshnessAdapter(sdSeriesRepo, sdSeasonsRepo)
 
 	// D-7 (468a) — the SeriesPeoplePort surface is now backed by
 	// person_credits via SeriesPeopleFromPersonCredits. Constructed
@@ -448,5 +455,6 @@ func BuildSeriesDetail(
 		GlobalRecommendationsHandler: globalRecommendationsHandler,
 		GlobalCastHandler:            globalCastHandler,
 		GlobalLibraryHandler:         globalLibraryHandler,
+		ETagFreshness:                sdETagFreshness,
 	}, nil
 }

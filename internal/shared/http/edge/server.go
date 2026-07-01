@@ -89,6 +89,10 @@ func NewServer(
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
 	addToSonarrHandler *discoveryrest.AddToSonarrHandler, // story 520 N-4c
+	// Story 578 / E-1-B5 — per-section freshness reader for the ETag
+	// middleware. nil-OK: when nil the middleware is a pass-through, so
+	// minimal/test wirings keep working with zero behaviour change.
+	etagFreshness SectionSyncedAtReader,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -235,26 +239,33 @@ func NewServer(
 		// declaration order matches reader expectations).
 		guarded.GET("/series/networks", globalCatalogHandler.Networks)
 		guarded.GET("/series", globalCatalogHandler.List)
+		// Story 578 / E-1-B5 — weak-ETag / Cache-Control on the
+		// enrichment-backed canon-detail GETs. Built once, shared across
+		// routes (stateless). gin runs it before each handler; on a
+		// 304 / fail-open path it either aborts or c.Next()s untouched.
+		// Deliberately NOT wired onto POST /regrab (mutating), /torrents
+		// or /library (per-instance *Arr state, no enrichment stamp).
+		etagMW := ETagMiddleware(etagFreshness, logger)
 		if globalSeriesHandler != nil {
-			guarded.GET("/series/:id", globalSeriesHandler.Get)
+			guarded.GET("/series/:id", etagMW, globalSeriesHandler.Get)
 			guarded.POST("/series/:id/regrab", globalSeriesHandler.Regrab)
 		}
 		// Story 492 / N-1b — global series-scoped surfaces.
 		if globalCastHandler != nil {
-			guarded.GET("/series/:id/cast", globalCastHandler.Get)
+			guarded.GET("/series/:id/cast", etagMW, globalCastHandler.Get)
 		}
 		// Story 529 — decomposition 1/3: /series/:id/overview split.
 		if globalOverviewHandler != nil {
-			guarded.GET("/series/:id/overview", globalOverviewHandler.Get)
+			guarded.GET("/series/:id/overview", etagMW, globalOverviewHandler.Get)
 		}
 		// Story 530 — decomposition 2/3: /series/:id/recommendations split.
 		if globalRecommendationsHandler != nil {
-			guarded.GET("/series/:id/recommendations", globalRecommendationsHandler.Get)
+			guarded.GET("/series/:id/recommendations", etagMW, globalRecommendationsHandler.Get)
 		}
 		if globalSeasonHandler != nil {
-			guarded.GET("/series/:id/season/:n", globalSeasonHandler.Get)
+			guarded.GET("/series/:id/season/:n", etagMW, globalSeasonHandler.Get)
 		}
-		guarded.GET("/series/:id/seasons/:season/episodes", globalSeasonEpisodesHandler.Get)
+		guarded.GET("/series/:id/seasons/:season/episodes", etagMW, globalSeasonEpisodesHandler.Get)
 		if globalTorrentsHandler != nil {
 			guarded.GET("/series/:id/torrents", globalTorrentsHandler.Get)
 		}
