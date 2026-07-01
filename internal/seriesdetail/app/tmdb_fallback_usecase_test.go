@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
@@ -560,6 +561,25 @@ func (f *fakeFreshener) EnsureFresh(_ context.Context, id domain.SeriesID, lang 
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, fakeFreshenCall{seriesID: id, lang: lang})
 	return f.result
+}
+
+// EnsureFreshScope — Story 563 A5 method. Records the call under the
+// same calls[] slice so existing test assertions on `Calls()` stay green
+// (both entry points count identically for the "was the freshener
+// invoked?" question).
+func (f *fakeFreshener) EnsureFreshScope(
+	_ context.Context,
+	id domain.SeriesID,
+	lang string,
+	_ []freshener.Section,
+	_ []int,
+	_ bool,
+	_ seriesdetail.EnsureFreshMode,
+) (seriesdetail.FreshenResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fakeFreshenCall{seriesID: id, lang: lang})
+	return f.result, nil
 }
 
 func (f *fakeFreshener) Calls() []fakeFreshenCall {

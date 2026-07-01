@@ -21,6 +21,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
@@ -101,7 +102,15 @@ func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.
 	resolvedLang := resolveLang(lang)
 	var freshen FreshenResult
 	if u.d.Freshener != nil {
-		freshen = u.d.Freshener.EnsureFresh(ctx, seriesID, resolvedLang)
+		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, resolvedLang,
+			[]freshener.Section{
+				freshener.SectionSkeleton,
+				freshener.SectionOverview,
+				freshener.SectionCast,
+				freshener.SectionMedia,
+			},
+			nil, false, ModeSync,
+		)
 	}
 	canon, err := u.d.Series.Get(ctx, seriesID)
 	if err != nil {
@@ -218,7 +227,15 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 	resolvedLang := resolveLang(lang)
 	var freshen FreshenResult
 	if u.d.Freshener != nil {
-		freshen = u.d.Freshener.EnsureFresh(ctx, seriesID, resolvedLang)
+		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, resolvedLang,
+			[]freshener.Section{
+				freshener.SectionSkeleton,
+				freshener.SectionOverview,
+				freshener.SectionCast,
+				freshener.SectionMedia,
+			},
+			nil, false, ModeSync,
+		)
 	}
 	canon, err := u.d.Series.Get(ctx, seriesID)
 	if err != nil {
@@ -325,13 +342,21 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 	if offset < 0 {
 		offset = 0
 	}
-	// Story 533 — read-through TMDB freshener. lang isn't a parameter on
-	// GetRecommendations (handler doesn't pass it), so the freshener probe
-	// runs with en-US semantics (no missing_lang trip — text rules don't
-	// apply to recommendation lists).
+	// Story 533 → Story 563 — read-through TMDB freshener. lang isn't a
+	// parameter on GetRecommendations (handler doesn't pass it), so the
+	// freshener probe runs with en-US semantics (no missing_lang trip —
+	// text rules don't apply to recommendation lists).
 	var freshen FreshenResult
 	if u.d.Freshener != nil {
-		freshen = u.d.Freshener.EnsureFresh(ctx, seriesID, "en-US")
+		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, "en-US",
+			[]freshener.Section{
+				freshener.SectionSkeleton,
+				freshener.SectionOverview,
+				freshener.SectionCast,
+				freshener.SectionMedia,
+			},
+			nil, false, ModeSync,
+		)
 	}
 	canon, err := u.d.Series.Get(ctx, seriesID)
 	if err != nil {
@@ -456,7 +481,15 @@ func (u *TMDBFallbackUseCase) GetCanonicalCast(ctx context.Context, seriesID dom
 	resolvedLang := resolveLang(lang)
 	var freshen FreshenResult
 	if u.d.Freshener != nil {
-		freshen = u.d.Freshener.EnsureFresh(ctx, seriesID, resolvedLang)
+		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, resolvedLang,
+			[]freshener.Section{
+				freshener.SectionSkeleton,
+				freshener.SectionOverview,
+				freshener.SectionCast,
+				freshener.SectionMedia,
+			},
+			nil, false, ModeSync,
+		)
 	}
 	canon, err := u.d.Series.Get(ctx, seriesID)
 	if err != nil {

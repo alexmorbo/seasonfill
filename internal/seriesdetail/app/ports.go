@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -265,21 +266,42 @@ type OnDemandEnricher interface {
 }
 
 // SeriesFreshener guarantees a series row is fresh in DB before the
-// composer reads it (Story 533).
+// composer reads it. A5 (Story 563) added EnsureFreshScope as the
+// primary orchestration method; EnsureFresh stays as a legacy shim
+// (delegates to EnsureFreshScope with a canned Section list).
 //
 // Implementations MUST:
-//   - singleflight per (seriesID, lang) to coalesce concurrent
-//     first-time opens of the same series.
-//   - hard ≤3s timeout (configurable).
-//   - on timeout/error: enqueue async refresh (existing Story 528 path),
+//   - singleflight per (seriesID, section, lang) to coalesce concurrent
+//     first-time opens of the same series+section.
+//   - hard ≤SyncTimeout (default 3s) for Mode==Sync; longer detached
+//     budget for Mode==Async (~180s).
+//   - on timeout/error: enqueue async refresh (Story 528 path),
 //     return FreshenResult{Degraded: true} WITHOUT blocking past
-//     timeout.
+//     SyncTimeout.
 //   - on success: data is written to DB; caller may now re-read.
 //
-// EnsureFresh is idempotent and safe to call on EVERY detail handler
+// EnsureFreshScope is idempotent and safe to call on EVERY detail handler
 // entry. Nil-OK at every call site — when the field is nil, the
 // composer just reads what's already in the DB.
 type SeriesFreshener interface {
+	// EnsureFreshScope — A5 driver (Story 563). Routes Probe verdicts to
+	// narrow Worker methods (A2/A3a/A3b/A4). See EnsureFreshMode doc for
+	// Sync/Async semantics + force propagation + seasonNumbers.
+	EnsureFreshScope(
+		ctx context.Context,
+		seriesID domain.SeriesID,
+		lang string,
+		sections []freshener.Section,
+		seasonNumbers []int,
+		force bool,
+		mode EnsureFreshMode,
+	) (FreshenResult, error)
+
+	// EnsureFresh — legacy shim (pre-A5). Delegates to EnsureFreshScope
+	// with sections=[Skeleton, Overview, Cast, Recommendations, Media],
+	// seasonNumbers=nil, force=false, mode=Sync. Kept for fakeFreshener
+	// tests + existing tmdb_fallback_usecase callsites during incremental
+	// migration. Post-Phase-2 removal.
 	EnsureFresh(ctx context.Context, seriesID domain.SeriesID, lang string) FreshenResult
 }
 

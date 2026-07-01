@@ -71,15 +71,22 @@ func (e *fakeAsyncEnricher) Calls() int {
 // fakeWorker satisfies SeriesWorkerHandle. Configurable: block until
 // ctx.Done (timeout test), return canned error (error test), or noop+nil.
 //
-// `calls` aggregates Handle + HandleForced + HandleForcedLang for tests
-// that don't care which entry point Freshener picked. `handleCalls` /
-// `handleForcedCalls` / `handleForcedLangCalls` split the count for the
-// Story 544 + Story 546 regression tests that pin routing.
+// `calls` aggregates Handle + HandleForced + HandleForcedLang + all A5
+// narrow methods for tests that don't care which entry point Freshener
+// picked. Per-method counters split the count for regression tests that
+// pin routing (Story 544 / 546 / 563).
 type fakeWorker struct {
 	calls                 atomic.Int64
 	handleCalls           atomic.Int64
 	handleForcedCalls     atomic.Int64
 	handleForcedLangCalls atomic.Int64
+
+	// A5 (Story 563) narrow method counters.
+	refreshSeriesTextCalls      atomic.Int64
+	refreshCastCalls            atomic.Int64
+	refreshSeasonSlimCalls      atomic.Int64
+	refreshRecommendationsCalls atomic.Int64
+	refreshMediaAssetsCalls     atomic.Int64
 
 	block       bool
 	err         error
@@ -108,6 +115,40 @@ func (f *fakeWorker) HandleForced(ctx context.Context, _ domain.SeriesID) error 
 func (f *fakeWorker) HandleForcedLang(ctx context.Context, _ domain.SeriesID, _ string) error {
 	f.calls.Add(1)
 	f.handleForcedLangCalls.Add(1)
+	return f.runBody(ctx)
+}
+
+// A5 (Story 563) narrow method stubs. Each increments both the aggregate
+// counter + its own per-method counter, then delegates to runBody so the
+// block/err/releaseCh mechanics apply uniformly.
+
+func (f *fakeWorker) RefreshSeriesText(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	f.calls.Add(1)
+	f.refreshSeriesTextCalls.Add(1)
+	return f.runBody(ctx)
+}
+
+func (f *fakeWorker) RefreshCast(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	f.calls.Add(1)
+	f.refreshCastCalls.Add(1)
+	return f.runBody(ctx)
+}
+
+func (f *fakeWorker) RefreshSeasonSlim(ctx context.Context, _ domain.SeriesID, _ int, _ string, _ bool) error {
+	f.calls.Add(1)
+	f.refreshSeasonSlimCalls.Add(1)
+	return f.runBody(ctx)
+}
+
+func (f *fakeWorker) RefreshRecommendations(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	f.calls.Add(1)
+	f.refreshRecommendationsCalls.Add(1)
+	return f.runBody(ctx)
+}
+
+func (f *fakeWorker) RefreshMediaAssets(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	f.calls.Add(1)
+	f.refreshMediaAssetsCalls.Add(1)
 	return f.runBody(ctx)
 }
 
@@ -176,13 +217,23 @@ func TestSeriesFreshenerHolder_StubStalePath_Refreshed(t *testing.T) {
 	res := h.EnsureFresh(context.Background(), 42, "ru-RU")
 	assert.True(t, res.Refreshed)
 	assert.False(t, res.Degraded)
-	// Sync path: exactly one HandleForcedLang (Stage 1+2). The Story 547
-	// async HandleForced follow-up bumps w.calls.Load() to 2 eventually —
-	// asserting the sync count specifically keeps this test deterministic
-	// without sleeps.
-	assert.Equal(t, int64(1), w.handleForcedLangCalls.Load())
-	assert.Equal(t, 1, enr.Calls(),
-		"Story 546: successful Stage 1+2 refresh enqueues async follow-up for episodes")
+	// Story 563 A5: EnsureFresh shim dispatches all 5 fixed sections when
+	// probe marks them stale. Skeleton→HandleForcedLang, the other four
+	// route through narrow methods. spawnAsyncFollowup DELETED — no more
+	// full-canon HandleForced fan-out. AsyncEnricher.EnqueueIfStale
+	// (Story 528 belt-and-suspenders) only fires on error/timeout paths.
+	assert.Equal(t, int64(1), w.handleForcedLangCalls.Load(),
+		"SectionSkeleton MUST route through HandleForcedLang (Story 546)")
+	assert.Equal(t, int64(1), w.refreshSeriesTextCalls.Load(),
+		"SectionOverview MUST route through RefreshSeriesText (Story 563 A2)")
+	assert.Equal(t, int64(1), w.refreshCastCalls.Load(),
+		"SectionCast MUST route through RefreshCast (Story 563 A2)")
+	assert.Equal(t, int64(1), w.refreshRecommendationsCalls.Load(),
+		"SectionRecommendations MUST route through RefreshRecommendations (Story 563 A3b)")
+	assert.Equal(t, int64(1), w.refreshMediaAssetsCalls.Load(),
+		"SectionMedia MUST route through RefreshMediaAssets (Story 563 A4)")
+	assert.Equal(t, 0, enr.Calls(),
+		"Story 563: successful sync dispatch does NOT enqueue async fallback (spawnAsyncFollowup DELETED)")
 }
 
 func TestSeriesFreshenerHolder_Singleflight_CoalescesSameKey(t *testing.T) {
@@ -211,10 +262,19 @@ func TestSeriesFreshenerHolder_Singleflight_CoalescesSameKey(t *testing.T) {
 	close(releaseCh)
 	wg.Wait()
 
-	// Sync path: one HandleForcedLang despite N concurrent callers. Story 547
-	// async HandleForced bumps total calls eventually; assert the sync count
-	// explicitly to keep deterministic.
-	assert.Equal(t, int64(1), w.handleForcedLangCalls.Load(), "singleflight must coalesce concurrent calls onto one HandleForcedLang")
+	// Story 563 A5: singleflight key is (seriesID, section, lang). N
+	// concurrent shim callers → each section fires exactly once.
+	// Skeleton→HandleForcedLang + 4 narrow methods, five distinct SF keys.
+	assert.Equal(t, int64(1), w.handleForcedLangCalls.Load(),
+		"singleflight must coalesce concurrent SectionSkeleton dispatches onto one HandleForcedLang")
+	assert.Equal(t, int64(1), w.refreshSeriesTextCalls.Load(),
+		"singleflight must coalesce concurrent SectionOverview dispatches")
+	assert.Equal(t, int64(1), w.refreshCastCalls.Load(),
+		"singleflight must coalesce concurrent SectionCast dispatches")
+	assert.Equal(t, int64(1), w.refreshRecommendationsCalls.Load(),
+		"singleflight must coalesce concurrent SectionRecommendations dispatches")
+	assert.Equal(t, int64(1), w.refreshMediaAssetsCalls.Load(),
+		"singleflight must coalesce concurrent SectionMedia dispatches")
 	// All callers should see Refreshed=true via shared result.
 	for i, r := range results {
 		assert.True(t, r, "caller %d expected Refreshed=true", i)
@@ -245,9 +305,14 @@ func TestSeriesFreshenerHolder_Singleflight_DifferentLangsDoNotCoalesce(t *testi
 	close(releaseCh)
 	wg.Wait()
 
-	// Sync path: one HandleForcedLang per lang. Story 547 async HandleForced
-	// bumps total calls eventually.
-	assert.Equal(t, int64(2), w.handleForcedLangCalls.Load(), "different langs must NOT coalesce")
+	// Story 563 A5: singleflight key includes lang → different langs
+	// don't coalesce. Each shim call fires HandleForcedLang once for
+	// its lang → 2 total (Skeleton dispatch per lang).
+	assert.Equal(t, int64(2), w.handleForcedLangCalls.Load(),
+		"different langs must NOT coalesce for SectionSkeleton dispatch")
+	// Narrow methods also fire per-lang.
+	assert.Equal(t, int64(2), w.refreshSeriesTextCalls.Load(),
+		"different langs must NOT coalesce for SectionOverview")
 }
 
 func TestSeriesFreshenerHolder_TimeoutPath_DegradedAndAsyncFallback(t *testing.T) {
@@ -262,7 +327,9 @@ func TestSeriesFreshenerHolder_TimeoutPath_DegradedAndAsyncFallback(t *testing.T
 	res := h.EnsureFresh(context.Background(), 42, "ru-RU")
 	assert.True(t, res.Degraded)
 	assert.False(t, res.Refreshed)
-	assert.Equal(t, int64(1), w.calls.Load())
+	// Story 563 A5: shim dispatches 5 sections; all block → all time out.
+	assert.Equal(t, int64(5), w.calls.Load(),
+		"5 sections dispatched, all block until timeout")
 	assert.Equal(t, 1, enr.Calls(), "timeout must enqueue async fallback exactly once")
 }
 
@@ -278,7 +345,9 @@ func TestSeriesFreshenerHolder_ErrorPath_DegradedAndAsyncFallback(t *testing.T) 
 	res := h.EnsureFresh(context.Background(), 42, "en-US")
 	assert.True(t, res.Degraded)
 	assert.False(t, res.Refreshed)
-	assert.Equal(t, int64(1), w.calls.Load())
+	// Story 563 A5: shim dispatches 5 sections; all return boom → all fail.
+	assert.Equal(t, int64(5), w.calls.Load(),
+		"5 sections dispatched, all return error")
 	assert.Equal(t, 1, enr.Calls())
 }
 
@@ -393,6 +462,31 @@ func (f *workerCtxRecorder) HandleForcedLang(ctx context.Context, _ domain.Serie
 	return f.record(ctx, true)
 }
 
+// A5 (Story 563) narrow method stubs — record entry state so the
+// detached-ctx invariant assertion works uniformly for the shim path
+// which routes SectionSkeleton to HandleForcedLang + others to narrow
+// methods.
+
+func (f *workerCtxRecorder) RefreshSeriesText(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return f.record(ctx, true)
+}
+
+func (f *workerCtxRecorder) RefreshCast(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return f.record(ctx, true)
+}
+
+func (f *workerCtxRecorder) RefreshSeasonSlim(ctx context.Context, _ domain.SeriesID, _ int, _ string, _ bool) error {
+	return f.record(ctx, true)
+}
+
+func (f *workerCtxRecorder) RefreshRecommendations(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return f.record(ctx, true)
+}
+
+func (f *workerCtxRecorder) RefreshMediaAssets(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return f.record(ctx, true)
+}
+
 func (f *workerCtxRecorder) record(ctx context.Context, recordEntry bool) error {
 	f.calls.Add(1)
 	if recordEntry {
@@ -409,24 +503,26 @@ func (f *workerCtxRecorder) record(ctx context.Context, recordEntry bool) error 
 	return nil
 }
 
-// Story 544 + Story 546 regression: when probe says stale, Freshener
-// MUST route through HandleForcedLang (NOT Handle, NOT HandleForced).
+// Story 544 + Story 546 + Story 563 regression: when probe says stale,
+// Freshener MUST route SectionSkeleton through HandleForcedLang (NOT
+// Handle, NOT HandleForced) — and the other 4 sections through their
+// A5 narrow methods (RefreshSeriesText / RefreshCast / etc).
 //
 // Why HandleForcedLang and not the original HandleForced (Story 546):
 // pre-546 the freshener invoked HandleForced, which iterated every
 // w.deps.Languages entry AND fetched every active season's episode list
-// per language. On a 9-season series this consistently blew the 3s
-// sync budget on lang #2 and rolled back the entire ru-RU tx — no
-// series_texts.ru-RU row written, 2h backoff blocked retry. Story 546
-// swapped the call to HandleForcedLang (one GetTV + one tx, no
-// per-season fetches) and added a success-branch
-// AsyncEnricher.EnqueueIfStale to schedule the background pass that
-// fills episodes.
+// per language. Story 546 swapped SectionSkeleton to HandleForcedLang
+// (one GetTV + one tx, no per-season fetches).
 //
 // Why NOT Handle (Story 544): Handle's per-source freshness gate would
 // short-circuit valid refreshes (e.g. missing_lang at hour 12 of a 30d
 // SourceTMDBSeries TTL window — live bug observed for sonarr_id=25551
 // where freshen.run logged result:"refreshed" but no TMDB call fired).
+//
+// Why NO spawnAsyncFollowup (Story 563 A5): the full-canon HandleForced
+// fan-out was superseded by targeted per-section A5 dispatch. Narrow
+// methods write per-section data directly; no Stage-3-6 follow-up needed.
+// AsyncEnricher.EnqueueIfStale stays as belt-and-suspenders on error paths.
 func TestSeriesFreshenerHolder_StalePath_CallsHandleForcedLangNotHandleForced(t *testing.T) {
 	t.Parallel()
 	probe := &fakeProbe{stale: true, reason: "missing_lang"}
@@ -439,74 +535,11 @@ func TestSeriesFreshenerHolder_StalePath_CallsHandleForcedLangNotHandleForced(t 
 	res := h.EnsureFresh(context.Background(), 25551, "ru-RU")
 	assert.True(t, res.Refreshed)
 	assert.Equal(t, int64(1), w.handleForcedLangCalls.Load(),
-		"Story 546: Freshener MUST route SYNC through HandleForcedLang (staged Stage 1+2 path)")
+		"Story 546: SectionSkeleton MUST route through HandleForcedLang (staged Stage 1+2 path)")
 	assert.Equal(t, int64(0), w.handleCalls.Load(),
 		"Story 544: Freshener MUST NOT call Handle (per-source TTL would short-circuit stale refreshes)")
-	// HandleForced is INVOKED async by Story 547 (TTL-bypassing follow-up).
-	// We don't pin its count here — see TestSeriesFreshenerHolder_StalePath_SpawnsHandleForcedAsync
-	// for that assertion.
-	assert.Equal(t, 1, enr.Calls(),
-		"Story 546: successful Stage 1+2 enqueues async follow-up for episodes (belt-and-suspenders)")
-}
-
-// Story 547: when probe says stale, Freshener MUST spawn an async
-// goroutine calling inner.HandleForced(detachedCtx, seriesID) so the
-// follow-up bypasses the per-source TTL gate that Stage 1+2 just
-// stamped via enrichment_tmdb_synced_at. Pre-547 the follow-up routed
-// through the dispatcher → SeriesWorker.Handle which short-circuited
-// with `enrichment.series.handle.fresh_skip` (live evidence
-// sha-c9599b5 series 25551 — episode_texts.ru-RU stayed at 0 rows).
-func TestSeriesFreshenerHolder_StalePath_SpawnsHandleForcedAsync(t *testing.T) {
-	t.Parallel()
-	probe := &fakeProbe{stale: true, reason: "missing_lang"}
-	enr := &fakeAsyncEnricher{}
-	h := newFreshener(t, probe, enr, time.Second)
-	w := &fakeWorker{}
-	h.Set(w)
-	defer h.Close()
-
-	res := h.EnsureFresh(context.Background(), 25551, "ru-RU")
-	require.True(t, res.Refreshed)
-
-	// HandleForcedLang is sync (=1 immediately). HandleForced is async via
-	// the Story 547 goroutine — wait up to 2s. fakeWorker.HandleForced
-	// returns immediately (no blocking config), so the goroutine completes
-	// fast.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if w.handleForcedCalls.Load() == 1 {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	assert.Equal(t, int64(1), w.handleForcedLangCalls.Load(),
-		"Stage 1+2 sync path: exactly one HandleForcedLang call")
-	assert.Equal(t, int64(1), w.handleForcedCalls.Load(),
-		"Story 547: async HandleForced follow-up MUST fire (TTL-bypassing Stage 3-6 path)")
-	assert.Equal(t, int64(0), w.handleCalls.Load(),
-		"Story 547: follow-up MUST NOT route through Handle (its TTL gate would short-circuit with fresh_skip)")
-}
-
-// Story 547: when HandleForcedLang fails (timeout/error path), the
-// Story 547 async HandleForced follow-up MUST NOT spawn — there's
-// nothing to follow up on, Stage 1+2 was not committed. EnqueueIfStale
-// stays as the fallback path.
-func TestSeriesFreshenerHolder_ErrorPath_NoAsyncFollowup(t *testing.T) {
-	t.Parallel()
-	probe := &fakeProbe{stale: true, reason: "ttl"}
-	enr := &fakeAsyncEnricher{}
-	h := newFreshener(t, probe, enr, time.Second)
-	w := &fakeWorker{err: errors.New("boom")}
-	h.Set(w)
-	defer h.Close()
-
-	res := h.EnsureFresh(context.Background(), 42, "en-US")
-	assert.True(t, res.Degraded)
-
-	// Give any rogue goroutine room to fire.
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int64(1), w.handleForcedLangCalls.Load(),
-		"Sync HandleForcedLang fires (and returns err)")
 	assert.Equal(t, int64(0), w.handleForcedCalls.Load(),
-		"Story 547: no async HandleForced on error path")
+		"Story 563: spawnAsyncFollowup DELETED — no more full-canon HandleForced fan-out")
+	assert.Equal(t, 0, enr.Calls(),
+		"Story 563: successful sync dispatch does NOT enqueue async fallback")
 }

@@ -164,7 +164,7 @@ func (w *SeriesWorker) RefreshRecommendations(
 				Hydration:    series.HydrationStub,
 				Title:        r.Name,
 				PosterAsset:  nonEmptyStringPtr(r.PosterPath),
-				TMDBRating:   nonZeroFloat64PtrA3b(r.VoteAverage),
+				TMDBRating:   nonZeroFloatPtr(r.VoteAverage),
 				TMDBVotes:    nonZeroIntPtrSlim(r.VoteCount),
 				FirstAirDate: parseDateOrNilSlim(r.FirstAirDate),
 			}
@@ -281,16 +281,4 @@ func (w *SeriesWorker) RefreshRecommendations(
 			slog.Int("duration_ms", durMs))
 	}
 	return nil
-}
-
-// nonZeroFloat64PtrA3b — local helper for VoteAverage. Mirrors
-// tmdb/mappers.go nonZeroFloatPtr without crossing the package boundary
-// (the slim variants in series_worker_refresh_season_slim.go cover int
-// + date but not float64). Returns nil on zero (TMDB-side "no rating"
-// sentinel).
-func nonZeroFloat64PtrA3b(v float64) *float64 {
-	if v == 0 {
-		return nil
-	}
-	return &v
 }

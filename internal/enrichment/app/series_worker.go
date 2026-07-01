@@ -1520,6 +1520,18 @@ func nonEmptyStringPtr(s string) *string {
 	return &s
 }
 
+// nonZeroFloatPtr returns nil for TMDB's "no rating" sentinel (0.0),
+// else pointer to the value. Shared across narrow methods that write
+// float64 rating/popularity fields (A3b RefreshRecommendations, future
+// A5 orchestrator scope). Consolidates local A3b-suffixed helper per
+// A3b Round-2 review LOW (Story 563 carry-forward).
+func nonZeroFloatPtr(v float64) *float64 {
+	if v == 0 {
+		return nil
+	}
+	return &v
+}
+
 // tvdbIDPtrToInt / intPtrToTVDBID bridge the typed TVDBID seam
 // between series.Canon (*domain.TVDBID) and the domain/enrichment
 // patch + canon shapes (*int). The enrichment package intentionally

@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -246,14 +247,27 @@ func (c *Composer) Get(ctx context.Context, instanceName domain.InstanceName, so
 	}
 	seriesID := *cache.SeriesID
 
-	// Story 533 — read-through sync TMDB refresh. Idempotent + nil-OK.
-	// Runs BEFORE the canon load + errgroup so a successful refresh's
-	// committed tx is visible to the parallel SeriesTexts / Seasons /
-	// People reads. Bounded ≤3s; on timeout/error the holder enqueues
-	// async + returns Degraded=true (we append "tmdb_series" below).
+	// Story 533 → Story 563 (E-1 A5) — targeted per-section read-through
+	// TMDB refresh. Idempotent + nil-OK. Composer's cold-path scope is
+	// Skeleton+Overview+Cast+Media — the four sections whose data lands
+	// in the immediate response body. Recommendations is a split-out
+	// endpoint (Story 530) — RecommendationsHandler handles its own
+	// freshener call inside GetRecommendations. Season detail is also split
+	// (Story 218 SeasonHandler); SeasonHandler passes its N via
+	// seasonNumbers=[]int{N}.
 	var freshen FreshenResult
 	if c.d.Freshener != nil {
-		freshen = c.d.Freshener.EnsureFresh(ctx, seriesID, lang)
+		freshen, _ = c.d.Freshener.EnsureFreshScope(ctx, seriesID, lang,
+			[]freshener.Section{
+				freshener.SectionSkeleton,
+				freshener.SectionOverview,
+				freshener.SectionCast,
+				freshener.SectionMedia,
+			},
+			nil,   // seasonNumbers — /series/{id} body doesn't render season episodes
+			false, // force — TTL respected
+			ModeSync,
+		)
 	}
 
 	// Step 2 — canon series row. Same 404 mapping.
