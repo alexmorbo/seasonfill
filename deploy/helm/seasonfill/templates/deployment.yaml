@@ -124,6 +124,9 @@ spec:
             - name: SEASONFILL_MEDIA_FS_PATH
               value: {{ .Values.mediaStore.fs.path | quote }}
             {{- end }}
+            # Story 568 A2 — discovery pre-warm toggle. Default true.
+            - name: SEASONFILL_DISCOVERY_PREWARM_ENABLED
+              value: {{ .Values.discoveryPreWarm.enabled | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

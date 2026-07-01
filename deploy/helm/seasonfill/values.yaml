@@ -63,6 +63,19 @@ affinity: {}
 extraEnv: []
 extraEnvFrom: []
 
+# Discovery bounded-context runtime toggles (Story 568 A2).
+# discoveryPreWarm.enabled=true (default) makes the discovery Worker
+# fan out RefreshSeriesText(force=false) per (item × activeUserLang)
+# at the end of every successful ReplaceList — filling
+# series_texts.{seriesID, activeLang} BEFORE the user clicks a tile.
+# Closes the cold-lang overview miss that forces the composer's Sync
+# path to fall back to en-US or spend its 5s budget on a fresh TMDB
+# fetch. Rate-limited via the same 5rps limiter that paces refresh(),
+# so no dual TMDB budget.
+# Flip to false as a soft rollback if TMDB 429s spike post-deploy.
+discoveryPreWarm:
+  enabled: true
+
 # Bootstrap settings. The ONLY config inputs the chart cares about —
 # everything else (cron, scan tuning, dry_run, sonarr instances, runtime
 # auth fields) lives in the DB and is edited via the Settings UI.
