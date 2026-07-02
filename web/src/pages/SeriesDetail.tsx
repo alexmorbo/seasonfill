@@ -99,6 +99,23 @@ export function SeriesDetail() {
   const library = libraryQ.data?.library;
   const recent = libraryQ.data?.recent;
 
+  // Story 970 / C3c-2 — per-season on-disk / downloading counts, keyed by
+  // season_number, from the /library endpoint (per-instance). Undefined ⇒
+  // TMDB-only (no /library call) ⇒ accordion shows totals only.
+  const librarySeasons = useMemo(() => {
+    const rows = libraryQ.data?.seasons;
+    if (!rows) return undefined;
+    const m = new Map<number, { onDisk: number; downloading: number }>();
+    for (const s of rows) {
+      if (typeof s.season_number !== 'number') continue;
+      m.set(s.season_number, {
+        onDisk: s.episodes_on_disk ?? 0,
+        downloading: s.downloading ?? 0,
+      });
+    }
+    return m;
+  }, [libraryQ.data?.seasons]);
+
   // Story 531 — shadow the recommendations query at the page level so the
   // global degraded chip aggregates it even when the carousel is below the
   // fold. Same cache key ⇒ TanStack dedupes, no extra traffic.
@@ -282,6 +299,7 @@ export function SeriesDetail() {
             {...(lang ? { lang } : {})}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
             {...(seasonsLoading ? { tmdbSeasonLoading: true } : {})}
+            {...(librarySeasons ? { librarySeasons } : {})}
           />
 
           <RecommendationsCarousel

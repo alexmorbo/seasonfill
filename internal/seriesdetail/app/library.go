@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
@@ -79,6 +80,15 @@ type LibraryStripView struct {
 	DominantQuality string
 }
 
+// LibrarySeasonCountView is LibraryComposer's per-season on-disk / downloading
+// tally. App-local (the handler maps it → dto.LibrarySeasonCount) so the app
+// layer never imports the HTTP DTO package (mirrors LibraryStripView).
+type LibrarySeasonCountView struct {
+	SeasonNumber   int
+	EpisodesOnDisk int
+	Downloading    int
+}
+
 // LibraryView is LibraryComposer's domain object — the handler maps it onto
 // dto.SeriesLibraryResponse without further DB queries. Reuses the composer's
 // InProgressDetail / NextEpisodeDetail / RecentItem so wire projections stay
@@ -92,9 +102,13 @@ type LibraryView struct {
 	Recent           []RecentItem
 	InProgress       *InProgressDetail
 	NextEpisodeToAir *NextEpisodeDetail
-	LastGrabAt       *time.Time
-	LastImportedAt   *time.Time
-	SyncedAt         time.Time
+	// SeasonCounts is the per-season on-disk / downloading breakdown for the
+	// accordion row counters. Season-number ASC. Empty when the series has no
+	// canon episodes. Story 970.
+	SeasonCounts   []LibrarySeasonCountView
+	LastGrabAt     *time.Time
+	LastImportedAt *time.Time
+	SyncedAt       time.Time
 	// StaleEnqueued reports whether the M-2 staleness branch fired a
 	// sonarr_sync trigger this call. Surfaced for observability + tests; the
 	// handler does not project it onto the wire.
@@ -159,7 +173,8 @@ func (lc *LibraryComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 	}
 
 	grabEvents := lc.loadRecent(ctx, instanceName, sonarrID)
-	inProgress := lc.loadInProgress(ctx, instanceName, sonarrID)
+	queueRecords := lc.loadQueueRecords(ctx, instanceName, sonarrID)
+	inProgress := pickInProgress(&Detail{QueueRecords: queueRecords})
 
 	monitoredByEpisode := make(map[domain.EpisodeID]bool, len(states))
 	for _, st := range states {
@@ -175,6 +190,7 @@ func (lc *LibraryComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 		Recent:           toRecentItems(grabEvents),
 		InProgress:       inProgress,
 		NextEpisodeToAir: pickNextToAir(episodes, monitoredByEpisode, lc.d.Now()),
+		SeasonCounts:     buildSeasonCounts(episodes, states, queueRecords),
 		LastGrabAt:       firstGrabAt(grabEvents),
 		LastImportedAt:   firstImportedAt(grabEvents),
 		SyncedAt:         maxTime(entry.UpdatedAt, latestStateUpdate(states)),
@@ -230,10 +246,12 @@ func (lc *LibraryComposer) loadRecent(ctx context.Context, instanceName domain.I
 	return events
 }
 
-// loadInProgress reads the live Sonarr /queue and picks the best in-flight
-// record. Degrade-tolerant: unreachable Sonarr / query error yields nil (no
-// error) — the in-progress pill is simply absent.
-func (lc *LibraryComposer) loadInProgress(ctx context.Context, instanceName domain.InstanceName, sonarrID domain.SonarrSeriesID) *InProgressDetail {
+// loadQueueRecords reads the live Sonarr /queue and returns ALL in-flight
+// records for the series. Degrade-tolerant: nil SonarrFor / unreachable Sonarr /
+// query error yields nil (no error) — the in-progress pill is absent and
+// per-season downloading counts fall back to 0. The single fetched slice feeds
+// both pickInProgress and buildSeasonCounts (no double queue call).
+func (lc *LibraryComposer) loadQueueRecords(ctx context.Context, instanceName domain.InstanceName, sonarrID domain.SonarrSeriesID) []QueueRecordDetail {
 	if lc.d.SonarrFor == nil {
 		return nil
 	}
@@ -247,9 +265,6 @@ func (lc *LibraryComposer) loadInProgress(ctx context.Context, instanceName doma
 			slog.String("instance", string(instanceName)),
 			slog.Int("sonarr_series_id", int(sonarrID)),
 			slog.String("error", err.Error()))
-		return nil
-	}
-	if len(q.Records) == 0 {
 		return nil
 	}
 	recs := make([]QueueRecordDetail, 0, len(q.Records))
@@ -267,8 +282,60 @@ func (lc *LibraryComposer) loadInProgress(ctx context.Context, instanceName doma
 			SizeLeft:        rec.SizeLeft,
 		})
 	}
-	// Reuse the shipped, tested composer picker (same package).
-	return pickInProgress(&Detail{QueueRecords: recs})
+	return recs
+}
+
+// buildSeasonCounts tallies per-season on-disk + downloading for one instance.
+// On-disk = episode_states.HasFile joined to canon episodes by season
+// (DB-deterministic). Downloading = live Sonarr queue records with
+// status=="downloading" per season (best-effort; all zero when Sonarr is
+// unreachable, i.e. queue==nil). Specials (season 0) are included when present.
+// Every season with a canon episode gets a row even at 0 on disk so the FE can
+// render "0/total". Returns a season-number-ASC slice; empty when the series has
+// no canon episodes.
+func buildSeasonCounts(episodes []series.CanonEpisode, states []series.EpisodeState, queue []QueueRecordDetail) []LibrarySeasonCountView {
+	if len(episodes) == 0 {
+		return nil
+	}
+	seasonByEpisode := make(map[domain.EpisodeID]int, len(episodes))
+	seasons := make(map[int]*LibrarySeasonCountView)
+	ensure := func(n int) *LibrarySeasonCountView {
+		sc, ok := seasons[n]
+		if !ok {
+			sc = &LibrarySeasonCountView{SeasonNumber: n}
+			seasons[n] = sc
+		}
+		return sc
+	}
+	for _, ep := range episodes {
+		seasonByEpisode[domain.EpisodeID(ep.ID)] = ep.SeasonNumber
+		ensure(ep.SeasonNumber) // season present even with 0 on disk
+	}
+	for _, st := range states {
+		if !st.HasFile {
+			continue
+		}
+		n, ok := seasonByEpisode[st.EpisodeID]
+		if !ok {
+			continue // state for an episode not in canon (rare) — skip
+		}
+		ensure(n).EpisodesOnDisk++
+	}
+	for _, rec := range queue {
+		if rec.Status != "downloading" {
+			continue
+		}
+		if _, ok := seasons[rec.SeasonNumber]; !ok {
+			continue // queue record for a season with no canon episodes — skip
+		}
+		seasons[rec.SeasonNumber].Downloading++
+	}
+	out := make([]LibrarySeasonCountView, 0, len(seasons))
+	for _, sc := range seasons {
+		out = append(out, *sc)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].SeasonNumber < out[j].SeasonNumber })
+	return out
 }
 
 // buildLibraryStrip mirrors rest.mapLibrary: on-disk / aired / size / missing

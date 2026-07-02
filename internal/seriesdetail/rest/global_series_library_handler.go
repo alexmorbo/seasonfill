@@ -164,6 +164,7 @@ func toSeriesLibraryResponse(v seriesdetail.LibraryView) dto.SeriesLibraryRespon
 		LastGrabAt:     v.LastGrabAt,
 		LastImportedAt: v.LastImportedAt,
 		SyncedAt:       v.SyncedAt,
+		Seasons:        mapLibrarySeasonCounts(v.SeasonCounts),
 	}
 	if v.InProgress != nil {
 		ip := &dto.InProgress{
@@ -192,6 +193,20 @@ func mapLibraryRecent(items []seriesdetail.RecentItem) []dto.RecentEvent {
 	out := make([]dto.RecentEvent, 0, len(items))
 	for _, it := range items {
 		out = append(out, dto.RecentEvent{EventType: it.EventType, Subject: it.Subject, At: it.At})
+	}
+	return out
+}
+
+// mapLibrarySeasonCounts projects the app per-season tallies onto the DTO.
+// Always a non-nil slice so the FE can iterate unconditionally.
+func mapLibrarySeasonCounts(counts []seriesdetail.LibrarySeasonCountView) []dto.LibrarySeasonCount {
+	out := make([]dto.LibrarySeasonCount, 0, len(counts))
+	for _, c := range counts {
+		out = append(out, dto.LibrarySeasonCount{
+			SeasonNumber:   c.SeasonNumber,
+			EpisodesOnDisk: c.EpisodesOnDisk,
+			Downloading:    c.Downloading,
+		})
 	}
 	return out
 }

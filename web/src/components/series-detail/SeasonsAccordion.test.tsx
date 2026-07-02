@@ -100,26 +100,73 @@ describe('<SeasonsAccordion />', () => {
     expect(screen.getByText(/No seasons available yet/)).toBeInTheDocument();
   });
 
-  // Story 379: per-season downloading chip.
-  it('renders the downloading chip when season.downloading_count > 0', () => {
+  // Story 970 / C3c-2: per-season downloading chip now sourced from the
+  // /library counts (librarySeasons), NOT season.downloading_count.
+  it('renders the downloading chip when librarySeasons has downloading > 0', () => {
     const fixture = [{
-      season_number: 5, episode_count: 10, on_disk_count: 7, monitored: true,
-      downloading_count: 2,
+      season_number: 5, episode_count: 10, monitored: true,
       episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
     }];
-    r(<SeasonsAccordion seriesId={42} seasons={fixture} />);
+    const lib = new Map([[5, { onDisk: 7, downloading: 2 }]]);
+    r(<SeasonsAccordion seriesId={42} seasons={fixture} librarySeasons={lib} />);
     const chip = screen.getByTestId('season-downloading-chip');
     expect(chip.getAttribute('data-season')).toBe('5');
     expect(chip.textContent).toMatch(/2/);
   });
 
-  it('omits the downloading chip when downloading_count is 0', () => {
+  it('omits the downloading chip when librarySeasons downloading is 0', () => {
     const fixture = [{
-      season_number: 5, episode_count: 10, on_disk_count: 7, monitored: true,
-      downloading_count: 0,
+      season_number: 5, episode_count: 10, monitored: true,
+      episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
+    }];
+    const lib = new Map([[5, { onDisk: 7, downloading: 0 }]]);
+    r(<SeasonsAccordion seriesId={42} seasons={fixture} librarySeasons={lib} />);
+    expect(screen.queryByTestId('season-downloading-chip')).not.toBeInTheDocument();
+  });
+
+  // Story 970 / C3c-2: on-disk "X/total" renders at the LIST level (no expand)
+  // when librarySeasons carries an entry for the season.
+  it('renders "X/total on disk" at the list level from librarySeasons', () => {
+    const fixture = [{
+      season_number: 5, episode_count: 10, monitored: true,
+      episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
+    }];
+    const lib = new Map([[5, { onDisk: 6, downloading: 0 }]]);
+    r(<SeasonsAccordion seriesId={42} seasons={fixture} librarySeasons={lib} />);
+    const onDisk = screen.getByTestId('season-on-disk');
+    expect(onDisk.getAttribute('data-season')).toBe('5');
+    expect(onDisk.textContent).toMatch(/6/);
+    expect(onDisk.textContent).toMatch(/10/);
+  });
+
+  // Story 970 / C3c-2: no library entry (TMDB-only / cold) ⇒ totals only,
+  // NO misleading "0/total" on-disk line, no chip, no crash.
+  it('shows totals only (no on-disk line) when librarySeasons is absent', () => {
+    const fixture = [{
+      season_number: 5, episode_count: 10, monitored: true,
       episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
     }];
     r(<SeasonsAccordion seriesId={42} seasons={fixture} />);
+    expect(screen.queryByTestId('season-on-disk')).not.toBeInTheDocument();
     expect(screen.queryByTestId('season-downloading-chip')).not.toBeInTheDocument();
+    expect(screen.getByTestId('season-accordion-item')).toBeInTheDocument();
+  });
+
+  it('shows totals only for seasons missing from a partial librarySeasons map', () => {
+    const fixture = [
+      {
+        season_number: 5, episode_count: 10, monitored: true,
+        episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
+      },
+      {
+        season_number: 6, episode_count: 8, monitored: true,
+        episodes: [{ episode_number: 1, title: 'B', has_file: false, monitored: true }],
+      },
+    ];
+    const lib = new Map([[5, { onDisk: 3, downloading: 0 }]]);
+    r(<SeasonsAccordion seriesId={42} seasons={fixture} librarySeasons={lib} />);
+    const onDiskEls = screen.getAllByTestId('season-on-disk');
+    expect(onDiskEls).toHaveLength(1);
+    expect(onDiskEls[0]!.getAttribute('data-season')).toBe('5');
   });
 });

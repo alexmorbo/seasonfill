@@ -17,6 +17,14 @@ import { EpisodeRow } from './EpisodeRow';
 
 type Season = components['schemas']['dto.Season'];
 
+// Per-season library counts sourced from GET /series/:id/library (NOT the
+// canonical /seasons summary). Keyed by season_number. Absent entry ⇒ the
+// season's library state is unknown → render totals only (no misleading 0/8).
+export interface LibrarySeasonCounts {
+  readonly onDisk: number;
+  readonly downloading: number;
+}
+
 export interface SeasonsAccordionProps {
   readonly seriesId: number;
   readonly seasons: readonly Season[] | undefined;
@@ -30,6 +38,11 @@ export interface SeasonsAccordionProps {
   // недоступны" fallback. Distinguishes "TMDB enrichment in flight"
   // from "TMDB returned no data".
   readonly tmdbSeasonLoading?: boolean | undefined;
+  // Story 970 / C3c-2 — per-season on-disk / downloading counts from the
+  // /library endpoint (per-instance). Keyed by season_number. When a season has
+  // no entry (map miss), the row renders only the canonical episode_count and
+  // omits the "X/total on disk" line — never "0/total".
+  readonly librarySeasons?: ReadonlyMap<number, LibrarySeasonCounts> | undefined;
 }
 
 function sortSeasons(seasons: readonly Season[]): readonly Season[] {
@@ -54,10 +67,11 @@ interface SeasonAccordionItemProps {
   readonly season: Season;
   readonly lang?: string | undefined;
   readonly expanded: boolean;
+  readonly libEntry?: LibrarySeasonCounts | undefined;
 }
 
 function SeasonAccordionItem({
-  seriesId, season, lang, expanded,
+  seriesId, season, lang, expanded, libEntry,
 }: SeasonAccordionItemProps) {
   const { t } = useTranslation();
   const seasonNumber = season.season_number ?? 0;
@@ -76,8 +90,12 @@ function SeasonAccordionItem({
     return [...raw].reverse();
   }, [lazyEpisodes, compositeEpisodes]);
   const isSpecial = seasonNumber === 0;
-  const onDisk = season.on_disk_count ?? 0;
+  // Story 970: per-season library counts come from the /library endpoint,
+  // threaded via `libEntry`. `undefined` ⇒ library state unknown for this
+  // season → show totals only, never "0/total".
   const total = season.episode_count ?? episodes.length;
+  const onDisk = libEntry?.onDisk;
+  const downloading = libEntry?.downloading ?? 0;
   const year = seasonYear(season.air_date);
   const posterSrc = mediaUrl(season.poster_asset);
   const seasonLabel = isSpecial
@@ -107,19 +125,25 @@ function SeasonAccordionItem({
             </div>
           </div>
           <div className="flex items-center gap-2 pr-2 whitespace-nowrap">
-            {(season.downloading_count ?? 0) > 0 && (
+            {downloading > 0 && (
               <span
                 data-testid="season-downloading-chip"
                 data-season={seasonNumber}
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border-faint bg-bg-surface-2 text-tx-secondary tabular-nums"
               >
                 <ArrowDown className="w-3 h-3" aria-hidden="true" />
-                {t('seriesDetail.seasons.downloading', { count: season.downloading_count ?? 0 })}
+                {t('seriesDetail.seasons.downloading', { count: downloading })}
               </span>
             )}
-            <div className="text-[11.5px] text-tx-secondary tabular-nums">
-              {t('seriesDetail.seasons.onDisk', { on: onDisk, total })}
-            </div>
+            {onDisk !== undefined && (
+              <div
+                data-testid="season-on-disk"
+                data-season={seasonNumber}
+                className="text-[11.5px] text-tx-secondary tabular-nums"
+              >
+                {t('seriesDetail.seasons.onDisk', { on: onDisk, total })}
+              </div>
+            )}
           </div>
         </div>
       </AccordionTrigger>
@@ -145,7 +169,7 @@ function SeasonAccordionItem({
 }
 
 export function SeasonsAccordion({
-  seriesId, seasons, lang, className, staleBadge, tmdbSeasonLoading,
+  seriesId, seasons, lang, className, staleBadge, tmdbSeasonLoading, librarySeasons,
 }: SeasonsAccordionProps) {
   const { t } = useTranslation();
   const sorted = useMemo(() => sortSeasons(seasons ?? []), [seasons]);
@@ -208,6 +232,7 @@ export function SeasonsAccordion({
                 season={season}
                 {...(lang ? { lang } : {})}
                 expanded={expanded.includes(`s${sn}`)}
+                {...(librarySeasons?.get(sn) ? { libEntry: librarySeasons.get(sn) } : {})}
               />
             );
           })}

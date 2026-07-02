@@ -409,6 +409,23 @@ type SeasonDetailResponse struct {
 	SyncedAt       time.Time             `json:"synced_at"`
 }
 
+// LibrarySeasonCount — per-season on-disk / downloading tally for ONE Sonarr
+// instance. Powers the seasons-accordion row counters ("X/total on disk" + the
+// downloading chip) without the FE having to expand every season to lazy-load
+// episodes. Instance-specific library state — deliberately NOT part of the
+// canonical /seasons (SeasonSummaryDTO) contract, which stays instance-agnostic.
+// Story 970 / C3c-2.
+type LibrarySeasonCount struct {
+	SeasonNumber int `json:"season_number" example:"1"`
+	// EpisodesOnDisk is the count of canon episodes in this season whose
+	// per-instance episode_states row has has_file=true. DB-deterministic.
+	EpisodesOnDisk int `json:"episodes_on_disk" example:"6"`
+	// Downloading is the count of live Sonarr queue records with
+	// status=="downloading" for this season. 0 when nothing is downloading OR
+	// Sonarr is unreachable (best-effort; mirrors Library.in_progress).
+	Downloading int `json:"downloading" example:"1"`
+}
+
 // SeriesLibraryResponse — wire shape of GET /api/v1/series/:id/library
 // (Story 577 / E-1-B2). Per-instance Sonarr library state, carved out of the
 // fat SeriesDetailResponse into its own endpoint (bounded-context separation,
@@ -438,6 +455,12 @@ type SeriesLibraryResponse struct {
 	LastImportedAt *time.Time `json:"last_imported_episode_at,omitempty"`
 	// Monitored is the series-level Sonarr monitored flag.
 	Monitored bool `json:"monitored"`
+	// Seasons is the per-season on-disk / downloading breakdown for this
+	// instance — the seasons-accordion row counters. Always a present (possibly
+	// empty) slice, season-number ASC; empty for TMDB-only canon (which never
+	// reaches this handler — 204). Instance-specific; NOT part of the canonical
+	// /seasons contract. Story 970.
+	Seasons []LibrarySeasonCount `json:"seasons"`
 	// SyncedAt = max(series_cache.updated_at, newest episode_states.updated_at).
 	SyncedAt time.Time `json:"synced_at"`
 }

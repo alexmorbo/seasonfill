@@ -1188,6 +1188,25 @@ components:
           example: 42
           type: integer
       type: object
+    dto.LibrarySeasonCount:
+      properties:
+        downloading:
+          description: |-
+            Downloading is the count of live Sonarr queue records with
+            status=="downloading" for this season. 0 when nothing is downloading OR
+            Sonarr is unreachable (best-effort; mirrors Library.in_progress).
+          example: 1
+          type: integer
+        episodes_on_disk:
+          description: |-
+            EpisodesOnDisk is the count of canon episodes in this season whose
+            per-instance episode_states row has has_file=true. DB-deterministic.
+          example: 6
+          type: integer
+        season_number:
+          example: 1
+          type: integer
+      type: object
     dto.LibraryStrip:
       description: Library is the Sonarr "what's on disk" tile (counts + dominant
         quality).
@@ -2181,6 +2200,17 @@ components:
             present (possibly empty) slice.
           items:
             $ref: '#/components/schemas/dto.RecentEvent'
+          type: array
+          uniqueItems: false
+        seasons:
+          description: |-
+            Seasons is the per-season on-disk / downloading breakdown for this
+            instance — the seasons-accordion row counters. Always a present (possibly
+            empty) slice, season-number ASC; empty for TMDB-only canon (which never
+            reaches this handler — 204). Instance-specific; NOT part of the canonical
+            /seasons contract. Story 970.
+          items:
+            $ref: '#/components/schemas/dto.LibrarySeasonCount'
           type: array
           uniqueItems: false
         series_id:

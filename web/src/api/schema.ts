@@ -4928,6 +4928,23 @@ export type components = {
             /** @example 42 */
             readonly sonarr_series_id?: number;
         };
+        readonly "dto.LibrarySeasonCount": {
+            /**
+             * @description Downloading is the count of live Sonarr queue records with
+             *     status=="downloading" for this season. 0 when nothing is downloading OR
+             *     Sonarr is unreachable (best-effort; mirrors Library.in_progress).
+             * @example 1
+             */
+            readonly downloading?: number;
+            /**
+             * @description EpisodesOnDisk is the count of canon episodes in this season whose
+             *     per-instance episode_states row has has_file=true. DB-deterministic.
+             * @example 6
+             */
+            readonly episodes_on_disk?: number;
+            /** @example 1 */
+            readonly season_number?: number;
+        };
         /** @description Library is the Sonarr "what's on disk" tile (counts + dominant quality). */
         readonly "dto.LibraryStrip": {
             /**
@@ -5590,6 +5607,14 @@ export type components = {
              *     present (possibly empty) slice.
              */
             readonly recent?: readonly components["schemas"]["dto.RecentEvent"][];
+            /**
+             * @description Seasons is the per-season on-disk / downloading breakdown for this
+             *     instance — the seasons-accordion row counters. Always a present (possibly
+             *     empty) slice, season-number ASC; empty for TMDB-only canon (which never
+             *     reaches this handler — 204). Instance-specific; NOT part of the canonical
+             *     /seasons contract. Story 970.
+             */
+            readonly seasons?: readonly components["schemas"]["dto.LibrarySeasonCount"][];
             /** @example 42 */
             readonly series_id?: number;
             /** @example 123 */

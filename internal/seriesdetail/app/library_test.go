@@ -142,6 +142,9 @@ func TestLibraryCompose_HappyPath(t *testing.T) {
 	require.NotNil(t, view.InProgress)
 	assert.Equal(t, 60, view.InProgress.Percent)
 	assert.False(t, view.StaleEnqueued)
+	assert.Equal(t, []LibrarySeasonCountView{
+		{SeasonNumber: 1, EpisodesOnDisk: 2, Downloading: 1},
+	}, view.SeasonCounts)
 }
 
 func TestLibraryCompose_NotInInstance(t *testing.T) {
@@ -356,4 +359,118 @@ func TestLibraryCompose_SyncedAt_MaxOfCacheAndStates(t *testing.T) {
 	view, err := lc.Compose(context.Background(), 42, "homelab")
 	require.NoError(t, err)
 	assert.Equal(t, stateUpdated, view.SyncedAt)
+}
+
+func TestBuildSeasonCounts(t *testing.T) {
+	t.Parallel()
+
+	// Two seasons: S1 has 3 canon eps (2 on disk), S2 has 2 canon eps (1 on
+	// disk). One S2 episode is downloading; one queue record is NOT downloading
+	// (ignored); one queue record targets S9 which has no canon episode (skipped).
+	twoSeasonEpisodes := []series.CanonEpisode{
+		{ID: 1, SeasonNumber: 1, EpisodeNumber: 1},
+		{ID: 2, SeasonNumber: 1, EpisodeNumber: 2},
+		{ID: 3, SeasonNumber: 1, EpisodeNumber: 3},
+		{ID: 4, SeasonNumber: 2, EpisodeNumber: 1},
+		{ID: 5, SeasonNumber: 2, EpisodeNumber: 2},
+	}
+	twoSeasonStates := []series.EpisodeState{
+		{EpisodeID: 1, HasFile: true},
+		{EpisodeID: 2, HasFile: true},
+		{EpisodeID: 3, HasFile: false},
+		{EpisodeID: 4, HasFile: true},
+		{EpisodeID: 5, HasFile: false},
+	}
+	twoSeasonQueue := []QueueRecordDetail{
+		{SeasonNumber: 2, Status: "downloading"},
+		{SeasonNumber: 1, Status: "queued"},      // not downloading — ignored
+		{SeasonNumber: 9, Status: "downloading"}, // no canon episode — skipped
+	}
+
+	tests := []struct {
+		name     string
+		episodes []series.CanonEpisode
+		states   []series.EpisodeState
+		queue    []QueueRecordDetail
+		want     []LibrarySeasonCountView
+	}{
+		{
+			name:     "mixed on-disk + downloading across two seasons",
+			episodes: twoSeasonEpisodes,
+			states:   twoSeasonStates,
+			queue:    twoSeasonQueue,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 2, Downloading: 0},
+				{SeasonNumber: 2, EpisodesOnDisk: 1, Downloading: 1},
+			},
+		},
+		{
+			name:     "no queue (Sonarr unreachable) → downloading all zero",
+			episodes: twoSeasonEpisodes,
+			states:   twoSeasonStates,
+			queue:    nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 2, Downloading: 0},
+				{SeasonNumber: 2, EpisodesOnDisk: 1, Downloading: 0},
+			},
+		},
+		{
+			name: "season present with zero on disk",
+			episodes: []series.CanonEpisode{
+				{ID: 10, SeasonNumber: 3, EpisodeNumber: 1},
+			},
+			states: []series.EpisodeState{
+				{EpisodeID: 10, HasFile: false},
+			},
+			queue: nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 3, EpisodesOnDisk: 0, Downloading: 0},
+			},
+		},
+		{
+			name: "specials (season 0) included",
+			episodes: []series.CanonEpisode{
+				{ID: 20, SeasonNumber: 0, EpisodeNumber: 1},
+				{ID: 21, SeasonNumber: 1, EpisodeNumber: 1},
+			},
+			states: []series.EpisodeState{
+				{EpisodeID: 20, HasFile: true},
+				{EpisodeID: 21, HasFile: true},
+			},
+			queue: nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 0, EpisodesOnDisk: 1, Downloading: 0},
+				{SeasonNumber: 1, EpisodesOnDisk: 1, Downloading: 0},
+			},
+		},
+		{
+			name:     "empty / TMDB-only (no episodes) → nil, no panic",
+			episodes: nil,
+			states:   nil,
+			queue:    nil,
+			want:     nil,
+		},
+		{
+			name: "state for episode not in canon is skipped, no panic",
+			episodes: []series.CanonEpisode{
+				{ID: 30, SeasonNumber: 1, EpisodeNumber: 1},
+			},
+			states: []series.EpisodeState{
+				{EpisodeID: 30, HasFile: true},
+				{EpisodeID: 999, HasFile: true}, // orphan state — skipped
+			},
+			queue: nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 1, Downloading: 0},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := buildSeasonCounts(tt.episodes, tt.states, tt.queue)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

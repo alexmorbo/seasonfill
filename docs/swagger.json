@@ -1453,6 +1453,25 @@
                 },
                 "type": "object"
             },
+            "dto.LibrarySeasonCount": {
+                "properties": {
+                    "downloading": {
+                        "description": "Downloading is the count of live Sonarr queue records with\nstatus==\"downloading\" for this season. 0 when nothing is downloading OR\nSonarr is unreachable (best-effort; mirrors Library.in_progress).",
+                        "example": 1,
+                        "type": "integer"
+                    },
+                    "episodes_on_disk": {
+                        "description": "EpisodesOnDisk is the count of canon episodes in this season whose\nper-instance episode_states row has has_file=true. DB-deterministic.",
+                        "example": 6,
+                        "type": "integer"
+                    },
+                    "season_number": {
+                        "example": 1,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "dto.LibraryStrip": {
                 "description": "Library is the Sonarr \"what's on disk\" tile (counts + dominant quality).",
                 "properties": {
@@ -2710,6 +2729,14 @@
                         "description": "Recent is the last-5 grab_records activity strip, newest-first. Always a\npresent (possibly empty) slice.",
                         "items": {
                             "$ref": "#/components/schemas/dto.RecentEvent"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "seasons": {
+                        "description": "Seasons is the per-season on-disk / downloading breakdown for this\ninstance — the seasons-accordion row counters. Always a present (possibly\nempty) slice, season-number ASC; empty for TMDB-only canon (which never\nreaches this handler — 204). Instance-specific; NOT part of the canonical\n/seasons contract. Story 970.",
+                        "items": {
+                            "$ref": "#/components/schemas/dto.LibrarySeasonCount"
                         },
                         "type": "array",
                         "uniqueItems": false
