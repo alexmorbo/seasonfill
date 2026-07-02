@@ -208,6 +208,18 @@ type EpisodeTextsRepo interface {
 	Upsert(ctx context.Context, t series.EpisodeText) error
 }
 
+// SeasonTextsRepo persists one localised text row per
+// (series_id, season_number, language) into season_texts. B3b: the
+// narrow worker RefreshSeasonSlim writes the localised season name +
+// overview from the same GetSeason payload it already fetched. The
+// COALESCE-preserve on name/overview/enriched_at lives in the repo
+// (SeasonTextsRepository.Upsert), so a partial (name-only) write never
+// blanks a previously-stored overview. Nil-OK dep on SeriesWorkerDeps —
+// see the field doc there.
+type SeasonTextsRepo interface {
+	Upsert(ctx context.Context, t series.SeasonText) error
+}
+
 type PeopleRepo interface {
 	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (people.Person, error)
 	Upsert(ctx context.Context, p people.Person) (int64, error)

@@ -36,10 +36,13 @@ import (
 //     already gated).
 //
 // Tx shape: TMDB GetSeason (out of tx) → Seasons.Upsert (in tx — defensive
-// stub upsert; preserves season_id for episodes FK) → Episodes.BatchUpsert
-// (in tx) → EpisodeTexts.Upsert per episode (in tx) → MarkSeasonEpisodesSynced
-// UPDATE (in tx) → commit. tx rollback if any write fails; stamp is NEVER
-// written without a successful episodes+texts UPSERT.
+// stub upsert; preserves season_id for episodes FK) → SeasonTexts.Upsert
+// (in tx — B3b; localised season name/overview from the SAME GetSeason
+// payload; nil-OK dep + skipped when both fields empty; COALESCE-preserve
+// lives in the repo) → Episodes.BatchUpsert (in tx) → EpisodeTexts.Upsert
+// per episode (in tx) → MarkSeasonEpisodesSynced UPDATE (in tx) → commit.
+// tx rollback if any write fails; stamp is NEVER written without a
+// successful episodes+texts UPSERT.
 //
 // canon.TMDBID nil → no-op (Sonarr-only series cannot be TMDB-enriched).
 //
@@ -153,6 +156,50 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 		seasonID, err := w.deps.Seasons.Upsert(txCtx, seasonPayload)
 		if err != nil {
 			return fmt.Errorf("upsert season: %w", err)
+		}
+
+		// 5a-bis. season_texts.{series_id, season_number, lang} UPSERT
+		//   (B3b — Story 581). Localised season Name/Overview come from
+		//   the SAME seasonResp already fetched above — NO second TMDB
+		//   call. Keyed on the composite (series_id, season_number,
+		//   language), independent of season_id, so it runs here right
+		//   after the season row mint and is NOT gated by
+		//   len(episodes)==0 (a future-scheduled season can carry a
+		//   localised name/overview with zero episodes yet).
+		//
+		//   Empty-field handling: Name/Overview are *string; nonEmptyStringPtr
+		//   maps "" → nil → SQL NULL, and the repo COALESCE
+		//   (COALESCE(excluded.col, season_texts.col)) then PRESERVES any
+		//   prior localised value on a partial write. We additionally SKIP
+		//   the whole upsert when BOTH are empty so an all-empty TMDB pass
+		//   does not bump enriched_at to now on a content-less row (which
+		//   would mask a never-enriched season + falsely satisfy the
+		//   freshness probe).
+		//
+		//   lang is passed VERBATIM (raw BCP-47 "ru-RU") into the language
+		//   column — mirrors the episode_texts write; langVO above is
+		//   validation-only.
+		//
+		//   nil-OK dep: when SeasonTexts is not wired the step is skipped and
+		//   the method still writes episodes + episode_texts + the stamp.
+		if w.deps.SeasonTexts != nil {
+			name := nonEmptyStringPtr(seasonResp.Name)
+			overview := nonEmptyStringPtr(seasonResp.Overview)
+			if name != nil || overview != nil {
+				enrichedAt := now
+				st := series.SeasonText{
+					SeriesID:     seriesID,
+					SeasonNumber: seasonNumber,
+					Language:     lang,
+					Name:         name,
+					Overview:     overview,
+					EnrichedAt:   &enrichedAt,
+				}
+				if err := w.deps.SeasonTexts.Upsert(txCtx, st); err != nil {
+					return fmt.Errorf("upsert season_texts (season=%d, lang=%s): %w",
+						seasonNumber, lang, err)
+				}
+			}
 		}
 
 		// 5b. Build canonical episodes (lang-agnostic shape +

@@ -334,6 +334,17 @@ func (f *fakeEpisodeTextsRepo) Upsert(ctx context.Context, t series.EpisodeText)
 	return nil
 }
 
+type fakeSeasonTextsRepo struct {
+	rec  *callRecord
+	rows []series.SeasonText
+}
+
+func (f *fakeSeasonTextsRepo) Upsert(ctx context.Context, t series.SeasonText) error {
+	f.rec.add("SeasonTexts.Upsert")
+	f.rows = append(f.rows, t)
+	return nil
+}
+
 type fakePeopleRepo struct {
 	rec    *callRecord
 	rows   map[int]people.Person // keyed on tmdb_id
@@ -625,6 +636,7 @@ type workerFixture struct {
 	seasons          *fakeSeasonsRepo
 	episodes         *fakeEpisodesRepo
 	episodeTexts     *fakeEpisodeTextsRepo
+	seasonTexts      *fakeSeasonTextsRepo
 	people           *fakePeopleRepo
 	personCredits    *fakeSeriesWorkerPersonCredits
 	genres           *fakeGenresRepo
@@ -649,6 +661,7 @@ func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmd
 		seasons:          newFakeSeasonsRepo(rec),
 		episodes:         newFakeEpisodesRepo(rec),
 		episodeTexts:     &fakeEpisodeTextsRepo{rec: rec},
+		seasonTexts:      &fakeSeasonTextsRepo{rec: rec},
 		people:           newFakePeopleRepo(rec),
 		personCredits:    &fakeSeriesWorkerPersonCredits{rec: rec},
 		genres:           newFakeGenresRepo(rec),
@@ -670,6 +683,7 @@ func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmd
 		Seasons:          f.seasons,
 		Episodes:         f.episodes,
 		EpisodeTexts:     f.episodeTexts,
+		SeasonTexts:      f.seasonTexts,
 		People:           f.people,
 		PersonCredits:    f.personCredits,
 		Genres:           f.genres,

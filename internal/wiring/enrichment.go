@@ -412,6 +412,7 @@ func BuildEnrichment(
 		Seasons:          repos.Seasons,
 		Episodes:         repos.Episodes,
 		EpisodeTexts:     repos.EpisodeTexts,
+		SeasonTexts:      repos.SeasonTexts, // B3b (Story 581) — nil-OK
 		People:           repos.People,
 		PersonCredits:    repos.PersonCredits,
 		Genres:           repos.Genres,
@@ -928,11 +929,16 @@ func (h *dispatcherHolder) Close() {
 // Kept as an explicit struct so the BuildEnrichment signature stays
 // scannable.
 type EnrichmentRepoBundle struct {
-	Series          appenrich.SeriesRepo
-	SeriesTexts     appenrich.SeriesTextsRepo
-	Seasons         appenrich.SeasonsRepo
-	Episodes        appenrich.EpisodesRepo
-	EpisodeTexts    appenrich.EpisodeTextsRepo
+	Series       appenrich.SeriesRepo
+	SeriesTexts  appenrich.SeriesTextsRepo
+	Seasons      appenrich.SeasonsRepo
+	Episodes     appenrich.EpisodesRepo
+	EpisodeTexts appenrich.EpisodeTextsRepo
+	// SeasonTexts — B3b (Story 581): season-localization write port
+	// consumed by SeriesWorker.RefreshSeasonSlim. Production impl is
+	// *enrichpersistence.SeasonTextsRepository (B3a). Nil-OK — when nil
+	// the worker skips the season_texts step (episodes/texts still write).
+	SeasonTexts     appenrich.SeasonTextsRepo
 	People          peopleRepoCombined
 	Genres          appenrich.GenresRepo
 	Keywords        appenrich.KeywordsRepo

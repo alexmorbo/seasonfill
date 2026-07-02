@@ -47,7 +47,19 @@ type SeriesWorkerDeps struct {
 	Seasons      SeasonsRepo
 	Episodes     EpisodesRepo
 	EpisodeTexts EpisodeTextsRepo
-	People       PeopleRepo
+	// SeasonTexts — B3b (Story 581): optional season-localization write
+	// seam consumed by RefreshSeasonSlim. Writes one
+	// season_texts.{series_id, season_number, lang} row from the SAME
+	// GetSeason payload the method already fetched (no second TMDB call).
+	// nil OK — when unset the season_texts step is skipped and the method
+	// still writes episodes + episode_texts + the freshness stamp.
+	// Production wiring (internal/wiring/enrichment.go) injects the shared
+	// *persistence.SeasonTextsRepository. Field placed here (vs. the
+	// required cluster below) deliberately so existing test fixtures that
+	// construct SeriesWorkerDeps without it stay green — mirrors the
+	// Probe / MediaResolver / RecCanonWriter nil-OK posture.
+	SeasonTexts SeasonTextsRepo
+	People      PeopleRepo
 	// PersonCredits — D-7 (468a): the series_worker writes
 	// series-level credits into the polymorphic person_credits table
 	// (media_type='tv', tmdb_media_id=<series.tmdb_id>) instead of the

@@ -44,6 +44,21 @@ func (e *errorEpisodeTextsRepo) Upsert(ctx context.Context, t series.EpisodeText
 	return e.fakeEpisodeTextsRepo.Upsert(ctx, t)
 }
 
+// errorSeasonTextsRepo wraps fakeSeasonTextsRepo and triggers an injected
+// error on Upsert. Used to assert the tx rolls back (episodes never written,
+// stamp dropped) when the season_texts write fails.
+type errorSeasonTextsRepo struct {
+	*fakeSeasonTextsRepo
+	err error
+}
+
+func (e *errorSeasonTextsRepo) Upsert(ctx context.Context, t series.SeasonText) error {
+	if e.err != nil {
+		return e.err
+	}
+	return e.fakeSeasonTextsRepo.Upsert(ctx, t)
+}
+
 // minimalSeason8 returns a SeasonResponse for season 8 with 3 episodes.
 // Used by the worker tests to verify ONE-SEASON-ONLY discipline.
 func minimalSeason8() *tmdb.SeasonResponse {
@@ -326,6 +341,123 @@ func TestSeriesWorker_RefreshSeasonSlim_EmptyEpisodes_StampStill(t *testing.T) {
 	assert.Empty(t, f.episodeTexts.rows, "no episode_texts rows for empty Episodes[]")
 	assert.True(t, hasCall(f.rec.list(), "Seasons.MarkSeasonEpisodesSynced"),
 		"stamp still fires on empty-episodes branch to prevent probe storm")
+}
+
+// ---- B3b (Story 581): season_texts localization write-path ----------
+
+// (a) happy path — season_texts row written from the SAME GetSeason payload
+// with the raw BCP-47 lang, EnrichedAt stamped, correct series_id/season_number.
+func TestSeriesWorker_RefreshSeasonSlim_SeasonTexts_HappyPath(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	f := newSlimFixture(t, &tmdbID, nil)
+	err := f.worker.RefreshSeasonSlim(context.Background(), 1, 8, "ru-RU", true)
+	require.NoError(t, err)
+
+	// Still exactly ONE TMDB call — no second GetSeason for the season text.
+	assert.Equal(t, 1, countCall(f.tmdb, "GetSeason"), "no extra TMDB call for season_texts")
+
+	assert.True(t, hasCall(f.rec.list(), "SeasonTexts.Upsert"),
+		"season_texts row MUST be written")
+	require.Len(t, f.seasonTexts.rows, 1)
+	row := f.seasonTexts.rows[0]
+	assert.Equal(t, domain.SeriesID(1), row.SeriesID)
+	assert.Equal(t, 8, row.SeasonNumber)
+	assert.Equal(t, "ru-RU", row.Language, "raw BCP-47 lang stored verbatim, no normalization")
+	require.NotNil(t, row.Name)
+	assert.Equal(t, "Season 8", *row.Name) // minimalSeason8().Name
+	require.NotNil(t, row.Overview)
+	assert.Equal(t, "Season 8 overview", *row.Overview) // minimalSeason8().Overview
+	require.NotNil(t, row.EnrichedAt, "EnrichedAt MUST be stamped")
+	assert.Equal(t, f.worker.deps.Clock(), *row.EnrichedAt, "EnrichedAt == now")
+}
+
+// (b) empty-field skip — TMDB returns a season with empty Name+Overview →
+// the upsert is skipped entirely (no content-less row, no false enriched_at
+// bump), yet episodes + stamp still land.
+func TestSeriesWorker_RefreshSeasonSlim_SeasonTexts_EmptyBoth_Skip(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	f := newSlimFixture(t, &tmdbID, nil)
+	// Season with 1 episode but blank season-level Name + Overview.
+	f.tmdb.seasons[8] = &tmdb.SeasonResponse{
+		ID:           555,
+		Name:         "",
+		Overview:     "",
+		AirDate:      "2026-01-01",
+		SeasonNumber: 8,
+		Episodes: []tmdb.SeasonEpisode{
+			{ID: 1001, Name: "Ep 1", Overview: "o", SeasonNumber: 8, EpisodeNumber: 1, AirDate: "2026-01-01", EpisodeType: "standard"},
+		},
+	}
+	err := f.worker.RefreshSeasonSlim(context.Background(), 1, 8, "ru-RU", true)
+	require.NoError(t, err)
+	assert.False(t, hasCall(f.rec.list(), "SeasonTexts.Upsert"),
+		"empty Name+Overview → season_texts upsert MUST be skipped")
+	assert.Empty(t, f.seasonTexts.rows)
+	// Episodes + stamp still land — the skip is season_texts-local.
+	assert.True(t, hasCall(f.rec.list(), "Episodes.BatchUpsert"))
+	assert.True(t, hasCall(f.rec.list(), "Seasons.MarkSeasonEpisodesSynced"))
+}
+
+// (b') partial write — overview blank, name present → row still written with
+// Name set and Overview nil (repo COALESCE preserves any prior overview).
+func TestSeriesWorker_RefreshSeasonSlim_SeasonTexts_PartialName_Writes(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	f := newSlimFixture(t, &tmdbID, nil)
+	f.tmdb.seasons[8] = &tmdb.SeasonResponse{
+		ID:           555,
+		Name:         "Только имя",
+		Overview:     "",
+		AirDate:      "2026-01-01",
+		SeasonNumber: 8,
+		Episodes: []tmdb.SeasonEpisode{
+			{ID: 1001, Name: "Ep 1", SeasonNumber: 8, EpisodeNumber: 1, AirDate: "2026-01-01", EpisodeType: "standard"},
+		},
+	}
+	require.NoError(t, f.worker.RefreshSeasonSlim(context.Background(), 1, 8, "ru-RU", true))
+	require.Len(t, f.seasonTexts.rows, 1)
+	row := f.seasonTexts.rows[0]
+	require.NotNil(t, row.Name)
+	assert.Equal(t, "Только имя", *row.Name)
+	assert.Nil(t, row.Overview, "empty overview → nil (NULL) so repo COALESCE preserves prior")
+}
+
+// (c) nil dep — SeasonTexts not wired → method still succeeds; episodes,
+// episode_texts and the stamp all land, no panic, no season_texts row.
+func TestSeriesWorker_RefreshSeasonSlim_SeasonTexts_NilDep_StillWrites(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	f := newSlimFixture(t, &tmdbID, nil)
+	f.worker.deps.SeasonTexts = nil // simulate un-wired optional dep
+	err := f.worker.RefreshSeasonSlim(context.Background(), 1, 8, "ru-RU", true)
+	require.NoError(t, err)
+	assert.False(t, hasCall(f.rec.list(), "SeasonTexts.Upsert"))
+	assert.Empty(t, f.seasonTexts.rows)
+	assert.True(t, hasCall(f.rec.list(), "Episodes.BatchUpsert"), "episodes still written")
+	assert.True(t, hasCall(f.rec.list(), "EpisodeTexts.Upsert"), "episode_texts still written")
+	assert.True(t, hasCall(f.rec.list(), "Seasons.MarkSeasonEpisodesSynced"), "stamp still fires")
+}
+
+// (d) error path — SeasonTexts.Upsert fails → tx rolls back: episodes never
+// written (season_texts precedes them), stamp dropped, wrapped error returned.
+func TestSeriesWorker_RefreshSeasonSlim_SeasonTexts_UpsertError_NoStamp(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	f := newSlimFixture(t, &tmdbID, nil)
+	f.worker.deps.SeasonTexts = &errorSeasonTextsRepo{
+		fakeSeasonTextsRepo: f.seasonTexts,
+		err:                 errors.New("season_texts boom"),
+	}
+	err := f.worker.RefreshSeasonSlim(context.Background(), 1, 8, "ru-RU", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "season_texts")
+	// season_texts is upserted right after Seasons.Upsert, BEFORE episodes,
+	// so the failing write short-circuits the rest of the tx.
+	assert.True(t, hasCall(f.rec.list(), "Seasons.Upsert"), "season row minted before the failing write")
+	assert.False(t, hasCall(f.rec.list(), "Episodes.BatchUpsert"), "tx rolled back before episodes")
+	assert.False(t, hasCall(f.rec.list(), "Seasons.MarkSeasonEpisodesSynced"), "stamp NOT written")
 }
 
 // ---- helpers --------------------------------------------------------
