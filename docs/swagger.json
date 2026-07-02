@@ -394,6 +394,35 @@
                 },
                 "type": "object"
             },
+            "dto.DownloadChip": {
+                "description": "Download is the single hero download chip — the FIRST in-flight Sonarr\nqueue record (Sonarr queue order), restoring the pre-B1b fat-response\n`download` field the hero renders. nil when the queue is empty OR Sonarr\nis unreachable. Represents the most-relevant in-flight item; distinct\nfrom in_progress (the highest-percent downloading pick for the on-disk\nstrip pill). Story 971 / C3c-3.",
+                "properties": {
+                    "download_id": {
+                        "type": "string"
+                    },
+                    "episode_id": {
+                        "type": "integer"
+                    },
+                    "protocol": {
+                        "example": "torrent",
+                        "type": "string"
+                    },
+                    "queue_id": {
+                        "type": "integer"
+                    },
+                    "season_number": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "example": "downloading",
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "dto.Episode": {
                 "properties": {
                     "air_date": {
@@ -2700,6 +2729,9 @@
             },
             "dto.SeriesLibraryResponse": {
                 "properties": {
+                    "download": {
+                        "$ref": "#/components/schemas/dto.DownloadChip"
+                    },
                     "in_progress": {
                         "$ref": "#/components/schemas/dto.InProgress"
                     },

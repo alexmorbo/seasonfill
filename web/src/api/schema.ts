@@ -4349,6 +4349,25 @@ export type components = {
             readonly items?: readonly components["schemas"]["dto.Decision"][];
             readonly next_cursor?: string;
         };
+        /**
+         * @description Download is the single hero download chip — the FIRST in-flight Sonarr
+         *     queue record (Sonarr queue order), restoring the pre-B1b fat-response
+         *     `download` field the hero renders. nil when the queue is empty OR Sonarr
+         *     is unreachable. Represents the most-relevant in-flight item; distinct
+         *     from in_progress (the highest-percent downloading pick for the on-disk
+         *     strip pill). Story 971 / C3c-3.
+         */
+        readonly "dto.DownloadChip": {
+            readonly download_id?: string;
+            readonly episode_id?: number;
+            /** @example torrent */
+            readonly protocol?: string;
+            readonly queue_id?: number;
+            readonly season_number?: number;
+            /** @example downloading */
+            readonly status?: string;
+            readonly title?: string;
+        };
         readonly "dto.Episode": {
             readonly air_date?: string;
             /** @example 5.1 */
@@ -5585,6 +5604,7 @@ export type components = {
             readonly total_episode_count?: number;
         };
         readonly "dto.SeriesLibraryResponse": {
+            readonly download?: components["schemas"]["dto.DownloadChip"];
             readonly in_progress?: components["schemas"]["dto.InProgress"];
             /** @example homelab */
             readonly instance?: string;

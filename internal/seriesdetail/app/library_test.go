@@ -141,6 +141,13 @@ func TestLibraryCompose_HappyPath(t *testing.T) {
 	assert.Equal(t, grabs[0].UpdatedAt, *view.LastImportedAt)
 	require.NotNil(t, view.InProgress)
 	assert.Equal(t, 60, view.InProgress.Percent)
+	// Story 971 — hero download chip = first queue record (raw index 0).
+	require.NotNil(t, view.Download)
+	assert.Equal(t, 11, view.Download.QueueID)
+	assert.Equal(t, domain.SonarrEpisodeID(3), view.Download.SonarrEpisodeID)
+	assert.Equal(t, 1, view.Download.SeasonNumber)
+	assert.Equal(t, "Ep 3", view.Download.Title)
+	assert.Equal(t, "downloading", view.Download.Status)
 	assert.False(t, view.StaleEnqueued)
 	assert.Equal(t, []LibrarySeasonCountView{
 		{SeasonNumber: 1, EpisodesOnDisk: 2, Downloading: 1},
@@ -217,6 +224,7 @@ func TestLibraryCompose_NilSonarr_InProgressNil(t *testing.T) {
 	view, err := lc.Compose(context.Background(), 42, "homelab")
 	require.NoError(t, err)
 	assert.Nil(t, view.InProgress)
+	assert.Nil(t, view.Download)
 }
 
 func TestLibraryCompose_SonarrError_Degrades(t *testing.T) {
@@ -233,6 +241,39 @@ func TestLibraryCompose_SonarrError_Degrades(t *testing.T) {
 	view, err := lc.Compose(context.Background(), 42, "homelab")
 	require.NoError(t, err)
 	assert.Nil(t, view.InProgress)
+	assert.Nil(t, view.Download)
+}
+
+func TestLibraryCompose_DownloadChip_FirstRecordWins(t *testing.T) {
+	t.Parallel()
+	queue := sonarr.QueuePayload{Records: []sonarr.QueueRecord{
+		{ID: 21, EpisodeID: 8, SeasonNumber: 2, EpisodeNumber: 1, Title: "S2 queued", Status: "queued", Protocol: "torrent", DownloadID: "abc"},
+		{ID: 22, EpisodeID: 9, SeasonNumber: 2, EpisodeNumber: 2, Title: "S2 dl", Status: "downloading", Size: 100, SizeLeft: 10},
+	}}
+	lc := NewLibraryComposer(LibraryDeps{
+		CacheLookup: &fakeLibCacheLookup{entries: []series.CacheEntry{
+			{InstanceName: "homelab", SonarrSeriesID: 7, UpdatedAt: fixedNow()},
+		}},
+		Episodes:      &fakeLibEpisodes{},
+		EpisodeStates: &fakeLibEpisodeStates{},
+		SonarrFor:     sonarrForOK(&fakeQueueLister{payload: queue}),
+		Now:           fixedNow,
+	})
+	view, err := lc.Compose(context.Background(), 42, "homelab")
+	require.NoError(t, err)
+
+	// Raw-first pick — record[0] even though its status is "queued".
+	require.NotNil(t, view.Download)
+	assert.Equal(t, 21, view.Download.QueueID)
+	assert.Equal(t, "queued", view.Download.Status)
+	assert.Equal(t, "torrent", view.Download.Protocol)
+	assert.Equal(t, "abc", view.Download.DownloadID)
+	assert.Equal(t, domain.SonarrEpisodeID(8), view.Download.SonarrEpisodeID)
+
+	// InProgress still filters to the downloading record — independent selection.
+	require.NotNil(t, view.InProgress)
+	assert.Equal(t, 2, view.InProgress.SeasonNumber)
+	assert.Equal(t, 2, view.InProgress.EpisodeNumber)
 }
 
 func TestLibraryCompose_NextToAir_PrefersMonitored(t *testing.T) {

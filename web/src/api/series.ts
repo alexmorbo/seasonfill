@@ -49,14 +49,11 @@ export interface NetworkChip {
   readonly name?: string;
   readonly logo_asset?: string;
 }
-export interface DownloadChip {
-  readonly status?: string;
-  readonly title?: string;
-  // fat-compat: HeroLibraryStrip fixtures pass the Sonarr queue id even
-  // though only status/title are rendered. Kept optional so the existing
-  // test object literals stay valid (excess-property check) until C3b.
-  readonly queue_id?: number;
-}
+// C3c-3 (story 971): the hero download chip is restored on the /library response
+// (`dto.SeriesLibraryResponse.download`), so DownloadChip points at the generated
+// schema type again — single source of truth. All fields optional/readonly; the
+// hero renders status/title only (HeroLibraryStrip).
+export type DownloadChip = components['schemas']['dto.DownloadChip'];
 export interface CastMember {
   readonly person_id?: number;
   readonly tmdb_person_id?: number;

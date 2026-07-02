@@ -94,13 +94,19 @@ type LibrarySeasonCountView struct {
 // InProgressDetail / NextEpisodeDetail / RecentItem so wire projections stay
 // identical to the fat-composer path.
 type LibraryView struct {
-	Instance         domain.InstanceName
-	SonarrSeriesID   domain.SonarrSeriesID
-	SeriesID         domain.SeriesID
-	Monitored        bool
-	Strip            LibraryStripView
-	Recent           []RecentItem
-	InProgress       *InProgressDetail
+	Instance       domain.InstanceName
+	SonarrSeriesID domain.SonarrSeriesID
+	SeriesID       domain.SeriesID
+	Monitored      bool
+	Strip          LibraryStripView
+	Recent         []RecentItem
+	InProgress     *InProgressDetail
+	// Download is the hero download chip — the FIRST Sonarr /queue record (queue
+	// order), mirroring the pre-B1b fat-response `download`. nil when the queue is
+	// empty OR Sonarr is unreachable. Distinct from InProgress (the highest-percent
+	// downloading pick for the in-progress pill). Reuses the SAME queueRecords slice
+	// C3c-2 already loads — no extra Sonarr call. Story 971 / C3c-3.
+	Download         *QueueRecordDetail
 	NextEpisodeToAir *NextEpisodeDetail
 	// SeasonCounts is the per-season on-disk / downloading breakdown for the
 	// accordion row counters. Season-number ASC. Empty when the series has no
@@ -189,6 +195,7 @@ func (lc *LibraryComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 		Strip:            buildLibraryStrip(entry, len(episodes), states),
 		Recent:           toRecentItems(grabEvents),
 		InProgress:       inProgress,
+		Download:         pickDownloadRecord(queueRecords),
 		NextEpisodeToAir: pickNextToAir(episodes, monitoredByEpisode, lc.d.Now()),
 		SeasonCounts:     buildSeasonCounts(episodes, states, queueRecords),
 		LastGrabAt:       firstGrabAt(grabEvents),
@@ -283,6 +290,23 @@ func (lc *LibraryComposer) loadQueueRecords(ctx context.Context, instanceName do
 		})
 	}
 	return recs
+}
+
+// pickDownloadRecord restores the pre-B1b hero download chip: the FIRST record in
+// the Sonarr /queue response for the series (Sonarr queue order, preserved by
+// loadQueueRecords). Mirrors the old composer's unconditional `d.Queue =
+// &d.QueueRecords[0]` pick — deliberately NOT the status=="downloading" /
+// highest-percent filter used by pickInProgress; the two were distinct selections
+// in the fat response and the hero chip surfaced this raw-first record. Returns
+// nil when the queue is empty (Sonarr returned no records OR was unreachable →
+// loadQueueRecords yields nil), so the hero renders no chip. No extra Sonarr call:
+// operates on the already-loaded slice. Story 971 / C3c-3.
+func pickDownloadRecord(records []QueueRecordDetail) *QueueRecordDetail {
+	if len(records) == 0 {
+		return nil
+	}
+	first := records[0]
+	return &first
 }
 
 // buildSeasonCounts tallies per-season on-disk + downloading for one instance.

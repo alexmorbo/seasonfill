@@ -176,6 +176,17 @@ func toSeriesLibraryResponse(v seriesdetail.LibraryView) dto.SeriesLibraryRespon
 		resp.InProgress = ip
 		resp.Library.InProgress = ip
 	}
+	if v.Download != nil {
+		resp.Download = &dto.DownloadChip{
+			QueueID:      v.Download.QueueID,
+			EpisodeID:    int(v.Download.SonarrEpisodeID),
+			SeasonNumber: v.Download.SeasonNumber,
+			Title:        v.Download.Title,
+			Status:       v.Download.Status,
+			Protocol:     v.Download.Protocol,
+			DownloadID:   v.Download.DownloadID,
+		}
+	}
 	if v.NextEpisodeToAir != nil {
 		resp.NextEpisodeToAir = &dto.NextEpisode{
 			SeasonNumber:  v.NextEpisodeToAir.SeasonNumber,

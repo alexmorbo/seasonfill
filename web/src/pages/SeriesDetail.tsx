@@ -98,6 +98,10 @@ export function SeriesDetail() {
   const libraryQ = useSeriesLibrary({ seriesId, instance: primaryInstance });
   const library = libraryQ.data?.library;
   const recent = libraryQ.data?.recent;
+  // C3c-3 (story 971) — hero download chip (first in-flight Sonarr queue record).
+  // undefined when nothing downloading / Sonarr unreachable / TMDB-only (no /library
+  // call) — SeriesHero then renders no chip.
+  const download = libraryQ.data?.download;
 
   // Story 970 / C3c-2 — per-season on-disk / downloading counts, keyed by
   // season_number, from the /library endpoint (per-instance). Undefined ⇒
@@ -210,6 +214,7 @@ export function SeriesDetail() {
             seriesId={seriesId}
             hero={hero}
             {...(library ? { library } : {})}
+            {...(download ? { download } : {})}
             {...(tmdbStaleAt ? { tmdbStaleAt } : {})}
             {...(imdbStaleAt ? { imdbStaleAt } : {})}
             {...(tmdbSeriesDegraded ? { tmdbSeriesDegraded: true } : {})}

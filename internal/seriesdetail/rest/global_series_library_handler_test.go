@@ -176,6 +176,9 @@ func TestGlobalSeriesLibraryHandler_Get_200_LexFirstDefault(t *testing.T) {
 	assert.True(t, body.Monitored)
 	assert.NotNil(t, body.Recent)
 	assert.False(t, body.SyncedAt.IsZero())
+	// Story 971 — no download chip when the composer view carries none.
+	assert.Nil(t, body.Download)
+	assert.NotContains(t, w.Body.String(), "\"download\"")
 }
 
 func TestGlobalSeriesLibraryHandler_Get_200_ExplicitInstance(t *testing.T) {
@@ -206,6 +209,15 @@ func TestGlobalSeriesLibraryHandler_Get_200_Body_NextEpisodeAndInProgress(t *tes
 		Instance: "homelab", SonarrSeriesID: 7, SeriesID: 42,
 		InProgress:       &seriesdetail.InProgressDetail{SeasonNumber: 5, EpisodeNumber: 3, Percent: 45},
 		NextEpisodeToAir: &seriesdetail.NextEpisodeDetail{SeasonNumber: 6, EpisodeNumber: 1, AirDate: &air},
+		Download: &seriesdetail.QueueRecordDetail{
+			QueueID:         11,
+			SonarrEpisodeID: 3,
+			SeasonNumber:    1,
+			Title:           "Ep 3",
+			Status:          "downloading",
+			Protocol:        "torrent",
+			DownloadID:      "dl-1",
+		},
 	}}
 	h := seriesdetailrest.NewGlobalSeriesLibraryHandler(composer, cache, quietLoggerLibrary())
 	r := gin.New()
@@ -219,6 +231,7 @@ func TestGlobalSeriesLibraryHandler_Get_200_Body_NextEpisodeAndInProgress(t *tes
 	body := w.Body.String()
 	assert.Contains(t, body, "in_progress")
 	assert.Contains(t, body, "next_episode_to_air")
+	assert.Contains(t, body, "download")
 
 	var resp dto.SeriesLibraryResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
@@ -226,4 +239,14 @@ func TestGlobalSeriesLibraryHandler_Get_200_Body_NextEpisodeAndInProgress(t *tes
 	require.NotNil(t, resp.Library.InProgress, "InProgress mirrored under library.in_progress")
 	require.NotNil(t, resp.NextEpisodeToAir)
 	assert.Equal(t, 45, resp.InProgress.Percent)
+
+	// Story 971 — hero download chip mapped onto the wire.
+	require.NotNil(t, resp.Download)
+	assert.Equal(t, 11, resp.Download.QueueID)
+	assert.Equal(t, 3, resp.Download.EpisodeID)
+	assert.Equal(t, 1, resp.Download.SeasonNumber)
+	assert.Equal(t, "Ep 3", resp.Download.Title)
+	assert.Equal(t, "downloading", resp.Download.Status)
+	assert.Equal(t, "torrent", resp.Download.Protocol)
+	assert.Equal(t, "dl-1", resp.Download.DownloadID)
 }

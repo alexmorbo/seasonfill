@@ -443,6 +443,13 @@ type SeriesLibraryResponse struct {
 	// queue is empty OR Sonarr is unreachable. Also mirrored under
 	// Library.in_progress for FE parity with the legacy fat response.
 	InProgress *InProgress `json:"in_progress,omitempty"`
+	// Download is the single hero download chip — the FIRST in-flight Sonarr
+	// queue record (Sonarr queue order), restoring the pre-B1b fat-response
+	// `download` field the hero renders. nil when the queue is empty OR Sonarr
+	// is unreachable. Represents the most-relevant in-flight item; distinct
+	// from in_progress (the highest-percent downloading pick for the on-disk
+	// strip pill). Story 971 / C3c-3.
+	Download *DownloadChip `json:"download,omitempty"`
 	// NextEpisodeToAir is the earliest future-dated episode (monitored
 	// preferred). Title is nil by design — titles live in the canon episode
 	// endpoints, not this Sonarr-state handle.
