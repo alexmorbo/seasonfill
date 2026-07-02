@@ -3669,10 +3669,10 @@
                     "hero": {
                         "properties": {
                             "backdrop_asset": {
-                                "$ref": "#/components/schemas/values.MediaHash"
+                                "type": "string"
                             },
                             "content_rating": {
-                                "$ref": "#/components/schemas/values.ContentRating"
+                                "type": "string"
                             },
                             "genres": {
                                 "items": {
@@ -3682,40 +3682,40 @@
                                 "uniqueItems": false
                             },
                             "imdb_rating": {
-                                "$ref": "#/components/schemas/values.Rating"
+                                "$ref": "#/components/schemas/values.RatingWire"
                             },
                             "next_episode": {
-                                "$ref": "#/components/schemas/values.NextEpisodeCanon"
+                                "$ref": "#/components/schemas/values.NextEpisodeCanonWire"
                             },
                             "omdb_rating": {
-                                "$ref": "#/components/schemas/values.Rating"
+                                "$ref": "#/components/schemas/values.RatingWire"
                             },
                             "original_title": {
-                                "$ref": "#/components/schemas/values.Title"
+                                "$ref": "#/components/schemas/values.TitleWire"
                             },
                             "poster_asset": {
-                                "$ref": "#/components/schemas/values.MediaHash"
+                                "type": "string"
                             },
                             "runtime_minutes": {
-                                "$ref": "#/components/schemas/values.Minutes"
+                                "type": "integer"
                             },
                             "tagline": {
-                                "$ref": "#/components/schemas/values.Tagline"
+                                "$ref": "#/components/schemas/values.TaglineWire"
                             },
                             "title": {
-                                "$ref": "#/components/schemas/values.Title"
+                                "$ref": "#/components/schemas/values.TitleWire"
                             },
                             "tmdb_rating": {
-                                "$ref": "#/components/schemas/values.Rating"
+                                "$ref": "#/components/schemas/values.RatingWire"
                             },
                             "trailer_key": {
-                                "$ref": "#/components/schemas/values.TrailerKey"
+                                "type": "string"
                             },
                             "year_end": {
-                                "$ref": "#/components/schemas/values.Year"
+                                "type": "integer"
                             },
                             "year_start": {
-                                "$ref": "#/components/schemas/values.Year"
+                                "type": "integer"
                             }
                         },
                         "type": "object"
@@ -3728,7 +3728,7 @@
                         "uniqueItems": false
                     },
                     "lang": {
-                        "$ref": "#/components/schemas/values.LanguageTag"
+                        "type": "string"
                     },
                     "season_count": {
                         "type": "integer"
@@ -3757,13 +3757,13 @@
                             },
                             "origin_countries": {
                                 "items": {
-                                    "$ref": "#/components/schemas/values.CountryCode"
+                                    "type": "string"
                                 },
                                 "type": "array",
                                 "uniqueItems": false
                             },
                             "original_language": {
-                                "$ref": "#/components/schemas/values.LangCode"
+                                "type": "string"
                             },
                             "production_companies": {
                                 "items": {
@@ -3773,7 +3773,7 @@
                                 "uniqueItems": false
                             },
                             "status": {
-                                "$ref": "#/components/schemas/values.SeriesStatus"
+                                "type": "string"
                             }
                         },
                         "type": "object"
@@ -3784,43 +3784,57 @@
                 },
                 "type": "object"
             },
-            "values.ContentRating": {
+            "values.NextEpisodeCanonWire": {
+                "properties": {
+                    "air_date": {
+                        "type": "string"
+                    },
+                    "days_until": {
+                        "type": "integer"
+                    },
+                    "episode_number": {
+                        "type": "integer"
+                    },
+                    "season_number": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "$ref": "#/components/schemas/values.TitleWire"
+                    }
+                },
                 "type": "object"
             },
-            "values.CountryCode": {
+            "values.RatingWire": {
+                "properties": {
+                    "score": {
+                        "type": "number"
+                    },
+                    "votes": {
+                        "type": "integer"
+                    }
+                },
                 "type": "object"
             },
-            "values.LangCode": {
+            "values.TaglineWire": {
+                "properties": {
+                    "lang": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
                 "type": "object"
             },
-            "values.LanguageTag": {
-                "type": "object"
-            },
-            "values.MediaHash": {
-                "type": "object"
-            },
-            "values.Minutes": {
-                "type": "object"
-            },
-            "values.NextEpisodeCanon": {
-                "type": "object"
-            },
-            "values.Rating": {
-                "type": "object"
-            },
-            "values.SeriesStatus": {
-                "type": "object"
-            },
-            "values.Tagline": {
-                "type": "object"
-            },
-            "values.Title": {
-                "type": "object"
-            },
-            "values.TrailerKey": {
-                "type": "object"
-            },
-            "values.Year": {
+            "values.TitleWire": {
+                "properties": {
+                    "lang": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
                 "type": "object"
             }
         },

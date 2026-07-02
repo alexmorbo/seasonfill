@@ -1,0 +1,29 @@
+// swaggo global type overrides — loaded via `swag init --overridesFile .swaggo`.
+// Teaches swaggo the real JSON wire shape of the values.* value objects. Each VO
+// is a struct with unexported fields + a custom MarshalJSON, so swaggo's struct
+// introspection emits an empty schema (Record<string, never> in schema.ts).
+// These directives map each VO to the primitive/struct its MarshalJSON emits.
+// NO runtime behaviour changes — MarshalJSON is untouched. See story 967.
+//
+// Keys are the module-relative package path swaggo resolves for each type
+// (PkgPath = searchDir-relative import path, since the repo root has no Go
+// files for `go list` to anchor the full module path). Scalar VOs -> swagger
+// primitive type names (Go builtins like `int` are rejected by
+// BuildCustomSchemaV3); object VOs -> exported wire mirror structs.
+replace internal/shared/domain/values.Year integer
+replace internal/shared/domain/values.Minutes integer
+replace internal/shared/domain/values.VoteCount integer
+replace internal/shared/domain/values.Score number
+replace internal/shared/domain/values.MediaHash string
+replace internal/shared/domain/values.TrailerKey string
+replace internal/shared/domain/values.ContentRating string
+replace internal/shared/domain/values.LangCode string
+replace internal/shared/domain/values.LanguageTag string
+replace internal/shared/domain/values.CountryCode string
+replace internal/shared/domain/values.SeriesStatus string
+//
+// Object VOs -> exported wire mirror structs in swagger_wire.go (same package).
+replace internal/shared/domain/values.Rating internal/shared/domain/values.RatingWire
+replace internal/shared/domain/values.Title internal/shared/domain/values.TitleWire
+replace internal/shared/domain/values.Tagline internal/shared/domain/values.TaglineWire
+replace internal/shared/domain/values.NextEpisodeCanon internal/shared/domain/values.NextEpisodeCanonWire

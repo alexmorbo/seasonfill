@@ -6121,50 +6121,56 @@ export type components = {
         readonly "seriesdetail.SkeletonDTO": {
             readonly degraded?: readonly string[];
             readonly hero?: {
-                readonly backdrop_asset?: components["schemas"]["values.MediaHash"];
-                readonly content_rating?: components["schemas"]["values.ContentRating"];
+                readonly backdrop_asset?: string;
+                readonly content_rating?: string;
                 readonly genres?: readonly components["schemas"]["seriesdetail.GenreRef"][];
-                readonly imdb_rating?: components["schemas"]["values.Rating"];
-                readonly next_episode?: components["schemas"]["values.NextEpisodeCanon"];
-                readonly omdb_rating?: components["schemas"]["values.Rating"];
-                readonly original_title?: components["schemas"]["values.Title"];
-                readonly poster_asset?: components["schemas"]["values.MediaHash"];
-                readonly runtime_minutes?: components["schemas"]["values.Minutes"];
-                readonly tagline?: components["schemas"]["values.Tagline"];
-                readonly title?: components["schemas"]["values.Title"];
-                readonly tmdb_rating?: components["schemas"]["values.Rating"];
-                readonly trailer_key?: components["schemas"]["values.TrailerKey"];
-                readonly year_end?: components["schemas"]["values.Year"];
-                readonly year_start?: components["schemas"]["values.Year"];
+                readonly imdb_rating?: components["schemas"]["values.RatingWire"];
+                readonly next_episode?: components["schemas"]["values.NextEpisodeCanonWire"];
+                readonly omdb_rating?: components["schemas"]["values.RatingWire"];
+                readonly original_title?: components["schemas"]["values.TitleWire"];
+                readonly poster_asset?: string;
+                readonly runtime_minutes?: number;
+                readonly tagline?: components["schemas"]["values.TaglineWire"];
+                readonly title?: components["schemas"]["values.TitleWire"];
+                readonly tmdb_rating?: components["schemas"]["values.RatingWire"];
+                readonly trailer_key?: string;
+                readonly year_end?: number;
+                readonly year_start?: number;
             };
             readonly in_library_instances?: readonly string[];
-            readonly lang?: components["schemas"]["values.LanguageTag"];
+            readonly lang?: string;
             readonly season_count?: number;
             readonly series_id?: number;
             readonly sidebar?: {
                 readonly first_air_date?: string;
                 readonly keywords?: readonly components["schemas"]["seriesdetail.KeywordRef"][];
                 readonly networks?: readonly components["schemas"]["seriesdetail.NetworkRef"][];
-                readonly origin_countries?: readonly components["schemas"]["values.CountryCode"][];
-                readonly original_language?: components["schemas"]["values.LangCode"];
+                readonly origin_countries?: readonly string[];
+                readonly original_language?: string;
                 readonly production_companies?: readonly components["schemas"]["seriesdetail.CompanyRef"][];
-                readonly status?: components["schemas"]["values.SeriesStatus"];
+                readonly status?: string;
             };
             readonly synced_at?: string;
         };
-        readonly "values.ContentRating": Record<string, never>;
-        readonly "values.CountryCode": Record<string, never>;
-        readonly "values.LangCode": Record<string, never>;
-        readonly "values.LanguageTag": Record<string, never>;
-        readonly "values.MediaHash": Record<string, never>;
-        readonly "values.Minutes": Record<string, never>;
-        readonly "values.NextEpisodeCanon": Record<string, never>;
-        readonly "values.Rating": Record<string, never>;
-        readonly "values.SeriesStatus": Record<string, never>;
-        readonly "values.Tagline": Record<string, never>;
-        readonly "values.Title": Record<string, never>;
-        readonly "values.TrailerKey": Record<string, never>;
-        readonly "values.Year": Record<string, never>;
+        readonly "values.NextEpisodeCanonWire": {
+            readonly air_date?: string;
+            readonly days_until?: number;
+            readonly episode_number?: number;
+            readonly season_number?: number;
+            readonly title?: components["schemas"]["values.TitleWire"];
+        };
+        readonly "values.RatingWire": {
+            readonly score?: number;
+            readonly votes?: number;
+        };
+        readonly "values.TaglineWire": {
+            readonly lang?: string;
+            readonly value?: string;
+        };
+        readonly "values.TitleWire": {
+            readonly lang?: string;
+            readonly value?: string;
+        };
     };
     responses: never;
     parameters: never;
