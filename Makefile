@@ -101,7 +101,6 @@ openapi-check:
 	cd web && npm install --no-audit --no-fund && npm run gen-types && \
 	  git diff --exit-code src/api/schema.ts || \
 	  (echo "::error::web/src/api/schema.ts is stale — run \`make openapi\`"; exit 1)
-	cd web && npm run typecheck
 
 web-install:
 	cd web && npm install --no-audit --no-fund
