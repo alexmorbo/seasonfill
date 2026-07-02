@@ -12,6 +12,7 @@ import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useTriggerScan } from '@/lib/scan-mutations';
 import { ApiError, api } from '@/lib/api';
 import { useSeriesCache, type SeriesCacheItem } from '@/lib/api/seriesCache';
+import { useLanguage } from '@/hooks/useLanguage';
 import { HeroGreeting } from '@/components/dashboard/HeroGreeting';
 import { PosterGrid } from '@/components/dashboard/PosterGrid';
 import { DashboardEmptyState } from '@/components/dashboard/DashboardEmptyState';
@@ -52,8 +53,9 @@ export function Dashboard() {
   const { filter } = useInstanceFilter();
   const instances = inst.data?.instances ?? [];
   const current = filter ?? instances[0]?.name ?? null;
+  const lang = useLanguage().current;
 
-  const imported = useSeriesCache(current, { status: 'imported', limit: 12, sort: 'updated_desc' });
+  const imported = useSeriesCache(current, { status: 'imported', limit: 12, sort: 'updated_desc', lang });
   const counters = useCountersAggregate('24h');
   const stepper = useStepperState();
 
@@ -74,10 +76,10 @@ export function Dashboard() {
   const empty24h = !imported.isPending && importedItems.length === 0 && totals.grabs === 0;
 
   const lastImport = useSeriesCache(
-    current, { status: 'all', limit: 1, sort: 'updated_desc' }, { enabled: empty24h },
+    current, { status: 'all', limit: 1, sort: 'updated_desc', lang }, { enabled: empty24h },
   );
   const missing = useSeriesCache(
-    current, { status: 'missing', limit: 100 }, { enabled: empty24h },
+    current, { status: 'missing', limit: 100, lang }, { enabled: empty24h },
   );
 
   const triggerScan = useTriggerScan();

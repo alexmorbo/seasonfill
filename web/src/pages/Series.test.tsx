@@ -48,6 +48,7 @@ interface InfiniteHookCall {
     search?: string;
     monitoredOnly?: boolean;
     networks?: readonly string[];
+    lang?: string;
   };
 }
 
@@ -311,6 +312,15 @@ describe('<Series /> integration', () => {
     renderPage('/series?monitored=0');
     await waitFor(() => expect(hookCalls.length).toBeGreaterThan(0));
     expect(hookCalls[hookCalls.length - 1]!.q.monitoredOnly).toBeUndefined();
+  });
+
+  it('threads the active UI language into the infinite hook query (C-grid-lang)', async () => {
+    hookCalls.length = 0;
+    renderPage('/series');
+    await waitFor(() => expect(hookCalls.length).toBeGreaterThan(0));
+    const lang = hookCalls[hookCalls.length - 1]!.q.lang;
+    expect(typeof lang).toBe('string');
+    expect(lang!.length).toBeGreaterThan(0);
   });
 
   it('passes the networks set into the hook', async () => {

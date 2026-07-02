@@ -43,9 +43,17 @@ export interface SeriesCacheQuery {
   readonly status?: SeriesCacheStatus;
   readonly limit?: number;
   readonly sort?: SeriesCacheSort;
+  // Story E-1-B7 / 584b: raw BCP-47 tag forwarded as `?lang=` so the
+  // global catalog list emits localised series titles + per-language
+  // posters. Pass-through verbatim (no lowercasing / region-strip).
+  // Flows into the queryKey via the `q` spread in useSeriesCache's
+  // key below. Empty / undefined omits it.
+  readonly lang?: string;
 }
 
-function buildPath(instance: string, q: SeriesCacheQuery): string {
+// Exported so the lang emit / omit branches can be unit-tested directly
+// (otherwise module-private). Pure helper — safe to export.
+export function buildPath(instance: string, q: SeriesCacheQuery): string {
   const p = new URLSearchParams();
   p.set('instance', instance);
   // BE 492 global /series accepts `state` for missing/imported/all
@@ -54,6 +62,7 @@ function buildPath(instance: string, q: SeriesCacheQuery): string {
   if (q.status) p.set('state', q.status);
   if (q.limit !== undefined) p.set('limit', String(q.limit));
   if (q.sort) p.set('sort', q.sort);
+  if (q.lang) p.set('lang', q.lang);
   return `/series?${p.toString()}`;
 }
 

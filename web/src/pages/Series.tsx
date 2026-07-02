@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useInstances } from '@/lib/instances';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
+import { useLanguage } from '@/hooks/useLanguage';
 import {
   useSeriesCacheInfinite,
   useSeriesCacheNetworks,
@@ -131,6 +132,7 @@ export function Series() {
   const { filter } = useInstanceFilter();
   const instances = inst.data?.instances ?? [];
   const current = filter ?? instances[0]?.name ?? null;
+  const lang = useLanguage().current;
 
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => readFiltersFromParams(params), [params]);
@@ -142,6 +144,7 @@ export function Series() {
       sort: filters.sort,
       limit: 24,
       search: filters.search,
+      lang,
       // Story 121a §A. Conditional-spread under exactOptionalPropertyTypes:
       // toggle on → send monitored=1; toggle off → omit (any).
       ...(filters.monitoredOnly ? { monitoredOnly: true as const } : {}),
