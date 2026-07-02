@@ -11,16 +11,22 @@ export type NextEpisode = components['schemas']['dto.NextEpisode'];
 export type RecentEvent = components['schemas']['dto.RecentEvent'];
 export type TaxonomyChip = components['schemas']['dto.TaxonomyChip'];
 
-// ── C3 (story 966): B1b-2 deleted the fat `dto.SeriesDetailResponse` and its
-// hero / rating / download / links / cast sub-types from swagger (GET
-// /series/:id now serves `seriesdetail.SkeletonDTO`). To GREEN `tsc` and
-// unblock the Build-web CI job WITHOUT the full SeriesDetail rewrite (deferred
-// to C3b), the shape the existing component tree + its unit tests consume is
-// re-materialised here as local interfaces, decoupled from the generated
-// schema. BUILD-UNBLOCK ONLY — the live page is degraded (cast/seasons/library
-// /recent/external empty; hero enrichment opaque) until C3b wires the lazy
-// /overview /cast /seasons /library endpoints. See documentation/refactor-first
-// /stories/966-c3-seriesdetail-rewrite.md.
+// ── C3b (story 968): GET /series/:id serves `seriesdetail.SkeletonDTO`
+// (hero + sidebar + season_count + in_library_instances + degraded + lang +
+// synced_at). `useSeries` is typed against this GENERATED shape; the heavy
+// sections load from their own lazy endpoints and the hero/rail view-models
+// below are produced by the pure `adaptHero`/`adaptCast`/`adaptSeasons`
+// adapters (schema → presentation types), keeping every section component
+// untouched.
+export type SeriesSkeleton = components['schemas']['seriesdetail.SkeletonDTO'];
+
+// ── C3b (story 968): these are the COMPONENT VIEW-MODEL contracts the hero /
+// rail tree consumes (presentation types, NOT API types). `adaptHero` /
+// `adaptCast` / `adaptSeasons` map the generated `SkeletonDTO` + lazy DTOs onto
+// them, so `SeriesHero`, `RailCard`, `RatingDuo`, `CastStrip` etc. stay byte-
+// identical. Keeping them decoupled from the schema does not violate "use the
+// generated schema" — the API surface `useSeries` returns is the generated
+// `SkeletonDTO`; these are strictly the render-side shapes.
 export interface RatingScore {
   readonly score?: number;
   readonly votes?: number;
@@ -83,22 +89,6 @@ export interface SeriesHero {
   readonly premiere_date?: string;
   readonly original_language?: string;
 }
-export interface SeriesDetailResponse {
-  readonly series_id?: number;
-  readonly sonarr_series_id?: number;
-  readonly instance?: string;
-  readonly in_library_instances?: readonly string[];
-  readonly synced_at?: string;
-  readonly degraded?: readonly string[];
-  readonly hero?: SeriesHero;
-  readonly library?: LibraryStrip;
-  readonly download?: DownloadChip;
-  readonly recent?: readonly RecentEvent[];
-  readonly external_links?: ExternalLinks;
-  readonly cast?: readonly CastMember[];
-  readonly seasons?: readonly components['schemas']['dto.Season'][];
-}
-
 export type StatusToken =
   | 'continuing'
   | 'ended'
@@ -168,13 +158,13 @@ export function useSeries({
   // refetchInterval(query) callback must be pure on the data slice.
   const tickRef = useRef<{ lastLen: number; ticks: number }>({ lastLen: -1, ticks: 0 });
 
-  return useQuery<SeriesDetailResponse>({
+  return useQuery<SeriesSkeleton>({
     queryKey: enabled
       ? seriesQueryKey(seriesId as number, effectiveLang)
       : (['series-detail', 0, ''] as const),
     queryFn: () => {
       const qs = effectiveLang ? `?lang=${encodeURIComponent(effectiveLang)}` : '';
-      return api<SeriesDetailResponse>(
+      return api<SeriesSkeleton>(
         `/series/${seriesId}${qs}`,
       );
     },
@@ -207,15 +197,15 @@ export function useSeries({
 // never matched live data — fixed in SeriesDetail.tsx as part of this
 // story.
 export function isDegraded(
-  resp: SeriesDetailResponse | undefined,
+  resp: SeriesSkeleton | undefined,
   source: DegradedSource,
 ): boolean {
   return (resp?.degraded ?? []).includes(source);
 }
 
-// Story 495 / N-1e: generic predicate so both SeriesDetailResponse
-// and SeriesCastResponse can share the degraded[] check without a
-// per-DTO helper.
+// Story 495 / N-1e: generic predicate so any per-section response
+// (SkeletonDTO, SeriesCastResponse, …) can share the degraded[] check
+// without a per-DTO helper.
 export function degradedIncludes(
   degraded: readonly string[] | undefined,
   source: DegradedSource,
@@ -230,7 +220,7 @@ const HOT_SOURCES: ReadonlySet<DegradedSource> = new Set([
   'tmdb_series', 'tmdb_season', 'tmdb_person', 'omdb',
 ]);
 
-export function isHotDegraded(resp: SeriesDetailResponse | undefined): boolean {
+export function isHotDegraded(resp: SeriesSkeleton | undefined): boolean {
   const degraded = resp?.degraded ?? [];
   return degraded.some((s): boolean => HOT_SOURCES.has(s as DegradedSource));
 }
@@ -277,4 +267,107 @@ export function isSonarrOnly(hero: SeriesHero | undefined): boolean {
   const noGenres = !hero.genres || hero.genres.length === 0;
   const noTmdbRating = !hero.tmdb_rating;
   return noBackdrop && noTagline && noGenres && noTmdbRating;
+}
+
+// ── C3b (story 968) — pure adapters: generated SkeletonDTO + lazy DTOs →
+// the kept component view-models above. Project uses
+// `exactOptionalPropertyTypes`, so every optional key is emitted via the
+// `{...(x ? { k: x } : {})}` spread pattern — never assign `undefined`.
+
+type SkeletonHero = NonNullable<SeriesSkeleton['hero']>;
+type SkeletonSidebar = NonNullable<SeriesSkeleton['sidebar']>;
+type CastPageMember = components['schemas']['dto.CastPageMember'];
+type Season = components['schemas']['dto.Season'];
+type SeasonSummary = components['schemas']['dto.SeasonSummaryDTO'];
+
+// values.TitleWire / values.TaglineWire → plain string (empty → undefined).
+function wireText(
+  w: { readonly value?: string } | undefined,
+): string | undefined {
+  const v = w?.value;
+  return v && v.length > 0 ? v : undefined;
+}
+
+// SkeletonDTO.hero + SkeletonDTO.sidebar → the fat SeriesHero view-model the
+// hero/rail components already consume. Status, networks, studio, countries,
+// premiere_date, original_language all live in `sidebar` in the skeleton.
+export function adaptHero(
+  hero: SkeletonHero | undefined,
+  sidebar: SkeletonSidebar | undefined,
+): SeriesHero | undefined {
+  if (!hero && !sidebar) return undefined;
+  const h = hero ?? {};
+  const s = sidebar ?? {};
+  const title = wireText(h.title);
+  const originalTitle = wireText(h.original_title);
+  const tagline = wireText(h.tagline);
+  const studio = s.production_companies?.find((c) => c.name)?.name;
+  const ne = h.next_episode;
+  const neTitle = wireText(ne?.title);
+  return {
+    ...(title ? { title } : {}),
+    ...(originalTitle ? { original_title: originalTitle } : {}),
+    ...(tagline ? { tagline } : {}),
+    ...(s.status ? { status: s.status } : {}),
+    ...(h.year_start ? { year_start: h.year_start } : {}),
+    ...(h.year_end ? { year_end: h.year_end } : {}),
+    ...(h.runtime_minutes ? { runtime_minutes: h.runtime_minutes } : {}),
+    ...(h.poster_asset ? { poster_asset: h.poster_asset } : {}),
+    ...(h.backdrop_asset ? { backdrop_asset: h.backdrop_asset } : {}),
+    ...(h.genres ? { genres: h.genres.map((g) => ({
+      ...(g.tmdb_id !== undefined ? { id: g.tmdb_id } : {}),
+      ...(g.name ? { name: g.name } : {}),
+    })) } : {}),
+    ...(s.networks ? { networks: s.networks.map((n) => ({
+      ...(n.tmdb_id !== undefined ? { id: n.tmdb_id } : {}),
+      ...(n.name ? { name: n.name } : {}),
+      ...(n.logo_asset ? { logo_asset: n.logo_asset } : {}),
+    })) } : {}),
+    ...(h.tmdb_rating ? { tmdb_rating: h.tmdb_rating } : {}),
+    ...(h.imdb_rating ? { imdb_rating: h.imdb_rating } : {}),
+    ...(h.content_rating ? { content_rating: { rating: h.content_rating } } : {}),
+    ...(ne ? { next_episode: {
+      ...(ne.air_date ? { air_date: ne.air_date } : {}),
+      ...(ne.episode_number !== undefined ? { episode_number: ne.episode_number } : {}),
+      ...(ne.season_number !== undefined ? { season_number: ne.season_number } : {}),
+      ...(neTitle ? { title: neTitle } : {}),
+    } } : {}),
+    ...(h.trailer_key ? { trailer: { key: h.trailer_key, site: 'youtube' } } : {}),
+    ...(studio ? { studio } : {}),
+    ...(s.origin_countries ? { countries: s.origin_countries } : {}),
+    ...(s.first_air_date ? { premiere_date: s.first_air_date } : {}),
+    ...(s.original_language ? { original_language: s.original_language } : {}),
+  };
+}
+
+// dto.CastPageMember[] → CastMember[]. NOTE the field rename: the DTO calls
+// the TMDB person id `tmdb_id`; CastStrip reads `tmdb_person_id`.
+export function adaptCast(
+  members: readonly CastPageMember[] | undefined,
+): readonly CastMember[] {
+  return (members ?? []).map((m) => ({
+    ...(m.person_id !== undefined ? { person_id: m.person_id } : {}),
+    ...(m.tmdb_id !== undefined ? { tmdb_person_id: m.tmdb_id } : {}),
+    ...(m.name ? { name: m.name } : {}),
+    ...(m.character_name ? { character_name: m.character_name } : {}),
+    ...(m.profile_asset ? { profile_asset: m.profile_asset } : {}),
+    ...(m.episode_count !== undefined ? { episode_count: m.episode_count } : {}),
+  }));
+}
+
+// dto.SeasonSummaryDTO[] → dto.Season[] (summary rows only). Episodes,
+// on_disk_count and downloading_count are NOT in the summary endpoint — the
+// accordion fetches full episode state per-season on expand via useSeriesSeason.
+// air_date maps from air_date_start.
+export function adaptSeasons(
+  summaries: readonly SeasonSummary[] | undefined,
+): readonly Season[] {
+  return (summaries ?? []).map((s) => ({
+    ...(s.season_number !== undefined ? { season_number: s.season_number } : {}),
+    ...(s.name ? { name: s.name } : {}),
+    ...(s.episode_count !== undefined ? { episode_count: s.episode_count } : {}),
+    ...(s.poster_asset ? { poster_asset: s.poster_asset } : {}),
+    ...(s.air_date_start ? { air_date: s.air_date_start } : {}),
+    ...(s.overview ? { overview: s.overview } : {}),
+  }));
 }

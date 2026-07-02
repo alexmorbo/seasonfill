@@ -7,6 +7,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import {
   useSeries,
+  adaptHero,
+  adaptCast,
+  adaptSeasons,
   parseStatus,
   isSonarrOnly,
   aggregateDegraded,
@@ -14,6 +17,9 @@ import {
 } from '@/api/series';
 import { useSeriesOverview } from '@/api/seriesOverview';
 import { useSeriesRecommendations } from '@/api/seriesRecommendations';
+import { useSeriesCast } from '@/api/seriesCast';
+import { useSeriesSeasons } from '@/api/seriesSeasons';
+import { useSeriesLibrary } from '@/api/seriesLibrary';
 import { SeriesHero } from '@/components/series-detail/SeriesHero';
 import { DegradedChip } from '@/components/series-detail/DegradedChip';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
@@ -21,7 +27,6 @@ import { RailCard } from '@/components/series-detail/RailCard';
 import { CastStrip } from '@/components/series-detail/CastStrip';
 import { AwardsBlock } from '@/components/series-detail/AwardsBlock';
 import { RecentStrip } from '@/components/series-detail/RecentStrip';
-import { ExternalLinksFooter } from '@/components/series-detail/ExternalLinksFooter';
 import { SeriesDetailSkeleton } from '@/components/series-detail/SeriesDetailSkeleton';
 import { StaleBadge } from '@/components/series-detail/StaleBadge';
 import { SeasonsAccordion } from '@/components/series-detail/SeasonsAccordion';
@@ -33,26 +38,36 @@ import { useFormatDate } from '@/lib/timezone';
 export function SeriesDetail() {
   const { t, i18n } = useTranslation();
   // Story 495 / N-1e §A1: URL is global — `:instance` segment is gone.
-  // The primary instance for downstream sections (`<SeriesHero>` Sonarr
-  // link, `<CastStrip>` back-link, `<TorrentsSection>` qBit fetch) is
-  // derived from `data.in_library_instances[0]` after fetch.
+  // The primary instance for downstream sections is derived from
+  // `skeleton.in_library_instances[0]` after fetch.
   const { id } = useParams<{ id: string }>();
   const seriesId = id ? Number(id) : undefined;
   const lang = i18n.resolvedLanguage;
   const fmt = useFormatDate();
   const torrentsRef = useRef<HTMLDivElement | null>(null);
 
-  // Story 495 / N-1e (B-20): poll while a hot degraded source is
-  // active. Tick budget lives inside `useSeries` (~30 s cap).
+  // C3b (story 968): GET /series/:id now serves seriesdetail.SkeletonDTO
+  // (hero + sidebar + degraded + synced_at). Hero + rail paint immediately;
+  // heavy sections load from their own lazy hooks below.
   const detail = useSeries({
     seriesId,
     ...(lang ? { lang } : {}),
     pollWhileDegraded: true,
   });
+  const skeleton = detail.data;
 
-  // Story 529 — overview block now loads from its own endpoint so the
-  // description + keywords + awards refresh independently of the parent
-  // composite document.
+  // Primary instance drives all Sonarr-scoped sections. Undefined ⇒ TMDB-only.
+  const primaryInstance = skeleton?.in_library_instances?.[0];
+
+  // Hero view-model composed from skeleton hero + sidebar.
+  const hero = useMemo(
+    () => adaptHero(skeleton?.hero, skeleton?.sidebar),
+    [skeleton?.hero, skeleton?.sidebar],
+  );
+  const status = parseStatus(hero?.status);
+  const sonarrOnly = useMemo(() => isSonarrOnly(hero), [hero]);
+
+  // Story 529 — overview block loads from its own endpoint.
   const overviewQ = useSeriesOverview({
     seriesId,
     ...(lang ? { lang } : {}),
@@ -60,11 +75,32 @@ export function SeriesDetail() {
   });
   const overviewData = overviewQ.data?.overview;
 
-  // Story 531 — observe recommendations degraded[] at the page level so
-  // the global chip aggregates it even when the carousel is below the
-  // fold. The visible-gated query inside <RecommendationsCarousel> still
-  // drives the actual carousel render; this shadow uses the same cache
-  // key (default limit/offset), so TanStack dedupes — no extra traffic.
+  // C3b — cast strip loads from /series/:id/cast; adaptCast renames
+  // tmdb_id → tmdb_person_id for the /person link guard.
+  const castQ = useSeriesCast({ seriesId, ...(lang ? { lang } : {}) });
+  const cast = useMemo(() => adaptCast(castQ.data?.cast), [castQ.data?.cast]);
+
+  // C3b — seasons summary loads from /series/:id/seasons; per-season episode
+  // state still lazy-loads on accordion expand via useSeriesSeason.
+  const seasonsQ = useSeriesSeasons({
+    seriesId,
+    ...(lang ? { lang } : {}),
+    pollWhileDegraded: true,
+  });
+  const seasons = useMemo(
+    () => adaptSeasons(seasonsQ.data?.seasons),
+    [seasonsQ.data?.seasons],
+  );
+
+  // C3b — Sonarr library strip + recent grabs from /series/:id/library.
+  // Disabled when TMDB-only (no primary instance).
+  const libraryQ = useSeriesLibrary({ seriesId, instance: primaryInstance });
+  const library = libraryQ.data?.library;
+  const recent = libraryQ.data?.recent;
+
+  // Story 531 — shadow the recommendations query at the page level so the
+  // global degraded chip aggregates it even when the carousel is below the
+  // fold. Same cache key ⇒ TanStack dedupes, no extra traffic.
   const recsQ = useSeriesRecommendations({
     seriesId,
     ...(lang ? { lang } : {}),
@@ -72,36 +108,33 @@ export function SeriesDetail() {
     pollWhileDegraded: true,
   });
 
-  const data = detail.data;
-  const hero = data?.hero;
-  const status = parseStatus(hero?.status);
-  const sonarrOnly = useMemo(() => isSonarrOnly(hero), [hero]);
-  // Story 531 — aggregate degraded[] across the parent /series, the
-  // split /series/:id/overview and the shadow /series/:id/recommendations
-  // queries. Dedup'd + filtered to KNOWN_DEGRADED. Per-section booleans
-  // derive from this list so the IMDb hero slot, overview/cast/seasons
-  // skeletons and per-section loading copy all see the same view of
-  // "what's catching up" regardless of which hook surfaced it.
+  // Story 531 / C3b — aggregate degraded[] across the parent /series skeleton
+  // and the /overview, /recommendations, /cast, /seasons per-section hooks.
+  // Dedup'd + filtered to KNOWN_DEGRADED. /library carries no degraded field.
   const aggregatedDegraded = useMemo<readonly DegradedSource[]>(
     () =>
       aggregateDegraded(
-        detail.data?.degraded,
+        skeleton?.degraded,
         overviewQ.data?.degraded,
         recsQ.data?.degraded,
+        castQ.data?.degraded,
+        seasonsQ.data?.degraded,
       ),
-    [detail.data?.degraded, overviewQ.data?.degraded, recsQ.data?.degraded],
+    [
+      skeleton?.degraded,
+      overviewQ.data?.degraded,
+      recsQ.data?.degraded,
+      castQ.data?.degraded,
+      seasonsQ.data?.degraded,
+    ],
   );
   const tmdbSeriesDegraded = aggregatedDegraded.includes('tmdb_series');
   const tmdbSeasonDegraded = aggregatedDegraded.includes('tmdb_season');
   const tmdbPersonDegraded = aggregatedDegraded.includes('tmdb_person');
   const omdbDegraded = aggregatedDegraded.includes('omdb');
-  const tmdbStaleAt = tmdbSeriesDegraded ? data?.synced_at : undefined;
-  const imdbStaleAt = omdbDegraded ? data?.synced_at : undefined;
-  const syncedAt = data?.synced_at;
-
-  // Story 495 / N-1e §A1: pick the first in-library instance as the
-  // anchor for downstream sections. Undefined ⇒ TMDB-only series.
-  const primaryInstance = data?.in_library_instances?.[0];
+  const syncedAt = skeleton?.synced_at;
+  const tmdbStaleAt = tmdbSeriesDegraded ? syncedAt : undefined;
+  const imdbStaleAt = omdbDegraded ? syncedAt : undefined;
 
   useSetPageTitle(hero?.title ?? t('seriesDetail.title'));
 
@@ -126,29 +159,16 @@ export function SeriesDetail() {
     : undefined;
 
   // Story 495 / N-1e §C2: per-section degraded UX.
-  // Overview text:
-  //   - empty + tmdb_series in degraded ⇒ "загружается" copy + skeleton.
-  //   - empty + tmdb_series NOT in degraded ⇒ existing "недоступно" fallback.
-  //   - non-empty ⇒ normal text.
   const overviewEmpty = !overviewData?.overview;
   const overviewLoading = overviewQ.isLoading || (overviewEmpty && tmdbSeriesDegraded);
-  // Cast strip — degraded UI is internal to CastStrip; pass the bool.
-  const castEmpty = (data?.cast?.length ?? 0) === 0;
+  const castEmpty = cast.length === 0;
   const castLoading = castEmpty && tmdbPersonDegraded;
   const showCastSection = !sonarrOnly && (!castEmpty || castLoading);
-  // Seasons / Recommendations — same shape.
-  const seasonsEmpty = (data?.seasons?.length ?? 0) === 0;
+  const seasonsEmpty = seasons.length === 0;
   const seasonsLoading = seasonsEmpty && (tmdbSeasonDegraded || tmdbSeriesDegraded);
-  // Story 531 — recs loading flag is now derived inside the carousel
-  // from its own /recommendations query degraded[]; the page-level
-  // `recsEmpty`/`recsLoading` derived from parent `data.recommendations`
-  // are dropped (the parent's `recommendations` field is wire-only
-  // backward-compat after 530).
-  // IMDb rating loading slot in hero (RatingDuo handles the render).
   const imdbLoading = omdbDegraded && !hero?.imdb_rating;
 
-  // Build the cast href once so CastStrip stays URL-agnostic
-  // (Story 495 §A3).
+  // Build the cast href once so CastStrip stays URL-agnostic (Story 495 §A3).
   const castHref = `/series/${seriesId}/cast`;
 
   return (
@@ -165,14 +185,13 @@ export function SeriesDetail() {
         </Alert>
       )}
 
-      {detail.isSuccess && data && (
+      {detail.isSuccess && skeleton && (
         <>
           <SeriesHero
             instance={primaryInstance}
             seriesId={seriesId}
             hero={hero}
-            {...(data.library ? { library: data.library } : {})}
-            {...(data.download ? { download: data.download } : {})}
+            {...(library ? { library } : {})}
             {...(tmdbStaleAt ? { tmdbStaleAt } : {})}
             {...(imdbStaleAt ? { imdbStaleAt } : {})}
             {...(tmdbSeriesDegraded ? { tmdbSeriesDegraded: true } : {})}
@@ -225,7 +244,7 @@ export function SeriesDetail() {
                     <CastStrip
                       castHref={castHref}
                       seriesId={seriesId}
-                      {...(data.cast ? { cast: data.cast } : {})}
+                      cast={cast}
                       {...(tmdbPersonDegraded ? { tmdbPersonDegraded: true } : {})}
                     />
                   )}
@@ -250,7 +269,7 @@ export function SeriesDetail() {
             />
           </section>
 
-          <RecentStrip {...(data.recent ? { recent: data.recent } : {})} />
+          <RecentStrip {...(recent ? { recent } : {})} />
 
           <div ref={torrentsRef}>
             <TorrentsSection instance={primaryInstance ?? ''} seriesId={seriesId} />
@@ -258,7 +277,7 @@ export function SeriesDetail() {
 
           <SeasonsAccordion
             seriesId={seriesId}
-            seasons={data.seasons}
+            seasons={seasons}
             {...(lang ? { lang } : {})}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
             {...(seasonsLoading ? { tmdbSeasonLoading: true } : {})}
@@ -268,8 +287,6 @@ export function SeriesDetail() {
             seriesId={seriesId}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
           />
-
-          <ExternalLinksFooter {...(data.external_links ? { links: data.external_links } : {})} />
 
           {syncedAt && (
             <div className="flex items-center justify-end gap-2 text-[11px] text-tx-faint pt-1">

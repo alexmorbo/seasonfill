@@ -24,9 +24,6 @@ vi.mock('@/lib/instances', () => ({
 // (intersection-observer composer). In happy-dom IO never fires, so
 // the section stays in sentinel-mode. Stub the composer to force
 // visible=true so the carousel fetches + renders in integration tests.
-// Patched on both the source module (seriesTorrents) AND the re-export
-// (seriesRecommendations) so the consumer's static-import resolution
-// hits the mocked symbol regardless of the import path.
 vi.mock('@/api/seriesTorrents', async () => {
   const actual = await vi.importActual<typeof import('@/api/seriesTorrents')>('@/api/seriesTorrents');
   return { ...actual, useIsSectionVisible: () => true };
@@ -56,63 +53,95 @@ function renderRoute(path: string) {
   );
 }
 
-const fullFixture = {
-  instance: 'homelab',
+// ── C3b (story 968): GET /series/:id serves seriesdetail.SkeletonDTO (wire-
+// wrapped hero + sidebar); heavy sections load from their own lazy endpoints.
+// The single mockResolvedValue is therefore replaced by a PATH-ROUTED mock.
+const skeletonFixture = {
   series_id: 42,
-  sonarr_series_id: 122,
-  // Story 495 / N-1e §A1: SeriesDetail picks the primary instance from
-  // here instead of the URL. Empty ⇒ TMDB-only series.
   in_library_instances: ['homelab'],
   synced_at: new Date().toISOString(),
-  degraded: [],
+  degraded: [] as string[],
+  lang: 'en-US',
+  season_count: 5,
   hero: {
-    title: 'For All Mankind',
-    status: 'continuing',
+    title: { value: 'For All Mankind', lang: 'en-US' },
     year_start: 2019,
     runtime_minutes: 45,
-    tagline: 'The future is ours to take.',
+    tagline: { value: 'The future is ours to take.' },
     poster_asset: 'aaaa',
     backdrop_asset: 'bbbb',
-    genres: [{ id: 1, name: 'Drama' }, { id: 2, name: 'Sci-Fi' }],
-    networks: [{ id: 1, name: 'Apple TV+' }],
+    genres: [{ tmdb_id: 1, name: 'Drama' }, { tmdb_id: 2, name: 'Sci-Fi' }],
     tmdb_rating: { score: 8.1, votes: 2100 },
     imdb_rating: { score: 8.0, votes: 84_000 },
-    content_rating: { rating: 'TV-MA' },
-    next_episode: { season_number: 5, episode_number: 3, title: 'Glasnost', air_date: '2026-07-14' },
+    content_rating: 'TV-MA',
+    next_episode: { season_number: 5, episode_number: 3, title: { value: 'Glasnost' }, air_date: '2026-07-14' },
   },
-  library: { episodes_on_disk: 42, episodes_total: 48, missing_count: 6, size_on_disk_bytes: 1024, dominant_quality: 'WEB-DL 1080p' },
-  download: { status: 'downloading', title: 'S05E03 · 45%' },
-  recent: [{ event_type: 'imported', subject: 'S05E02', at: new Date().toISOString() }],
+  sidebar: {
+    status: 'continuing',
+    networks: [{ tmdb_id: 1, name: 'Apple TV+' }],
+    origin_countries: ['US'],
+    original_language: 'en',
+    first_air_date: '2019-11-01',
+    production_companies: [{ tmdb_id: 9, name: 'Sony Pictures TV' }],
+  },
+};
+const overviewFixture = {
   overview: { overview: 'Alt-history NASA…', language: 'en-US', keywords: [{ id: 1, name: 'space race' }], awards: '4 wins, 18 nominations' },
-  external_links: { imdb_id: 'tt9243946', tmdb_id: 1396 },
-  cast: [{ person_id: 1, name: 'Pedro Pascal', character_name: 'Joel', episode_count: 9 }],
-  seasons: [{ season_number: 1, episode_count: 1, episodes: [{ episode_number: 1, title: 'Pilot', has_file: true }] }],
-  recommendations: [{ series_id: 99, title: 'Other', year: 2022, tmdb_rating: 7.7, in_library: false }],
-  // Story 530 — both `/series/:id` AND `/series/:id/recommendations` fire
-  // on mount. mockApi.mockResolvedValue(fullFixture) returns the same
-  // payload for every path, so the carousel reads its expected `items[]`
-  // shape off this fixture too. Mirror `recommendations` so the carousel
-  // renders with one tile in tests.
+  degraded: [] as string[],
+};
+const castFixture = {
+  cast: [{ person_id: 1, tmdb_id: 5, name: 'Joel Kinnaman', character_name: 'Ed', episode_count: 9 }],
+  degraded: [] as string[],
+};
+const seasonsFixture = {
+  seasons: [{ season_number: 1, name: 'Season 1', episode_count: 10, poster_asset: 'ps1', air_date_start: '2019-11-01' }],
+  degraded: [] as string[],
+};
+const libraryFixture = {
+  instance: 'homelab',
+  library: { episodes_on_disk: 42, episodes_total: 48, episodes_aired: 48, missing_count: 6, size_on_disk_bytes: 1024, dominant_quality: 'WEB-DL 1080p' },
+  recent: [{ event_type: 'imported', subject: 'S05E02', at: new Date().toISOString() }],
+};
+const recsFixture = {
   items: [{ series_id: 99, title: 'Other', year: 2022, tmdb_rating: 7.7, in_library: false }],
   total_count: 1,
   has_more: false,
   limit: 20,
   offset: 0,
+  degraded: [] as string[],
 };
 
-const sonarrOnlyFixture = {
-  instance: 'homelab',
-  series_id: 42,
-  sonarr_series_id: 122,
-  in_library_instances: ['homelab'],
-  synced_at: new Date().toISOString(),
-  // Story 495 / N-1e §C1: composer emits *_series / *_person /
-  // _season variants — the prior `['tmdb', 'omdb']` shape never
-  // matched live data.
-  degraded: ['tmdb_series', 'omdb'],
-  hero: { title: 'Cold Show', status: 'ended', year_start: 2010, year_end: 2014 },
-  library: { episodes_on_disk: 0, episodes_total: 0, missing_count: 0, size_on_disk_bytes: 0 },
-};
+interface RouteOverrides {
+  readonly skeleton?: Record<string, unknown>;
+  readonly overview?: Record<string, unknown>;
+  readonly cast?: Record<string, unknown>;
+  readonly seasons?: Record<string, unknown>;
+  readonly library?: Record<string, unknown>;
+  readonly recs?: Record<string, unknown>;
+}
+
+// Install a path-routed mock. Overrides shallow-merge over the section
+// defaults (so `{ hero: … }` replaces the whole hero, `{ degraded: … }`
+// replaces the whole list — matching how the tests drive per-section state).
+function installRoutes(over: RouteOverrides = {}) {
+  const skeleton = { ...skeletonFixture, ...over.skeleton };
+  const overview = { ...overviewFixture, ...over.overview };
+  const cast = { ...castFixture, ...over.cast };
+  const seasons = { ...seasonsFixture, ...over.seasons };
+  const library = { ...libraryFixture, ...over.library };
+  const recs = { ...recsFixture, ...over.recs };
+  mockApi.mockImplementation((path: string) => {
+    // Default to the skeleton for any unrecognized / transient path so a
+    // late-resolving query during cross-test teardown can't throw.
+    if (typeof path !== 'string') return Promise.resolve(skeleton);
+    if (path.includes('/overview')) return Promise.resolve(overview);
+    if (path.includes('/recommendations')) return Promise.resolve(recs);
+    if (path.includes('/cast')) return Promise.resolve(cast);
+    if (path.includes('/seasons')) return Promise.resolve(seasons);
+    if (path.includes('/library')) return Promise.resolve(library);
+    return Promise.resolve(skeleton); // /series/:id
+  });
+}
 
 describe('<SeriesDetail />', () => {
   beforeEach(() => {
@@ -120,22 +149,20 @@ describe('<SeriesDetail />', () => {
   });
 
   it('renders the skeleton while loading', async () => {
-    // Story 529 — both `/series/:id` AND `/series/:id/overview` fire on
-    // mount. Capture each pending Promise's resolver per call so we can
-    // settle both during teardown without leaving dangling promises.
+    // Every in-flight query (skeleton + lazy sections) must settle during
+    // teardown; capture each resolver so we can flush them all.
     const resolvers: Array<(v: unknown) => void> = [];
     mockApi.mockImplementation(() => new Promise((res) => { resolvers.push(res); }));
     renderRoute('/series/122');
     expect(await screen.findByTestId('series-detail-skeleton')).toBeInTheDocument();
-    // Resolve every in-flight query so test teardown does not hang.
     for (const resolve of resolvers) {
-      resolve(fullFixture);
+      resolve(skeletonFixture);
     }
     await waitFor(() => expect(screen.queryByTestId('series-detail-skeleton')).not.toBeInTheDocument());
   });
 
-  it('renders the full hero, ratings, library and external links on success', async () => {
-    mockApi.mockResolvedValue(fullFixture);
+  it('renders the full hero, ratings, library, cast and seasons on success', async () => {
+    installRoutes();
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     expect(screen.getByTestId('hero-title')).toHaveTextContent('For All Mankind');
@@ -143,7 +170,7 @@ describe('<SeriesDetail />', () => {
     expect(screen.getByTestId('rating-imdb')).toBeInTheDocument();
     expect(screen.getByTestId('hero-library-strip')).toBeInTheDocument();
     expect(screen.getByTestId('overview-section')).toBeInTheDocument();
-    expect(screen.getByTestId('cast-strip-grid')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('cast-strip-grid')).toBeInTheDocument());
     expect(screen.getByTestId('rail-card')).toBeInTheDocument();
     // B-36: awards block renders under cast (no longer inside RailCard).
     const awardsBlock = screen.getByTestId('awards-block');
@@ -158,7 +185,6 @@ describe('<SeriesDetail />', () => {
       castStrip.compareDocumentPosition(awardsBlock) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByTestId('external-links-footer')).toBeInTheDocument();
     expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument();
     // Story 530 — carousel mounts on its own /recommendations query.
     await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());
@@ -168,20 +194,28 @@ describe('<SeriesDetail />', () => {
     expect(screen.queryByTestId('placeholder-recommendations')).not.toBeInTheDocument();
     // Torrents placeholder is gone — K-1 mounts the real TorrentsSection.
     expect(screen.queryByTestId('placeholder-torrents')).not.toBeInTheDocument();
+    // C3b — external-links footer removed (no BE source in the skeleton).
+    expect(screen.queryByTestId('external-links-footer')).not.toBeInTheDocument();
     // Legacy surfaces removed
     expect(screen.queryByTestId('library-status-card')).not.toBeInTheDocument();
     expect(screen.queryByTestId('cast-carousel')).not.toBeInTheDocument();
   });
 
+  it('renders the recent grab strip from the library endpoint', async () => {
+    installRoutes();
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByText(/S05E02/)).toBeInTheDocument());
+  });
+
   it('renders sections in v2 order', async () => {
-    mockApi.mockResolvedValue(fullFixture);
+    installRoutes();
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
-    // Story 530 — carousel mounts on its own /recommendations query;
-    // wait for it before reading section order.
+    // Story 530 — carousel mounts on its own /recommendations query.
     await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());
+    // C3b — external-links-footer dropped from the section order.
     const order = ['series-hero', 'overview-section',
-                   'seasons-accordion', 'recommendations-carousel', 'external-links-footer'];
+                   'seasons-accordion', 'recommendations-carousel'];
     const elements = order.map(id => screen.getByTestId(id) as HTMLElement);
     for (let i = 1; i < elements.length; i++) {
       const prev = elements[i - 1] as Node;
@@ -192,7 +226,16 @@ describe('<SeriesDetail />', () => {
   });
 
   it('renders the Sonarr-only state with no TMDB blocks', async () => {
-    mockApi.mockResolvedValue(sonarrOnlyFixture);
+    // in_library_instances empty ⇒ TMDB-only: library query disabled, hero
+    // renders with a sparse (title-only) skeleton and no crash.
+    installRoutes({
+      skeleton: {
+        in_library_instances: [],
+        degraded: ['tmdb_series', 'omdb'],
+        hero: { title: { value: 'Cold Show' }, year_start: 2010, year_end: 2014 },
+        sidebar: { status: 'ended' },
+      },
+    });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     expect(screen.getByTestId('series-hero').getAttribute('data-sonarr-only')).toBe('true');
@@ -200,6 +243,7 @@ describe('<SeriesDetail />', () => {
     expect(screen.queryByTestId('rating-tmdb')).not.toBeInTheDocument();
     expect(screen.queryByTestId('rating-imdb')).not.toBeInTheDocument();
     expect(screen.queryByTestId('hero-action-trailer')).not.toBeInTheDocument();
+    // library query disabled ⇒ on-disk strip renders its empty state.
     expect(screen.getByText(/Nothing on disk yet/)).toBeInTheDocument();
   });
 
@@ -219,32 +263,24 @@ describe('<SeriesDetail />', () => {
 });
 
 describe('B-20 degraded per-section', () => {
-  const baseDegraded = {
-    instance: 'homelab',
-    series_id: 42,
-    sonarr_series_id: 122,
-    in_library_instances: ['homelab'],
-    synced_at: new Date().toISOString(),
-    // No imdb_rating set ⇒ omdb degraded triggers IMDb loading slot.
-    hero: {
-      title: 'Cold Series',
-      status: 'continuing',
-      year_start: 2020,
-      tmdb_rating: { score: 7.5, votes: 100 },
-    },
-    library: { episodes_on_disk: 0, episodes_total: 0, missing_count: 0, size_on_disk_bytes: 0 },
-    overview: { overview: '', language: 'en-US' },
-    cast: [],
-    seasons: [],
-    recommendations: [],
-  } as const;
+  // Sparse hero WITH a tmdb_rating (so isSonarrOnly=false ⇒ cast/rating
+  // sections render) but NO imdb_rating / backdrop (drives the loading UX).
+  const coldHero = {
+    title: { value: 'Cold Series' },
+    year_start: 2020,
+    tmdb_rating: { score: 7.5, votes: 100 },
+  };
+  const coldSidebar = { status: 'continuing' };
 
   beforeEach(() => {
     mockApi.mockReset();
   });
 
   it('shows overview loading copy + skeleton when tmdb_series is degraded', async () => {
-    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_series'] });
+    installRoutes({
+      skeleton: { degraded: ['tmdb_series'], hero: coldHero, sidebar: coldSidebar },
+      overview: { overview: { overview: '', language: 'en-US' }, degraded: [] },
+    });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('overview-text')).toBeInTheDocument());
     expect(screen.getByTestId('overview-text').textContent).toMatch(/Loading description/i);
@@ -252,7 +288,10 @@ describe('B-20 degraded per-section', () => {
   });
 
   it('shows season skeleton rows when tmdb_season is degraded', async () => {
-    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_season'] });
+    installRoutes({
+      skeleton: { degraded: ['tmdb_season'], hero: coldHero, sidebar: coldSidebar },
+      seasons: { seasons: [], degraded: [] },
+    });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument());
     expect(screen.getByTestId('seasons-loading-label')).toBeInTheDocument();
@@ -260,14 +299,19 @@ describe('B-20 degraded per-section', () => {
   });
 
   it('shows cast strip loading skeletons when tmdb_person is degraded', async () => {
-    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_person'] });
+    installRoutes({
+      skeleton: { degraded: ['tmdb_person'], hero: coldHero, sidebar: coldSidebar },
+      cast: { cast: [], degraded: [] },
+    });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('cast-strip-loading')).toBeInTheDocument());
     expect(screen.getAllByTestId('cast-skeleton-avatar')).toHaveLength(8);
   });
 
   it('shows IMDb loading chip in hero when omdb is degraded and rating is missing', async () => {
-    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['omdb'] });
+    installRoutes({
+      skeleton: { degraded: ['omdb'], hero: coldHero, sidebar: coldSidebar },
+    });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('imdb-rating-loading')).toBeInTheDocument());
   });
@@ -275,13 +319,18 @@ describe('B-20 degraded per-section', () => {
   it('shows backdrop loading plate when tmdb_series is degraded and no backdrop is present', async () => {
     // hero has no backdrop_asset → MonogramFallback path; tmdb_series
     // degraded ⇒ thin loading plate overlay rendered inside the fallback.
-    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_series'] });
+    installRoutes({
+      skeleton: { degraded: ['tmdb_series'], hero: coldHero, sidebar: coldSidebar },
+    });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('monogram-loading-plate')).toBeInTheDocument());
   });
 
   it('shows recommendations skeleton tiles when tmdb_series is degraded and list is empty', async () => {
-    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_series'] });
+    installRoutes({
+      skeleton: { degraded: ['tmdb_series'], hero: coldHero, sidebar: coldSidebar },
+      recs: { items: [], total_count: 0, degraded: ['tmdb_series'] },
+    });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('recommendations-carousel-loading')).toBeInTheDocument());
     expect(screen.getAllByTestId('recommendations-skeleton-tile')).toHaveLength(6);
@@ -289,27 +338,27 @@ describe('B-20 degraded per-section', () => {
 
   // Story 531 — aggregated degraded chip.
   it('renders the aggregated degraded chip when a single source is degraded', async () => {
-    mockApi.mockResolvedValue({ ...baseDegraded, degraded: ['tmdb_series'] });
+    // Same source in the skeleton + overview + recs lists — dedupe must
+    // collapse the 3 occurrences to one.
+    installRoutes({
+      skeleton: { degraded: ['tmdb_series'], hero: coldHero, sidebar: coldSidebar },
+      overview: { overview: { overview: '', language: 'en-US' }, degraded: ['tmdb_series'] },
+      recs: { items: [], degraded: ['tmdb_series'] },
+    });
     renderRoute('/series/122');
     await waitFor(() =>
       expect(screen.getByTestId('series-degraded-chip')).toBeInTheDocument(),
     );
-    // baseDegraded has only `tmdb_series` in degraded — the chip should
-    // list it once. The mock answers every path with the same body
-    // (parent + overview + recommendations all carry the same list),
-    // so dedupe must collapse 3 occurrences to 1.
     expect(
       screen.getByTestId('series-degraded-chip').getAttribute('data-sources'),
     ).toBe('tmdb_series');
   });
 
   it('dedupes overlapping degraded sources across parent + per-section hooks', async () => {
-    // Mock answers ALL paths with the same body — both /series and
-    // /series/:id/overview and /series/:id/recommendations get the
-    // same degraded list. Chip must list each source exactly once.
-    mockApi.mockResolvedValue({
-      ...baseDegraded,
-      degraded: ['tmdb_series', 'omdb'],
+    installRoutes({
+      skeleton: { degraded: ['tmdb_series', 'omdb'], hero: coldHero, sidebar: coldSidebar },
+      overview: { overview: { overview: '', language: 'en-US' }, degraded: ['tmdb_series'] },
+      recs: { items: [], degraded: ['omdb'] },
     });
     renderRoute('/series/122');
     await waitFor(() =>
@@ -320,7 +369,7 @@ describe('B-20 degraded per-section', () => {
   });
 
   it('hides the chip when no sources are degraded', async () => {
-    mockApi.mockResolvedValue(fullFixture); // degraded: []
+    installRoutes(); // all degraded: []
     renderRoute('/series/122');
     await waitFor(() =>
       expect(screen.getByTestId('series-hero')).toBeInTheDocument(),
@@ -335,14 +384,14 @@ describe('URL migration (story 495 / N-1e)', () => {
   beforeEach(() => mockApi.mockReset());
 
   it('renders page from global URL `/series/:id`', async () => {
-    mockApi.mockResolvedValue(fullFixture);
+    installRoutes();
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     expect(screen.getByTestId('hero-title')).toHaveTextContent('For All Mankind');
   });
 
   it('cast-strip view-all link is instance-less', async () => {
-    mockApi.mockResolvedValue(fullFixture);
+    installRoutes();
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('cast-strip-view-all')).toBeInTheDocument());
     expect(screen.getByTestId('cast-strip-view-all').getAttribute('href')).toBe('/series/122/cast');
