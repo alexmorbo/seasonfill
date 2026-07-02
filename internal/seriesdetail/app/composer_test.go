@@ -442,115 +442,6 @@ func baseDeps(t *testing.T) (Deps, *fakeSeriesCache, *fakeSeries) {
 
 // --- tests ---
 
-func TestComposer_Get_HappyPath(t *testing.T) {
-	deps, _, canon := baseDeps(t)
-	// All four enrichment sources fresh — TMDB series + OMDb stamped on
-	// the canon row; tmdb_season + tmdb_person stubbed via the freshness
-	// adapter.
-	now := time.Now().UTC()
-	row := canon.rows[42]
-	row.EnrichmentTMDBSyncedAt = &now
-	row.EnrichmentOMDBSyncedAt = &now
-	canon.rows[42] = row
-	deps.Freshness = &fakeFreshness{
-		syncedBySource: map[enrichment.Source]*time.Time{
-			enrichment.SourceTMDBSeason: &now,
-			enrichment.SourceTMDBPerson: &now,
-		},
-	}
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	require.Equal(t, domain.SeriesID(42), d.SeriesID)
-	require.Equal(t, "Breaking Bad", d.Canon.Title)
-	require.Empty(t, d.Degraded)
-}
-
-func TestComposer_Get_ColdSeries_DegradedAllTMDB(t *testing.T) {
-	deps, _, _ := baseDeps(t)
-	// Canon has no enrichment_*_synced_at columns set and freshness
-	// adapter returns nil for tmdb_season/tmdb_person → all four sources
-	// trip rule 1 (never synced) in the degraded[] computation.
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	deg := map[enrichment.Source]bool{}
-	for _, s := range d.Degraded {
-		deg[s] = true
-	}
-	require.True(t, deg[enrichment.SourceTMDBSeries])
-	require.True(t, deg[enrichment.SourceTMDBSeason])
-	require.True(t, deg[enrichment.SourceTMDBPerson])
-	require.True(t, deg[enrichment.SourceOMDb])
-}
-
-func TestComposer_Get_404_MissingCache(t *testing.T) {
-	deps, _, _ := baseDeps(t)
-	c := NewComposer(deps)
-	_, err := c.Get(context.Background(), "alpha", 999, "en-US")
-	require.ErrorIs(t, err, ports.ErrNotFound)
-}
-
-func TestComposer_Get_404_NilSeriesIDInCache(t *testing.T) {
-	deps, cache, _ := baseDeps(t)
-	cache.entries[cacheKey("alpha", 2)] = series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 2, SeriesID: nil}
-	c := NewComposer(deps)
-	_, err := c.Get(context.Background(), "alpha", 2, "en-US")
-	require.ErrorIs(t, err, ports.ErrNotFound)
-}
-
-func TestComposer_Get_SonarrUnreachable_DownloadNil_DegradedSonarr(t *testing.T) {
-	deps, _, _ := baseDeps(t)
-	deps.SonarrFor = func(_ domain.InstanceName) (SonarrQueueLister, bool) { return nil, false }
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	require.Nil(t, d.Queue)
-	deg := map[enrichment.Source]bool{}
-	for _, s := range d.Degraded {
-		deg[s] = true
-	}
-	require.True(t, deg[enrichment.SourceSonarr], "expected sonarr in degraded")
-}
-
-func TestComposer_Get_BranchFailureNeverBubbles(t *testing.T) {
-	deps, _, _ := baseDeps(t)
-	// Force the cast branch to fail.
-	deps.SeriesPeople = &fakeSeriesPeople{err: errors.New("boom")}
-	// Force taxonomy branch.
-	deps.Genres = failingGenres{}
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	require.Equal(t, domain.SeriesID(42), d.SeriesID)
-	// Degraded includes tmdb_series due to the OR-in rule.
-	require.Contains(t, d.Degraded, enrichment.SourceTMDBSeries)
-}
-
-type failingGenres struct{}
-
-func (failingGenres) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
-	return nil, errors.New("genres boom")
-}
-func (failingGenres) Get(_ context.Context, _ int64, _ string) (taxonomy.Genre, error) {
-	return taxonomy.Genre{}, errors.New("genres boom")
-}
-func (failingGenres) ListByIDsWithFallback(_ context.Context, _ []int64, _ string) ([]taxonomy.Genre, error) {
-	return nil, errors.New("genres boom")
-}
-
-func TestComposer_Get_RecommendationsInLibrary(t *testing.T) {
-	deps, _, _ := baseDeps(t)
-	deps.Recommendations = &fakeRecommendations{ids: []domain.SeriesID{99}}
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	require.Len(t, d.Recommendations, 1)
-	require.True(t, d.Recommendations[0].InLibrary)
-	require.Equal(t, domain.InstanceName("alpha"), d.Recommendations[0].InstanceName)
-	require.Equal(t, domain.SonarrSeriesID(5), d.Recommendations[0].SonarrSeriesID)
-}
-
 func TestComposer_GetSeason_FiltersToSeason(t *testing.T) {
 	deps, _, _ := baseDeps(t)
 	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
@@ -644,133 +535,6 @@ func (f *fakeMediaLookupIntegration) EnsurePending(_ context.Context, hash, sour
 	return nil
 }
 
-// networksWithLogo is a per-test fake that exposes a logo path on a single
-// network. Used by TestComposer_Get_ResolvesAllAssetFields to drive the
-// network logo resolution branch.
-type networksWithLogo struct {
-	logo string
-	id   int64
-}
-
-func (n networksWithLogo) ListBySeries(_ context.Context, _ domain.SeriesID) ([]int64, error) {
-	return []int64{n.id}, nil
-}
-func (n networksWithLogo) ListByIDs(_ context.Context, _ []int64) ([]taxonomy.Network, error) {
-	v := n.logo
-	return []taxonomy.Network{{ID: n.id, Name: "AMC", LogoAsset: &v}}, nil
-}
-
-func TestComposer_Get_ResolvesPosterToHash(t *testing.T) {
-	deps, _, canon := baseDeps(t)
-	rawPath := "/abc.jpg"
-	canon.rows[42] = series.Canon{
-		ID: 42, Title: "Breaking Bad", PosterAsset: new(rawPath),
-	}
-	const wantHash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-	deps.MediaResolver = media.NewResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
-		"https://image.tmdb.org/t/p/w342/abc.jpg": wantHash,
-	}}, nil, nil, newSilentLogger())
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	require.NotNil(t, d.Canon.PosterAsset)
-	require.Equal(t, wantHash, *d.Canon.PosterAsset)
-}
-
-func TestComposer_Get_PosterMissReturnsEagerHash(t *testing.T) {
-	// Story 320: hero poster lookup-miss returns the deterministic
-	// sha256-hex of the source URL (eager hash) + writes a pending
-	// media_assets row, so the handler's pending-row sync fetch can
-	// recover when the user GETs /api/v1/media/:hash. Replaces the
-	// pre-320 expectation of nil-on-miss for hero.
-	deps, _, canon := baseDeps(t)
-	rawPath := "/abc.jpg"
-	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: new(rawPath)}
-	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{}}
-	deps.MediaResolver = media.NewResolver(lookup, nil, nil, newSilentLogger())
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	require.NotNil(t, d.Canon.PosterAsset, "hero poster must get the eager hash")
-	url := appmedia.BuildTMDBImageURL("w342", rawPath)
-	require.Equal(t, appmedia.HashFromURL(url), *d.Canon.PosterAsset)
-	require.Len(t, lookup.ensureCalls, 1, "EnsurePending must fire once on hero miss")
-	require.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
-}
-
-func TestComposer_Get_NopResolver_KeepsNil(t *testing.T) {
-	deps, _, canon := baseDeps(t)
-	rawPath := "/abc.jpg"
-	canon.rows[42] = series.Canon{ID: 42, Title: "Breaking Bad", PosterAsset: new(rawPath)}
-	deps.MediaResolver = nil // → NewComposer fills with nop
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	require.Nil(t, d.Canon.PosterAsset, "nop resolver must wipe raw path to nil")
-}
-
-func TestComposer_Get_ResolvesAllAssetFields(t *testing.T) {
-	deps, _, canon := baseDeps(t)
-	canon.rows[42] = series.Canon{
-		ID: 42, Title: "Breaking Bad",
-		PosterAsset:   new("/poster.jpg"),
-		BackdropAsset: new("/back.jpg"),
-	}
-	// Network with a logo.
-	deps.Networks = networksWithLogo{logo: "/logo.png", id: 7}
-	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
-		{ID: 1, SeriesID: 42, SeasonNumber: 1, PosterAsset: new("/s1.jpg")},
-	}}
-	deps.SeriesPeople = &fakeSeriesPeople{rows: []people.SeriesCredit{
-		{PersonID: 100, Kind: people.SeriesCreditCast, CreditOrder: new(1)},
-	}}
-	deps.People = &fakePeople{rows: []people.Person{
-		{ID: 100, Name: "Bryan Cranston", ProfileAsset: new("/bryan.jpg")},
-	}}
-	deps.Recommendations = &fakeRecommendations{ids: []domain.SeriesID{99}}
-	canon.rows[99] = series.Canon{ID: 99, Title: "Recommended Show", PosterAsset: new("/rec.jpg")}
-
-	const hashPoster = "1111111111111111111111111111111111111111111111111111111111111111"
-	const hashBack = "2222222222222222222222222222222222222222222222222222222222222222"
-	const hashLogo = "3333333333333333333333333333333333333333333333333333333333333333"
-	const hashSeason = "4444444444444444444444444444444444444444444444444444444444444444"
-	const hashProfile = "5555555555555555555555555555555555555555555555555555555555555555"
-	const hashRec = "6666666666666666666666666666666666666666666666666666666666666666"
-	deps.MediaResolver = media.NewResolver(&fakeMediaLookupIntegration{byURL: map[string]string{
-		"https://image.tmdb.org/t/p/w342/poster.jpg": hashPoster,
-		"https://image.tmdb.org/t/p/w1280/back.jpg":  hashBack,
-		"https://image.tmdb.org/t/p/w185/logo.png":   hashLogo,
-		"https://image.tmdb.org/t/p/w154/s1.jpg":     hashSeason,
-		"https://image.tmdb.org/t/p/w185/bryan.jpg":  hashProfile,
-		"https://image.tmdb.org/t/p/w342/rec.jpg":    hashRec,
-	}}, nil, nil, newSilentLogger())
-
-	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
-	require.NoError(t, err)
-	require.NotNil(t, d.Canon.PosterAsset)
-	require.Equal(t, hashPoster, *d.Canon.PosterAsset)
-	require.NotNil(t, d.Canon.BackdropAsset)
-	require.Equal(t, hashBack, *d.Canon.BackdropAsset)
-	require.Len(t, d.Networks, 1)
-	require.NotNil(t, d.Networks[0].LogoAsset)
-	require.Equal(t, hashLogo, *d.Networks[0].LogoAsset)
-	require.Len(t, d.Seasons, 1)
-	require.NotNil(t, d.Seasons[0].Canon.PosterAsset)
-	require.Equal(t, hashSeason, *d.Seasons[0].Canon.PosterAsset)
-	require.Len(t, d.Cast, 1)
-	require.NotNil(t, d.Cast[0].Person.ProfileAsset)
-	require.Equal(t, hashProfile, *d.Cast[0].Person.ProfileAsset)
-	require.Len(t, d.Recommendations, 1)
-	require.NotNil(t, d.Recommendations[0].Series.PosterAsset)
-	require.Equal(t, hashRec, *d.Recommendations[0].Series.PosterAsset)
-}
-
-// TestComposer_ResolveAssets_HeroEagerHashOnMiss exercises the story 320
-// invariant directly on c.resolveAssets — hero poster + backdrop emit
-// eager hashes via EnsurePending on lookup miss, while below-the-fold
-// fields (network logo, cast profile, season poster, recommendation
-// poster) stay nil-on-miss and DO NOT call EnsurePending.
 func TestComposer_ResolveAssets_HeroEagerHashOnMiss(t *testing.T) {
 	t.Parallel()
 	d := &Detail{
@@ -890,174 +654,6 @@ func TestComposer_ResolveAssets_SeasonPosterRegression(t *testing.T) {
 	require.Nil(t, d.Seasons[1].Canon.PosterAsset, "miss must return nil, NOT raw path")
 }
 
-// --- story 373: pickNextEpisode table test ---
-
-func TestPickNextEpisode(t *testing.T) {
-	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	yesterday := now.Add(-24 * time.Hour)
-	tomorrow := now.Add(24 * time.Hour)
-	in2days := now.Add(48 * time.Hour)
-	in3days := now.Add(72 * time.Hour)
-	titleA := "Jer Bud"
-	titleB := "Specials Title"
-
-	makeEp := func(season, ep int, air *time.Time, monitored bool, title *string) EpisodeDetail {
-		e := EpisodeDetail{
-			Canon: series.CanonEpisode{
-				SeasonNumber:  season,
-				EpisodeNumber: ep,
-				AirDate:       air,
-			},
-		}
-		if monitored {
-			e.State = &series.EpisodeState{Monitored: true}
-		}
-		if title != nil {
-			e.Text = &series.EpisodeText{Title: title}
-		}
-		return e
-	}
-
-	tests := []struct {
-		name        string
-		seasons     []SeasonDetail
-		wantNil     bool
-		wantSeason  int
-		wantEpisode int
-		wantAir     *time.Time
-		wantTitle   *string
-	}{
-		{
-			name: "future monitored wins over future unmonitored",
-			seasons: []SeasonDetail{
-				{
-					Canon: series.CanonSeason{SeasonNumber: 9},
-					Episodes: []EpisodeDetail{
-						makeEp(9, 1, &tomorrow, false, nil),
-						makeEp(9, 5, &in2days, true, &titleA),
-					},
-				},
-			},
-			wantSeason:  9,
-			wantEpisode: 5,
-			wantAir:     &in2days,
-			wantTitle:   &titleA,
-		},
-		{
-			name: "future unmonitored wins when no monitored future episode",
-			seasons: []SeasonDetail{
-				{
-					Canon: series.CanonSeason{SeasonNumber: 9},
-					Episodes: []EpisodeDetail{
-						makeEp(9, 1, &tomorrow, false, nil),
-						makeEp(9, 2, &in2days, false, nil),
-					},
-				},
-			},
-			wantSeason:  9,
-			wantEpisode: 1,
-			wantAir:     &tomorrow,
-		},
-		{
-			name: "specials (season 0) excluded even when earliest future",
-			seasons: []SeasonDetail{
-				{
-					Canon: series.CanonSeason{SeasonNumber: 0},
-					Episodes: []EpisodeDetail{
-						makeEp(0, 1, &tomorrow, true, &titleB),
-					},
-				},
-				{
-					Canon: series.CanonSeason{SeasonNumber: 9},
-					Episodes: []EpisodeDetail{
-						makeEp(9, 1, &in3days, true, &titleA),
-					},
-				},
-			},
-			wantSeason:  9,
-			wantEpisode: 1,
-			wantAir:     &in3days,
-			wantTitle:   &titleA,
-		},
-		{
-			name: "past episodes excluded",
-			seasons: []SeasonDetail{
-				{
-					Canon: series.CanonSeason{SeasonNumber: 1},
-					Episodes: []EpisodeDetail{
-						makeEp(1, 1, &yesterday, true, nil),
-						makeEp(1, 2, &in3days, true, nil),
-					},
-				},
-			},
-			wantSeason:  1,
-			wantEpisode: 2,
-			wantAir:     &in3days,
-		},
-		{
-			name: "ties broken by air_date then season then episode",
-			seasons: []SeasonDetail{
-				{
-					Canon: series.CanonSeason{SeasonNumber: 2},
-					Episodes: []EpisodeDetail{
-						makeEp(2, 3, &tomorrow, true, nil),
-					},
-				},
-				{
-					Canon: series.CanonSeason{SeasonNumber: 1},
-					Episodes: []EpisodeDetail{
-						makeEp(1, 9, &tomorrow, true, nil),
-					},
-				},
-			},
-			wantSeason:  1,
-			wantEpisode: 9,
-			wantAir:     &tomorrow,
-		},
-		{
-			name: "no future episode anywhere returns nil",
-			seasons: []SeasonDetail{
-				{
-					Canon: series.CanonSeason{SeasonNumber: 1},
-					Episodes: []EpisodeDetail{
-						makeEp(1, 1, &yesterday, true, nil),
-						makeEp(1, 2, nil, true, nil),
-					},
-				},
-			},
-			wantNil: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			d := &Detail{Seasons: tc.seasons}
-			got := pickNextEpisode(d, now)
-			if tc.wantNil {
-				require.Nil(t, got)
-				return
-			}
-			require.NotNil(t, got)
-			require.Equal(t, tc.wantSeason, got.SeasonNumber)
-			require.Equal(t, tc.wantEpisode, got.EpisodeNumber)
-			require.NotNil(t, got.AirDate)
-			require.Equal(t, *tc.wantAir, *got.AirDate)
-			if tc.wantTitle != nil {
-				require.NotNil(t, got.Title)
-				require.Equal(t, *tc.wantTitle, *got.Title)
-			} else {
-				require.Nil(t, got.Title)
-			}
-		})
-	}
-}
-
-func TestPickNextEpisode_NilSafe(t *testing.T) {
-	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	require.Nil(t, pickNextEpisode(nil, now))
-	require.Nil(t, pickNextEpisode(&Detail{}, now))
-}
-
 // --- Story 377: SeasonStats wiring through composer ---
 
 // TestComposer_LoadSeasonsAndEpisodes_AttachesSeasonStats — story 377.
@@ -1078,7 +674,11 @@ func TestComposer_LoadSeasonsAndEpisodes_AttachesSeasonStats(t *testing.T) {
 		},
 	}}
 	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	// B1b-2 — driven directly against the preserved loadSeasonsAndEpisodes
+	// (the fat Composer.Get was deleted at the B1b cutover). Same-package
+	// white-box call preserves the season-stats-attach coverage.
+	d := &Detail{Instance: "alpha", SonarrSeriesID: 1, SeriesID: 42}
+	err := c.loadSeasonsAndEpisodes(context.Background(), d, "en-US")
 	require.NoError(t, err)
 	require.Len(t, d.Seasons, 2)
 	require.NotNil(t, d.Seasons[0].Stats, "season 1 must have stats attached")
@@ -1099,7 +699,8 @@ func TestComposer_LoadSeasonsAndEpisodes_SeasonStatsNilPort(t *testing.T) {
 	}}
 	deps.SeasonStats = nil
 	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d := &Detail{Instance: "alpha", SonarrSeriesID: 1, SeriesID: 42}
+	err := c.loadSeasonsAndEpisodes(context.Background(), d, "en-US")
 	require.NoError(t, err)
 	require.Len(t, d.Seasons, 1)
 	require.Nil(t, d.Seasons[0].Stats, "nil SeasonStats port must not surface a Stats row")
@@ -1116,7 +717,8 @@ func TestComposer_LoadSeasonsAndEpisodes_SeasonStatsError_Degrades(t *testing.T)
 	}}
 	deps.SeasonStats = &fakeSeasonStatsPort{err: errors.New("db down")}
 	c := NewComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d := &Detail{Instance: "alpha", SonarrSeriesID: 1, SeriesID: 42}
+	err := c.loadSeasonsAndEpisodes(context.Background(), d, "en-US")
 	require.NoError(t, err)
 	require.Len(t, d.Seasons, 1)
 	require.Nil(t, d.Seasons[0].Stats, "season_stats error must degrade silently with Stats nil")

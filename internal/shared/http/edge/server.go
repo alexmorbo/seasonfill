@@ -72,7 +72,6 @@ func NewServer(
 	webhooksAggregateHandler *catalogrest.WebhooksAggregateHandler,
 	mediaHandler *mediaproxyrest.MediaHandler,
 	mediaPending adminrest.CatalogMediaPendingWriter,
-	seriesDetailHandler *seriesdetailrest.SeriesDetailHandler,
 	seriesSeasonHandler *seriesdetailrest.SeriesSeasonHandler,
 	peopleHandler *enrichrest.PeopleHandler,
 	seriesRefreshHandler *enrichrest.SeriesRefreshHandler,

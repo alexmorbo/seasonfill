@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
-	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -93,131 +92,6 @@ func NewTMDBFallbackUseCase(d TMDBFallbackDeps) (*TMDBFallbackUseCase, error) {
 		d.MediaResolver = media.NewNopResolver()
 	}
 	return &TMDBFallbackUseCase{d: d}, nil
-}
-
-// GetCanonical projects a canon series row into a minimal Detail.
-// Returns the upstream error (e.g. ports.ErrNotFound wrapped) when no
-// canon row exists.
-func (u *TMDBFallbackUseCase) GetCanonical(ctx context.Context, seriesID domain.SeriesID, lang string) (*Detail, error) {
-	resolvedLang := resolveLang(lang)
-	var freshen FreshenResult
-	if u.d.Freshener != nil {
-		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, resolvedLang,
-			[]freshener.Section{
-				freshener.SectionSkeleton,
-				freshener.SectionOverview,
-				freshener.SectionCast,
-				freshener.SectionMedia,
-			},
-			nil, false, ModeSync,
-		)
-	}
-	canon, err := u.d.Series.Get(ctx, seriesID)
-	if err != nil {
-		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
-	}
-	lang = resolvedLang
-	d := &Detail{
-		SeriesID:           seriesID,
-		Lang:               lang,
-		Canon:              canon,
-		ExternalIDs:        map[string]string{},
-		InLibraryInstances: []domain.InstanceName{},
-		Torrents:           TorrentsPlaceholder{SyncPending: false},
-		SyncedAt:           u.d.Now(),
-	}
-	// Degraded: if canon row is stub (hydration != full), tmdb_series is
-	// degraded — the FE shows a "loading info" placeholder until N-2 / the
-	// enrichment worker fills the canon row.
-	if canon.Hydration != series.HydrationFull {
-		d.Degraded = []enrichment.Source{enrichment.SourceTMDBSeries}
-		// Story 528 — lazy on-demand enrichment trigger. Fires only for
-		// stub canon rows; the call is synchronous + non-blocking by
-		// contract (adapter goroutines the actual dispatcher Enqueue).
-		// nil-safe — UC continues to return canon-only Detail when
-		// enrichment is disabled at boot.
-		if u.d.Enricher != nil {
-			u.d.Enricher.EnqueueIfStale(seriesID, canon.Hydration)
-		}
-	}
-	// Media resolution: best-effort hero hash translation (same pattern as
-	// Composer.resolveAssets but synchronous-only — no recommendation /
-	// season walks since those slices are empty).
-	if u.d.MediaResolver != nil {
-		syncCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		d.Canon.PosterAsset = u.d.MediaResolver.ResolveSync(syncCtx, d.Canon.PosterAsset, "w342", "poster_w342")
-		d.Canon.BackdropAsset = u.d.MediaResolver.ResolveSync(syncCtx, d.Canon.BackdropAsset, "w1280", "backdrop_w1280")
-	}
-	// Story 533 — append tmdb_series to degraded[] when the sync refresh
-	// fell back to async. The existing stub-branch already adds it; this
-	// branch covers the case where canon was non-stub but refresh hit the
-	// network and timed out (e.g. TTL-stale row + TMDB down).
-	if freshen.Degraded && !contains(d.Degraded, enrichment.SourceTMDBSeries) {
-		d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
-	}
-	// Story 533d — populate Detail.Text from series_texts so the DTO
-	// mapHero override picks up the localized title/tagline (same
-	// contract as Composer.Get branch "a"). nil-OK: when SeriesTexts is
-	// not wired (tests), the fallback path keeps canon.title as before.
-	// ErrNotFound is a soft miss (no row at all — cold series); any
-	// other port error logs + appends tmdb_series to Degraded.
-	// Story 541 — when GetWithFallback returns a row in a language other
-	// than the request AND canon.OriginalLanguage matches the request,
-	// drop d.Text so mapHero renders canon.Title (the original-language
-	// title) instead of the en-US fallback row.
-	if u.d.SeriesTexts != nil {
-		t, terr := u.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang)
-		switch {
-		case terr == nil:
-			if !shouldPreferCanon(canon, lang, t.Language) {
-				tt := t
-				d.Text = &tt
-			}
-		case errors.Is(terr, ports.ErrNotFound):
-			// cold series — leave d.Text nil, mapHero falls back to canon
-		default:
-			u.d.Logger.WarnContext(ctx, "tmdb_fallback_series_texts_failed",
-				slog.Int64("series_id", int64(seriesID)),
-				slog.String("err", terr.Error()))
-			if !contains(d.Degraded, enrichment.SourceTMDBSeries) {
-				d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
-			}
-		}
-	}
-	// Story 533a — populate seasons + cast from local DB when wired.
-	// Failure is logged and degraded[] gains tmdb_series; never 5xx.
-	if u.d.SeasonsCastSource != nil {
-		if seasons, serr := u.d.SeasonsCastSource.GetCanonicalSeasons(ctx, seriesID, lang); serr == nil {
-			d.Seasons = seasons
-		} else {
-			u.d.Logger.WarnContext(ctx, "tmdb_fallback_canon_seasons_failed",
-				slog.Int64("series_id", int64(seriesID)),
-				slog.String("err", serr.Error()))
-			if !contains(d.Degraded, enrichment.SourceTMDBSeries) {
-				d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
-			}
-		}
-		if cast, cerr := u.d.SeasonsCastSource.GetCanonicalCast(ctx, seriesID, 0); cerr == nil {
-			d.Cast = cast
-		} else {
-			u.d.Logger.WarnContext(ctx, "tmdb_fallback_canon_cast_failed",
-				slog.Int64("series_id", int64(seriesID)),
-				slog.String("err", cerr.Error()))
-			if !contains(d.Degraded, enrichment.SourceTMDBSeries) {
-				d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
-			}
-		}
-	}
-	u.d.Logger.InfoContext(ctx, "tmdb_fallback_composed",
-		slog.Int64("series_id", int64(seriesID)),
-		slog.String("hydration", string(canon.Hydration)),
-		slog.String("lang", lang),
-		slog.Int("season_count", len(d.Seasons)),
-		slog.Int("cast_count", len(d.Cast)),
-		slog.Bool("has_text", d.Text != nil),
-	)
-	return d, nil
 }
 
 // GetOverview — canon-only overview for TMDB-only series. Returns the

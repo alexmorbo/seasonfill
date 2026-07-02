@@ -24,7 +24,7 @@
 //	           (interface/http/dto). The interface-layer leaf of the
 //	           seriesdetail vertical slice extracted by story 446
 //	           (A-1-20) out of the catch-all interface/http/handlers/
-//	           tree. Owns: SeriesDetailHandler (GET .../series/:id),
+//	           tree. Owns:
 //	           SeriesSeasonHandler (GET .../series/:id/season/:n),
 //	           SeriesCastHandler (GET .../series/:id/cast), and
 //	           SeriesTorrentsHandler (GET .../series/:id/torrents).

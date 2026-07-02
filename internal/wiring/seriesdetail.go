@@ -33,7 +33,7 @@ import (
 // 218 (E-2) series-detail components constructed at boot. Returned by
 // BuildSeriesDetail. Threaded into:
 //
-//   - httpserver.NewServer (DetailHandler, SeasonHandler, CastHandler,
+//   - httpserver.NewServer (SeasonHandler, CastHandler,
 //     PeopleHandler, RefreshHandler) — the HTTP wirer remains in
 //     server.go for now.
 //   - server.go's LATE BIND ZONE block calls:
@@ -76,7 +76,6 @@ type SeriesDetailBundle struct {
 	CastComposer         *seriesdetail.CastComposer
 	PeopleUC             *apppeople.UseCase
 	SeriesRefreshUC      *seriesrefresh.UseCase
-	DetailHandler        *seriesdetailrest.SeriesDetailHandler
 	SeasonHandler        *seriesdetailrest.SeriesSeasonHandler
 	CastHandler          *seriesdetailrest.SeriesCastHandler
 	PeopleHandler        *enrichrest.PeopleHandler
@@ -127,7 +126,7 @@ type SeriesDetailBundle struct {
 //  2. 17 local repository handles (stateless GORM wrappers off db).
 //  3. Composer (the detail/season pipeline) — captures SonarrFor closure
 //     over sonarrBundle.Holder.
-//  4. DetailHandler + SeasonHandler over the Composer.
+//  4. SeasonHandler over the Composer.
 //  5. PersonCreditsRepository + CastComposer (cast & crew).
 //  6. CastHandler over the CastComposer.
 //  7. PersonEnqueuerHolder (late-binding shared between H-2 and E-2).
@@ -305,7 +304,6 @@ func BuildSeriesDetail(
 		MediaResolver:     mediaResolver,
 		Freshener:         seriesFreshenerHolder, // Story 533 — read-through sync TMDB refresh
 	})
-	detailHandler := seriesdetailrest.NewSeriesDetailHandler(composer, log)
 	seasonHandler := seriesdetailrest.NewSeriesSeasonHandler(composer, log)
 
 	// Story 216 (H-1) — full cast & crew composer. Reuses the 215
@@ -485,7 +483,6 @@ func BuildSeriesDetail(
 		CastComposer:                 castComposer,
 		PeopleUC:                     peopleUC,
 		SeriesRefreshUC:              seriesRefreshUC,
-		DetailHandler:                detailHandler,
 		SeasonHandler:                seasonHandler,
 		CastHandler:                  castHandler,
 		PeopleHandler:                peopleHandler,

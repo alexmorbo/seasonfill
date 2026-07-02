@@ -845,7 +845,6 @@ func BuildHTTPServer(
 		regrabBundle.WebhooksAggregateHandler,
 		mediaBundle.Handler,
 		mediaBundle.AssetsRepo,
-		seriesDetailBundle.DetailHandler,
 		seriesDetailBundle.SeasonHandler,
 		seriesDetailBundle.PeopleHandler,
 		seriesDetailBundle.RefreshHandler,
