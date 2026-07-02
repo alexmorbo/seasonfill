@@ -2,12 +2,9 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { mediaUrl } from '@/api/series';
+import { mediaUrl, type CastMember } from '@/api/series';
 import { MonogramFallback } from '@/components/MonogramFallback';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { components } from '@/api/schema';
-
-type CastMember = components['schemas']['dto.CastMember'];
 
 export interface CastStripProps {
   // Story 495 / N-1e §A3: rendered URL is composed in SeriesDetail so

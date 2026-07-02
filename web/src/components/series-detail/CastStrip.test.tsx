@@ -3,10 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
-import type { components } from '@/api/schema';
+import type { CastMember } from '@/api/series';
 import { CastStrip } from './CastStrip';
-
-type CastMember = components['schemas']['dto.CastMember'];
 
 function wrap(ui: React.ReactElement) {
   return (

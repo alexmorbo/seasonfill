@@ -3,19 +3,101 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { components } from '@/api/schema';
 
-export type SeriesDetailResponse = components['schemas']['dto.SeriesDetailResponse'];
-export type SeriesHero = components['schemas']['dto.SeriesHero'];
+// ── Section DTOs that SURVIVED the B1b SkeletonDTO cutover. These keys are
+// still present in the generated schema, so they keep pointing at it.
 export type LibraryStrip = components['schemas']['dto.LibraryStrip'];
 export type OverviewAside = components['schemas']['dto.OverviewAside'];
 export type NextEpisode = components['schemas']['dto.NextEpisode'];
-export type RatingScore = components['schemas']['dto.RatingScore'];
 export type RecentEvent = components['schemas']['dto.RecentEvent'];
-export type DownloadChip = components['schemas']['dto.DownloadChip'];
-export type ExternalLinks = components['schemas']['dto.ExternalLinks'];
-export type Trailer = components['schemas']['dto.Trailer'];
 export type TaxonomyChip = components['schemas']['dto.TaxonomyChip'];
-export type NetworkChip = components['schemas']['dto.NetworkChip'];
-export type ContentRatingBadge = components['schemas']['dto.ContentRatingBadge'];
+
+// ── C3 (story 966): B1b-2 deleted the fat `dto.SeriesDetailResponse` and its
+// hero / rating / download / links / cast sub-types from swagger (GET
+// /series/:id now serves `seriesdetail.SkeletonDTO`). To GREEN `tsc` and
+// unblock the Build-web CI job WITHOUT the full SeriesDetail rewrite (deferred
+// to C3b), the shape the existing component tree + its unit tests consume is
+// re-materialised here as local interfaces, decoupled from the generated
+// schema. BUILD-UNBLOCK ONLY — the live page is degraded (cast/seasons/library
+// /recent/external empty; hero enrichment opaque) until C3b wires the lazy
+// /overview /cast /seasons /library endpoints. See documentation/refactor-first
+// /stories/966-c3-seriesdetail-rewrite.md.
+export interface RatingScore {
+  readonly score?: number;
+  readonly votes?: number;
+}
+export interface ContentRatingBadge {
+  readonly rating?: string;
+}
+export interface Trailer {
+  readonly key?: string;
+  readonly site?: string;
+  readonly name?: string;
+}
+export interface NetworkChip {
+  readonly id?: number;
+  readonly name?: string;
+  readonly logo_asset?: string;
+}
+export interface DownloadChip {
+  readonly status?: string;
+  readonly title?: string;
+  // fat-compat: HeroLibraryStrip fixtures pass the Sonarr queue id even
+  // though only status/title are rendered. Kept optional so the existing
+  // test object literals stay valid (excess-property check) until C3b.
+  readonly queue_id?: number;
+}
+export interface ExternalLinks {
+  readonly imdb_id?: string;
+  readonly tmdb_id?: number;
+  readonly tvdb_id?: number;
+  readonly homepage?: string;
+}
+export interface CastMember {
+  readonly person_id?: number;
+  readonly tmdb_person_id?: number;
+  readonly name?: string;
+  readonly character_name?: string;
+  readonly profile_asset?: string;
+  readonly episode_count?: number;
+}
+export interface SeriesHero {
+  readonly title?: string;
+  readonly original_title?: string;
+  readonly tagline?: string;
+  readonly status?: string;
+  readonly year_start?: number;
+  readonly year_end?: number;
+  readonly runtime_minutes?: number;
+  readonly poster_asset?: string;
+  readonly backdrop_asset?: string;
+  readonly genres?: readonly { readonly id?: number; readonly name?: string }[];
+  readonly networks?: readonly NetworkChip[];
+  readonly tmdb_rating?: RatingScore;
+  readonly imdb_rating?: RatingScore;
+  readonly content_rating?: ContentRatingBadge;
+  readonly next_episode?: NextEpisode;
+  readonly trailer?: Trailer;
+  readonly studio?: string;
+  readonly countries?: readonly string[];
+  readonly country?: string;
+  readonly premiere_date?: string;
+  readonly original_language?: string;
+}
+export interface SeriesDetailResponse {
+  readonly series_id?: number;
+  readonly sonarr_series_id?: number;
+  readonly instance?: string;
+  readonly in_library_instances?: readonly string[];
+  readonly synced_at?: string;
+  readonly degraded?: readonly string[];
+  readonly hero?: SeriesHero;
+  readonly library?: LibraryStrip;
+  readonly download?: DownloadChip;
+  readonly recent?: readonly RecentEvent[];
+  readonly external_links?: ExternalLinks;
+  readonly cast?: readonly CastMember[];
+  readonly seasons?: readonly components['schemas']['dto.Season'][];
+}
 
 export type StatusToken =
   | 'continuing'
