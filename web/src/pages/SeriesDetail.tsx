@@ -31,6 +31,7 @@ import { SeriesDetailSkeleton } from '@/components/series-detail/SeriesDetailSke
 import { StaleBadge } from '@/components/series-detail/StaleBadge';
 import { SeasonsAccordion } from '@/components/series-detail/SeasonsAccordion';
 import { RecommendationsCarousel } from '@/components/series-detail/RecommendationsCarousel';
+import { ExternalLinksFooter } from '@/components/series-detail/ExternalLinksFooter';
 import { LanguageFallbackTag } from '@/components/series-detail/LanguageFallbackTag';
 import { TorrentsSection } from '@/components/torrents/TorrentsSection';
 import { useFormatDate } from '@/lib/timezone';
@@ -287,6 +288,8 @@ export function SeriesDetail() {
             seriesId={seriesId}
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
           />
+
+          <ExternalLinksFooter links={skeleton.external_links} />
 
           {syncedAt && (
             <div className="flex items-center justify-end gap-2 text-[11px] text-tx-faint pt-1">

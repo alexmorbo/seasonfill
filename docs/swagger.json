@@ -3621,6 +3621,27 @@
                 },
                 "type": "object"
             },
+            "seriesdetail.ExternalLinks": {
+                "description": "ExternalLinks is the IMDb / TMDB / TVDB / homepage footer row (C3c-1,\nrestored from the pre-B1b fat contract). Always present on the wire;\neach inner field is nil when the canon carries no value. The FE footer\nrenders nothing when every field is nil.",
+                "properties": {
+                    "homepage": {
+                        "type": "string"
+                    },
+                    "imdb_id": {
+                        "example": "tt0903747",
+                        "type": "string"
+                    },
+                    "tmdb_id": {
+                        "example": 1396,
+                        "type": "integer"
+                    },
+                    "tvdb_id": {
+                        "example": 81189,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "seriesdetail.GenreRef": {
                 "properties": {
                     "name": {
@@ -3665,6 +3686,9 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "external_links": {
+                        "$ref": "#/components/schemas/seriesdetail.ExternalLinks"
                     },
                     "hero": {
                         "properties": {

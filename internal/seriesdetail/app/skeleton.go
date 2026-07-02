@@ -59,6 +59,12 @@ type SkeletonDTO struct {
 	SeasonCount        int      `json:"season_count"`
 	InLibraryInstances []string `json:"in_library_instances"`
 
+	// ExternalLinks is the IMDb / TMDB / TVDB / homepage footer row (C3c-1,
+	// restored from the pre-B1b fat contract). Always present on the wire;
+	// each inner field is nil when the canon carries no value. The FE footer
+	// renders nothing when every field is nil.
+	ExternalLinks ExternalLinks `json:"external_links"`
+
 	Degraded []string  `json:"degraded,omitempty"`
 	SyncedAt time.Time `json:"synced_at"`
 }
@@ -86,6 +92,18 @@ type CompanyRef struct {
 type KeywordRef struct {
 	TmdbID int    `json:"tmdb_id"`
 	Name   string `json:"name"`
+}
+
+// ExternalLinks is the IMDb / TMDB / TVDB / homepage footer row (C3c-1).
+// Restored from the pre-B1b dto.ExternalLinks contract byte-for-byte. Each
+// field is an optional pointer — nil when the canon has no value. The typed
+// domain IDs marshal to plain string / number (no custom MarshalJSON), so no
+// .swaggo override is required.
+type ExternalLinks struct {
+	IMDBID   *domain.IMDBID `json:"imdb_id,omitempty" example:"tt0903747"`
+	TMDBID   *domain.TMDBID `json:"tmdb_id,omitempty" example:"1396"`
+	TVDBID   *domain.TVDBID `json:"tvdb_id,omitempty" example:"81189"`
+	Homepage *string        `json:"homepage,omitempty"`
 }
 
 // NextEpisodeRef is the single next-aired canon episode projection read by
@@ -177,6 +195,7 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 
 	dto := SkeletonDTO{SeriesID: seriesID, Lang: lang}
 	dto.SyncedAt = canon.UpdatedAt
+	dto.ExternalLinks = buildExternalLinks(canon)
 
 	g, gctx := errgroup.WithContext(ctx)
 
@@ -564,4 +583,28 @@ func strOrEmpty(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// buildExternalLinks projects the four external footer ids off the canon.
+// Copies each pointee into a fresh local so the DTO never aliases the canon
+// value. All-nil canon → all-nil object (FE footer renders nothing). C3c-1.
+func buildExternalLinks(canon series.Canon) ExternalLinks {
+	var out ExternalLinks
+	if canon.IMDBID != nil {
+		v := *canon.IMDBID
+		out.IMDBID = &v
+	}
+	if canon.TMDBID != nil {
+		v := *canon.TMDBID
+		out.TMDBID = &v
+	}
+	if canon.TVDBID != nil {
+		v := *canon.TVDBID
+		out.TVDBID = &v
+	}
+	if canon.Homepage != nil && *canon.Homepage != "" {
+		v := *canon.Homepage
+		out.Homepage = &v
+	}
+	return out
 }

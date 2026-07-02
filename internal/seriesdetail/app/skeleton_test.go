@@ -511,3 +511,58 @@ func TestSkeletonComposer_TrailerKey(t *testing.T) {
 	require.NotNil(t, dto.Hero.TrailerKey)
 	require.Equal(t, "dQw4w9WgXcQ", dto.Hero.TrailerKey.Value())
 }
+
+// --- C3c-1 external_links footer restore ---
+
+func TestSkeletonComposer_ExternalLinks_Present(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	imdb := domain.IMDBID("tt0903747")
+	tmdb := domain.TMDBID(1396)
+	tvdb := domain.TVDBID(81189)
+	home := "https://www.example.com/show"
+	canon.IMDBID = &imdb
+	canon.TMDBID = &tmdb
+	canon.TVDBID = &tvdb
+	canon.Homepage = &home
+
+	deps, _, _ := skBaseDeps(canon)
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "en-US"))
+	require.NoError(t, err)
+
+	require.NotNil(t, dto.ExternalLinks.IMDBID)
+	require.Equal(t, domain.IMDBID("tt0903747"), *dto.ExternalLinks.IMDBID)
+	require.NotNil(t, dto.ExternalLinks.TMDBID)
+	require.Equal(t, domain.TMDBID(1396), *dto.ExternalLinks.TMDBID)
+	require.NotNil(t, dto.ExternalLinks.TVDBID)
+	require.Equal(t, domain.TVDBID(81189), *dto.ExternalLinks.TVDBID)
+	require.NotNil(t, dto.ExternalLinks.Homepage)
+	require.Equal(t, "https://www.example.com/show", *dto.ExternalLinks.Homepage)
+}
+
+func TestSkeletonComposer_ExternalLinks_AllNil(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon() // skBaseCanon leaves IMDBID/TMDBID/TVDBID/Homepage nil
+	deps, _, _ := skBaseDeps(canon)
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "en-US"))
+	require.NoError(t, err)
+
+	require.Nil(t, dto.ExternalLinks.IMDBID)
+	require.Nil(t, dto.ExternalLinks.TMDBID)
+	require.Nil(t, dto.ExternalLinks.TVDBID)
+	require.Nil(t, dto.ExternalLinks.Homepage)
+}
+
+func TestSkeletonComposer_ExternalLinks_EmptyHomepageNilled(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	empty := ""
+	canon.Homepage = &empty
+	deps, _, _ := skBaseDeps(canon)
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "en-US"))
+	require.NoError(t, err)
+	require.Nil(t, dto.ExternalLinks.Homepage) // "" → nil, no bare footer link
+}

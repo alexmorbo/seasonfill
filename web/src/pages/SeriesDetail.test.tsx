@@ -84,6 +84,12 @@ const skeletonFixture = {
     first_air_date: '2019-11-01',
     production_companies: [{ tmdb_id: 9, name: 'Sony Pictures TV' }],
   },
+  external_links: {
+    imdb_id: 'tt7772588',
+    tmdb_id: 87917,
+    tvdb_id: 355093,
+    homepage: 'https://www.apple.com/tv-pr/originals/for-all-mankind/',
+  },
 };
 const overviewFixture = {
   overview: { overview: 'Alt-history NASA…', language: 'en-US', keywords: [{ id: 1, name: 'space race' }], awards: '4 wins, 18 nominations' },
@@ -194,8 +200,8 @@ describe('<SeriesDetail />', () => {
     expect(screen.queryByTestId('placeholder-recommendations')).not.toBeInTheDocument();
     // Torrents placeholder is gone — K-1 mounts the real TorrentsSection.
     expect(screen.queryByTestId('placeholder-torrents')).not.toBeInTheDocument();
-    // C3b — external-links footer removed (no BE source in the skeleton).
-    expect(screen.queryByTestId('external-links-footer')).not.toBeInTheDocument();
+    // C3c-1 — external-links footer restored from skeleton.external_links.
+    expect(screen.getByTestId('external-links-footer')).toBeInTheDocument();
     // Legacy surfaces removed
     expect(screen.queryByTestId('library-status-card')).not.toBeInTheDocument();
     expect(screen.queryByTestId('cast-carousel')).not.toBeInTheDocument();
@@ -213,9 +219,10 @@ describe('<SeriesDetail />', () => {
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     // Story 530 — carousel mounts on its own /recommendations query.
     await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());
-    // C3b — external-links-footer dropped from the section order.
+    // C3c-1 — external-links-footer restored at the tail of the section order.
     const order = ['series-hero', 'overview-section',
-                   'seasons-accordion', 'recommendations-carousel'];
+                   'seasons-accordion', 'recommendations-carousel',
+                   'external-links-footer'];
     const elements = order.map(id => screen.getByTestId(id) as HTMLElement);
     for (let i = 1; i < elements.length; i++) {
       const prev = elements[i - 1] as Node;

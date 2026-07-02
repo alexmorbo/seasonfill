@@ -6105,6 +6105,21 @@ export type components = {
             readonly name?: string;
             readonly tmdb_id?: number;
         };
+        /**
+         * @description ExternalLinks is the IMDb / TMDB / TVDB / homepage footer row (C3c-1,
+         *     restored from the pre-B1b fat contract). Always present on the wire;
+         *     each inner field is nil when the canon carries no value. The FE footer
+         *     renders nothing when every field is nil.
+         */
+        readonly "seriesdetail.ExternalLinks": {
+            readonly homepage?: string;
+            /** @example tt0903747 */
+            readonly imdb_id?: string;
+            /** @example 1396 */
+            readonly tmdb_id?: number;
+            /** @example 81189 */
+            readonly tvdb_id?: number;
+        };
         readonly "seriesdetail.GenreRef": {
             readonly name?: string;
             readonly tmdb_id?: number;
@@ -6120,6 +6135,7 @@ export type components = {
         };
         readonly "seriesdetail.SkeletonDTO": {
             readonly degraded?: readonly string[];
+            readonly external_links?: components["schemas"]["seriesdetail.ExternalLinks"];
             readonly hero?: {
                 readonly backdrop_asset?: string;
                 readonly content_rating?: string;

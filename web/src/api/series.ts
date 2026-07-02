@@ -20,6 +20,11 @@ export type TaxonomyChip = components['schemas']['dto.TaxonomyChip'];
 // untouched.
 export type SeriesSkeleton = components['schemas']['seriesdetail.SkeletonDTO'];
 
+// C3c-1: external-links footer row now sourced from the SkeletonDTO. Points
+// the footer's prop type at the generated schema (imdb_id / tmdb_id / tvdb_id
+// / homepage) so it stays in lock-step with the BE contract.
+export type ExternalLinks = components['schemas']['seriesdetail.ExternalLinks'];
+
 // ── C3b (story 968): these are the COMPONENT VIEW-MODEL contracts the hero /
 // rail tree consumes (presentation types, NOT API types). `adaptHero` /
 // `adaptCast` / `adaptSeasons` map the generated `SkeletonDTO` + lazy DTOs onto
@@ -51,12 +56,6 @@ export interface DownloadChip {
   // though only status/title are rendered. Kept optional so the existing
   // test object literals stay valid (excess-property check) until C3b.
   readonly queue_id?: number;
-}
-export interface ExternalLinks {
-  readonly imdb_id?: string;
-  readonly tmdb_id?: number;
-  readonly tvdb_id?: number;
-  readonly homepage?: string;
 }
 export interface CastMember {
   readonly person_id?: number;
