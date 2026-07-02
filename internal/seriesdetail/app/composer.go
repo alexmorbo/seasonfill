@@ -146,8 +146,11 @@ type Deps struct {
 	SeriesTexts       SeriesTextsPort
 	SeriesMediaTexts  SeriesMediaTextsPort // Story 584b — nil-OK, canon fallback
 	Seasons           SeasonsPort
-	Episodes          EpisodesPort
-	EpisodeStates     EpisodeStatesPort
+	// SeasonTexts — nil-OK: canon name/overview fallback (C-season-fix).
+	// Localizes the single-season path via season_texts, mirroring B3c.
+	SeasonTexts   SeasonTextsPort
+	Episodes      EpisodesPort
+	EpisodeStates EpisodeStatesPort
 	// SeasonStats — story 377. Per-(instance, series, season) Sonarr
 	// statistics projection. Nil-OK: when not wired the composer skips
 	// the load + the handler falls back to walking episode_states.
@@ -258,6 +261,30 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 		}
 	}
 	d.Seasons = filtered
+	// C-season-fix — localize the single season's name/overview via
+	// season_texts (mirrors B3c SeasonsComposer). Missing row / nil / blank
+	// keeps canon (§5.6 tier 3). nil-OK dep; repo error → canon fallback,
+	// never fails the request.
+	if len(filtered) > 0 && c.d.SeasonTexts != nil {
+		texts, terr := c.d.SeasonTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
+		if terr != nil {
+			c.d.Logger.WarnContext(ctx, "season_texts_fallback_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.String("error", terr.Error()))
+			texts = nil
+		}
+		if txt, ok := texts[seasonNumber]; ok {
+			if txt.Name != nil && *txt.Name != "" {
+				n := *txt.Name
+				d.Seasons[0].Canon.Name = &n
+			}
+			if txt.Overview != nil && *txt.Overview != "" {
+				o := *txt.Overview
+				d.Seasons[0].Canon.Overview = &o
+			}
+		}
+	}
 	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)
 	d.SyncedAt = c.d.Now()
 	c.resolveAssets(ctx, d)

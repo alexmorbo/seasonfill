@@ -286,6 +286,7 @@ func BuildSeriesDetail(
 		SeriesTexts:       sdSeriesTextsRepo,
 		SeriesMediaTexts:  sdSeriesMediaTextsRepo,
 		Seasons:           sdSeasonsRepo,
+		SeasonTexts:       sdSeasonTextsRepo,
 		Episodes:          sdEpisodesRepo,
 		EpisodeStates:     sdEpisodeStatesRepo,
 		SeasonStats:       sdSeasonStatsRepo,

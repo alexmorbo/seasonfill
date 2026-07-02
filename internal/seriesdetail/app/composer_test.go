@@ -469,6 +469,102 @@ func TestComposer_GetSeason_UnknownSeason_404(t *testing.T) {
 	require.ErrorIs(t, err, ports.ErrNotFound)
 }
 
+// C-season-fix — the single-season path must honour season_texts for the
+// season name/overview, not return the canon (RU-written) row verbatim.
+func TestComposer_GetSeason_LocalizedRow_OverridesCanon(t *testing.T) {
+	deps, _, _ := baseDeps(t)
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{ID: 1, SeriesID: 42, SeasonNumber: 1, Name: new("Сезон 1"), Overview: new("Русское описание")},
+	}}
+	deps.SeasonTexts = &seasonsFakeTexts{rows: map[int]series.SeasonText{
+		1: {SeriesID: 42, SeasonNumber: 1, Language: "ru-RU", Name: new("Сезон один"), Overview: new("Локализованное описание")},
+	}}
+	c := NewComposer(deps)
+	d, err := c.GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
+	require.NoError(t, err)
+	require.Len(t, d.Seasons, 1)
+	require.NotNil(t, d.Seasons[0].Canon.Name)
+	require.Equal(t, "Сезон один", *d.Seasons[0].Canon.Name)
+	require.NotNil(t, d.Seasons[0].Canon.Overview)
+	require.Equal(t, "Локализованное описание", *d.Seasons[0].Canon.Overview)
+}
+
+// THE OPERATOR BUG: EN request must NOT return the RU text. In prod the CANON
+// season row was authored in RU (Sonarr / older enrichment wrote RU into
+// seasons.name/overview). The B3b worker populates season_texts with the en-US
+// row; under ?lang=en-US the repo two-tier resolves that en-US row, so the
+// composer MUST override canon-RU with it. Pre-change GetSeason returned canon
+// verbatim → RU leaked to EN clients (the bug). This test FAILS against
+// pre-change code (canon-RU) and PASSES post-change (en-US override).
+func TestComposer_GetSeason_EN_DoesNotGetRU(t *testing.T) {
+	deps, _, _ := baseDeps(t)
+	// Canon is RU — the exact prod condition that caused the operator report.
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{ID: 1, SeriesID: 42, SeasonNumber: 1, Name: new("Сезон 1"), Overview: new("Русское описание")},
+	}}
+	// season_texts en-US row (repo already applied the en-US two-tier resolve).
+	deps.SeasonTexts = &seasonsFakeTexts{rows: map[int]series.SeasonText{
+		1: {SeriesID: 42, SeasonNumber: 1, Language: "en-US", Name: new("Season 1"), Overview: new("English overview")},
+	}}
+	c := NewComposer(deps)
+	d, err := c.GetSeason(context.Background(), "alpha", 1, 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, d.Seasons, 1)
+	require.NotNil(t, d.Seasons[0].Canon.Name)
+	require.Equal(t, "Season 1", *d.Seasons[0].Canon.Name)
+	require.NotEqual(t, "Сезон 1", *d.Seasons[0].Canon.Name)
+	require.NotNil(t, d.Seasons[0].Canon.Overview)
+	require.Equal(t, "English overview", *d.Seasons[0].Canon.Overview)
+	require.NotEqual(t, "Русское описание", *d.Seasons[0].Canon.Overview)
+}
+
+// Localized row entirely absent (empty map) → canon name+overview fallback.
+func TestComposer_GetSeason_NoTextsRow_CanonFallback(t *testing.T) {
+	deps, _, _ := baseDeps(t)
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{ID: 1, SeriesID: 42, SeasonNumber: 1, Name: new("Canon Name"), Overview: new("Canon Overview")},
+	}}
+	deps.SeasonTexts = &seasonsFakeTexts{rows: map[int]series.SeasonText{}}
+	c := NewComposer(deps)
+	d, err := c.GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
+	require.NoError(t, err)
+	require.Len(t, d.Seasons, 1)
+	require.Equal(t, "Canon Name", *d.Seasons[0].Canon.Name)
+	require.Equal(t, "Canon Overview", *d.Seasons[0].Canon.Overview)
+}
+
+// NULL/error pair: nil SeasonTexts dep AND a fake returning an error both
+// degrade to canon with no panic and a nil GetSeason error.
+func TestComposer_GetSeason_SeasonTexts_NilAndError_CanonFallback(t *testing.T) {
+	canonRows := []series.CanonSeason{
+		{ID: 1, SeriesID: 42, SeasonNumber: 1, Name: new("Canon Name"), Overview: new("Canon Overview")},
+	}
+
+	t.Run("nil dep", func(t *testing.T) {
+		deps, _, _ := baseDeps(t)
+		deps.Seasons = &fakeSeasons{rows: canonRows}
+		deps.SeasonTexts = nil
+		c := NewComposer(deps)
+		d, err := c.GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
+		require.NoError(t, err)
+		require.Len(t, d.Seasons, 1)
+		require.Equal(t, "Canon Name", *d.Seasons[0].Canon.Name)
+		require.Equal(t, "Canon Overview", *d.Seasons[0].Canon.Overview)
+	})
+
+	t.Run("repo error", func(t *testing.T) {
+		deps, _, _ := baseDeps(t)
+		deps.Seasons = &fakeSeasons{rows: canonRows}
+		deps.SeasonTexts = &seasonsFakeTexts{err: errors.New("season_texts db down")}
+		c := NewComposer(deps)
+		d, err := c.GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
+		require.NoError(t, err)
+		require.Len(t, d.Seasons, 1)
+		require.Equal(t, "Canon Name", *d.Seasons[0].Canon.Name)
+		require.Equal(t, "Canon Overview", *d.Seasons[0].Canon.Overview)
+	})
+}
+
 func TestResolveLang(t *testing.T) {
 	require.Equal(t, "en-US", resolveLang(""))
 	require.Equal(t, "en-US", resolveLang("   "))
