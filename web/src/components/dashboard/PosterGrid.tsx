@@ -1,5 +1,5 @@
 import { Skeleton } from '@/components/ui/skeleton';
-import { PosterTile } from './PosterTile';
+import { SeriesCardTile } from '@/components/series/SeriesCardTile';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
 
 export interface PosterGridProps {
@@ -20,7 +20,11 @@ export function PosterGrid({ items, isLoading }: PosterGridProps) {
   return (
     <div data-testid="poster-grid" className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
       {items.map((item) => (
-        <PosterTile key={`${item.instance_name}-${item.sonarr_series_id}`} item={item} />
+        <SeriesCardTile
+          key={`${item.instance_name}-${item.sonarr_series_id}`}
+          item={item}
+          variant="dashboard"
+        />
       ))}
     </div>
   );

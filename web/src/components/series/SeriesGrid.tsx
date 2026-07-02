@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SeriesPosterTile } from './SeriesPosterTile';
+import { SeriesCardTile } from './SeriesCardTile';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
 
 export interface SeriesGridProps {
@@ -52,9 +52,10 @@ export function SeriesGrid({
         className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
       >
         {items.map((item) => (
-          <SeriesPosterTile
+          <SeriesCardTile
             key={`${item.instance_name}-${item.sonarr_series_id}`}
             item={item}
+            variant="library"
           />
         ))}
         {isFetchingNextPage && (
