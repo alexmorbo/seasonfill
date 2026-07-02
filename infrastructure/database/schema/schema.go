@@ -586,6 +586,7 @@ func addI18nTexts(s *atlasschema.Schema, d Dialect) {
 	s.AddTables(
 		buildSeriesTextsTable(d, series),
 		buildEpisodeTextsTable(d, episodes),
+		buildSeasonTextsTable(d, series),
 	)
 }
 
@@ -622,6 +623,52 @@ func buildEpisodeTextsTable(d Dialect, episodesTable *atlasschema.Table) *atlass
 		"",
 		true,
 	)
+}
+
+// buildSeasonTextsTable returns the season_texts table (E-1 B3a M-1):
+//
+//	PK (series_id, season_number, language)   -- 3-column composite, so the
+//	                                              generic i18nTextTable helper
+//	                                              (2-column PK) does not fit.
+//	columns: name text NULL, overview text NULL,
+//	         enriched_at timestamptz NULL,
+//	         updated_at timestamptz NOT NULL DEFAULT now()
+//	FK series_id → series(id) NO ACTION (mirrors series_texts; season_number
+//	                                     carries no standalone FK, exactly like
+//	                                     episodes.season_number).
+//
+// Per-season localized names/overviews are written by the E-1 B3b narrow
+// TMDB worker and read by the E-1 B3c SeasonsComposer (ru-RU → en-US → canon
+// seasons.name fallback chain). enriched_at is the TMDB-worker freshness
+// stamp; NULL until B3b runs.
+func buildSeasonTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	seriesID := fkColumn(d, "series_id", false /* not null */)
+	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
+	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
+	name := atlasschema.NewNullStringColumn("name", "text")
+	overview := atlasschema.NewNullStringColumn("overview", "text")
+	enrichedAt := timestampColumn(d, "enriched_at", false /* withDefault */, false /* notNull */)
+	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("season_texts").
+		AddColumns(
+			seriesID,
+			seasonNumber,
+			language,
+			name,
+			overview,
+			enrichedAt,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID, seasonNumber, language)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("season_texts_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
 }
 
 // addTaxonomy appends the 4 canonical taxonomy dictionaries (genres,

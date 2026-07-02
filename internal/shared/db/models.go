@@ -633,6 +633,25 @@ type EpisodeTextModel struct {
 
 func (EpisodeTextModel) TableName() string { return "episode_texts" }
 
+// SeasonTextModel — one localised text row per
+// (series_id, season_number, language). Composite 3-column PK (E-1 B3a).
+// The E-1 B3c SeasonsComposer reads this table with the ru-RU → en-US →
+// canon seasons.name fallback chain. EnrichedAt is the B3b TMDB-worker
+// freshness stamp; NULL until the worker runs. Non-TMDB write paths leave
+// Name/Overview/EnrichedAt nil and the Upsert COALESCEs to preserve any
+// previously-set value.
+type SeasonTextModel struct {
+	SeriesID     domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	SeasonNumber int             `gorm:"primaryKey;column:season_number"`
+	Language     string          `gorm:"primaryKey;column:language;type:text"`
+	Name         *string         `gorm:"column:name;type:text"`
+	Overview     *string         `gorm:"column:overview;type:text"`
+	EnrichedAt   *time.Time      `gorm:"column:enriched_at"`
+	UpdatedAt    time.Time       `gorm:"column:updated_at;not null"`
+}
+
+func (SeasonTextModel) TableName() string { return "season_texts" }
+
 // EpisodeStateModel — per-instance file state. PK
 // (instance_name, episode_id) — file state is instance-scoped (§5.11).
 type EpisodeStateModel struct {

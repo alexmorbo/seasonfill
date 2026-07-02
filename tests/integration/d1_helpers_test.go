@@ -213,8 +213,10 @@ func d1IndexOf(s, sub string) int {
 // (decisions / cooldowns / origin_releases), D-6 story 467c
 // (qbit_settings / qbit_torrents / qbit_torrent_events /
 // torrent_series_map), D-7 story 468c (media_assets migration
-// 000019), and N-2a story 502 (discovery_lists migration 000021).
-// 53 tables in total — schema_migrations (golang-migrate tracker) is
+// 000019), N-2a story 502 (discovery_lists migration 000021), and E-1
+// B3a (season_texts, always-on i18n text table alongside
+// series_texts/episode_texts).
+// 54 tables in total — schema_migrations (golang-migrate tracker) is
 // excluded; it is not part of the seasonfill domain.
 //
 // Names are the same on both backends — the SQLite list is identical.
@@ -254,6 +256,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"qbit_torrents",
 	"scan_runs",
 	"season_stats",
+	"season_texts",
 	"seasons",
 	"series",
 	"series_cache",

@@ -189,3 +189,22 @@ type EpisodeText struct {
 	EnrichedAt *time.Time
 	UpdatedAt  time.Time
 }
+
+// SeasonText is one localised text row of `season_texts`. Composite key
+// (series_id, season_number, language); language is a BCP-47 tag
+// (v1: `ru-RU` / `en-US`). The §5.6 fallback (requested language, else
+// en-US) is applied by the batch read; the final canon `seasons.name`
+// tier is layered by the E-1 B3c SeasonsComposer, not here.
+//
+// EnrichedAt is the TMDB-worker freshness stamp (E-1 B3b). NULL = never
+// enriched by TMDB; non-TMDB write paths leave it nil and the Upsert
+// COALESCEs to preserve any previously-set value.
+type SeasonText struct {
+	SeriesID     domain.SeriesID
+	SeasonNumber int
+	Language     string
+	Name         *string
+	Overview     *string
+	EnrichedAt   *time.Time
+	UpdatedAt    time.Time
+}
