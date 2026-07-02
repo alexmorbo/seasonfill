@@ -85,6 +85,7 @@ func NewServer(
 	globalOverviewHandler *seriesdetailrest.GlobalSeriesOverviewHandler, // story 529
 	globalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler, // story 530
 	globalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler, // story 577 E-1-B2
+	seasonsHandler *seriesdetailrest.SeasonsHandler, // story 582 E-1 B3c
 	discoveryHandler *discoveryrest.DiscoveryHandler,
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
@@ -276,6 +277,10 @@ func NewServer(
 		// Story 577 / E-1-B2 — per-instance Sonarr library-state endpoint.
 		if globalLibraryHandler != nil {
 			guarded.GET("/series/:id/library", globalLibraryHandler.Get)
+		}
+		// Story 582 / E-1 B3c — canon list-of-seasons (posters + counts).
+		if seasonsHandler != nil {
+			guarded.GET("/series/:id/seasons", seasonsHandler.Get)
 		}
 		guarded.GET("/grabs/:id/episode-files", globalGrabEpisodeFilesHandler.List)
 		// F-1 (Story 214): content-addressed media proxy. Serves the

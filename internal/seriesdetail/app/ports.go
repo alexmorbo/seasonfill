@@ -98,6 +98,24 @@ type SeasonsPort interface {
 	ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]series.CanonSeason, error)
 }
 
+// SeasonTextsPort reads the per-season localized name/overview map with the
+// §5.6 two-tier fallback (requested language → en-US) applied in the repository.
+// A season absent from the map means neither the requested language nor en-US
+// has a row — the B3c SeasonsComposer then falls back to canon seasons.name
+// (the §5.6 third tier). Implemented by SeasonTextsRepository.ListBySeriesWithFallback
+// (Story 580 / B3a).
+type SeasonTextsPort interface {
+	ListBySeriesWithFallback(ctx context.Context, seriesID domain.SeriesID, lang string) (map[int]series.SeasonText, error)
+}
+
+// SeasonEpisodeAggregatesPort returns the per-season episode rollup
+// (episode_count + MIN/MAX air_date) in one GROUP BY. air_date_end has no source
+// column on `seasons`; B3c computes it as MAX(episodes.air_date) here. Implemented
+// by EpisodesRepository.AggregateBySeries (Story 582 / B3c).
+type SeasonEpisodeAggregatesPort interface {
+	AggregateBySeries(ctx context.Context, seriesID domain.SeriesID) (map[int]series.SeasonEpisodeAggregate, error)
+}
+
 // EpisodesPort lists every episode row for a series. The composer
 // groups them by season_number client-side rather than running N
 // queries — N+1 hostility.

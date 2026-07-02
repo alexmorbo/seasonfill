@@ -441,3 +441,30 @@ type SeriesLibraryResponse struct {
 	// SyncedAt = max(series_cache.updated_at, newest episode_states.updated_at).
 	SyncedAt time.Time `json:"synced_at"`
 }
+
+// SeriesSeasonsResponse — wire shape of GET /api/v1/series/:id/seasons
+// (Story 582 / E-1 B3c). Canon-level list of seasons (posters + counts +
+// localized names) for the SPA accordion. No episodes embed, no per-instance
+// Sonarr state. Mirrors the composer's SeasonsListDTO.
+type SeriesSeasonsResponse struct {
+	SeriesID domain.SeriesID    `json:"series_id" example:"42"`
+	Seasons  []SeasonSummaryDTO `json:"seasons"`
+	// Degraded lists cold/timeout sources ("tmdb_series", "freshener"); omitted
+	// when the document is fully fresh.
+	Degraded []string `json:"degraded,omitempty"`
+	// SyncedAt is the canon series row's updated_at.
+	SyncedAt time.Time `json:"synced_at"`
+}
+
+// SeasonSummaryDTO — one accordion row. AirDateEnd is MAX(episodes.air_date) for
+// the season (no source column on `seasons`). PosterAsset is a sha256 hash served
+// via /api/v1/media/:hash, omitted when TMDB gave no season poster.
+type SeasonSummaryDTO struct {
+	SeasonNumber int        `json:"season_number" example:"1"`
+	Name         string     `json:"name" example:"Сезон 1"`
+	AirDateStart *time.Time `json:"air_date_start,omitempty"`
+	AirDateEnd   *time.Time `json:"air_date_end,omitempty"`
+	EpisodeCount int        `json:"episode_count" example:"22"`
+	PosterAsset  *string    `json:"poster_asset,omitempty"`
+	Overview     string     `json:"overview,omitempty"`
+}

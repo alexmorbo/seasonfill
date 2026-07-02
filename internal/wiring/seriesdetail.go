@@ -108,6 +108,10 @@ type SeriesDetailBundle struct {
 	GlobalCastHandler *seriesdetailrest.GlobalSeriesCastHandler
 	// Story 577 / E-1-B2 — per-instance Sonarr library-state endpoint.
 	GlobalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler
+	// Story 582 / E-1 B3c — canon list-of-seasons endpoint. Reuses the same
+	// stateless repo handles as the fat composer + the B3a season_texts repo.
+	SeasonsComposer *seriesdetail.SeasonsComposer
+	SeasonsHandler  *seriesdetailrest.SeasonsHandler
 	// Story 578 / E-1-B5 — per-section freshness reader for the edge ETag
 	// middleware. Reuses sdSeriesRepo + sdSeasonsRepo (stateless GORM
 	// wrappers already in scope).
@@ -196,6 +200,7 @@ func BuildSeriesDetail(
 	sdSeriesTextsRepo := enrichpersistence.NewSeriesTextsRepository(db)
 	sdSeasonsRepo := enrichpersistence.NewSeasonsRepository(db)
 	sdEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
+	sdSeasonTextsRepo := enrichpersistence.NewSeasonTextsRepository(db)
 	sdEpisodeStatesRepo := catalogpersistence.NewEpisodeStatesRepository(db)
 	sdSeasonStatsRepo := catalogpersistence.NewSeasonStatsRepository(db)
 	sdEpisodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
@@ -432,6 +437,22 @@ func BuildSeriesDetail(
 	})
 	globalLibraryHandler := seriesdetailrest.NewGlobalSeriesLibraryHandler(libraryComposer, sdSeriesCacheRepo, log)
 
+	// Story 582 / E-1 B3c — canon seasons list. Reuses sdSeriesRepo (404 gate +
+	// SyncedAt), sdSeasonsRepo (canon rows), sdSeasonTextsRepo (B3a localized
+	// names), sdEpisodesRepo (new AggregateBySeries — episode_count + air_date_end),
+	// the shared mediaResolver (per-season posters), and the shared freshener
+	// (SectionSkeleton scope — no second probe). No new SQL beyond AggregateBySeries.
+	seasonsComposer := seriesdetail.NewSeasonsComposer(seriesdetail.SeasonsDeps{
+		Series:        sdSeriesRepo,
+		Seasons:       sdSeasonsRepo,
+		SeasonTexts:   sdSeasonTextsRepo,
+		Aggregates:    sdEpisodesRepo,
+		Freshener:     seriesFreshenerHolder,
+		MediaResolver: mediaResolver,
+		Logger:        composerLog,
+	})
+	seasonsHandler := seriesdetailrest.NewSeasonsHandler(seasonsComposer, log)
+
 	return &SeriesDetailBundle{
 		MediaResolver:                mediaResolver,
 		Composer:                     composer,
@@ -456,5 +477,7 @@ func BuildSeriesDetail(
 		GlobalCastHandler:            globalCastHandler,
 		GlobalLibraryHandler:         globalLibraryHandler,
 		ETagFreshness:                sdETagFreshness,
+		SeasonsComposer:              seasonsComposer,
+		SeasonsHandler:               seasonsHandler,
 	}, nil
 }

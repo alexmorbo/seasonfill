@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"time"
@@ -103,6 +104,113 @@ func (r *EpisodesRepository) CountBySeries(ctx context.Context, seriesID domain.
 		return 0, fmt.Errorf("count episodes by series: %w", err)
 	}
 	return int(n), nil
+}
+
+// AggregateBySeries returns the per-season episode rollup for a series in ONE
+// GROUP BY query — episode_count + MIN/MAX(air_date). Used by the E-1 B3c
+// SeasonsComposer to fill SeasonSummary.air_date_end (MAX; seasons has no
+// air_date_end column) + episode_count without loading every episode row.
+//
+// Seasons with zero episode rows are simply absent from the map (the composer
+// falls back to canon seasons.episode_count / seasons.air_date for those).
+// MIN/MAX(air_date) over the *time.Time column is dialect-safe: Postgres uses
+// native timestamp ordering, SQLite orders the GORM-serialised ISO-8601 text
+// lexically (equivalent for zero-padded UTC) — the D-0 dual-backend test proves
+// both. NULL air_date rows drop out of MIN/MAX per SQL semantics; a season whose
+// episodes ALL have NULL air_date yields nil First/LastAirDate.
+func (r *EpisodesRepository) AggregateBySeries(
+	ctx context.Context,
+	seriesID domain.SeriesID,
+) (map[int]series.SeasonEpisodeAggregate, error) {
+	type aggRow struct {
+		SeasonNumber int
+		EpisodeCount int
+		// aggScanTime absorbs the dialect split: Postgres hands back a
+		// time.Time from MIN/MAX(timestamp); SQLite strips the column
+		// affinity of an aggregate and hands back the stored ISO-8601 text.
+		FirstAirDate aggScanTime
+		LastAirDate  aggScanTime
+	}
+	var rows []aggRow
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("episodes").
+		Select("season_number AS season_number, "+
+			"COUNT(*) AS episode_count, "+
+			"MIN(air_date) AS first_air_date, "+
+			"MAX(air_date) AS last_air_date").
+		Where("series_id = ?", seriesID).
+		Group("season_number").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("aggregate episodes by series: %w", err)
+	}
+	out := make(map[int]series.SeasonEpisodeAggregate, len(rows))
+	for _, rw := range rows {
+		out[rw.SeasonNumber] = series.SeasonEpisodeAggregate{
+			SeasonNumber: rw.SeasonNumber,
+			EpisodeCount: rw.EpisodeCount,
+			FirstAirDate: rw.FirstAirDate.t,
+			LastAirDate:  rw.LastAirDate.t,
+		}
+	}
+	return out, nil
+}
+
+// aggScanTime is a dialect-safe sql.Scanner for MIN/MAX(air_date). Postgres
+// returns a driver time.Time; the pure-Go SQLite driver drops the aggregate's
+// column affinity and returns the stored text ("2006-01-02 15:04:05-07:00").
+// database/sql will NOT parse a string into *time.Time, so a plain *time.Time
+// scan target fails on SQLite — this type parses the known layouts instead.
+// A nil / empty value (season with all-NULL air_date) yields a nil *time.Time.
+type aggScanTime struct{ t *time.Time }
+
+var aggScanTimeLayouts = []string{
+	"2006-01-02 15:04:05.999999999-07:00",
+	"2006-01-02 15:04:05-07:00",
+	"2006-01-02 15:04:05.999999999",
+	"2006-01-02 15:04:05",
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02",
+}
+
+// Value satisfies driver.Valuer so GORM accepts aggScanTime as a scalar column
+// target (it requires both Scanner AND Valuer). aggScanTime is read-only — it is
+// never written back — so Value simply surfaces the held *time.Time.
+func (a aggScanTime) Value() (driver.Value, error) {
+	if a.t == nil {
+		return nil, nil
+	}
+	return *a.t, nil
+}
+
+func (a *aggScanTime) Scan(v any) error {
+	switch x := v.(type) {
+	case nil:
+		a.t = nil
+		return nil
+	case time.Time:
+		u := x.UTC()
+		a.t = &u
+		return nil
+	case []byte:
+		return a.Scan(string(x))
+	case string:
+		if x == "" {
+			a.t = nil
+			return nil
+		}
+		for _, layout := range aggScanTimeLayouts {
+			if parsed, err := time.Parse(layout, x); err == nil {
+				u := parsed.UTC()
+				a.t = &u
+				return nil
+			}
+		}
+		return fmt.Errorf("aggregate air_date: cannot parse time %q", x)
+	default:
+		return fmt.Errorf("aggregate air_date: unsupported scan type %T", v)
+	}
 }
 
 // Upsert writes one episode by natural key. Idempotent.

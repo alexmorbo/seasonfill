@@ -3470,6 +3470,93 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/series/{id}/seasons": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Series season list (posters + counts)
+         * @description Canon-level list of seasons for a series keyed by canonical
+         *     series.id — localized season names (season_texts fallback
+         *     ru-RU→en-US→canon), per-season poster hash, episode_count, and
+         *     air_date_start / air_date_end (MAX of the season's episode air
+         *     dates). No episodes embed (see /series/{id}/season/{n}); no
+         *     per-instance Sonarr state (see /series/{id}/library). 404 only when
+         *     the canonical id is unknown.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag (e.g. ru-RU) */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description Canonical series.id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesSeasonsResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/series/{id}/seasons/{season}/episodes": {
         readonly parameters: {
             readonly query?: never;
@@ -5416,6 +5503,18 @@ export type components = {
             /** @example 24 */
             readonly total?: number;
         };
+        readonly "dto.SeasonSummaryDTO": {
+            readonly air_date_end?: string;
+            readonly air_date_start?: string;
+            /** @example 22 */
+            readonly episode_count?: number;
+            /** @example Сезон 1 */
+            readonly name?: string;
+            readonly overview?: string;
+            readonly poster_asset?: string;
+            /** @example 1 */
+            readonly season_number?: number;
+        };
         readonly "dto.SeriesCacheItem": {
             /** @example homelab */
             readonly instance_name?: string;
@@ -5773,6 +5872,18 @@ export type components = {
             readonly series_id?: number;
             /** @example true */
             readonly series_queued?: boolean;
+        };
+        readonly "dto.SeriesSeasonsResponse": {
+            /**
+             * @description Degraded lists cold/timeout sources ("tmdb_series", "freshener"); omitted
+             *     when the document is fully fresh.
+             */
+            readonly degraded?: readonly string[];
+            readonly seasons?: readonly components["schemas"]["dto.SeasonSummaryDTO"][];
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @description SyncedAt is the canon series row's updated_at. */
+            readonly synced_at?: string;
         };
         /**
          * @description SeriesSummary is the lightweight series-meta block the cast

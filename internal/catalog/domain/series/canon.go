@@ -208,3 +208,16 @@ type SeasonText struct {
 	EnrichedAt   *time.Time
 	UpdatedAt    time.Time
 }
+
+// SeasonEpisodeAggregate is the per-season rollup the E-1 B3c SeasonsComposer
+// reads to fill air_date_end + episode_count without an N+1 walk. There is no
+// seasons.air_date_end column (seasons carries a single AirDate), so LastAirDate
+// is computed as MAX(episodes.air_date) for the season via a GROUP BY aggregate
+// (EpisodesRepository.AggregateBySeries). FirstAirDate / LastAirDate are nil when
+// the season has no episode rows with a non-NULL air_date (cold season shell).
+type SeasonEpisodeAggregate struct {
+	SeasonNumber int
+	EpisodeCount int
+	FirstAirDate *time.Time
+	LastAirDate  *time.Time
+}

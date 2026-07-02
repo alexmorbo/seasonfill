@@ -2072,6 +2072,26 @@ components:
           example: 24
           type: integer
       type: object
+    dto.SeasonSummaryDTO:
+      properties:
+        air_date_end:
+          type: string
+        air_date_start:
+          type: string
+        episode_count:
+          example: 22
+          type: integer
+        name:
+          example: Сезон 1
+          type: string
+        overview:
+          type: string
+        poster_asset:
+          type: string
+        season_number:
+          example: 1
+          type: integer
+      type: object
     dto.SeriesCacheItem:
       properties:
         instance_name:
@@ -2548,6 +2568,28 @@ components:
         series_queued:
           example: true
           type: boolean
+      type: object
+    dto.SeriesSeasonsResponse:
+      properties:
+        degraded:
+          description: |-
+            Degraded lists cold/timeout sources ("tmdb_series", "freshener"); omitted
+            when the document is fully fresh.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        seasons:
+          items:
+            $ref: '#/components/schemas/dto.SeasonSummaryDTO'
+          type: array
+          uniqueItems: false
+        series_id:
+          example: 42
+          type: integer
+        synced_at:
+          description: SyncedAt is the canon series row's updated_at.
+          type: string
       type: object
     dto.SeriesSummary:
       description: |-
@@ -5568,6 +5610,65 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Series season detail (global)
+      tags:
+      - series
+  /series/{id}/seasons:
+    get:
+      description: |-
+        Canon-level list of seasons for a series keyed by canonical
+        series.id — localized season names (season_texts fallback
+        ru-RU→en-US→canon), per-season poster hash, episode_count, and
+        air_date_start / air_date_end (MAX of the season's episode air
+        dates). No episodes embed (see /series/{id}/season/{n}); no
+        per-instance Sonarr state (see /series/{id}/library). 404 only when
+        the canonical id is unknown.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag (e.g. ru-RU)
+        in: query
+        name: lang
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesSeasonsResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Series season list (posters + counts)
       tags:
       - series
   /series/{id}/seasons/{season}/episodes:
