@@ -96,6 +96,8 @@ type SeriesDetailBundle struct {
 	GlobalComposerUC    *seriesdetail.GlobalComposerUseCase
 	TMDBFallbackUC      *seriesdetail.TMDBFallbackUseCase
 	GlobalSeriesHandler *seriesdetailrest.GlobalSeriesHandler
+	// B1b-1 — canon-only above-fold composer behind GET /series/:id.
+	SkeletonComposer *seriesdetail.SkeletonComposer
 	// Story 529 — decomposition 1/3: /series/:id/overview split-out.
 	OverviewHandler       *seriesdetailrest.SeriesOverviewHandler
 	GlobalOverviewHandler *seriesdetailrest.GlobalSeriesOverviewHandler
@@ -389,11 +391,35 @@ func BuildSeriesDetail(
 	if err != nil {
 		return nil, fmt.Errorf("tmdb fallback use case: %w", err)
 	}
+	// B1b-1 — concrete NextEpisodePort for the skeleton hero. Reuses the
+	// canon episodes + episode-texts repos already bound to the fat
+	// composer; no new SQL.
+	nextEpisodeAdapter := seriesdetail.NewNextEpisodeAdapter(sdEpisodesRepo, sdEpisodeTextsRepo, nil)
+
+	// B1b-1 — SkeletonComposer: the canon-only above-fold read behind
+	// GET /series/:id. Shares every repo handle + the mediaResolver +
+	// seriesFreshenerHolder with the fat composer so late-bound side
+	// effects and freshness cycles stay identical.
+	skeletonComposer := seriesdetail.NewSkeletonComposer(seriesdetail.SkeletonDeps{
+		Series:            sdSeriesRepo,
+		SeriesTexts:       sdSeriesTextsRepo,
+		Genres:            sdGenresRepo,
+		Keywords:          sdKeywordsRepo,
+		Networks:          sdNetworksRepo,
+		Companies:         sdCompaniesRepo,
+		ContentRatings:    sdContentRatingsRepo,
+		Videos:            sdVideosRepo,
+		Seasons:           sdSeasonsRepo,
+		SeriesCacheLookup: sdSeriesCacheRepo,
+		NextEpisode:       nextEpisodeAdapter,
+		Freshener:         seriesFreshenerHolder,
+		MediaResolver:     mediaResolver,
+		Logger:            composerLog,
+	})
+
 	globalComposerUC, err := seriesdetail.NewGlobalComposerUseCase(seriesdetail.GlobalComposerDeps{
-		CacheLookup:  sdSeriesCacheRepo,
-		Composer:     composer,
-		TMDBFallback: tmdbFallbackUC,
-		Logger:       composerLog,
+		Skeleton: skeletonComposer,
+		Logger:   composerLog,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("global composer use case: %w", err)
@@ -470,6 +496,7 @@ func BuildSeriesDetail(
 		GlobalComposerUC:             globalComposerUC,
 		TMDBFallbackUC:               tmdbFallbackUC,
 		GlobalSeriesHandler:          globalSeriesHandler,
+		SkeletonComposer:             skeletonComposer,
 		OverviewHandler:              overviewHandler,
 		GlobalOverviewHandler:        globalOverviewHandler,
 		RecommendationsHandler:       recommendationsHandler,

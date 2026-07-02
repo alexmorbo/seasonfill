@@ -2865,14 +2865,12 @@ export type paths = {
             readonly cookie?: never;
         };
         /**
-         * Composite series detail document (global)
-         * @description Composite series-detail document keyed by canonical series.id.
-         *     Resolves the preferred Sonarr instance automatically (lex-first
-         *     instance that carries the series in series_cache). When the
-         *     series is in zero libraries (TMDB-only) the response carries
-         *     `in_library_instances=[]` and the per-instance branches
-         *     (Library / Download / Seasons / Cast) are empty — the Hero
-         *     block is populated from the canon row.
+         * Above-fold canon series skeleton (global)
+         * @description Above-fold canon skeleton keyed by canonical series.id: hero +
+         *     sidebar + season_count + in_library_instances. Sonarr library
+         *     state, torrents, seasons list, cast, overview and
+         *     recommendations are separate endpoints (§7.0). TMDB-only series
+         *     return the same shape with in_library_instances=[].
          */
         readonly get: {
             readonly parameters: {
@@ -2895,7 +2893,7 @@ export type paths = {
                         readonly [name: string]: unknown;
                     };
                     content: {
-                        readonly "application/json": components["schemas"]["dto.SeriesDetailResponse"];
+                        readonly "application/json": components["schemas"]["seriesdetail.SkeletonDTO"];
                     };
                 };
                 /** @description Bad Request */
@@ -4171,15 +4169,6 @@ export type components = {
              */
             readonly oidc_ready?: boolean;
         };
-        readonly "dto.CastMember": {
-            readonly character_name?: string;
-            readonly credit_order?: number;
-            readonly episode_count?: number;
-            readonly name?: string;
-            readonly person_id?: number;
-            readonly profile_asset?: string;
-            readonly tmdb_person_id?: number;
-        };
         readonly "dto.CastPageMember": {
             /**
              * @description CharacterName is the role on this series. nil when the
@@ -4231,17 +4220,6 @@ export type components = {
              *     member comes from TMDB aggregate_credits).
              */
             readonly tmdb_id?: number;
-        };
-        /**
-         * @description ContentRating is the displayed age-rating badge. nil when no
-         *     content_ratings row matches the user locale OR en-US OR US
-         *     fallback.
-         */
-        readonly "dto.ContentRatingBadge": {
-            /** @example US */
-            readonly country_code?: string;
-            /** @example TV-MA */
-            readonly rating?: string;
         };
         readonly "dto.CounterBucketDTO": {
             readonly date?: string;
@@ -4371,22 +4349,6 @@ export type components = {
             readonly items?: readonly components["schemas"]["dto.Decision"][];
             readonly next_cursor?: string;
         };
-        /**
-         * @description Download is the single active in-flight Sonarr queue item, if
-         *     any. nil when the queue is empty OR Sonarr is unreachable
-         *     (then degraded[] includes "sonarr").
-         */
-        readonly "dto.DownloadChip": {
-            readonly download_id?: string;
-            readonly episode_id?: number;
-            /** @example torrent */
-            readonly protocol?: string;
-            readonly queue_id?: number;
-            readonly season_number?: number;
-            /** @example downloading */
-            readonly status?: string;
-            readonly title?: string;
-        };
         readonly "dto.Episode": {
             readonly air_date?: string;
             /** @example 5.1 */
@@ -4443,20 +4405,6 @@ export type components = {
             readonly code?: string;
             /** @example unauthorized */
             readonly error?: string;
-        };
-        /**
-         * @description ExternalLinks is the IMDb / TMDB / TVDB / homepage footer row.
-         *     Always present (struct is never nil); inner fields are
-         *     individually nil when the corresponding id is missing.
-         */
-        readonly "dto.ExternalLinks": {
-            readonly homepage?: string;
-            /** @example tt0903747 */
-            readonly imdb_id?: string;
-            /** @example 1396 */
-            readonly tmdb_id?: number;
-            /** @example 81189 */
-            readonly tvdb_id?: number;
         };
         readonly "dto.ExternalServiceDTO": {
             readonly api_key_configured?: boolean;
@@ -5066,12 +5014,6 @@ export type components = {
             /** @example ru */
             readonly preferred_language?: string;
         };
-        readonly "dto.NetworkChip": {
-            readonly id?: number;
-            readonly logo_asset?: string;
-            /** @example AMC */
-            readonly name?: string;
-        };
         /**
          * @description NextEpisodeToAir is the earliest future-dated episode (monitored
          *     preferred). Title is nil by design — titles live in the canon episode
@@ -5116,11 +5058,6 @@ export type components = {
             readonly vote_count?: number;
             readonly year?: number;
         };
-        /**
-         * @description Overview is the localised description block. nil when no
-         *     series_texts row exists in any language (rare — cold series
-         *     before TMDB sync).
-         */
         readonly "dto.OverviewAside": {
             /**
              * @description Awards is the OMDb awards line ("Won 16 Emmys..."). nil when
@@ -5244,17 +5181,6 @@ export type components = {
             readonly url: string;
             /** @example admin */
             readonly username?: string;
-        };
-        /**
-         * @description Ratings — TMDB and IMDb sides; nil when the source has no
-         *     score for this series. Two-rating row is the design brief's
-         *     RatingDuo component.
-         */
-        readonly "dto.RatingScore": {
-            /** @example 8.7 */
-            readonly score?: number;
-            /** @example 2031 */
-            readonly votes?: number;
         };
         readonly "dto.ReadyStatus": {
             /** @example true */
@@ -5641,175 +5567,6 @@ export type components = {
              */
             readonly total_episode_count?: number;
         };
-        readonly "dto.SeriesDetailResponse": {
-            /**
-             * @description Cast is the top-10 cast carousel. Empty slice when no
-             *     series_people rows exist (cold series or TMDB stub).
-             */
-            readonly cast?: readonly components["schemas"]["dto.CastMember"][];
-            /**
-             * @description Degraded is the list of sources that produced stale or absent
-             *     data. UI renders a stale affordance per source. Empty slice
-             *     when every source is fresh.
-             */
-            readonly degraded?: readonly string[];
-            readonly download?: components["schemas"]["dto.DownloadChip"];
-            readonly external_links?: components["schemas"]["dto.ExternalLinks"];
-            readonly hero?: components["schemas"]["dto.SeriesHero"];
-            /**
-             * @description InLibraryInstances is the sorted list of Sonarr instance names that
-             *     currently carry this series (canonical series.id resolution). Empty
-             *     slice `[]` when the series is in zero libraries (TMDB-only canon).
-             *     Always present on the wire — the FE branches "Add to Sonarr" vs
-             *     per-instance widgets on `length > 0`. Story 491 / N-1a.
-             * @example [
-             *       "homelab",
-             *       "beta"
-             *     ]
-             */
-            readonly in_library_instances?: readonly string[];
-            /**
-             * @description Instance is the Sonarr instance the request hit.
-             *     Echoed for clients that need to disambiguate cross-instance
-             *     state (a series can exist on multiple instances).
-             * @example alpha
-             */
-            readonly instance?: string;
-            /**
-             * @description Lang is the BCP-47 language code the response was rendered
-             *     in. Echoes the request when present; defaults to "en-US"
-             *     when the request omitted ?lang= or sent an invalid value.
-             * @example ru-RU
-             */
-            readonly lang?: string;
-            readonly library?: components["schemas"]["dto.LibraryStrip"];
-            readonly overview?: components["schemas"]["dto.OverviewAside"];
-            /**
-             * @description Recent is the last-5 activity events for the Library tile.
-             *     EMPTY in this story (recent_activity_deferred — see §9 note);
-             *     frontend treats empty as "no recent activity yet".
-             */
-            readonly recent?: readonly components["schemas"]["dto.RecentEvent"][];
-            /**
-             * @description Recommendations is the "you might also like" carousel. Empty
-             *     when no rows in series_recommendations (cold series, or TMDB
-             *     returned no recommendations).
-             */
-            readonly recommendations?: readonly components["schemas"]["dto.Recommendation"][];
-            /**
-             * @description Seasons is the seasons-accordion data — one entry per season,
-             *     episodes included (lazy-load avoided per PRD §5.5: TMDB sync
-             *     pulls all seasons eagerly on first pass, so reading them all
-             *     here is cheap).
-             */
-            readonly seasons?: readonly components["schemas"]["dto.Season"][];
-            /**
-             * @description SeriesID is the resolved canonical series.id. Useful to
-             *     frontend for sibling endpoints (cast, person) that key on
-             *     canonical id rather than Sonarr id.
-             * @example 42
-             */
-            readonly series_id?: number;
-            /**
-             * @description SonarrSeriesID is the Sonarr-side id from the URL.
-             * @example 123
-             */
-            readonly sonarr_series_id?: number;
-            /**
-             * @description SyncedAt is the request timestamp (server-side now()); the
-             *     frontend uses it for the "synced Xs ago" microcopy.
-             */
-            readonly synced_at?: string;
-            readonly torrents?: components["schemas"]["dto.TorrentsHint"];
-        };
-        /**
-         * @description Hero is the page header (backdrop + poster + title + meta).
-         *     Always present (the canon row always exists post-208 cutover).
-         */
-        readonly "dto.SeriesHero": {
-            readonly backdrop_asset?: string;
-            readonly content_rating?: components["schemas"]["dto.ContentRatingBadge"];
-            /**
-             * @description Countries is the full origin-country list (ISO 3166-1 alpha-2 each).
-             *     Empty/nil → FE hides the "Страны" row. FE localises each code via
-             *     Intl.DisplayNames and switches the label between singular/plural
-             *     based on length. Sourced from TMDB's `origin_country` array.
-             * @example [
-             *       "US",
-             *       "CA"
-             *     ]
-             */
-            readonly countries?: readonly string[];
-            /**
-             * @description Country is the ISO 3166-1 alpha-2 origin country code (e.g. "US",
-             *     "RU"). FE maps the token to a localised label. nil when the canon
-             *     row has no origin_country (cold series). DEPRECATED for new consumers:
-             *     use Countries (plural) instead — Country is kept as Countries[0] for
-             *     back-compat with pre-365 clients.
-             * @example US
-             */
-            readonly country?: string;
-            /**
-             * @description Genres are localised chips (max 5 rendered, the composer
-             *     returns all available — frontend caps display).
-             */
-            readonly genres?: readonly components["schemas"]["dto.TaxonomyChip"][];
-            readonly imdb_rating?: components["schemas"]["dto.RatingScore"];
-            /** @description Networks are the network-logo strip (max 3 displayed). */
-            readonly networks?: readonly components["schemas"]["dto.NetworkChip"][];
-            readonly next_episode?: components["schemas"]["dto.NextEpisode"];
-            /**
-             * @description OriginalLanguage is the BCP-47 / ISO 639-1 code (e.g. "en", "ru").
-             *     nil when canon.original_language is NULL. FE renders the localised
-             *     display name via Intl.DisplayNames({type:'language'}).
-             * @example en
-             */
-            readonly original_language?: string;
-            readonly original_title?: string;
-            readonly poster_asset?: string;
-            /**
-             * @description PremiereDate is the series' first-air-date as ISO YYYY-MM-DD. nil
-             *     when canon.first_air_date is NULL. FE formats locale-aware via
-             *     Intl.DateTimeFormat. Date-only (no timezone) — the underlying TMDB
-             *     field is a calendar date, not an instant.
-             * @example 2026-05-28
-             */
-            readonly premiere_date?: string;
-            /** @example 45 */
-            readonly runtime_minutes?: number;
-            /**
-             * @description Status is one of "continuing", "ended", "canceled",
-             *     "in_production", "upcoming", or "unknown". Mapping from
-             *     TMDB / Sonarr → these tokens lives in the composer; frontend
-             *     renders the pill colour from this enum, NOT from the raw
-             *     upstream string.
-             * @example ended
-             */
-            readonly status?: string;
-            /**
-             * @description Studio is the headline production company name (first row of
-             *     series_companies ordered by position). nil when the series has
-             *     no companies attached (cold series, no TMDB sync).
-             * @example Sony Pictures Television
-             */
-            readonly studio?: string;
-            readonly tagline?: string;
-            /** @example Breaking Bad */
-            readonly title?: string;
-            /**
-             * @description TitleLanguage is the BCP-47 language the Title was served in.
-             *     Empty when no series_texts row was found and the canon row's
-             *     own title was used.
-             * @example ru-RU
-             */
-            readonly title_language?: string;
-            readonly tmdb_rating?: components["schemas"]["dto.RatingScore"];
-            readonly trailer?: components["schemas"]["dto.Trailer"];
-            /** @example 2013 */
-            readonly year_end?: number;
-            /** @example 2008 */
-            readonly year_start?: number;
-        };
         readonly "dto.SeriesLibraryResponse": {
             readonly in_progress?: components["schemas"]["dto.InProgress"];
             /** @example homelab */
@@ -6138,35 +5895,6 @@ export type components = {
             /** @example 8589934592 */
             readonly uploaded_bytes?: number;
         };
-        /**
-         * @description Torrents is the torrent inventory section (design brief §4).
-         *     In this story it is always SyncPending=true + Items=[] — full
-         *     implementation comes from stories A-1..A-4 (219..222).
-         */
-        readonly "dto.TorrentsHint": {
-            /** @description Count is the number of known torrents; 0 in this story. */
-            readonly count?: number;
-            /**
-             * @description SyncPending=true means "torrent inventory not yet available
-             *     for this series". UI hides the section or shows a quiet
-             *     skeleton — design brief §4.5 covers the empty-state shapes.
-             */
-            readonly sync_pending?: boolean;
-            /** @description TotalSizeBytes — aggregate size; 0 in this story. */
-            readonly total_size_bytes?: number;
-        };
-        /**
-         * @description Trailer is the single best official YouTube trailer. nil when
-         *     no videos row matches (no trailer hidden by design brief §2.1).
-         */
-        readonly "dto.Trailer": {
-            /** @example X9F1jh5jc-Y */
-            readonly key?: string;
-            readonly name?: string;
-            readonly published_at?: string;
-            /** @example YouTube */
-            readonly site?: string;
-        };
         readonly "dto.WatchdogBlacklistItem": {
             /** @example 3 */
             readonly consecutive?: number;
@@ -6372,6 +6100,71 @@ export type components = {
             /** @example https://sf.example.com/api/v1/webhook/sonarr/homelab */
             readonly url?: string;
         };
+        readonly "seriesdetail.CompanyRef": {
+            readonly logo_asset?: string;
+            readonly name?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "seriesdetail.GenreRef": {
+            readonly name?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "seriesdetail.KeywordRef": {
+            readonly name?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "seriesdetail.NetworkRef": {
+            readonly logo_asset?: string;
+            readonly name?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "seriesdetail.SkeletonDTO": {
+            readonly degraded?: readonly string[];
+            readonly hero?: {
+                readonly backdrop_asset?: components["schemas"]["values.MediaHash"];
+                readonly content_rating?: components["schemas"]["values.ContentRating"];
+                readonly genres?: readonly components["schemas"]["seriesdetail.GenreRef"][];
+                readonly imdb_rating?: components["schemas"]["values.Rating"];
+                readonly next_episode?: components["schemas"]["values.NextEpisodeCanon"];
+                readonly omdb_rating?: components["schemas"]["values.Rating"];
+                readonly original_title?: components["schemas"]["values.Title"];
+                readonly poster_asset?: components["schemas"]["values.MediaHash"];
+                readonly runtime_minutes?: components["schemas"]["values.Minutes"];
+                readonly tagline?: components["schemas"]["values.Tagline"];
+                readonly title?: components["schemas"]["values.Title"];
+                readonly tmdb_rating?: components["schemas"]["values.Rating"];
+                readonly trailer_key?: components["schemas"]["values.TrailerKey"];
+                readonly year_end?: components["schemas"]["values.Year"];
+                readonly year_start?: components["schemas"]["values.Year"];
+            };
+            readonly in_library_instances?: readonly string[];
+            readonly lang?: components["schemas"]["values.LanguageTag"];
+            readonly season_count?: number;
+            readonly series_id?: number;
+            readonly sidebar?: {
+                readonly first_air_date?: string;
+                readonly keywords?: readonly components["schemas"]["seriesdetail.KeywordRef"][];
+                readonly networks?: readonly components["schemas"]["seriesdetail.NetworkRef"][];
+                readonly origin_countries?: readonly components["schemas"]["values.CountryCode"][];
+                readonly original_language?: components["schemas"]["values.LangCode"];
+                readonly production_companies?: readonly components["schemas"]["seriesdetail.CompanyRef"][];
+                readonly status?: components["schemas"]["values.SeriesStatus"];
+            };
+            readonly synced_at?: string;
+        };
+        readonly "values.ContentRating": Record<string, never>;
+        readonly "values.CountryCode": Record<string, never>;
+        readonly "values.LangCode": Record<string, never>;
+        readonly "values.LanguageTag": Record<string, never>;
+        readonly "values.MediaHash": Record<string, never>;
+        readonly "values.Minutes": Record<string, never>;
+        readonly "values.NextEpisodeCanon": Record<string, never>;
+        readonly "values.Rating": Record<string, never>;
+        readonly "values.SeriesStatus": Record<string, never>;
+        readonly "values.Tagline": Record<string, never>;
+        readonly "values.Title": Record<string, never>;
+        readonly "values.TrailerKey": Record<string, never>;
+        readonly "values.Year": Record<string, never>;
     };
     responses: never;
     parameters: never;

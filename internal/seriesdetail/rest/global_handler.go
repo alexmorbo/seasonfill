@@ -61,19 +61,17 @@ func NewGlobalSeriesHandler(
 
 // Get handles GET /api/v1/series/:id.
 //
-// @Summary     Composite series detail document (global)
-// @Description Composite series-detail document keyed by canonical series.id.
-// @Description Resolves the preferred Sonarr instance automatically (lex-first
-// @Description instance that carries the series in series_cache). When the
-// @Description series is in zero libraries (TMDB-only) the response carries
-// @Description `in_library_instances=[]` and the per-instance branches
-// @Description (Library / Download / Seasons / Cast) are empty — the Hero
-// @Description block is populated from the canon row.
+// @Summary     Above-fold canon series skeleton (global)
+// @Description Above-fold canon skeleton keyed by canonical series.id: hero +
+// @Description sidebar + season_count + in_library_instances. Sonarr library
+// @Description state, torrents, seasons list, cast, overview and
+// @Description recommendations are separate endpoints (§7.0). TMDB-only series
+// @Description return the same shape with in_library_instances=[].
 // @Tags        series
 // @Produce     json
 // @Param       id    path      int     true   "Canonical series.id"
 // @Param       lang  query     string  false  "BCP-47 language tag (default en-US)"
-// @Success     200   {object}  dto.SeriesDetailResponse
+// @Success     200   {object}  seriesdetail.SkeletonDTO
 // @Failure     400   {object}  dto.ErrorResponse
 // @Failure     401   {object}  dto.ErrorResponse
 // @Failure     404   {object}  dto.ErrorResponse
@@ -91,12 +89,12 @@ func (h *GlobalSeriesHandler) Get(c *gin.Context) {
 	lang := strings.TrimSpace(c.Query("lang"))
 
 	ctx := c.Request.Context()
-	detail, err := h.composer.Get(ctx, seriesID, lang)
+	skeleton, err := h.composer.Get(ctx, seriesID, lang)
 	if err != nil {
-		_ = c.Error(err)
+		_ = c.Error(err) // middleware maps ports.ErrNotFound → 404
 		return
 	}
-	c.JSON(http.StatusOK, toSeriesDetailResponse(detail))
+	c.JSON(http.StatusOK, skeleton)
 }
 
 // Regrab handles POST /api/v1/series/:id/regrab.
