@@ -59,7 +59,14 @@ type SeriesWorkerDeps struct {
 	// construct SeriesWorkerDeps without it stay green — mirrors the
 	// Probe / MediaResolver / RecCanonWriter nil-OK posture.
 	SeasonTexts SeasonTextsRepo
-	People      PeopleRepo
+	// SeriesMediaTexts — C-posters-A (Story 584a): optional per-language
+	// poster/backdrop write port. Nil-OK — when nil, RefreshSeriesText
+	// skips the per-lang media upsert and reads fall back to canon
+	// series.poster_asset. Mirrors the SeasonTexts / MediaResolver nil-OK
+	// posture. Production wiring injects
+	// *enrichpersistence.SeriesMediaTextsRepository.
+	SeriesMediaTexts SeriesMediaTextsRepo
+	People           PeopleRepo
 	// PersonCredits — D-7 (468a): the series_worker writes
 	// series-level credits into the polymorphic person_credits table
 	// (media_type='tv', tmdb_media_id=<series.tmdb_id>) instead of the

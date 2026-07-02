@@ -116,12 +116,50 @@ func (w *SeriesWorker) RefreshSeriesText(
 		Tagline:  nonEmptyStringPtr(tv.Tagline),
 	}
 
-	// 6. Atomic write — series_texts.UPSERT + stamp UPDATE in one tx.
-	//    Stamp NEVER written without a successful UPSERT.
+	// 5b. Per-language poster/backdrop (C-posters-A, Story 584a). The
+	//     SAME GetTV(lang) payload carries tv.PosterPath / tv.BackdropPath
+	//     (identical struct A4 reads) — zero extra TMDB round-trips.
+	//     Eager-resolve the default-size hashes OUTSIDE the tx: Resolve
+	//     writes a media_assets pending row (EnsurePending) + enqueues the
+	//     download, so the per-lang asset pre-warms into the pipeline
+	//     instead of only fetching on a user's first read. media_assets is
+	//     a different natural key — nesting the Resolve DB write inside the
+	//     series_texts tx risks cross-table lock contention (A4 lesson,
+	//     series_worker_refresh_media_assets.go:45-53). nil resolver → hash
+	//     stays nil (asset path still stored + read paths re-derive).
+	var posterHash, backdropHash *string
+	posterPath := nonEmptyStringPtr(tv.PosterPath)
+	backdropPath := nonEmptyStringPtr(tv.BackdropPath)
+	if w.deps.MediaResolver != nil {
+		if posterPath != nil {
+			posterHash = w.deps.MediaResolver.Resolve(ctx, posterPath, "w342", "poster_w342")
+		}
+		if backdropPath != nil {
+			backdropHash = w.deps.MediaResolver.Resolve(ctx, backdropPath, "w1280", "backdrop_w1280")
+		}
+	}
+
+	// 6. Atomic write — series_texts UPSERT + (nil-OK) series_media_texts
+	//    UPSERT + stamp UPDATE in one tx. Stamp NEVER written without a
+	//    successful series_texts UPSERT.
 	now := w.deps.Clock()
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
 		if err := w.deps.SeriesTexts.Upsert(txCtx, text); err != nil {
 			return fmt.Errorf("upsert series_texts: %w", err)
+		}
+		if w.deps.SeriesMediaTexts != nil {
+			media := series.SeriesMediaText{
+				SeriesID:      seriesID,
+				Language:      lang,
+				PosterAsset:   posterPath,
+				PosterHash:    posterHash,
+				BackdropAsset: backdropPath,
+				BackdropHash:  backdropHash,
+				EnrichedAt:    &now,
+			}
+			if err := w.deps.SeriesMediaTexts.Upsert(txCtx, media); err != nil {
+				return fmt.Errorf("upsert series_media_texts: %w", err)
+			}
 		}
 		if err := w.deps.Series.MarkTextSynced(txCtx, seriesID, now); err != nil {
 			return fmt.Errorf("mark text synced: %w", err)
@@ -134,6 +172,8 @@ func (w *SeriesWorker) RefreshSeriesText(
 
 	durMs := int(w.deps.Clock().Sub(start).Milliseconds())
 	log.InfoContext(ctx, "enrichment.series.refresh_text.ok",
+		slog.Bool("poster_present", posterPath != nil),
+		slog.Bool("backdrop_present", backdropPath != nil),
 		slog.Int("duration_ms", durMs))
 	return nil
 }

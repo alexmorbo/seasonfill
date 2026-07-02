@@ -652,6 +652,26 @@ type SeasonTextModel struct {
 
 func (SeasonTextModel) TableName() string { return "season_texts" }
 
+// SeriesMediaTextModel — one per-language poster/backdrop row per
+// (series_id, language). Variant A (Story 584). Mirrors SeriesTextModel's
+// PK shape; the media columns hold the raw TMDB paths (read source of
+// truth) plus the eager default-size hashes (pre-warm record). EnrichedAt
+// is the TMDB-worker freshness stamp; NULL until the worker runs. Non-TMDB
+// write paths leave the media columns nil and the Upsert COALESCEs to
+// preserve any previously-set value.
+type SeriesMediaTextModel struct {
+	SeriesID      domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	Language      string          `gorm:"primaryKey;column:language;type:text"`
+	PosterAsset   *string         `gorm:"column:poster_asset;type:text"`
+	PosterHash    *string         `gorm:"column:poster_hash;type:text"`
+	BackdropAsset *string         `gorm:"column:backdrop_asset;type:text"`
+	BackdropHash  *string         `gorm:"column:backdrop_hash;type:text"`
+	EnrichedAt    *time.Time      `gorm:"column:enriched_at"`
+	UpdatedAt     time.Time       `gorm:"column:updated_at;not null"`
+}
+
+func (SeriesMediaTextModel) TableName() string { return "series_media_texts" }
+
 // EpisodeStateModel — per-instance file state. PK
 // (instance_name, episode_id) — file state is instance-scoped (§5.11).
 type EpisodeStateModel struct {

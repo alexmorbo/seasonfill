@@ -587,6 +587,7 @@ func addI18nTexts(s *atlasschema.Schema, d Dialect) {
 		buildSeriesTextsTable(d, series),
 		buildEpisodeTextsTable(d, episodes),
 		buildSeasonTextsTable(d, series),
+		buildSeriesMediaTextsTable(d, series),
 	)
 }
 
@@ -663,6 +664,57 @@ func buildSeasonTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlassche
 		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID, seasonNumber, language)).
 		AddForeignKeys(
 			atlasschema.NewForeignKey("season_texts_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildSeriesMediaTextsTable returns the series_media_texts table
+// (Story 584 C-posters-A):
+//
+//	PK (series_id, language)                 -- mirrors series_texts
+//	columns: poster_asset text NULL, poster_hash text NULL,
+//	         backdrop_asset text NULL, backdrop_hash text NULL,
+//	         enriched_at timestamptz NULL,
+//	         updated_at timestamptz NOT NULL DEFAULT now()
+//	FK series_id → series(id) NO ACTION (canonical-to-canonical, mirrors
+//	                                     series_texts / season_texts).
+//
+// Per-language TMDB best poster/backdrop paths are written by the
+// RefreshSeriesText narrow worker (Story 584a, piggybacked on the existing
+// per-lang GetTV call) and read by the three C-posters-B read paths
+// (hero / recommendations / grid) with the ru-RU → en-US → canon
+// poster_asset fallback chain. *_asset are the raw TMDB paths (read source
+// of truth); *_hash are the eager default-size hashes the worker mints via
+// MediaResolver (pre-warm record). enriched_at is the freshness stamp;
+// NULL until the worker runs.
+func buildSeriesMediaTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	seriesID := fkColumn(d, "series_id", false /* not null */)
+	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
+	posterAsset := atlasschema.NewNullStringColumn("poster_asset", "text")
+	posterHash := atlasschema.NewNullStringColumn("poster_hash", "text")
+	backdropAsset := atlasschema.NewNullStringColumn("backdrop_asset", "text")
+	backdropHash := atlasschema.NewNullStringColumn("backdrop_hash", "text")
+	enrichedAt := timestampColumn(d, "enriched_at", false /* withDefault */, false /* notNull */)
+	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("series_media_texts").
+		AddColumns(
+			seriesID,
+			language,
+			posterAsset,
+			posterHash,
+			backdropAsset,
+			backdropHash,
+			enrichedAt,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID, language)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("series_media_texts_series_id_fkey").
 				AddColumns(seriesID).
 				SetRefTable(seriesTable).
 				AddRefColumns(parentRefCol(seriesTable)).

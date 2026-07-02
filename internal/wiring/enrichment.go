@@ -412,7 +412,8 @@ func BuildEnrichment(
 		Seasons:          repos.Seasons,
 		Episodes:         repos.Episodes,
 		EpisodeTexts:     repos.EpisodeTexts,
-		SeasonTexts:      repos.SeasonTexts, // B3b (Story 581) — nil-OK
+		SeasonTexts:      repos.SeasonTexts,      // B3b (Story 581) — nil-OK
+		SeriesMediaTexts: repos.SeriesMediaTexts, // C-posters-A (Story 584a) — nil-OK
 		People:           repos.People,
 		PersonCredits:    repos.PersonCredits,
 		Genres:           repos.Genres,
@@ -938,16 +939,19 @@ type EnrichmentRepoBundle struct {
 	// consumed by SeriesWorker.RefreshSeasonSlim. Production impl is
 	// *enrichpersistence.SeasonTextsRepository (B3a). Nil-OK — when nil
 	// the worker skips the season_texts step (episodes/texts still write).
-	SeasonTexts     appenrich.SeasonTextsRepo
-	People          peopleRepoCombined
-	Genres          appenrich.GenresRepo
-	Keywords        appenrich.KeywordsRepo
-	Networks        appenrich.NetworksRepo
-	Companies       appenrich.CompaniesRepo
-	Videos          appenrich.VideosRepoPort
-	ContentRatings  appenrich.ContentRatingsRepoPort
-	ExternalIDs     appenrich.ExternalIDsRepoPort
-	Recommendations appenrich.RecommendationsRepoPort
+	SeasonTexts appenrich.SeasonTextsRepo
+	// SeriesMediaTexts — C-posters-A (Story 584a): per-language poster
+	// write port. Nil-OK. *enrichpersistence.SeriesMediaTextsRepository.
+	SeriesMediaTexts appenrich.SeriesMediaTextsRepo
+	People           peopleRepoCombined
+	Genres           appenrich.GenresRepo
+	Keywords         appenrich.KeywordsRepo
+	Networks         appenrich.NetworksRepo
+	Companies        appenrich.CompaniesRepo
+	Videos           appenrich.VideosRepoPort
+	ContentRatings   appenrich.ContentRatingsRepoPort
+	ExternalIDs      appenrich.ExternalIDsRepoPort
+	Recommendations  appenrich.RecommendationsRepoPort
 	// SeriesRecCanon — Story 571 B-54: narrow rec-media overwrite port
 	// consumed by A3b RefreshRecommendations. Production impl is the same
 	// *SeriesRepository that satisfies Series above (Go duck-typing on

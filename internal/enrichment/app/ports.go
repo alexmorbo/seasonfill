@@ -220,6 +220,17 @@ type SeasonTextsRepo interface {
 	Upsert(ctx context.Context, t series.SeasonText) error
 }
 
+// SeriesMediaTextsRepo persists one per-language poster/backdrop row
+// (series_media_texts.Upsert). Nil-OK on SeriesWorkerDeps — when nil the
+// RefreshSeriesText path skips the per-lang media write entirely and the
+// read paths fall back to canon series.poster_asset (Story 584a). The
+// production impl is enrichpersistence.SeriesMediaTextsRepository, whose
+// COALESCE-preserve Upsert guards every column so a partial write never
+// blanks a previously-fetched value.
+type SeriesMediaTextsRepo interface {
+	Upsert(ctx context.Context, t series.SeriesMediaText) error
+}
+
 type PeopleRepo interface {
 	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (people.Person, error)
 	Upsert(ctx context.Context, p people.Person) (int64, error)

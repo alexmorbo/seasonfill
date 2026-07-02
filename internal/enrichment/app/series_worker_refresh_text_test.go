@@ -214,6 +214,142 @@ func TestSeriesWorker_RefreshSeriesText_UpsertError_NoStamp(t *testing.T) {
 	assert.Nil(t, f.series.rows[1].EnrichmentTextSyncedAt)
 }
 
+// ---- C-posters-A (Story 584a) per-lang media populate --------------
+
+// fakeSeriesMediaTextsRepo records every Upsert. `last` exposes the most
+// recent row for single-write assertions.
+type fakeSeriesMediaTextsRepo struct {
+	rec  *callRecord
+	rows []series.SeriesMediaText
+}
+
+func (f *fakeSeriesMediaTextsRepo) Upsert(_ context.Context, t series.SeriesMediaText) error {
+	f.rec.add("SeriesMediaTexts.Upsert")
+	f.rows = append(f.rows, t)
+	return nil
+}
+
+func (f *fakeSeriesMediaTextsRepo) last() series.SeriesMediaText {
+	return f.rows[len(f.rows)-1]
+}
+
+// newMediaTextFixture wires a refresh fixture with the per-lang media
+// write port + a MediaResolver spy attached, plus a custom TV payload so
+// the poster/backdrop paths are controllable. resolver / mediaTexts may be
+// nil to exercise the nil-OK branches.
+func newMediaTextFixture(
+	t *testing.T,
+	tmdbID *domain.TMDBID,
+	tv *tmdb.TVResponse,
+	resolver MediaResolver,
+	mediaTexts SeriesMediaTextsRepo,
+) *workerFixture {
+	t.Helper()
+	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{})
+	deps := f.worker.deps
+	deps.MediaResolver = resolver
+	deps.SeriesMediaTexts = mediaTexts
+	w, err := NewSeriesWorker(deps)
+	require.NoError(t, err)
+	f.worker = w
+	f.seedCanon(1, tmdbID)
+	return f
+}
+
+func TestSeriesWorker_RefreshSeriesText_PopulatesMediaRow(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	tv := mediaTVPayload(42, "/ru.jpg", "/ru-bd.jpg", nil)
+	resolver := &fakeMediaResolver{}
+	media := &fakeSeriesMediaTextsRepo{rec: nil}
+	f := newMediaTextFixture(t, &tmdbID, tv, resolver, media)
+	media.rec = f.rec
+
+	require.NoError(t, f.worker.RefreshSeriesText(context.Background(), 1, "ru-RU", true))
+
+	// series_texts + series_media_texts + stamp all committed in the same tx.
+	require.Len(t, f.seriesTexts.rows, 1, "series_texts still written")
+	require.Len(t, media.rows, 1, "exactly one series_media_texts row")
+	assert.True(t, hasCall(f.rec.list(), "SeriesTexts.Upsert"))
+	assert.True(t, hasCall(f.rec.list(), "SeriesMediaTexts.Upsert"))
+	assert.True(t, hasCall(f.rec.list(), "Series.MarkTextSynced"))
+
+	row := media.last()
+	assert.Equal(t, domain.SeriesID(1), row.SeriesID)
+	assert.Equal(t, "ru-RU", row.Language)
+	require.NotNil(t, row.PosterAsset)
+	assert.Equal(t, "/ru.jpg", *row.PosterAsset)
+	require.NotNil(t, row.BackdropAsset)
+	assert.Equal(t, "/ru-bd.jpg", *row.BackdropAsset)
+	require.NotNil(t, row.EnrichedAt, "EnrichedAt stamped on TMDB write")
+	// Under the unified-resolve contract the spy returns a non-nil hash.
+	require.NotNil(t, row.PosterHash)
+	require.NotNil(t, row.BackdropHash)
+
+	// MediaResolver called with the poster (w342) + backdrop (w1280) sizes.
+	require.Len(t, resolver.calls, 2)
+	assert.Equal(t, "w342", resolver.calls[0].Size)
+	assert.Equal(t, "poster_w342", resolver.calls[0].Kind)
+	require.NotNil(t, resolver.calls[0].Path)
+	assert.Equal(t, "/ru.jpg", *resolver.calls[0].Path)
+	assert.Equal(t, "w1280", resolver.calls[1].Size)
+	assert.Equal(t, "backdrop_w1280", resolver.calls[1].Kind)
+	require.NotNil(t, resolver.calls[1].Path)
+	assert.Equal(t, "/ru-bd.jpg", *resolver.calls[1].Path)
+}
+
+func TestSeriesWorker_RefreshSeriesText_NilMediaTexts_NoPanic(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	tv := mediaTVPayload(42, "/ru.jpg", "/ru-bd.jpg", nil)
+	// SeriesMediaTexts nil → media step skipped; series_texts still written.
+	f := newMediaTextFixture(t, &tmdbID, tv, &fakeMediaResolver{}, nil)
+	require.NoError(t, f.worker.RefreshSeriesText(context.Background(), 1, "ru-RU", true))
+	require.Len(t, f.seriesTexts.rows, 1, "series_texts written despite nil media port")
+	assert.False(t, hasCall(f.rec.list(), "SeriesMediaTexts.Upsert"), "media upsert skipped when port nil")
+	assert.True(t, hasCall(f.rec.list(), "Series.MarkTextSynced"))
+}
+
+func TestSeriesWorker_RefreshSeriesText_EmptyPaths_ResolverNotCalled(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	tv := mediaTVPayload(42, "", "", nil) // no poster/backdrop
+	resolver := &fakeMediaResolver{}
+	media := &fakeSeriesMediaTextsRepo{}
+	f := newMediaTextFixture(t, &tmdbID, tv, resolver, media)
+	media.rec = f.rec
+
+	require.NoError(t, f.worker.RefreshSeriesText(context.Background(), 1, "ru-RU", true))
+	assert.Empty(t, resolver.calls, "Resolve NOT called for empty paths")
+	require.Len(t, media.rows, 1, "media row still written (nil asset/hash)")
+	row := media.last()
+	assert.Nil(t, row.PosterAsset)
+	assert.Nil(t, row.BackdropAsset)
+	assert.Nil(t, row.PosterHash)
+	assert.Nil(t, row.BackdropHash)
+	require.NotNil(t, row.EnrichedAt)
+}
+
+func TestSeriesWorker_RefreshSeriesText_NilResolver_AssetStoredHashNil(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	tv := mediaTVPayload(42, "/ru.jpg", "/ru-bd.jpg", nil)
+	media := &fakeSeriesMediaTextsRepo{}
+	// nil MediaResolver → asset paths stored, hashes stay nil.
+	f := newMediaTextFixture(t, &tmdbID, tv, nil, media)
+	media.rec = f.rec
+
+	require.NoError(t, f.worker.RefreshSeriesText(context.Background(), 1, "ru-RU", true))
+	require.Len(t, media.rows, 1)
+	row := media.last()
+	require.NotNil(t, row.PosterAsset)
+	assert.Equal(t, "/ru.jpg", *row.PosterAsset)
+	require.NotNil(t, row.BackdropAsset)
+	assert.Equal(t, "/ru-bd.jpg", *row.BackdropAsset)
+	assert.Nil(t, row.PosterHash, "nil resolver → poster_hash nil")
+	assert.Nil(t, row.BackdropHash, "nil resolver → backdrop_hash nil")
+}
+
 // seriesNotFoundRepo wraps fakeSeriesRepo and returns
 // SeriesNotFoundError on Get to exercise the errors.As branch in the
 // worker. Other methods delegate to the inner fake.
