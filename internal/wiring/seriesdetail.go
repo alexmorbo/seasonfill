@@ -458,6 +458,7 @@ func BuildSeriesDetail(
 		CacheLookup:   sdSeriesCacheRepo,
 		Episodes:      sdEpisodesRepo,
 		EpisodeStates: sdEpisodeStatesRepo,
+		SeasonStats:   sdSeasonStatsRepo,
 		GrabHistory:   adapters.NewGrabHistoryAdapter(grabRepo),
 		SonarrFor:     sonarrForFn,
 		SyncTrigger:   adapters.NewLibrarySyncTrigger(scanUC, composerLog),

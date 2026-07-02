@@ -154,6 +154,47 @@ func TestLibraryCompose_HappyPath(t *testing.T) {
 	}, view.SeasonCounts)
 }
 
+// TestLibraryCompose_SeasonCounts_FromSeasonStats — bug #974. episode_states
+// are ALL HasFile=false (stale, exactly like series 58 after files landed
+// post-add), but season_stats.EpisodeFileCount=8 (refreshed by the scan). The
+// per-season counter must read 8 (from season_stats), matching the library-strip
+// aggregate — NOT 0 (the stale episode_states walk).
+func TestLibraryCompose_SeasonCounts_FromSeasonStats(t *testing.T) {
+	t.Parallel()
+	now := fixedNow()
+	entry := series.CacheEntry{
+		InstanceName:      "homelab",
+		SonarrSeriesID:    58,
+		Monitored:         true,
+		EpisodeFileCount:  8,
+		AiredEpisodeCount: 8,
+		SizeOnDiskBytes:   43 << 30,
+		UpdatedAt:         now,
+	}
+	episodes := make([]series.CanonEpisode, 0, 8)
+	states := make([]series.EpisodeState, 0, 8)
+	for i := 1; i <= 8; i++ {
+		episodes = append(episodes, series.CanonEpisode{ID: int64(i), SeasonNumber: 1, EpisodeNumber: i})
+		states = append(states, series.EpisodeState{EpisodeID: domain.EpisodeID(i), HasFile: false, Monitored: false})
+	}
+
+	lc := NewLibraryComposer(LibraryDeps{
+		CacheLookup:   &fakeLibCacheLookup{entries: []series.CacheEntry{entry}},
+		Episodes:      &fakeLibEpisodes{rows: episodes},
+		EpisodeStates: &fakeLibEpisodeStates{rows: states},
+		SeasonStats:   &fakeSeasonStatsPort{rows: []series.SeasonStat{{SeasonNumber: 1, EpisodeFileCount: 8}}},
+		Now:           fixedNow,
+	})
+
+	view, err := lc.Compose(context.Background(), 58, "homelab")
+	require.NoError(t, err)
+	// Collapsed per-season counter now matches the hero/library-strip aggregate.
+	assert.Equal(t, []LibrarySeasonCountView{
+		{SeasonNumber: 1, EpisodesOnDisk: 8, Downloading: 0},
+	}, view.SeasonCounts)
+	assert.Equal(t, 8, view.Strip.EpisodesOnDisk)
+}
+
 func TestLibraryCompose_NotInInstance(t *testing.T) {
 	t.Parallel()
 	lc := NewLibraryComposer(LibraryDeps{
@@ -405,9 +446,7 @@ func TestLibraryCompose_SyncedAt_MaxOfCacheAndStates(t *testing.T) {
 func TestBuildSeasonCounts(t *testing.T) {
 	t.Parallel()
 
-	// Two seasons: S1 has 3 canon eps (2 on disk), S2 has 2 canon eps (1 on
-	// disk). One S2 episode is downloading; one queue record is NOT downloading
-	// (ignored); one queue record targets S9 which has no canon episode (skipped).
+	// S1: 3 canon eps (2 episode_states HasFile), S2: 2 canon eps (1 HasFile).
 	twoSeasonEpisodes := []series.CanonEpisode{
 		{ID: 1, SeasonNumber: 1, EpisodeNumber: 1},
 		{ID: 2, SeasonNumber: 1, EpisodeNumber: 2},
@@ -432,13 +471,72 @@ func TestBuildSeasonCounts(t *testing.T) {
 		name     string
 		episodes []series.CanonEpisode
 		states   []series.EpisodeState
+		stats    map[int]series.SeasonStat
 		queue    []QueueRecordDetail
 		want     []LibrarySeasonCountView
 	}{
 		{
-			name:     "mixed on-disk + downloading across two seasons",
+			name: "bug#974: files on disk but episode_states stale → season_stats wins",
+			episodes: []series.CanonEpisode{
+				{ID: 1, SeasonNumber: 1, EpisodeNumber: 1},
+				{ID: 2, SeasonNumber: 1, EpisodeNumber: 2},
+				{ID: 3, SeasonNumber: 1, EpisodeNumber: 3},
+				{ID: 4, SeasonNumber: 1, EpisodeNumber: 4},
+				{ID: 5, SeasonNumber: 1, EpisodeNumber: 5},
+				{ID: 6, SeasonNumber: 1, EpisodeNumber: 6},
+				{ID: 7, SeasonNumber: 1, EpisodeNumber: 7},
+				{ID: 8, SeasonNumber: 1, EpisodeNumber: 8},
+			},
+			states: []series.EpisodeState{
+				{EpisodeID: 1, HasFile: false, Monitored: false},
+				{EpisodeID: 2, HasFile: false, Monitored: false},
+				{EpisodeID: 3, HasFile: false, Monitored: false},
+				{EpisodeID: 4, HasFile: false, Monitored: false},
+				{EpisodeID: 5, HasFile: false, Monitored: false},
+				{EpisodeID: 6, HasFile: false, Monitored: false},
+				{EpisodeID: 7, HasFile: false, Monitored: false},
+				{EpisodeID: 8, HasFile: false, Monitored: false},
+			},
+			stats: map[int]series.SeasonStat{
+				1: {SeasonNumber: 1, EpisodeFileCount: 8},
+			},
+			queue: nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 8, Downloading: 0},
+			},
+		},
+		{
+			name:     "two seasons: season_stats authoritative per season (overrides episode_states)",
+			episodes: twoSeasonEpisodes,
+			states:   twoSeasonStates, // S1: 2 HasFile, S2: 1 HasFile
+			stats: map[int]series.SeasonStat{
+				1: {SeasonNumber: 1, EpisodeFileCount: 3}, // stat=3 beats the 2 HasFile rows
+				2: {SeasonNumber: 2, EpisodeFileCount: 1},
+			},
+			queue: twoSeasonQueue,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 3, Downloading: 0},
+				{SeasonNumber: 2, EpisodesOnDisk: 1, Downloading: 1},
+			},
+		},
+		{
+			name:     "partial season_stats: present season uses stat, absent season falls back to episode_states",
+			episodes: twoSeasonEpisodes,
+			states:   twoSeasonStates, // S1: 2 HasFile, S2: 1 HasFile
+			stats: map[int]series.SeasonStat{
+				1: {SeasonNumber: 1, EpisodeFileCount: 3}, // stat wins → 3
+			},
+			queue: nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 3, Downloading: 0},
+				{SeasonNumber: 2, EpisodesOnDisk: 1, Downloading: 0}, // fallback → 1
+			},
+		},
+		{
+			name:     "nil season_stats → episode_states fallback (legacy behaviour preserved)",
 			episodes: twoSeasonEpisodes,
 			states:   twoSeasonStates,
+			stats:    nil,
 			queue:    twoSeasonQueue,
 			want: []LibrarySeasonCountView{
 				{SeasonNumber: 1, EpisodesOnDisk: 2, Downloading: 0},
@@ -449,6 +547,7 @@ func TestBuildSeasonCounts(t *testing.T) {
 			name:     "no queue (Sonarr unreachable) → downloading all zero",
 			episodes: twoSeasonEpisodes,
 			states:   twoSeasonStates,
+			stats:    nil,
 			queue:    nil,
 			want: []LibrarySeasonCountView{
 				{SeasonNumber: 1, EpisodesOnDisk: 2, Downloading: 0},
@@ -456,27 +555,32 @@ func TestBuildSeasonCounts(t *testing.T) {
 			},
 		},
 		{
-			name: "season present with zero on disk",
+			name: "season present with zero on disk (stat=0)",
 			episodes: []series.CanonEpisode{
 				{ID: 10, SeasonNumber: 3, EpisodeNumber: 1},
 			},
 			states: []series.EpisodeState{
 				{EpisodeID: 10, HasFile: false},
 			},
+			stats: map[int]series.SeasonStat{3: {SeasonNumber: 3, EpisodeFileCount: 0}},
 			queue: nil,
 			want: []LibrarySeasonCountView{
 				{SeasonNumber: 3, EpisodesOnDisk: 0, Downloading: 0},
 			},
 		},
 		{
-			name: "specials (season 0) included",
+			name: "specials (season 0) included, from season_stats",
 			episodes: []series.CanonEpisode{
 				{ID: 20, SeasonNumber: 0, EpisodeNumber: 1},
 				{ID: 21, SeasonNumber: 1, EpisodeNumber: 1},
 			},
 			states: []series.EpisodeState{
-				{EpisodeID: 20, HasFile: true},
-				{EpisodeID: 21, HasFile: true},
+				{EpisodeID: 20, HasFile: false}, // stale — stat must win
+				{EpisodeID: 21, HasFile: false},
+			},
+			stats: map[int]series.SeasonStat{
+				0: {SeasonNumber: 0, EpisodeFileCount: 1},
+				1: {SeasonNumber: 1, EpisodeFileCount: 1},
 			},
 			queue: nil,
 			want: []LibrarySeasonCountView{
@@ -488,11 +592,12 @@ func TestBuildSeasonCounts(t *testing.T) {
 			name:     "empty / TMDB-only (no episodes) → nil, no panic",
 			episodes: nil,
 			states:   nil,
+			stats:    nil,
 			queue:    nil,
 			want:     nil,
 		},
 		{
-			name: "state for episode not in canon is skipped, no panic",
+			name: "fallback path skips episode_states row not in canon, no panic",
 			episodes: []series.CanonEpisode{
 				{ID: 30, SeasonNumber: 1, EpisodeNumber: 1},
 			},
@@ -500,6 +605,7 @@ func TestBuildSeasonCounts(t *testing.T) {
 				{EpisodeID: 30, HasFile: true},
 				{EpisodeID: 999, HasFile: true}, // orphan state — skipped
 			},
+			stats: nil, // force the fallback path
 			queue: nil,
 			want: []LibrarySeasonCountView{
 				{SeasonNumber: 1, EpisodesOnDisk: 1, Downloading: 0},
@@ -510,7 +616,7 @@ func TestBuildSeasonCounts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := buildSeasonCounts(tt.episodes, tt.states, tt.queue)
+			got := buildSeasonCounts(tt.episodes, tt.states, tt.stats, tt.queue)
 			assert.Equal(t, tt.want, got)
 		})
 	}

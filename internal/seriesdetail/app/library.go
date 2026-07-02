@@ -126,11 +126,18 @@ type LibraryDeps struct {
 	CacheLookup   SeriesCacheLookupPort
 	Episodes      EpisodesPort
 	EpisodeStates EpisodeStatesPort
-	GrabHistory   LibraryGrabHistoryPort
-	SonarrFor     func(instanceName domain.InstanceName) (SonarrQueueLister, bool)
-	SyncTrigger   LibrarySyncTrigger
-	Logger        *slog.Logger
-	Now           func() time.Time
+	// SeasonStats is the per-(instance, series, season) Sonarr statistics
+	// projection (season_stats). Story 974: per-season on-disk counts read
+	// EpisodeFileCount from here — the authoritative Sonarr counter refreshed
+	// every scan by fillSeriesCache — instead of the episode_states.HasFile
+	// walk, which the cron scan never updates. nil-OK: when nil (or on a
+	// per-season miss) buildSeasonCounts falls back to the episode_states walk.
+	SeasonStats SeasonStatsPort
+	GrabHistory LibraryGrabHistoryPort
+	SonarrFor   func(instanceName domain.InstanceName) (SonarrQueueLister, bool)
+	SyncTrigger LibrarySyncTrigger
+	Logger      *slog.Logger
+	Now         func() time.Time
 }
 
 // LibraryComposer is the E-1-B2 use case: it projects per-instance Sonarr
@@ -180,6 +187,7 @@ func (lc *LibraryComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 
 	grabEvents := lc.loadRecent(ctx, instanceName, sonarrID)
 	queueRecords := lc.loadQueueRecords(ctx, instanceName, sonarrID)
+	seasonStats := lc.loadSeasonStats(ctx, instanceName, sonarrID)
 	inProgress := pickInProgress(&Detail{QueueRecords: queueRecords})
 
 	monitoredByEpisode := make(map[domain.EpisodeID]bool, len(states))
@@ -197,7 +205,7 @@ func (lc *LibraryComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 		InProgress:       inProgress,
 		Download:         pickDownloadRecord(queueRecords),
 		NextEpisodeToAir: pickNextToAir(episodes, monitoredByEpisode, lc.d.Now()),
-		SeasonCounts:     buildSeasonCounts(episodes, states, queueRecords),
+		SeasonCounts:     buildSeasonCounts(episodes, states, seasonStats, queueRecords),
 		LastGrabAt:       firstGrabAt(grabEvents),
 		LastImportedAt:   firstImportedAt(grabEvents),
 		SyncedAt:         maxTime(entry.UpdatedAt, latestStateUpdate(states)),
@@ -292,6 +300,32 @@ func (lc *LibraryComposer) loadQueueRecords(ctx context.Context, instanceName do
 	return recs
 }
 
+// loadSeasonStats reads the per-season Sonarr statistics projection
+// (season_stats) for the instance and returns a season_number → SeasonStat
+// map. Degrade-tolerant: a nil SeasonStats port or a read error yields nil, so
+// buildSeasonCounts falls back to the episode_states walk per season. Mirrors
+// composer.go's story-377 season_stats load semantics (warn-log, never fail the
+// compose). No extra Sonarr call — season_stats is a DB read refreshed by the
+// scan loop's fillSeriesCache.
+func (lc *LibraryComposer) loadSeasonStats(ctx context.Context, instanceName domain.InstanceName, sonarrID domain.SonarrSeriesID) map[int]series.SeasonStat {
+	if lc.d.SeasonStats == nil {
+		return nil
+	}
+	stats, err := lc.d.SeasonStats.ListBySeries(ctx, instanceName, sonarrID)
+	if err != nil {
+		lc.d.Logger.WarnContext(ctx, "library_season_stats_failed",
+			slog.String("instance", string(instanceName)),
+			slog.Int("sonarr_series_id", int(sonarrID)),
+			slog.String("error", err.Error()))
+		return nil
+	}
+	out := make(map[int]series.SeasonStat, len(stats))
+	for _, st := range stats {
+		out[st.SeasonNumber] = st
+	}
+	return out
+}
+
 // pickDownloadRecord restores the pre-B1b hero download chip: the FIRST record in
 // the Sonarr /queue response for the series (Sonarr queue order, preserved by
 // loadQueueRecords). Mirrors the old composer's unconditional `d.Queue =
@@ -310,14 +344,33 @@ func pickDownloadRecord(records []QueueRecordDetail) *QueueRecordDetail {
 }
 
 // buildSeasonCounts tallies per-season on-disk + downloading for one instance.
-// On-disk = episode_states.HasFile joined to canon episodes by season
-// (DB-deterministic). Downloading = live Sonarr queue records with
-// status=="downloading" per season (best-effort; all zero when Sonarr is
-// unreachable, i.e. queue==nil). Specials (season 0) are included when present.
-// Every season with a canon episode gets a row even at 0 on disk so the FE can
-// render "0/total". Returns a season-number-ASC slice; empty when the series has
-// no canon episodes.
-func buildSeasonCounts(episodes []series.CanonEpisode, states []series.EpisodeState, queue []QueueRecordDetail) []LibrarySeasonCountView {
+//
+// On-disk source (bug #974): per-season EpisodeFileCount from season_stats —
+// the authoritative Sonarr seasons[].statistics projection refreshed on EVERY
+// scan by fillSeriesCache. This mirrors the SeasonsAccordion header (story 377,
+// series_detail.go mapSeasons) and the library-strip aggregate
+// (series_cache.EpisodeFileCount), so the collapsed per-season counter, the
+// expanded single-season on_disk_count, and the hero strip all agree.
+//
+// episode_states.HasFile is NOT authoritative here: it is written only by the
+// webhook SeriesAdd full-sync path (syncEpisodes), never by the cron scan, so a
+// series whose files landed AFTER the initial add keeps HasFile=false while
+// series_cache/season_stats are refreshed every scan — the exact bug #974. It
+// is kept ONLY as a per-season fallback for seasons with no season_stats row
+// yet (e.g. a brand-new series between add and first scan), matching
+// mapSeasons's nil-Stats fallback.
+//
+// Downloading = live Sonarr queue records with status=="downloading" per season
+// (best-effort; all zero when Sonarr is unreachable). Specials (season 0) are
+// included when present. Every season with a canon episode gets a row even at 0
+// on disk so the FE can render "0/total". Returns a season-number-ASC slice;
+// empty when the series has no canon episodes.
+func buildSeasonCounts(
+	episodes []series.CanonEpisode,
+	states []series.EpisodeState,
+	statsBySeason map[int]series.SeasonStat,
+	queue []QueueRecordDetail,
+) []LibrarySeasonCountView {
 	if len(episodes) == 0 {
 		return nil
 	}
@@ -335,16 +388,30 @@ func buildSeasonCounts(episodes []series.CanonEpisode, states []series.EpisodeSt
 		seasonByEpisode[domain.EpisodeID(ep.ID)] = ep.SeasonNumber
 		ensure(ep.SeasonNumber) // season present even with 0 on disk
 	}
+
+	// Fallback tally: episode_states.HasFile per season, consulted only for a
+	// season that has no season_stats row (see docstring). A state row for an
+	// episode not in canon is skipped.
+	fallbackOnDisk := make(map[int]int, len(seasons))
 	for _, st := range states {
 		if !st.HasFile {
 			continue
 		}
 		n, ok := seasonByEpisode[st.EpisodeID]
 		if !ok {
-			continue // state for an episode not in canon (rare) — skip
+			continue
 		}
-		ensure(n).EpisodesOnDisk++
+		fallbackOnDisk[n]++
 	}
+
+	for n, sc := range seasons {
+		if stat, ok := statsBySeason[n]; ok {
+			sc.EpisodesOnDisk = stat.EpisodeFileCount
+		} else {
+			sc.EpisodesOnDisk = fallbackOnDisk[n]
+		}
+	}
+
 	for _, rec := range queue {
 		if rec.Status != "downloading" {
 			continue
