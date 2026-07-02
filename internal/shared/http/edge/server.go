@@ -96,6 +96,9 @@ func NewServer(
 	// Story E-1-B7 — optional series-title localizer for the global
 	// series-cache list (?lang=). nil-OK: pass-through, canon titles.
 	seriesTitleLocalizer catalogrest.SeriesTextLocalizer,
+	// Story 584b — optional per-language poster localizer for the global
+	// series-cache list (?lang=). nil-OK: pass-through, canon poster_hash.
+	seriesMediaLocalizer catalogrest.SeriesMediaLocalizer,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -129,7 +132,8 @@ func NewServer(
 		WithSeriesCache(seriesCacheRepo).
 		WithEpisodesCache(episodesCache).
 		WithMediaPending(mediaPending).
-		WithLocalizer(seriesTitleLocalizer)
+		WithLocalizer(seriesTitleLocalizer).
+		WithMediaLocalizer(seriesMediaLocalizer)
 	// Story 491 / N-1a — global catalog handler over the per-instance one.
 	globalCatalogHandler := catalogrest.NewGlobalCatalogHandler(instancesHandler, logger)
 	// Story 492 / N-1b — global series-scoped wrappers + global grab

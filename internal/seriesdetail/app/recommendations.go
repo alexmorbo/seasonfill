@@ -142,6 +142,10 @@ func (c *Composer) GetRecommendations(
 	// when projecting; misses are silently dropped (stub-skip parity
 	// with the prior shape).
 	resolved := make([]RecommendationDetail, 0, len(ids))
+	// Story 584b — per-language poster paths for the resolved rec ids,
+	// hoisted to method scope so the media-resolve step below (outside the
+	// else branch) can thread it through. nil when unwired / batch failed.
+	var localisedMedia map[domain.SeriesID]series.SeriesMediaText
 	canons, lerr := c.d.Series.ListByIDs(ctx, ids)
 	if lerr != nil {
 		// Treat a batch failure the same way the prior shape treated a
@@ -187,6 +191,31 @@ func (c *Composer) GetRecommendations(
 			}
 		}
 
+		// Story 584b — batch-load per-language poster paths for the
+		// resolved rec ids (same resolvedIDs the title batch used).
+		// Failure degrades quietly to canon posters + warn log; missing
+		// keys are the norm for cold series.
+		if c.d.SeriesMediaTexts != nil && len(ids) > 0 {
+			resolvedIDs := make([]domain.SeriesID, 0, len(ids))
+			for _, recID := range ids {
+				if _, ok := byID[recID]; ok {
+					resolvedIDs = append(resolvedIDs, recID)
+				}
+			}
+			if len(resolvedIDs) > 0 {
+				var merr error
+				localisedMedia, merr = c.d.SeriesMediaTexts.ListByIDsWithFallback(ctx, resolvedIDs, lang)
+				if merr != nil {
+					c.d.Logger.WarnContext(ctx, "recommendations_media_batch_failed",
+						slog.Int64("series_id", int64(seriesID)),
+						slog.String("lang", lang),
+						slog.Int("rec_count", len(resolvedIDs)),
+						slog.String("err", merr.Error()))
+					localisedMedia = nil
+				}
+			}
+		}
+
 		for _, recID := range ids {
 			canon, ok := byID[recID]
 			if !ok {
@@ -226,7 +255,7 @@ func (c *Composer) GetRecommendations(
 		end := min(offset+limit, len(resolved))
 		out.Items = resolved[offset:end]
 		out.HasMore = end < len(resolved)
-		c.resolveRecommendationsMedia(ctx, out.Items)
+		c.resolveRecommendationsMedia(ctx, out.Items, localisedMedia)
 	}
 
 	c.d.Logger.InfoContext(ctx, "series_recommendations_composed",
@@ -243,13 +272,26 @@ func (c *Composer) GetRecommendations(
 }
 
 // resolveRecommendationsMedia mirrors composer.go:896-898 — translates
-// raw TMDB poster paths into media hashes. Nil-OK resolver short-circuits.
-func (c *Composer) resolveRecommendationsMedia(ctx context.Context, items []RecommendationDetail) {
+// raw TMDB poster paths into media hashes. Story 584b — prefer the
+// per-language series_media_texts raw path (from mediaByID) over canon
+// before resolving; nil map / missing key / nil path keeps canon (today's
+// behavior). Nil-OK resolver short-circuits.
+func (c *Composer) resolveRecommendationsMedia(
+	ctx context.Context,
+	items []RecommendationDetail,
+	mediaByID map[domain.SeriesID]series.SeriesMediaText,
+) {
 	r := c.d.MediaResolver
 	if r == nil {
 		return
 	}
 	for i := range items {
-		items[i].Series.PosterAsset = r.Resolve(ctx, items[i].Series.PosterAsset, "w342", "poster_w342")
+		raw := items[i].Series.PosterAsset
+		if mediaByID != nil {
+			if mt, ok := mediaByID[items[i].Series.ID]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+				raw = mt.PosterAsset
+			}
+		}
+		items[i].Series.PosterAsset = r.Resolve(ctx, raw, "w342", "poster_w342")
 	}
 }

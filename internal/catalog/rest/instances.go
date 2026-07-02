@@ -46,6 +46,7 @@ type InstancesHandler struct {
 	mediaPending   adminrest.CatalogMediaPendingWriter // story 352, nil-OK
 	mediaPrewarmer adminrest.CatalogMediaPrewarmer     // story 352, nil-OK
 	localizer      SeriesTextLocalizer                 // nil-OK; Story E-1-B7
+	mediaLocalizer SeriesMediaLocalizer                // nil-OK; Story 584b
 	logger         *slog.Logger
 }
 
@@ -61,6 +62,14 @@ type SeriesTextLocalizer interface {
 		seriesIDs []shareddomain.SeriesID,
 		lang string,
 	) (map[shareddomain.SeriesID]series.SeriesText, error)
+}
+
+// SeriesMediaLocalizer batch-loads per-language poster/backdrop raw paths
+// for the grid tiles (Story 584b). Nil-OK — when unwired the grid keeps
+// the canon-derived poster_hash. Production impl:
+// enrichpersistence.SeriesMediaTextsRepository.
+type SeriesMediaLocalizer interface {
+	ListByIDsWithFallback(ctx context.Context, seriesIDs []shareddomain.SeriesID, language string) (map[shareddomain.SeriesID]series.SeriesMediaText, error)
 }
 
 // NewInstancesHandler — reg.Load may be nil (List then emits empty
@@ -112,6 +121,14 @@ func (h *InstancesHandler) WithMediaPending(w adminrest.CatalogMediaPendingWrite
 // across existing test call sites. Story E-1-B7.
 func (h *InstancesHandler) WithLocalizer(l SeriesTextLocalizer) *InstancesHandler {
 	h.localizer = l
+	return h
+}
+
+// WithMediaLocalizer wires the optional per-language poster localizer used
+// by GET /api/v1/instances/:name/series?lang= to override each tile's
+// poster_hash with the language-specific asset. Story 584b.
+func (h *InstancesHandler) WithMediaLocalizer(l SeriesMediaLocalizer) *InstancesHandler {
+	h.mediaLocalizer = l
 	return h
 }
 
@@ -735,6 +752,7 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 	}
 	h.kickPendingForSeriesCacheEntries(ctx, entries)
 	h.localizeSeriesCacheTitles(ctx, c.Query("lang"), items)
+	h.localizeSeriesCachePosters(ctx, c.Query("lang"), items)
 	var nextStr string
 	if next != nil {
 		nextStr = next.String()
@@ -1003,6 +1021,56 @@ func (h *InstancesHandler) localizeSeriesCacheTitles(
 		}
 		if title := strings.TrimSpace(*t.Title); title != "" {
 			items[i].Title = title
+		}
+	}
+}
+
+// localizeSeriesCachePosters overrides each tile's poster_hash with the
+// caller's requested language in a single batch lookup. No-op (zero DB
+// calls) when the media localizer is unwired, lang is blank, or no item
+// carries a canon SeriesID — preserving canon behavior. Items with a nil
+// canon id, a map miss, or a NULL/blank per-lang poster_asset keep their
+// canon-derived poster_hash. Mirrors localizeSeriesCacheTitles (Story B7).
+// Story 584b.
+func (h *InstancesHandler) localizeSeriesCachePosters(
+	ctx context.Context,
+	lang string,
+	items []dto.SeriesCacheItem,
+) {
+	if h.mediaLocalizer == nil || strings.TrimSpace(lang) == "" || len(items) == 0 {
+		return
+	}
+	ids := make([]shareddomain.SeriesID, 0, len(items))
+	seen := make(map[shareddomain.SeriesID]struct{}, len(items))
+	for _, it := range items {
+		if it.SeriesID == nil {
+			continue
+		}
+		if _, ok := seen[*it.SeriesID]; ok {
+			continue
+		}
+		seen[*it.SeriesID] = struct{}{}
+		ids = append(ids, *it.SeriesID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	media, err := h.mediaLocalizer.ListByIDsWithFallback(ctx, ids, lang)
+	if err != nil {
+		h.logger.WarnContext(ctx, "series_cache_localize_posters_failed",
+			slog.String("lang", lang), slog.String("error", err.Error()))
+		return
+	}
+	for i := range items {
+		if items[i].SeriesID == nil {
+			continue
+		}
+		mt, ok := media[*items[i].SeriesID]
+		if !ok || mt.PosterAsset == nil || strings.TrimSpace(*mt.PosterAsset) == "" {
+			continue
+		}
+		if hash := mediaHashForPosterAsset(mt.PosterAsset); hash != nil {
+			items[i].PosterHash = hash
 		}
 	}
 }

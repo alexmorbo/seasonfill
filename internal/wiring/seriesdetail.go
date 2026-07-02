@@ -199,6 +199,7 @@ func BuildSeriesDetail(
 	sdSeriesRepo := enrichpersistence.NewSeriesRepository(db)
 	sdSeriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, sdSeriesRepo)
 	sdSeriesTextsRepo := enrichpersistence.NewSeriesTextsRepository(db)
+	sdSeriesMediaTextsRepo := enrichpersistence.NewSeriesMediaTextsRepository(db)
 	sdSeasonsRepo := enrichpersistence.NewSeasonsRepository(db)
 	sdEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	sdSeasonTextsRepo := enrichpersistence.NewSeasonTextsRepository(db)
@@ -283,6 +284,7 @@ func BuildSeriesDetail(
 		SeriesCacheLookup: sdSeriesCacheRepo,
 		Series:            sdSeriesRepo,
 		SeriesTexts:       sdSeriesTextsRepo,
+		SeriesMediaTexts:  sdSeriesMediaTextsRepo,
 		Seasons:           sdSeasonsRepo,
 		Episodes:          sdEpisodesRepo,
 		EpisodeStates:     sdEpisodeStatesRepo,
@@ -401,6 +403,7 @@ func BuildSeriesDetail(
 	skeletonComposer := seriesdetail.NewSkeletonComposer(seriesdetail.SkeletonDeps{
 		Series:            sdSeriesRepo,
 		SeriesTexts:       sdSeriesTextsRepo,
+		SeriesMediaTexts:  sdSeriesMediaTextsRepo,
 		Genres:            sdGenresRepo,
 		Keywords:          sdKeywordsRepo,
 		Networks:          sdNetworksRepo,

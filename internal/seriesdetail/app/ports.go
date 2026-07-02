@@ -92,6 +92,19 @@ type SeriesTextsPort interface {
 	ListByIDsWithFallback(ctx context.Context, seriesIDs []domain.SeriesID, language string) (map[domain.SeriesID]series.SeriesText, error)
 }
 
+// SeriesMediaTextsPort fetches the per-language poster/backdrop raw
+// paths (series_media_texts, Story 584). GetWithFallback: single-series
+// read used by the skeleton hero. ListByIDsWithFallback: batch read used
+// by the recommendations path. Both apply the requested-lang → en-US
+// fallback; the composer layers the final canon (series.poster_asset)
+// tier. Production impl:
+// enrichpersistence.SeriesMediaTextsRepository. Nil-OK on the deps (the
+// composer falls back to canon when unwired).
+type SeriesMediaTextsPort interface {
+	GetWithFallback(ctx context.Context, seriesID domain.SeriesID, language string) (series.SeriesMediaText, error)
+	ListByIDsWithFallback(ctx context.Context, seriesIDs []domain.SeriesID, language string) (map[domain.SeriesID]series.SeriesMediaText, error)
+}
+
 // SeasonsPort lists every season row for a series, ordered by
 // season_number ascending.
 type SeasonsPort interface {

@@ -329,6 +329,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // addToSonarrHandler (Story 520 N-4c)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
+		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
 		lg)
 }
 
@@ -402,6 +403,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // addToSonarrHandler (Story 520 N-4c)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
+		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
 		lg)
 }
 
@@ -591,6 +593,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // addToSonarrHandler (Story 520 N-4c)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
+		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

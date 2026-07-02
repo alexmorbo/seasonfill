@@ -11,9 +11,12 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
+	dataports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // --- skeleton-local fakes ---
@@ -146,6 +149,40 @@ type fakeSkNextEpisode struct {
 
 func (f *fakeSkNextEpisode) NextAired(context.Context, domain.SeriesID, string) (NextEpisodeRef, bool, error) {
 	return f.ref, f.ok, f.err
+}
+
+// fakeSkMediaTexts is the Story 584b per-language poster/backdrop port
+// fake. GetWithFallback returns the configured row/err; the batch method
+// is unused by the skeleton path.
+type fakeSkMediaTexts struct {
+	row series.SeriesMediaText
+	err error
+}
+
+func (f *fakeSkMediaTexts) GetWithFallback(context.Context, domain.SeriesID, string) (series.SeriesMediaText, error) {
+	return f.row, f.err
+}
+func (f *fakeSkMediaTexts) ListByIDsWithFallback(context.Context, []domain.SeriesID, string) (map[domain.SeriesID]series.SeriesMediaText, error) {
+	return nil, nil
+}
+
+// fakeSkMediaLookup is an always-miss HashLookupPort: HashForSourceURL
+// returns ErrNotFound so ResolveSync takes the deterministic eager-hash
+// path (sha256 of the built CDN URL). This lets a test assert WHICH raw
+// path (per-lang vs canon) reached the resolver by comparing hashes.
+type fakeSkMediaLookup struct{}
+
+func (fakeSkMediaLookup) HashForSourceURL(context.Context, string) (string, error) {
+	return "", dataports.ErrNotFound
+}
+func (fakeSkMediaLookup) EnsurePending(context.Context, string, string, string) error { return nil }
+
+func skEagerHash(path, size string) string {
+	return appmedia.HashFromURL(appmedia.BuildTMDBImageURL(size, path))
+}
+
+func skEagerResolver() *media.Resolver {
+	return media.NewResolver(fakeSkMediaLookup{}, nil, nil, nil)
 }
 
 // spyFreshener records the EnsureFreshScope arguments so tests assert the
@@ -365,6 +402,101 @@ func TestSkeletonComposer_ContentRatingGuard(t *testing.T) {
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
 	require.NoError(t, err)
 	require.True(t, dto.Hero.ContentRating.IsZero())
+}
+
+// --- Story 584b — per-language poster/backdrop read path ---
+
+func TestSkeletonComposer_PerLangPoster_PrefersMediaText(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	canon.PosterAsset = new("/canon.jpg")
+	canon.BackdropAsset = new("/canonbg.jpg")
+	deps, _, _ := skBaseDeps(canon)
+	deps.MediaResolver = skEagerResolver()
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{row: series.SeriesMediaText{
+		SeriesID:      42,
+		Language:      "ru-RU",
+		PosterAsset:   new("/ru.jpg"),
+		BackdropAsset: new("/rubg.jpg"),
+	}}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	// The per-lang raw path reached the resolver — hash derives from /ru.jpg,
+	// diverging from the canon /canon.jpg hash.
+	require.Equal(t, skEagerHash("/ru.jpg", "w342"), dto.Hero.PosterAsset.Value())
+	require.NotEqual(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
+	require.Equal(t, skEagerHash("/rubg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
+	require.NotEqual(t, skEagerHash("/canonbg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
+}
+
+func TestSkeletonComposer_PerLangPoster_NotFoundFallsBackToCanon(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	canon.PosterAsset = new("/canon.jpg")
+	canon.BackdropAsset = new("/canonbg.jpg")
+	deps, _, _ := skBaseDeps(canon)
+	deps.MediaResolver = skEagerResolver()
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{err: dataports.ErrNotFound}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
+	require.Equal(t, skEagerHash("/canonbg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
+}
+
+func TestSkeletonComposer_PerLangPoster_NilAssetFallsBackToCanon(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	canon.PosterAsset = new("/canon.jpg")
+	canon.BackdropAsset = new("/canonbg.jpg")
+	deps, _, _ := skBaseDeps(canon)
+	deps.MediaResolver = skEagerResolver()
+	// Row present but PosterAsset nil (never-enriched per-lang poster) →
+	// canon poster; BackdropAsset present so it wins for the backdrop.
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{row: series.SeriesMediaText{
+		SeriesID:      42,
+		Language:      "ru-RU",
+		PosterAsset:   nil,
+		BackdropAsset: new("/rubg.jpg"),
+	}}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
+	require.Equal(t, skEagerHash("/rubg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
+}
+
+func TestSkeletonComposer_PerLangPoster_NilDepUsesCanon(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	canon.PosterAsset = new("/canon.jpg")
+	canon.BackdropAsset = new("/canonbg.jpg")
+	deps, _, _ := skBaseDeps(canon)
+	deps.MediaResolver = skEagerResolver()
+	deps.SeriesMediaTexts = nil // unwired — back-compat, no panic
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
+	require.Equal(t, skEagerHash("/canonbg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
+}
+
+func TestSkeletonComposer_PerLangPoster_RepoErrorFallsBackToCanon(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	canon.PosterAsset = new("/canon.jpg")
+	canon.BackdropAsset = new("/canonbg.jpg")
+	deps, _, _ := skBaseDeps(canon)
+	deps.MediaResolver = skEagerResolver()
+	// NULL/error pair: a non-ErrNotFound repo error must not propagate and
+	// must leave the canon path intact.
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{err: errors.New("db down")}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
+	require.Equal(t, skEagerHash("/canonbg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
 }
 
 func TestSkeletonComposer_TrailerKey(t *testing.T) {

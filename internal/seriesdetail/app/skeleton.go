@@ -111,6 +111,7 @@ type NextEpisodePort interface {
 type SkeletonDeps struct {
 	Series            SeriesPort
 	SeriesTexts       SeriesTextsPort
+	SeriesMediaTexts  SeriesMediaTextsPort // Story 584b — nil-OK, canon fallback
 	Genres            GenresPort
 	Keywords          KeywordsPort
 	Networks          NetworksPort
@@ -274,10 +275,27 @@ func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, can
 		}
 	}
 
-	// Poster / backdrop first-fold sync resolve.
+	// Poster / backdrop first-fold sync resolve. Story 584b — prefer the
+	// per-language series_media_texts raw path (requested lang → en-US via
+	// the repo), falling back to canon series.poster_asset / backdrop_asset
+	// when there is no per-lang row (cold / never-enriched series). The
+	// resolve sizes + budget are unchanged.
+	posterPath := canon.PosterAsset
+	backdropPath := canon.BackdropAsset
+	if sc.d.SeriesMediaTexts != nil {
+		if mt, err := sc.d.SeriesMediaTexts.GetWithFallback(ctx, seriesID, langStr); err == nil {
+			if mt.PosterAsset != nil && *mt.PosterAsset != "" {
+				posterPath = mt.PosterAsset
+			}
+			if mt.BackdropAsset != nil && *mt.BackdropAsset != "" {
+				backdropPath = mt.BackdropAsset
+			}
+		}
+	}
+
 	syncCtx, cancel := context.WithTimeout(ctx, posterResolveBudget)
-	dto.Hero.PosterAsset = mediaHashOrZero(sc.d.MediaResolver.ResolveSync(syncCtx, canon.PosterAsset, "w342", "poster_w342"))
-	dto.Hero.BackdropAsset = mediaHashOrZero(sc.d.MediaResolver.ResolveSync(syncCtx, canon.BackdropAsset, "w1280", "backdrop_w1280"))
+	dto.Hero.PosterAsset = mediaHashOrZero(sc.d.MediaResolver.ResolveSync(syncCtx, posterPath, "w342", "poster_w342"))
+	dto.Hero.BackdropAsset = mediaHashOrZero(sc.d.MediaResolver.ResolveSync(syncCtx, backdropPath, "w1280", "backdrop_w1280"))
 	cancel()
 
 	return nil

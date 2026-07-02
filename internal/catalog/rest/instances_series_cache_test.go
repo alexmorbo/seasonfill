@@ -289,6 +289,63 @@ func newLocalizingHandler(loc SeriesTextLocalizer) *InstancesHandler {
 	return h
 }
 
+// fakeCatalogMediaLocalizer counts calls (to assert no N+1) and returns a
+// seeded per-language poster map. Satisfies rest.SeriesMediaLocalizer.
+// Story 584b.
+type fakeCatalogMediaLocalizer struct {
+	calls    int
+	posters  map[shareddomain.SeriesID]string
+	lastLang string
+	err      error
+}
+
+func (fl *fakeCatalogMediaLocalizer) ListByIDsWithFallback(
+	_ context.Context, ids []shareddomain.SeriesID, language string,
+) (map[shareddomain.SeriesID]series.SeriesMediaText, error) {
+	fl.calls++
+	fl.lastLang = language
+	if fl.err != nil {
+		return nil, fl.err
+	}
+	out := make(map[shareddomain.SeriesID]series.SeriesMediaText, len(ids))
+	for _, id := range ids {
+		if p, ok := fl.posters[id]; ok {
+			pp := p
+			out[id] = series.SeriesMediaText{SeriesID: id, Language: language, PosterAsset: &pp}
+		}
+	}
+	return out, nil
+}
+
+// withMediaLocalizer builds an HTTP router whose handler carries the
+// per-language poster localizer (Story 584b). Mirrors withLocalizer.
+func (f *seriesCacheFixture) withMediaLocalizer(t *testing.T, loc SeriesMediaLocalizer) {
+	t.Helper()
+	instMap := map[string]scan.Instance{
+		"homelab": {Config: config.SonarrInstance{Name: "homelab", URL: "http://x", Mode: "auto"}},
+	}
+	reg := InstanceRegistry{Load: func() map[string]scan.Instance { return instMap }}
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewInstancesHandler(&healthcheck.Checker{}, reg, lg).
+		WithSeriesCache(f.repo).
+		WithMediaLocalizer(loc)
+	r := gin.New()
+	api := r.Group("/api/v1")
+	api.GET("/instances/:name/series-cache", h.ListSeriesCache)
+	f.router = r
+}
+
+// newMediaLocalizingHandler builds a handler for direct helper-level tests
+// of localizeSeriesCachePosters (no HTTP/reg). loc=nil leaves it unwired.
+func newMediaLocalizingHandler(loc SeriesMediaLocalizer) *InstancesHandler {
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewInstancesHandler(&healthcheck.Checker{}, InstanceRegistry{}, lg)
+	if loc != nil {
+		h = h.WithMediaLocalizer(loc)
+	}
+	return h
+}
+
 func (f *seriesCacheFixture) do(t *testing.T, path string) (*httptest.ResponseRecorder, dto.SeriesCacheList) {
 	t.Helper()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
@@ -925,4 +982,102 @@ func TestInstancesHandler_LocalizeSeriesCacheTitles_ErrorSoftFail(t *testing.T) 
 	items := []dto.SeriesCacheItem{{Title: "Canon", SeriesID: &id}}
 	h.localizeSeriesCacheTitles(context.Background(), "ru-RU", items)
 	assert.Equal(t, "Canon", items[0].Title, "soft-fail: canon on localizer error")
+}
+
+// Story 584b — ?lang=ru-RU overrides each tile's poster_hash with the
+// per-language poster in a single batch call; canon hash held where no
+// per-lang poster row exists.
+func TestInstancesHandler_ListSeriesCache_LocalizePosters_RuRU(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+	f.seed(t, "homelab", 1, "Rick and Morty", 0, now)
+	f.seed(t, "homelab", 2, "Friends", 0, now.Add(time.Minute))
+	canon1 := f.canonSeriesID(t, "homelab", 1)
+	canon2 := f.canonSeriesID(t, "homelab", 2)
+	// Stamp a canon poster on item 2 so it carries a canon-derived hash to
+	// hold; item 1 has none and relies on the per-lang override.
+	require.NoError(t, f.db.Model(&database.SeriesModel{}).
+		Where("id = ?", canon2).Update("poster_asset", "/canon2.jpg").Error)
+
+	loc := &fakeCatalogMediaLocalizer{posters: map[shareddomain.SeriesID]string{
+		canon1: "/ru.jpg", // per-lang poster for item 1 only
+	}}
+	f.withMediaLocalizer(t, loc)
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache?lang=ru-RU")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, body.Items, 2)
+	byID := map[shareddomain.SonarrSeriesID]*string{}
+	for i := range body.Items {
+		byID[body.Items[i].SonarrSeriesID] = body.Items[i].PosterHash
+	}
+	ru := "/ru.jpg"
+	canonPath := "/canon2.jpg"
+	require.NotNil(t, byID[1])
+	assert.Equal(t, *mediaHashForPosterAsset(&ru), *byID[1], "per-lang poster hash wins")
+	require.NotNil(t, byID[2])
+	assert.Equal(t, *mediaHashForPosterAsset(&canonPath), *byID[2], "canon poster hash held on per-lang miss")
+	assert.Equal(t, 1, loc.calls, "single batch call, no N+1")
+	assert.Equal(t, "ru-RU", loc.lastLang, "raw BCP-47 pass-through, not normalized")
+}
+
+// Blank ?lang= → no poster override, zero localizer calls (non-breaking).
+func TestInstancesHandler_LocalizeSeriesCachePosters_EmptyLangZeroCalls(t *testing.T) {
+	t.Parallel()
+	id := shareddomain.SeriesID(10)
+	canonHash := "canonhash"
+	loc := &fakeCatalogMediaLocalizer{posters: map[shareddomain.SeriesID]string{10: "/ru.jpg"}}
+	h := newMediaLocalizingHandler(loc)
+	items := []dto.SeriesCacheItem{{SeriesID: &id, PosterHash: &canonHash}}
+	h.localizeSeriesCachePosters(context.Background(), "", items)
+	require.NotNil(t, items[0].PosterHash)
+	assert.Equal(t, "canonhash", *items[0].PosterHash, "blank lang → canon poster_hash held")
+	assert.Equal(t, 0, loc.calls, "zero work when lang blank")
+}
+
+// Unwired media localizer → canon poster_hash, no panic (back-compat).
+func TestInstancesHandler_LocalizeSeriesCachePosters_Unwired(t *testing.T) {
+	t.Parallel()
+	id := shareddomain.SeriesID(10)
+	canonHash := "canonhash"
+	h := newMediaLocalizingHandler(nil)
+	items := []dto.SeriesCacheItem{{SeriesID: &id, PosterHash: &canonHash}}
+	h.localizeSeriesCachePosters(context.Background(), "ru-RU", items)
+	require.NotNil(t, items[0].PosterHash)
+	assert.Equal(t, "canonhash", *items[0].PosterHash)
+}
+
+// Item with nil canon SeriesID (broken/pre-cutover row) is skipped without
+// panic; a sibling with a canon id gets its per-lang poster; one batch call.
+func TestInstancesHandler_LocalizeSeriesCachePosters_NilCanonSkipped(t *testing.T) {
+	t.Parallel()
+	id11 := shareddomain.SeriesID(11)
+	canonHash := "canonhash"
+	loc := &fakeCatalogMediaLocalizer{posters: map[shareddomain.SeriesID]string{11: "/ru.jpg"}}
+	h := newMediaLocalizingHandler(loc)
+	items := []dto.SeriesCacheItem{
+		{Title: "Broken Canon", SeriesID: nil, PosterHash: &canonHash},
+		{Title: "Friends", SeriesID: &id11},
+	}
+	h.localizeSeriesCachePosters(context.Background(), "ru-RU", items)
+	require.NotNil(t, items[0].PosterHash)
+	assert.Equal(t, "canonhash", *items[0].PosterHash, "nil canon id row untouched")
+	require.NotNil(t, items[1].PosterHash)
+	ru := "/ru.jpg"
+	assert.Equal(t, *mediaHashForPosterAsset(&ru), *items[1].PosterHash)
+	assert.Equal(t, 1, loc.calls)
+}
+
+// Media localizer error → canon poster_hash retained (soft-fail, no panic).
+func TestInstancesHandler_LocalizeSeriesCachePosters_ErrorSoftFail(t *testing.T) {
+	t.Parallel()
+	id := shareddomain.SeriesID(10)
+	canonHash := "canonhash"
+	loc := &fakeCatalogMediaLocalizer{err: errors.New("db down")}
+	h := newMediaLocalizingHandler(loc)
+	items := []dto.SeriesCacheItem{{SeriesID: &id, PosterHash: &canonHash}}
+	h.localizeSeriesCachePosters(context.Background(), "ru-RU", items)
+	require.NotNil(t, items[0].PosterHash)
+	assert.Equal(t, "canonhash", *items[0].PosterHash, "soft-fail: canon on localizer error")
 }

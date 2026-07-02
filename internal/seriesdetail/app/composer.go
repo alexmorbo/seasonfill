@@ -144,6 +144,7 @@ type Deps struct {
 	SeriesCacheLookup SeriesCacheLookupPort
 	Series            SeriesPort
 	SeriesTexts       SeriesTextsPort
+	SeriesMediaTexts  SeriesMediaTextsPort // Story 584b — nil-OK, canon fallback
 	Seasons           SeasonsPort
 	Episodes          EpisodesPort
 	EpisodeStates     EpisodeStatesPort

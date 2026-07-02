@@ -814,6 +814,9 @@ func BuildHTTPServer(
 	// Story E-1-B7 — series-title localizer for GET /api/v1/series?lang=.
 	// Stateless GORM wrapper over the enrichment series_texts repo.
 	seriesTitleLocalizer := enrichpersistence.NewSeriesTextsRepository(persistence.DB)
+	// Story 584b — per-language poster localizer for GET
+	// /api/v1/instances/:name/series?lang=. Same GORM wrapper, media repo.
+	seriesMediaLocalizer := enrichpersistence.NewSeriesMediaTextsRepository(persistence.DB)
 	return httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -864,6 +867,7 @@ func BuildHTTPServer(
 		addToSonarrHandler,
 		seriesDetailBundle.ETagFreshness,
 		seriesTitleLocalizer,
+		seriesMediaLocalizer,
 		log,
 	)
 }
