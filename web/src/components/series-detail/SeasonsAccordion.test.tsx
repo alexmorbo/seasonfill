@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import i18n from '@/i18n';
-import { SeasonsAccordion } from './SeasonsAccordion';
+import { SeasonsAccordion, resolveSeasonLabel } from './SeasonsAccordion';
 
 vi.mock('@/api/seriesSeason', () => ({
   useSeriesSeason: vi.fn(({ enabled }) => ({
@@ -168,5 +168,62 @@ describe('<SeasonsAccordion />', () => {
     const onDiskEls = screen.getAllByTestId('season-on-disk');
     expect(onDiskEls).toHaveLength(1);
     expect(onDiskEls[0]!.getAttribute('data-season')).toBe('5');
+  });
+
+  // Bug 973: the localized numbered label wins over a RU-leaked season.name.
+  it('renders the localized numbered label, not the RU-leaked season.name', () => {
+    const fixture = [{
+      season_number: 4, name: 'Сезон 4', episode_count: 8, monitored: true,
+      episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
+    }];
+    r(<SeasonsAccordion seriesId={42} seasons={fixture} />);
+    const item = screen.getByTestId('season-accordion-item');
+    expect(item.textContent).toContain('Season 4');
+    expect(item.textContent).not.toContain('Сезон 4');
+  });
+
+  it('renders a genuine custom season title verbatim', () => {
+    const fixture = [{
+      season_number: 1, name: 'Book One: Water', episode_count: 20, monitored: true,
+      episodes: [{ episode_number: 1, title: 'A', has_file: false, monitored: true }],
+    }];
+    r(<SeasonsAccordion seriesId={42} seasons={fixture} />);
+    expect(screen.getByText('Book One: Water')).toBeInTheDocument();
+  });
+});
+
+describe('resolveSeasonLabel (bug 973)', () => {
+  const tEn = i18n.getFixedT('en-US');
+  const tRu = i18n.getFixedT('ru-RU');
+
+  it('normalises a RU-leaked numbered name to the localized label under en', () => {
+    expect(resolveSeasonLabel({ season_number: 4, name: 'Сезон 4' }, tEn)).toBe('Season 4');
+  });
+
+  it('normalises a plain English numbered name too', () => {
+    expect(resolveSeasonLabel({ season_number: 4, name: 'Season 4' }, tEn)).toBe('Season 4');
+  });
+
+  it('renders "Сезон {n}" under the ru UI locale for a numbered season', () => {
+    expect(resolveSeasonLabel({ season_number: 4, name: 'Season 4' }, tRu)).toBe('Сезон 4');
+  });
+
+  it('preserves a genuine custom title verbatim', () => {
+    expect(resolveSeasonLabel({ season_number: 1, name: 'Book One: Water' }, tEn)).toBe('Book One: Water');
+  });
+
+  it('falls back to the numbered label for an empty name', () => {
+    expect(resolveSeasonLabel({ season_number: 2, name: '' }, tEn)).toBe('Season 2');
+    expect(resolveSeasonLabel({ season_number: 2 }, tEn)).toBe('Season 2');
+  });
+
+  it('renders the Specials label for season 0, ignoring any name', () => {
+    expect(resolveSeasonLabel({ season_number: 0, name: 'Спецвыпуски' }, tEn)).toBe('Specials');
+    expect(resolveSeasonLabel({ season_number: 0, name: 'Whatever' }, tEn)).toBe('Specials');
+  });
+
+  it('normalises a localized specials name on a non-zero-guarded path', () => {
+    // e.g. if ever a specials-worded name arrives on season 0 it is still Specials
+    expect(resolveSeasonLabel({ season_number: 0, name: 'Especiales' }, tEn)).toBe('Specials');
   });
 });

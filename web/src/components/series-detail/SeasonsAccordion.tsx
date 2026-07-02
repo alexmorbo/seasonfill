@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { ArrowDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -16,6 +17,55 @@ import type { components } from '@/api/schema';
 import { EpisodeRow } from './EpisodeRow';
 
 type Season = components['schemas']['dto.Season'];
+
+// --- Season label resolution (bug 973) -------------------------------------
+//
+// The BE /seasons + /season/:n endpoints fall back to a season's *canon* name
+// when the requested language has no season_texts row. That canon name is
+// whatever language enriched it first — frequently Russian ("Сезон 4") even
+// under lang=en-US — so rendering it verbatim leaks the wrong locale and is
+// inconsistent across series. We normalise any plain numbered/specials name to
+// the i18n label built from season_number (driven by the UI locale, not the
+// leaked DTO string) and render only a GENUINE custom title verbatim.
+//
+// Covered locales include the two the deployment serves (en, ru) plus common
+// European + CJK TMDB languages, so a canon row enriched by any of them still
+// normalises. A name matching none is treated as custom.
+const NUMBERED_SEASON_RE =
+  /^(?:season|сезон|staffel|saison|temporada|stagione|série|series|시즌|シーズン)\s*0*\d+$/iu;
+
+const SPECIALS_NAMES: ReadonlySet<string> = new Set([
+  'specials', 'special',
+  'спецвыпуски', 'спецматериалы',
+  'spezials',
+  'spéciaux', 'épisodes spéciaux',
+  'especiales', 'speciali', 'especiais',
+]);
+
+function isPlainNumberedName(name: string): boolean {
+  return NUMBERED_SEASON_RE.test(name) || SPECIALS_NAMES.has(name.toLowerCase());
+}
+
+/**
+ * resolveSeasonLabel — the human label for a season accordion row (bug 973).
+ *
+ * - season 0 → localized "Specials" label (season 0 IS specials).
+ * - empty name OR a plain numbered/specials name (any covered locale, incl. a
+ *   RU-leaked "Сезон 4") → localized "Season {n}" from season_number.
+ * - genuine custom title → rendered verbatim (e.g. "Book One: Water").
+ */
+export function resolveSeasonLabel(
+  season: Pick<Season, 'season_number' | 'name'>,
+  t: TFunction,
+): string {
+  const seasonNumber = season.season_number ?? 0;
+  if (seasonNumber === 0) return t('seriesDetail.seasons.specials');
+  const name = (season.name ?? '').trim();
+  if (name === '' || isPlainNumberedName(name)) {
+    return t('seriesDetail.seasons.season', { n: seasonNumber });
+  }
+  return name;
+}
 
 // Per-season library counts sourced from GET /series/:id/library (NOT the
 // canonical /seasons summary). Keyed by season_number. Absent entry ⇒ the
@@ -98,9 +148,7 @@ function SeasonAccordionItem({
   const downloading = libEntry?.downloading ?? 0;
   const year = seasonYear(season.air_date);
   const posterSrc = mediaUrl(season.poster_asset);
-  const seasonLabel = isSpecial
-    ? t('seriesDetail.seasons.specials')
-    : t('seriesDetail.seasons.season', { n: seasonNumber });
+  const seasonLabel = resolveSeasonLabel(season, t);
 
   return (
     <AccordionItem
