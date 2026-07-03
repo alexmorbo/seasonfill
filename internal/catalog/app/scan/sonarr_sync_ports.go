@@ -53,6 +53,16 @@ type EpisodeTextsRepository interface {
 	Upsert(ctx context.Context, t series.EpisodeText) error
 }
 
+// SeriesTextsRepository — series_texts(en-US) base-lang writer (S-E1).
+// InsertBaseLangIfAbsent writes the Sonarr title ONLY when no row exists
+// for (series_id, 'en-US'); an existing TMDB-sourced row is NEVER
+// overwritten (ON CONFLICT DO NOTHING). The concrete
+// *enrichment/persistence.SeriesTextsRepository satisfies this via
+// duck-typing, same as EpisodeTextsRepository above.
+type SeriesTextsRepository interface {
+	InsertBaseLangIfAbsent(ctx context.Context, t series.SeriesText) error
+}
+
 // GenresPort — ResolveByName (en-US, "Drama") + Upsert (create
 // canon + i18n row) + Set (write series_genres join). Idempotent.
 type GenresPort interface {

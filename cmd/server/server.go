@@ -17,6 +17,7 @@ import (
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/logger"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	httpserver "github.com/alexmorbo/seasonfill/internal/shared/http/edge"
@@ -227,6 +228,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// exit. Drained by drainBackground at shutdown.
 	bgWG.Add(1)
 	go torrentsyncBundle.QbitCapacityLoop.Run(rootCtx)
+
+	// S-E1 — i18n base-lang coverage collector (5min cadence) publishing
+	// seasonfill_i18n_base_coverage{table} for the S-E3 O-1 deploy gate.
+	bgWG.Add(1)
+	go loops.NewI18nCoverageLoop(
+		enrichpersistence.NewI18nCoverageRepository(db),
+		observability.I18nCoverageMetricsAdapter{},
+		loops.DefaultI18nCoverageInterval,
+		&bgWG,
+		log,
+	).Run(rootCtx)
 
 	extSvcBundle, err := wiring.BuildExtSvc(persistence, bootCfg, bus, log)
 	if err != nil {

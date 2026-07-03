@@ -261,6 +261,37 @@ func (r *SeriesTextsRepository) Upsert(ctx context.Context, t series.SeriesText)
 	return nil
 }
 
+// InsertBaseLangIfAbsent inserts a series_texts row ONLY when no row
+// exists for (series_id, language) — INSERT … ON CONFLICT DO NOTHING.
+// S-E1: the Sonarr-sync base-lang writer calls this so a Sonarr title
+// seeds the en-US row for a never-enriched series WITHOUT ever
+// overwriting a TMDB-sourced row (Upsert's DoUpdates would clobber it).
+// Idempotent: re-running against an existing row is a no-op (0 rows
+// affected, nil error).
+func (r *SeriesTextsRepository) InsertBaseLangIfAbsent(ctx context.Context, t series.SeriesText) error {
+	if t.SeriesID == 0 {
+		return fmt.Errorf("insert series_texts if absent: series_id must be non-zero")
+	}
+	if t.Language == "" {
+		return fmt.Errorf("insert series_texts if absent: language must be non-empty")
+	}
+	if t.UpdatedAt.IsZero() {
+		t.UpdatedAt = time.Now().UTC()
+	}
+	m := fromSeriesText(t)
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "series_id"},
+			{Name: "language"},
+		},
+		DoNothing: true,
+	}).Create(&m).Error
+	if err != nil {
+		return fmt.Errorf("insert series_texts if absent: %w", err)
+	}
+	return nil
+}
+
 func toSeriesText(m database.SeriesTextModel) series.SeriesText {
 	return series.SeriesText{
 		SeriesID:   m.SeriesID,

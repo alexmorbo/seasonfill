@@ -459,6 +459,7 @@ func BuildWebhook(
 	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
 	webhookEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	webhookEpisodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
+	webhookSeriesTextsRepo := enrichpersistence.NewSeriesTextsRepository(db) // S-E1 base-lang writer
 	webhookGenresRepo := enrichpersistence.NewGenresRepository(db)
 	webhookGenresI18nRepo := enrichpersistence.NewGenresI18nRepository(db)
 	webhookNetworksRepo := enrichpersistence.NewNetworksRepository(db)
@@ -469,6 +470,7 @@ func BuildWebhook(
 			Episodes:      webhookEpisodesRepo,
 			EpisodeStates: webhookEpisodeStatesRepo,
 			EpisodeTexts:  webhookEpisodeTextsRepo,
+			SeriesTexts:   webhookSeriesTextsRepo, // S-E1
 			SeasonStats:   webhookSeasonStatsRepo,
 			Genres:        scan.NewGenresAdapter(webhookGenresRepo, webhookGenresI18nRepo),
 			Networks:      scan.NewNetworksAdapter(webhookNetworksRepo),

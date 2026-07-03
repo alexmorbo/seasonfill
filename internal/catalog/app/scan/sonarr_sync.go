@@ -20,6 +20,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -36,6 +37,11 @@ type SyncDeps struct {
 	Episodes      EpisodesRepository
 	EpisodeStates EpisodeStatesRepository
 	EpisodeTexts  EpisodeTextsRepository
+	// SeriesTexts — S-E1 base-lang writer. Nil-OK for older callers /
+	// tests; when set, SyncSeriesFromSonarr upserts a series_texts{en-US}
+	// row ONLY IF ABSENT (never clobbers a TMDB-sourced row). Best-effort:
+	// a write failure warn-logs and does NOT abort the sync.
+	SeriesTexts SeriesTextsRepository
 	// SeasonStats — story 377. Nil-OK for tests / older callers; when
 	// set, SyncSeriesFromSonarr writes one row per Sonarr season alongside
 	// the series_cache upsert.
@@ -107,6 +113,25 @@ func SyncSeriesFromSonarr(
 
 	if err := deps.SeriesCache.Upsert(ctx, cacheEntryFromPayload(instanceName, p)); err != nil {
 		return canonID, fmt.Errorf("sync sonarr series: cache upsert: %w", err)
+	}
+
+	// S-E1 base-lang guarantee: seed series_texts{en-US} from the Sonarr
+	// title ONLY IF ABSENT. The TMDB enrichment worker (RefreshSeriesAllLangs)
+	// is authoritative and always wins; this fills the gap for a freshly-added
+	// series that has not yet been through a TMDB pass, and for tmdb-less
+	// series that never will. Best-effort — a text-write failure must NOT
+	// abort the whole series sync (episodes still need to land).
+	if deps.SeriesTexts != nil && p.Title != "" {
+		st := series.SeriesText{
+			SeriesID:  canonID,
+			Language:  locale.Default(), // "en-US"
+			Title:     stringPtrIfNotEmpty(p.Title),
+			UpdatedAt: time.Now().UTC(),
+		}
+		if terr := deps.SeriesTexts.InsertBaseLangIfAbsent(ctx, st); terr != nil {
+			log.WarnContext(ctx, "sync_sonarr_series_text_base_failed",
+				slog.String("error", terr.Error()))
+		}
 	}
 
 	if deps.SeasonStats != nil {
