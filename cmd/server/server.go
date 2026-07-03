@@ -240,6 +240,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		log,
 	).Run(rootCtx)
 
+	// W15-14 — catalog size collector (5min cadence) publishing
+	// seasonfill_{series,seasons,episodes}_total.
+	bgWG.Add(1)
+	go loops.NewCatalogCountsLoop(
+		catalogpersistence.NewCatalogCountsRepository(db),
+		observability.CatalogCountsMetricsAdapter{},
+		loops.DefaultCatalogCountsInterval,
+		&bgWG,
+		log,
+	).Run(rootCtx)
+
 	extSvcBundle, err := wiring.BuildExtSvc(persistence, bootCfg, bus, log)
 	if err != nil {
 		return nil, err

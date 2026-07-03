@@ -27,6 +27,8 @@ var AllowedDomains = map[string]struct{}{
 	"boot":       {},
 	"gc":         {},
 	"shutdown":   {},
+
+	"catalog_counts": {},
 }
 
 // DomainLogger returns base.With(slog.String("domain", domain)).
