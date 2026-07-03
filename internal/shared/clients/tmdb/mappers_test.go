@@ -142,6 +142,47 @@ func TestMapTVToRecommendations_Stubs(t *testing.T) {
 	}
 }
 
+func TestMapTVToRecommendations_OriginalFields(t *testing.T) {
+	tv := &TVResponse{
+		Recommendations: &TVRecommendations{
+			Results: []TVRecommendation{
+				{
+					ID:               1396,
+					Name:             "Breaking Bad",
+					OriginalName:     "Во все тяжкие originalname",
+					OriginalLanguage: "en",
+				},
+				{
+					ID:   1399,
+					Name: "Game of Thrones",
+				},
+			},
+		},
+	}
+	recs := MapTVToRecommendations(tv)
+	if len(recs) != 2 {
+		t.Fatalf("expected 2 recs, got %d", len(recs))
+	}
+
+	// rec (a) — original fields populated.
+	a := recs[0]
+	if a.OriginalTitle == nil || *a.OriginalTitle != "Во все тяжкие originalname" {
+		t.Errorf("rec[0] OriginalTitle = %v (expected %q)", a.OriginalTitle, "Во все тяжкие originalname")
+	}
+	if a.OriginalLanguage == nil || *a.OriginalLanguage != "en" {
+		t.Errorf("rec[0] OriginalLanguage = %v (expected %q)", a.OriginalLanguage, "en")
+	}
+
+	// rec (b) — original fields omitted → nil pointers.
+	b := recs[1]
+	if b.OriginalTitle != nil {
+		t.Errorf("rec[1] OriginalTitle = %v (expected nil)", *b.OriginalTitle)
+	}
+	if b.OriginalLanguage != nil {
+		t.Errorf("rec[1] OriginalLanguage = %v (expected nil)", *b.OriginalLanguage)
+	}
+}
+
 func TestMapSeasonToEpisodes(t *testing.T) {
 	eps := MapSeasonToEpisodes(loadSeason(t, "season_1396_1.json"), 42, 99)
 	if len(eps) == 0 {

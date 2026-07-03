@@ -327,11 +327,13 @@ func MapTVToRecommendations(tv *TVResponse) []series.Canon {
 		// worker writes the stub's title + poster into series_texts /
 		// series_media_texts.
 		c := series.Canon{
-			TMDBID:       new(domain.TMDBID(r.ID)),
-			Hydration:    series.HydrationStub,
-			TMDBRating:   nonZeroFloatPtr(r.VoteAverage),
-			TMDBVotes:    nonZeroIntPtr(r.VoteCount),
-			FirstAirDate: parseDate(r.FirstAirDate),
+			TMDBID:           new(domain.TMDBID(r.ID)),
+			Hydration:        series.HydrationStub,
+			TMDBRating:       nonZeroFloatPtr(r.VoteAverage),
+			TMDBVotes:        nonZeroIntPtr(r.VoteCount),
+			FirstAirDate:     parseDate(r.FirstAirDate),
+			OriginalTitle:    nonEmptyPtr(r.OriginalName),
+			OriginalLanguage: nonEmptyPtr(r.OriginalLanguage),
 		}
 		if t := parseDate(r.FirstAirDate); t != nil {
 			y := t.Year()

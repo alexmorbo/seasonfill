@@ -517,7 +517,7 @@ func TestProbe_RecommendationsCoverageLow_StaleMissingRecsLang(t *testing.T) {
 	assertVerdict(t, verdicts, freshener.SectionRecommendations, true, "missing_recs_lang")
 }
 
-func TestProbe_RecommendationsCoverage_SkippedForEnUS(t *testing.T) {
+func TestProbe_RecommendationsCoverage_EnUS_EntersCoverage(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	fresh := now.Add(-time.Hour)
@@ -535,13 +535,14 @@ func TestProbe_RecommendationsCoverage_SkippedForEnUS(t *testing.T) {
 		Series:              &stubSeries{canon: canon},
 		SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "en-US"}},
 		Seasons:             &stubSeasons{},
-		SeriesTextsCoverage: &stubSeriesTextsCoverage{covered: 0, total: 20}, // Would fire if not skipped
+		SeriesTextsCoverage: &stubSeriesTextsCoverage{covered: 0, total: 20}, // 0% < 80%
 		Now:                 func() time.Time { return now },
 	})
 	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "en-US"), nil)
 	require.NoError(t, err)
-	// Coverage check skipped for en-US → TTL-only → fresh.
-	assertVerdict(t, verdicts, freshener.SectionRecommendations, false, "fresh")
+	// W15-3: en-US no longer skips the recs coverage path — it enters it and
+	// fires A3b for its own uncovered language.
+	assertVerdict(t, verdicts, freshener.SectionRecommendations, true, "missing_recs_lang")
 }
 
 func TestProbe_RecommendationsCoverage_ZeroRecs_Fresh(t *testing.T) {

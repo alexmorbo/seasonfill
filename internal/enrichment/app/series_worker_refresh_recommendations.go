@@ -171,11 +171,13 @@ func (w *SeriesWorker) RefreshRecommendations(
 			// display title + poster are written to series_texts /
 			// series_media_texts via the side effects below.
 			c := series.Canon{
-				TMDBID:       &tmdbRecID,
-				Hydration:    series.HydrationStub,
-				TMDBRating:   nonZeroFloatPtr(r.VoteAverage),
-				TMDBVotes:    nonZeroIntPtrSlim(r.VoteCount),
-				FirstAirDate: parseDateOrNilSlim(r.FirstAirDate),
+				TMDBID:           &tmdbRecID,
+				Hydration:        series.HydrationStub,
+				TMDBRating:       nonZeroFloatPtr(r.VoteAverage),
+				TMDBVotes:        nonZeroIntPtrSlim(r.VoteCount),
+				FirstAirDate:     parseDateOrNilSlim(r.FirstAirDate),
+				OriginalTitle:    nonEmptyStringPtr(r.OriginalName),
+				OriginalLanguage: nonEmptyStringPtr(r.OriginalLanguage),
 			}
 			if t := parseDateOrNilSlim(r.FirstAirDate); t != nil {
 				y := t.Year()

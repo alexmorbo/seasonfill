@@ -280,17 +280,18 @@ type TVRecommendations struct {
 // TVRecommendation mirrors recommendations.results[*]. We only
 // pick the handful of fields a stub Canon row needs.
 type TVRecommendation struct {
-	ID            int64    `json:"id"`
-	Name          string   `json:"name"`
-	OriginalName  string   `json:"original_name"`
-	Overview      string   `json:"overview"`
-	FirstAirDate  string   `json:"first_air_date"`
-	PosterPath    string   `json:"poster_path"`
-	BackdropPath  string   `json:"backdrop_path"`
-	VoteAverage   float64  `json:"vote_average"`
-	VoteCount     int      `json:"vote_count"`
-	OriginCountry []string `json:"origin_country"`
-	GenreIDs      []int64  `json:"genre_ids"`
+	ID               int64    `json:"id"`
+	Name             string   `json:"name"`
+	OriginalName     string   `json:"original_name"`
+	OriginalLanguage string   `json:"original_language"`
+	Overview         string   `json:"overview"`
+	FirstAirDate     string   `json:"first_air_date"`
+	PosterPath       string   `json:"poster_path"`
+	BackdropPath     string   `json:"backdrop_path"`
+	VoteAverage      float64  `json:"vote_average"`
+	VoteCount        int      `json:"vote_count"`
+	OriginCountry    []string `json:"origin_country"`
+	GenreIDs         []int64  `json:"genre_ids"`
 }
 
 // MappedVideo is the mapper output shape for one video — wrapped

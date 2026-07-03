@@ -111,6 +111,34 @@ func TestSeriesWorker_RefreshRecommendations_ForceTrue_NoProbe_HappyPath(t *test
 	require.NotNil(t, persisted.EnrichmentRecsSyncedAt)
 }
 
+func TestSeriesWorker_RefreshRecommendations_StubCarriesOriginalFields(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	recs := []tmdb.TVRecommendation{
+		{ID: 2001, Name: "С оригиналом", OriginalName: "Breaking Bad", OriginalLanguage: "en", Overview: "Описание 1", PosterPath: "/p1.jpg"},
+		{ID: 2002, Name: "Без оригинала", Overview: "Описание 2", PosterPath: "/p2.jpg"},
+	}
+	f := newRecsFixture(t, &tmdbID, nil, recs)
+	err := f.worker.RefreshRecommendations(context.Background(), 1, "ru-RU", true)
+	require.NoError(t, err)
+
+	// rec 2001 — OriginalTitle/OriginalLanguage propagate into the stub canon.
+	id1, ok := f.series.byTMDB[2001]
+	require.True(t, ok, "stub for tmdb_id 2001 must be registered")
+	row1 := f.series.rows[id1]
+	require.NotNil(t, row1.OriginalTitle, "OriginalTitle must be set")
+	assert.Equal(t, "Breaking Bad", *row1.OriginalTitle)
+	require.NotNil(t, row1.OriginalLanguage, "OriginalLanguage must be set")
+	assert.Equal(t, "en", *row1.OriginalLanguage)
+
+	// rec 2002 — omitted original fields yield nil pointers.
+	id2, ok := f.series.byTMDB[2002]
+	require.True(t, ok, "stub for tmdb_id 2002 must be registered")
+	row2 := f.series.rows[id2]
+	assert.Nil(t, row2.OriginalTitle, "omitted OriginalName → nil")
+	assert.Nil(t, row2.OriginalLanguage, "omitted OriginalLanguage → nil")
+}
+
 func TestSeriesWorker_RefreshRecommendations_ForceFalse_NoProbe_HappyPath(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)

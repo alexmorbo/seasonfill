@@ -209,12 +209,15 @@ func (p *DBProbe) IsStale(
 	// then subsequent ru-RU visits see Fresh timestamp and never trigger
 	// A3b to populate ru-RU series_texts rows. Coverage check catches that
 	// gap and lets A5 EnsureFreshScope re-fire A3b until closed.
+	// W15-3: removed the en-US exclusion here — RecommendationsCoverage is
+	// parameterized on language, and en-US rec-sets first warmed under a
+	// ru-RU visit are legitimately uncovered in en-US, so en-US views must
+	// also enter the coverage path to re-fire A3b for their own language.
 	recs := ttlSectionVerdict(
 		SectionRecommendations, canon.EnrichmentRecsSyncedAt, canon.Status,
 		SectionTTLs[SectionRecommendations], now,
 	)
-	if !recs.Stale && p.cfg.SeriesTextsCoverage != nil && !lang.IsZero() &&
-		!strings.EqualFold(lang.Value(), "en-US") {
+	if !recs.Stale && p.cfg.SeriesTextsCoverage != nil && !lang.IsZero() {
 		covered, total, cerr := p.cfg.SeriesTextsCoverage.RecommendationsCoverage(ctx, seriesID, lang.Value())
 		switch {
 		case cerr != nil:

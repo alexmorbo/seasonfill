@@ -69,6 +69,51 @@ func TestSeriesRepository_MarkRecsSynced(t *testing.T) {
 	}
 }
 
+// TestSeriesRepository_UpsertStub_PreservesOriginalFieldsOnNilReupsert —
+// W15-3: A3b now writes original_title + original_language into the rec
+// stub via UpsertStub. A later stub re-upsert whose payload omits them
+// (a subsequent recs refresh without originals, or a Sonarr-shaped stub)
+// MUST NOT blank the stored originals — UpsertStub COALESCEs both columns
+// (series_repository.go:331 original_title, :339 original_language).
+func TestSeriesRepository_UpsertStub_PreservesOriginalFieldsOnNilReupsert(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			gdb := backend.NewDB(t)
+			repo := NewSeriesRepository(gdb)
+			ctx := context.Background()
+
+			tmdbID := domain.TMDBID(778899)
+			id, err := repo.UpsertStub(ctx, series.Canon{
+				TMDBID:           &tmdbID,
+				Hydration:        series.HydrationStub,
+				OriginalTitle:    new("Breaking Bad"),
+				OriginalLanguage: new("en"),
+			})
+			require.NoError(t, err)
+			require.NotZero(t, id)
+
+			// Re-upsert the SAME tmdb_id stub omitting both originals.
+			gotID, err := repo.UpsertStub(ctx, series.Canon{
+				TMDBID:    &tmdbID,
+				Hydration: series.HydrationStub,
+			})
+			require.NoError(t, err)
+			require.Equal(t, id, gotID, "stub re-upsert must resolve to the same canon id by tmdb_id")
+
+			got, err := repo.Get(ctx, id)
+			require.NoError(t, err)
+			require.NotNil(t, got.OriginalTitle,
+				"original_title must survive nil re-upsert (UpsertStub COALESCE)")
+			assert.Equal(t, "Breaking Bad", *got.OriginalTitle)
+			require.NotNil(t, got.OriginalLanguage,
+				"original_language must survive nil re-upsert (UpsertStub COALESCE)")
+			assert.Equal(t, "en", *got.OriginalLanguage)
+		})
+	}
+}
+
 // TestSeriesRepository_RecsSyncedAtSurvivesSonarrUpsert_BareWrite — Test A
 // (excluded.X regression class) on enrichment_recs_synced_at column.
 //
