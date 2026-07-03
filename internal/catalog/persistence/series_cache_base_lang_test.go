@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
@@ -65,7 +66,7 @@ func TestSeriesCacheRepository_Upsert_SeedsBaseLangText(t *testing.T) {
 			db := backend.NewDB(t)
 			ctx := context.Background()
 			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db)).
-				WithSeriesTexts(NewSeriesTextsRepository(db))
+				WithSeriesTexts(enrichpersistence.NewSeriesTextsRepository(db))
 
 			t.Run("seeds en-US from sonarr title", func(t *testing.T) {
 				const instance = domain.InstanceName("seed")
@@ -89,7 +90,7 @@ func TestSeriesCacheRepository_Upsert_SeedsBaseLangText(t *testing.T) {
 
 				tmdbTitle := "TMDB Authoritative Title"
 				enriched := time.Now().UTC()
-				texts := NewSeriesTextsRepository(db)
+				texts := enrichpersistence.NewSeriesTextsRepository(db)
 				require.NoError(t, texts.Upsert(ctx, series.SeriesText{
 					SeriesID:   sid,
 					Language:   "en-US",
