@@ -36,9 +36,16 @@ const (
 	// grab_records FK references stay valid.
 	EventTypeSeriesDeleted EventType = "series_deleted"
 
+	// EventTypeEpisodeFileDelete — Sonarr's "EpisodeFileDelete". A file
+	// was removed on the Sonarr side (manual delete, upgrade swap, health
+	// cleanup). F-975: triggers an episode_states refresh for the affected
+	// series so the per-episode on-disk badge (HasFile) flips false without
+	// waiting for the 6h scan. Does NOT touch grab_records.
+	EventTypeEpisodeFileDelete EventType = "episode_file_delete"
+
 	// EventTypeUnsupported — catch-all for Test/Rename/Health/
-	// EpisodeFileDelete/ApplicationUpdate/HealthRestored
-	// and any future enum value. Handler returns 200 OK + INFO log.
+	// ApplicationUpdate/HealthRestored and any future enum value.
+	// Handler returns 200 OK + INFO log.
 	EventTypeUnsupported EventType = "unsupported"
 )
 
@@ -47,7 +54,7 @@ const (
 func (t EventType) IsConsumed() bool {
 	switch t {
 	case EventTypeGrabbed, EventTypeImported, EventTypeImportFailed,
-		EventTypeSeriesAdd, EventTypeSeriesDeleted:
+		EventTypeSeriesAdd, EventTypeSeriesDeleted, EventTypeEpisodeFileDelete:
 		return true
 	default:
 		return false

@@ -162,6 +162,12 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 		return u.handleSeriesAdd(ctx, evt)
 	case webhook.EventTypeSeriesDeleted:
 		return u.handleSeriesDelete(ctx, evt)
+	case webhook.EventTypeEpisodeFileDelete:
+		// F-975(b): a file was removed Sonarr-side. Refresh episode_states
+		// so the per-episode badge flips false immediately. Fire-and-forget
+		// (no grab_records interaction).
+		u.refreshEpisodeStates(ctx, evt)
+		return nil
 	case webhook.EventTypeImported, webhook.EventTypeImportFailed:
 		// fall through
 	default:
@@ -170,6 +176,14 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 			slog.String("instance", string(evt.InstanceName)),
 		)
 		return nil
+	}
+
+	// F-975(b): OnDownload/OnImport means the series's on-disk episode state
+	// just changed. Refresh episode_states BEFORE the grab-record matching
+	// below so the badge updates even when there is no matching grab_records
+	// row (manual import) or the status transition is an idempotent re-delivery.
+	if evt.Type == webhook.EventTypeImported {
+		u.refreshEpisodeStates(ctx, evt)
 	}
 
 	target := mapEventToStatus(evt.Type)
@@ -460,6 +474,31 @@ func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error 
 		slog.String("title", evt.SeriesTitle),
 	)
 	return nil
+}
+
+// refreshEpisodeStates re-syncs episode_states for the event's series via
+// the full Sonarr API sync — one series per event, so the extra fetch cost
+// is bounded (O-5). Best-effort: nil syncer or missing SeriesID is a silent
+// no-op; a sync error is WARN-logged and swallowed (Sonarr retries the
+// webhook on non-2xx, and stale badges self-heal on the next scan piggyback).
+func (u *UseCase) refreshEpisodeStates(ctx context.Context, evt webhook.Event) {
+	if u.seriesSyncer == nil || evt.SeriesID == 0 {
+		return
+	}
+	if err := u.seriesSyncer.SyncFromSonarrAPI(ctx, evt.InstanceName, evt.SeriesID); err != nil {
+		u.logger.WarnContext(ctx, "webhook_episode_states_refresh_failed",
+			slog.String("instance", string(evt.InstanceName)),
+			slog.Int("series_id", int(evt.SeriesID)),
+			slog.String("raw_event_type", evt.RawEventType),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	u.logger.InfoContext(ctx, "webhook_episode_states_refreshed",
+		slog.String("instance", string(evt.InstanceName)),
+		slog.Int("series_id", int(evt.SeriesID)),
+		slog.String("raw_event_type", evt.RawEventType),
+	)
 }
 
 // handleSeriesDelete soft-deletes the series_cache row + (when the

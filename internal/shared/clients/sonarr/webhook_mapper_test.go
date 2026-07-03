@@ -3,8 +3,20 @@ package sonarr
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
+
+func TestMapWebhookEvent_EpisodeFileDelete(t *testing.T) {
+	t.Parallel()
+	ev, err := MapWebhookEvent([]byte(`{"eventType":"EpisodeFileDelete","series":{"id":140,"title":"Rick and Morty"}}`), "homelab")
+	require.NoError(t, err)
+	assert.Equal(t, webhook.EventTypeEpisodeFileDelete, ev.Type)
+	assert.Equal(t, domain.SonarrSeriesID(140), ev.SeriesID)
+}
 
 func TestMapWebhookEvent_GrabReleaseSizePopulated(t *testing.T) {
 	t.Parallel()

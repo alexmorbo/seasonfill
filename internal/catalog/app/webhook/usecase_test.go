@@ -1057,3 +1057,132 @@ func TestProcess_Grabbed_HashAlreadySet_NoTxNoMapWrite(t *testing.T) {
 	assert.Equal(t, 0, tx.called, "no tx when hash already set")
 	assert.Empty(t, tsm.rows)
 }
+
+// fakeSeriesSyncer captures SyncFromSonarrAPI calls for the F-975
+// episode_states refresh tests.
+type fakeSeriesSyncer struct {
+	mu       sync.Mutex
+	calls    []domain.SonarrSeriesID
+	instance domain.InstanceName
+	err      error
+}
+
+func (f *fakeSeriesSyncer) SyncFromSonarrAPI(_ context.Context, inst domain.InstanceName, id domain.SonarrSeriesID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.instance = inst
+	f.calls = append(f.calls, id)
+	return f.err
+}
+
+var _ SeriesSyncer = (*fakeSeriesSyncer)(nil)
+
+func (f *fakeSeriesSyncer) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func TestProcess_Imported_RefreshesEpisodeStates(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	g := &fakeGrabRepo{match: rec}
+	syncer := &fakeSeriesSyncer{}
+	uc := New(Deps{
+		Grabs:              g,
+		Cooldowns:          &fakeCooldownRepo{},
+		Tx:                 &fakeTransactor{},
+		GUIDCooldownLookup: fixedLookup(),
+		SeriesSyncer:       syncer,
+		Logger:             quietLogger(),
+	})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeImported, InstanceName: "main",
+		DownloadID: rec.DownloadID, SeriesID: 140,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, syncer.callCount())
+	assert.Equal(t, domain.SonarrSeriesID(140), syncer.calls[0])
+	assert.Equal(t, domain.InstanceName("main"), syncer.instance)
+	// grab-status transition still happens.
+	assert.Equal(t, grab.StatusImported, g.updateStatus)
+}
+
+func TestProcess_Imported_RefreshesEvenWhenGrabOrphan(t *testing.T) {
+	t.Parallel()
+	// No matching grab record -> orphan path returns nil, but the badge
+	// refresh must still fire (manual import).
+	g := &fakeGrabRepo{matchErr: ports.ErrNotFound}
+	syncer := &fakeSeriesSyncer{}
+	uc := New(Deps{
+		Grabs: g, Cooldowns: &fakeCooldownRepo{}, Tx: &fakeTransactor{},
+		GUIDCooldownLookup: fixedLookup(), SeriesSyncer: syncer, Logger: quietLogger(),
+	})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeImported, InstanceName: "main",
+		DownloadID: "ghost", SeriesID: 140,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, syncer.callCount())
+}
+
+func TestProcess_EpisodeFileDelete_RefreshesEpisodeStates(t *testing.T) {
+	t.Parallel()
+	g := &fakeGrabRepo{}
+	syncer := &fakeSeriesSyncer{}
+	uc := New(Deps{
+		Grabs: g, Cooldowns: &fakeCooldownRepo{}, Tx: &fakeTransactor{},
+		GUIDCooldownLookup: fixedLookup(), SeriesSyncer: syncer, Logger: quietLogger(),
+	})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeEpisodeFileDelete, InstanceName: "main", SeriesID: 140,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, syncer.callCount())
+	assert.Equal(t, domain.SonarrSeriesID(140), syncer.calls[0])
+	// no grab-record interaction on a delete event.
+	assert.Equal(t, 0, g.updateCalls)
+	assert.Equal(t, 0, g.matchCalls)
+}
+
+func TestProcess_ImportFailed_DoesNotRefreshEpisodeStates(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	syncer := &fakeSeriesSyncer{}
+	uc := New(Deps{
+		Grabs: &fakeGrabRepo{match: rec}, Cooldowns: &fakeCooldownRepo{}, Tx: &fakeTransactor{},
+		GUIDCooldownLookup: fixedLookup(), SeriesSyncer: syncer, Logger: quietLogger(),
+	})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeImportFailed, InstanceName: "main",
+		DownloadID: rec.DownloadID, SeriesID: 140,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, syncer.callCount())
+}
+
+func TestProcess_EpisodeFileDelete_SyncErrorSwallowed(t *testing.T) {
+	t.Parallel()
+	syncer := &fakeSeriesSyncer{err: errors.New("sonarr down")}
+	uc := New(Deps{
+		Grabs: &fakeGrabRepo{}, Cooldowns: &fakeCooldownRepo{}, Tx: &fakeTransactor{},
+		GUIDCooldownLookup: fixedLookup(), SeriesSyncer: syncer, Logger: quietLogger(),
+	})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeEpisodeFileDelete, InstanceName: "main", SeriesID: 140,
+	})
+	require.NoError(t, err) // error swallowed
+	assert.Equal(t, 1, syncer.callCount())
+}
+
+func TestProcess_EpisodeFileDelete_NilSyncer_NoOp(t *testing.T) {
+	t.Parallel()
+	uc := New(Deps{
+		Grabs: &fakeGrabRepo{}, Cooldowns: &fakeCooldownRepo{}, Tx: &fakeTransactor{},
+		GUIDCooldownLookup: fixedLookup(), Logger: quietLogger(), // no SeriesSyncer
+	})
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type: domainwebhook.EventTypeEpisodeFileDelete, InstanceName: "main", SeriesID: 140,
+	})
+	require.NoError(t, err)
+}

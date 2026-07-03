@@ -36,7 +36,7 @@ var webhookEventAlias = map[string]webhook.EventType{
 	"applicationupdate":         webhook.EventTypeUnsupported,
 	"seriesadd":                 webhook.EventTypeSeriesAdd,
 	"seriesdelete":              webhook.EventTypeSeriesDeleted,
-	"episodefiledelete":         webhook.EventTypeUnsupported,
+	"episodefiledelete":         webhook.EventTypeEpisodeFileDelete,
 }
 
 // MapWebhookEvent parses a Sonarr webhook payload and projects it onto

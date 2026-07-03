@@ -430,11 +430,6 @@ func syncEpisodes(
 		return fmt.Errorf("batch upsert episodes: %w", err)
 	}
 
-	fileByID := make(map[int]sonarr.EpisodeFilePayload, len(bundle.EpisodeFiles))
-	for _, f := range bundle.EpisodeFiles {
-		fileByID[f.ID] = f
-	}
-
 	for i, ep := range bundle.Episodes {
 		if i >= len(ids) {
 			break
@@ -458,7 +453,43 @@ func syncEpisodes(
 				)
 			}
 		}
+	}
 
+	return upsertEpisodeStates(ctx, deps.EpisodeStates, instanceName, bundle.Episodes, ids, bundle.EpisodeFiles, log)
+}
+
+// upsertEpisodeStates is the SINGLE episode_states derivation (F-975).
+// Given the Sonarr episode payloads, their positionally-aligned canonical
+// episode ids, and the Sonarr episode-file payloads, it writes one
+// per-instance episode_states row per episode. Called from the full sync
+// (syncEpisodes) AND the light scan-piggyback path
+// (refreshEpisodeStatesFromBundle) so both write identical, full-fidelity
+// rows — episode_states stays single-writer and the repo's straight-assign
+// OnConflict never NULL-clobbers.
+//
+// canonEpisodeIDs[i] == 0 means "no canonical row for episodes[i]" — the
+// episode is skipped (the full-sync paths own first-time canon creation).
+func upsertEpisodeStates(
+	ctx context.Context,
+	states EpisodeStatesRepository,
+	instanceName domain.InstanceName,
+	episodes []sonarr.EpisodePayload,
+	canonEpisodeIDs []int64,
+	files []sonarr.EpisodeFilePayload,
+	_ *slog.Logger,
+) error {
+	fileByID := make(map[int]sonarr.EpisodeFilePayload, len(files))
+	for _, f := range files {
+		fileByID[f.ID] = f
+	}
+	for i, ep := range episodes {
+		if i >= len(canonEpisodeIDs) {
+			break
+		}
+		canonEpisodeID := domain.EpisodeID(canonEpisodeIDs[i])
+		if canonEpisodeID == 0 {
+			continue
+		}
 		state := series.EpisodeState{
 			InstanceName: instanceName,
 			EpisodeID:    canonEpisodeID,
@@ -496,12 +527,64 @@ func syncEpisodes(
 				}
 			}
 		}
-		if serr := deps.EpisodeStates.Upsert(ctx, state); serr != nil {
+		if serr := states.Upsert(ctx, state); serr != nil {
 			return fmt.Errorf("upsert episode_state season=%d episode=%d: %w",
 				ep.SeasonNumber, ep.EpisodeNumber, serr)
 		}
 	}
 	return nil
+}
+
+// refreshEpisodeStatesFromBundle is the light F-975(a) scan-piggyback path:
+// it refreshes episode_states for an ALREADY-persisted series WITHOUT the
+// full-sync side-effects (no canon/genre/network/season_stats writes, no
+// BatchUpsert canon-episode churn, no PostSync enrichment enqueue).
+//
+// It resolves the canonical series row (read-only for an existing series),
+// maps each Sonarr episode to its canonical episode id by (season, episode),
+// then reuses upsertEpisodeStates. Episodes with no canonical row yet
+// (never full-synced) are skipped — first-time canon creation is owned by
+// the SeriesAdd / OnImport full-sync paths.
+func refreshEpisodeStatesFromBundle(
+	ctx context.Context,
+	deps SyncDeps,
+	instanceName domain.InstanceName,
+	sp sonarr.SeriesPayload,
+	episodes []sonarr.EpisodePayload,
+	files []sonarr.EpisodeFilePayload,
+	log *slog.Logger,
+) error {
+	if log == nil {
+		log = sharedports.DomainLogger(slog.Default(), "scan")
+	}
+	canon, err := ResolveOrCreateSeries(ctx, deps.Series, sp)
+	if err != nil {
+		return fmt.Errorf("refresh episode_states: resolve series: %w", err)
+	}
+	if canon.ID == 0 {
+		// Series not yet persisted (never full-synced). Nothing to key
+		// episode_states against; the full-sync paths own first creation.
+		log.DebugContext(ctx, "episode_states_refresh_skipped_unresolved_series",
+			slog.String("instance", string(instanceName)),
+			slog.Int("sonarr_series_id", int(sp.ID)),
+		)
+		return nil
+	}
+	existing, err := deps.Episodes.ListBySeries(ctx, canon.ID)
+	if err != nil {
+		return fmt.Errorf("refresh episode_states: list canon episodes: %w", err)
+	}
+	byNK := make(map[episodeNaturalKey]int64, len(existing))
+	for _, e := range existing {
+		byNK[episodeNaturalKey{Season: e.SeasonNumber, Episode: e.EpisodeNumber}] = e.ID
+	}
+	canonEpisodeIDs := make([]int64, len(episodes))
+	for i, ep := range episodes {
+		if id, ok := byNK[episodeNaturalKey{Season: ep.SeasonNumber, Episode: ep.EpisodeNumber}]; ok {
+			canonEpisodeIDs[i] = id
+		}
+	}
+	return upsertEpisodeStates(ctx, deps.EpisodeStates, instanceName, episodes, canonEpisodeIDs, files, log)
 }
 
 type episodeNaturalKey struct {

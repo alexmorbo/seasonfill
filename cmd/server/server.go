@@ -189,6 +189,12 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	webhookReconciler := webhookBundle.Reconciler
 	webhookStatusCache := webhookBundle.StatusCache
 
+	// F-975(a): give the scan loop the webhook-scoped Syncer so the 6h scan
+	// piggybacks an episode_states refresh per walked series.
+	if webhookBundle.Syncer != nil && scanUC != nil {
+		scanUC.WithEpisodeStatesRefresher(webhookBundle.Syncer)
+	}
+
 	instanceBundle, err := wiring.BuildInstance(persistence, webhookBundle, bus, log)
 	if err != nil {
 		return nil, err

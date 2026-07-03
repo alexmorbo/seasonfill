@@ -1740,3 +1740,68 @@ func TestScanUseCase_SeasonStats_RegressionStory380Wiring(t *testing.T) {
 	assert.Equal(t, int64(2_000_000), got.SizeOnDiskBytes)
 	assert.True(t, got.Monitored)
 }
+
+// fakeEpisodeStatesRefresher captures RefreshEpisodeStates calls for the
+// F-975 scan-piggyback wiring tests.
+type fakeEpisodeStatesRefresher struct {
+	mu    sync.Mutex
+	calls []domain.SonarrSeriesID
+	err   error
+}
+
+func (f *fakeEpisodeStatesRefresher) RefreshEpisodeStates(_ context.Context, _ domain.InstanceName, id domain.SonarrSeriesID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, id)
+	return f.err
+}
+
+var _ EpisodeStatesRefresher = (*fakeEpisodeStatesRefresher)(nil)
+
+// completeSeries builds a series whose single monitored season is fully
+// on-disk (Aired == EpisodeFileCount) so seriesAllSeasonsComplete short-
+// circuits it before any Sonarr per-series work — the F-975 piggyback must
+// NOT fire for it.
+func completeSeries(id domain.SonarrSeriesID, title string) series.Series {
+	return series.Series{ID: id, Title: title, Type: series.SeriesTypeStandard, Monitored: true,
+		QualityProfile: 14,
+		Seasons: []series.Season{{
+			Number: 1, Monitored: true,
+			Statistics: series.Statistics{Total: 10, Aired: 10, EpisodeFileCount: 10},
+		}},
+	}
+}
+
+func TestProcessScan_PiggybacksEpisodeStates_ForWalkedSeries(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: []series.Series{monSeries(140, "Rick and Morty")}}
+	ref := &fakeEpisodeStatesRefresher{}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithEpisodeStatesRefresher(ref)
+	_, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	ref.mu.Lock()
+	defer ref.mu.Unlock()
+	require.Contains(t, ref.calls, domain.SonarrSeriesID(140))
+}
+
+func TestProcessScan_PiggybackSkipped_ForAllCompleteSeries(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: []series.Series{completeSeries(140, "Rick and Morty")}}
+	ref := &fakeEpisodeStatesRefresher{}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithEpisodeStatesRefresher(ref)
+	_, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	ref.mu.Lock()
+	defer ref.mu.Unlock()
+	assert.Empty(t, ref.calls) // fast-path skipped -> no refresh
+}
+
+func TestProcessScan_PiggybackError_DoesNotFailScan(t *testing.T) {
+	t.Parallel()
+	sonarrFake := &fakeSonarr{name: "main", series: []series.Series{monSeries(140, "Rick and Morty")}}
+	ref := &fakeEpisodeStatesRefresher{err: errors.New("sonarr down")}
+	uc := newScanUseCaseForTest(t, sonarrFake).WithEpisodeStatesRefresher(ref)
+	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+}

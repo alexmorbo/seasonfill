@@ -101,3 +101,30 @@ func (s *Syncer) SyncFromSonarrAPI(ctx context.Context, instanceName domain.Inst
 	_, err = SyncSeriesFromSonarr(ctx, s.Deps, instanceName, bundle)
 	return err
 }
+
+// RefreshEpisodeStates fetches the current Sonarr episode + file payloads
+// for one series and refreshes episode_states only (F-975 scan piggyback).
+// Three Sonarr calls (series, episodes, files); no canon/taxonomy writes,
+// no enrichment enqueue. Reuses the shared upsertEpisodeStates derivation
+// via refreshEpisodeStatesFromBundle.
+func (s *Syncer) RefreshEpisodeStates(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) error {
+	client, ok := s.Lookup(instanceName)
+	if !ok {
+		return fmt.Errorf("refresh episode_states: unknown instance %q", instanceName)
+	}
+	sp, err := client.GetSeriesPayload(ctx, sonarrSeriesID)
+	if err != nil {
+		return fmt.Errorf("refresh episode_states: get series: %w", err)
+	}
+	episodes, err := client.ListEpisodesForSync(ctx, sonarrSeriesID)
+	if err != nil {
+		return fmt.Errorf("refresh episode_states: list episodes: %w", err)
+	}
+	files, err := client.ListEpisodeFilesForSync(ctx, sonarrSeriesID)
+	if err != nil {
+		return fmt.Errorf("refresh episode_states: list episode files: %w", err)
+	}
+	return refreshEpisodeStatesFromBundle(ctx, s.Deps, instanceName, sp, episodes, files, s.Logger)
+}
+
+var _ EpisodeStatesRefresher = (*Syncer)(nil)

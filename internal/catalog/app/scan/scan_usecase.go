@@ -106,6 +106,13 @@ type HealthRegistry interface {
 	MarkUnavailable(name string, state instance.Health, lastErr string, at time.Time) (instance.Health, bool)
 }
 
+// EpisodeStatesRefresher re-syncs per-instance episode_states for one series
+// from the live Sonarr API. F-975 scan piggyback. Implemented by *scan.Syncer
+// (RefreshEpisodeStates). Nil-OK — piggyback is skipped when unset.
+type EpisodeStatesRefresher interface {
+	RefreshEpisodeStates(ctx context.Context, instanceName shareddomain.InstanceName, sonarrSeriesID shareddomain.SonarrSeriesID) error
+}
+
 type UseCase struct {
 	instances   atomic.Pointer[[]Instance]
 	evaluator   *evaluate.UseCase
@@ -137,6 +144,10 @@ type UseCase struct {
 	// case kicks enrichment within ms (not 60s ticker delay).
 	// nil-OK; never fired on aborted/cancelled/failed paths.
 	postScanCycle func(ctx context.Context)
+
+	// episodeStatesRefresher — F-975 scan piggyback. Nil-OK: when unset
+	// the per-series episode_states refresh in processScan is skipped.
+	episodeStatesRefresher EpisodeStatesRefresher
 }
 
 func NewUseCase(
@@ -215,6 +226,14 @@ func (u *UseCase) WithWaitGroup(wg *sync.WaitGroup) *UseCase { u.bgWG = wg; retu
 // enrichment kicker.
 func (u *UseCase) WithPostScanCycle(fn func(ctx context.Context)) *UseCase {
 	u.postScanCycle = fn
+	return u
+}
+
+// WithEpisodeStatesRefresher wires the F-975 scan-piggyback episode_states
+// refresher (production: the webhook-scoped *scan.Syncer). Nil-OK — when unset
+// the per-series episode_states refresh in processScan is skipped.
+func (u *UseCase) WithEpisodeStatesRefresher(r EpisodeStatesRefresher) *UseCase {
+	u.episodeStatesRefresher = r
 	return u
 }
 
@@ -906,6 +925,13 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				}
 			}
 		}
+
+		// F-975(a): piggyback episode_states refresh for the series we just
+		// walked. Best-effort — only non-complete series reach here (the
+		// all-complete fast-path continues above), so the extra Sonarr fetch
+		// is bounded. Never fails/aborts the scan.
+		u.refreshEpisodeStatesForSeries(ctx, instName, s.ID)
+
 		// 011c: flush incremental progress every N=5 series.
 		pendingDelta = u.flushSeriesScannedIfDue(ctx, scanID, pendingDelta)
 	}
@@ -1264,6 +1290,22 @@ func seriesAllSeasonsComplete(s series.Series) bool {
 // the full row anyway). Threshold is a code-internal write-batching
 // knob, not user-tunable surface.
 const scanProgressFlushEvery = 5
+
+// refreshEpisodeStatesForSeries runs the F-975 scan piggyback for one series.
+// Nil refresher = no-op. Errors are WARN-logged and swallowed — a stale badge
+// self-heals on the next scan or webhook, and must never abort the scan.
+func (u *UseCase) refreshEpisodeStatesForSeries(ctx context.Context, instName shareddomain.InstanceName, seriesID shareddomain.SonarrSeriesID) {
+	if u.episodeStatesRefresher == nil {
+		return
+	}
+	if err := u.episodeStatesRefresher.RefreshEpisodeStates(ctx, instName, seriesID); err != nil {
+		u.logger.WarnContext(ctx, "episode_states_piggyback_failed",
+			slog.String("instance", string(instName)),
+			slog.Int("series_id", int(seriesID)),
+			slog.String("error", err.Error()),
+		)
+	}
+}
 
 func (u *UseCase) flushSeriesScannedIfDue(ctx context.Context, id uuid.UUID, pending int) int {
 	if pending < scanProgressFlushEvery {
