@@ -108,6 +108,14 @@ func (h *TMDBClientHolder) GetTV(ctx context.Context, id int64, language string)
 	return c.GetTV(ctx, id, language)
 }
 
+func (h *TMDBClientHolder) GetTVAllLangs(ctx context.Context, id int64) (*tmdb.TVResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.GetTVAllLangs(ctx, id)
+}
+
 func (h *TMDBClientHolder) GetSeason(ctx context.Context, tvID int64, seasonNumber int, language string) (*tmdb.SeasonResponse, error) {
 	c := h.Load()
 	if c == nil {

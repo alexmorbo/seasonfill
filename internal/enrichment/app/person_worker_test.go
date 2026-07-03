@@ -141,6 +141,10 @@ func (f *fakeTMDBPerson) GetTV(context.Context, int64, string) (*tmdb.TVResponse
 	return nil, nil
 }
 
+func (f *fakeTMDBPerson) GetTVAllLangs(context.Context, int64) (*tmdb.TVResponse, error) {
+	return nil, nil
+}
+
 func (f *fakeTMDBPerson) GetSeason(context.Context, int64, int, string) (*tmdb.SeasonResponse, error) {
 	return nil, nil
 }

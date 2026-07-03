@@ -152,6 +152,15 @@ func (f *fakeWorker) RefreshMediaAssets(ctx context.Context, _ domain.SeriesID, 
 	return f.runBody(ctx)
 }
 
+// RefreshSeriesAllLangs — S-B. The freshener's SectionOverview branch now
+// dispatches here instead of RefreshSeriesText; reuse the refreshSeriesText
+// counter so the existing SectionOverview routing assertions stay valid.
+func (f *fakeWorker) RefreshSeriesAllLangs(ctx context.Context, _ domain.SeriesID, _ bool) error {
+	f.calls.Add(1)
+	f.refreshSeriesTextCalls.Add(1)
+	return f.runBody(ctx)
+}
+
 func (f *fakeWorker) runBody(ctx context.Context) error {
 	now := time.Now()
 	f.recordCtxAt.Store(&now)
@@ -484,6 +493,12 @@ func (f *workerCtxRecorder) RefreshRecommendations(ctx context.Context, _ domain
 }
 
 func (f *workerCtxRecorder) RefreshMediaAssets(ctx context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return f.record(ctx, true)
+}
+
+// RefreshSeriesAllLangs — S-B. SectionOverview routes here; record entry
+// state like the other sync narrow methods.
+func (f *workerCtxRecorder) RefreshSeriesAllLangs(ctx context.Context, _ domain.SeriesID, _ bool) error {
 	return f.record(ctx, true)
 }
 

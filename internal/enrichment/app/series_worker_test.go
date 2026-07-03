@@ -57,6 +57,24 @@ func (f *fakeTMDB) GetTV(ctx context.Context, id int64, language string) (*tmdb.
 	return f.tv, f.tvErr
 }
 
+// GetTVAllLangs mirrors GetTV for the S-B all-langs path — shares the
+// getTVHit counter so "exactly one TMDB call" assertions hold, records the
+// base lang, and honors tvErr / getTVCallSwitch.
+func (f *fakeTMDB) GetTVAllLangs(ctx context.Context, id int64) (*tmdb.TVResponse, error) {
+	f.mu.Lock()
+	f.getTVHit++
+	currentCall := f.getTVHit
+	f.calls = append(f.calls, "GetTVAllLangs")
+	f.getTVLangs = append(f.getTVLangs, "all")
+	f.mu.Unlock()
+	if f.getTVCallSwitch != nil {
+		if err := f.getTVCallSwitch(currentCall); err != nil {
+			return nil, err
+		}
+	}
+	return f.tv, f.tvErr
+}
+
 func (f *fakeTMDB) GetSeason(ctx context.Context, tvID int64, seasonNumber int, language string) (*tmdb.SeasonResponse, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, "GetSeason")

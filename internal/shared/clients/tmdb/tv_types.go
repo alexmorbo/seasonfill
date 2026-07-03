@@ -50,6 +50,7 @@ type TVResponse struct {
 	ContentRatings   *TVContentRatings   `json:"content_ratings"`
 	Keywords         *TVKeywords         `json:"keywords"`
 	Recommendations  *TVRecommendations  `json:"recommendations"`
+	Translations     *TVTranslations     `json:"translations"`
 }
 
 // TVEpisodeStub is the next/last episode embed. Used only for
@@ -201,6 +202,33 @@ type TVImage struct {
 	ISO6391     *string `json:"iso_639_1"`
 	VoteAverage float64 `json:"vote_average"`
 	VoteCount   int     `json:"vote_count"`
+}
+
+// TVTranslations — append_to_response=translations sub-resource on
+// /tv/{id}. Each entry carries one language's localised
+// name/overview/tagline. S-B reads this to populate series_texts for every
+// supported language from a single GetTV round-trip.
+type TVTranslations struct {
+	Translations []TVTranslation `json:"translations"`
+}
+
+// TVTranslation is one row of translations.translations[*]. ISO6391 is the
+// bare 2-letter language code (matched against shortLang(userTag)); Data
+// holds the localised text fields.
+type TVTranslation struct {
+	ISO6391  string            `json:"iso_639_1"`
+	ISO31661 string            `json:"iso_3166_1"`
+	Data     TVTranslationData `json:"data"`
+}
+
+// TVTranslationData is the `data` object inside a TVTranslation. A named
+// type (rather than an anonymous struct) keeps test fixtures constructible
+// and mirrors the TVVideo/TVKeyword naming convention in this package.
+type TVTranslationData struct {
+	Name     string `json:"name"`
+	Overview string `json:"overview"`
+	Tagline  string `json:"tagline"`
+	Homepage string `json:"homepage"`
 }
 
 // TVExternalIDs — external_ids embed. imdb_id may arrive in

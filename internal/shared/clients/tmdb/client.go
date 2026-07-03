@@ -45,6 +45,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime/quota"
 	"github.com/alexmorbo/seasonfill/internal/shared/clock"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/httpx"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -521,19 +522,53 @@ func (c *Client) languageFor(lang string) string {
 	return lang
 }
 
+// shortLangTag returns the lowercased primary subtag of a BCP-47 tag:
+// "en-US" → "en", "ru-RU" → "ru", "" → "".
+func shortLangTag(lang string) string {
+	short := strings.ToLower(lang)
+	if i := strings.Index(short, "-"); i > 0 {
+		short = short[:i]
+	}
+	return short
+}
+
 // includeImageLanguagesFor builds the include_image_language query
 // value for a given BCP-47 tag. Per PRD §5.5 the form is
 // `{2-letter},en,null` (ru-RU → ru,en,null). The `null` tag asks
 // TMDB to surface language-agnostic art (posters with no text).
 func includeImageLanguagesFor(lang string) string {
-	short := strings.ToLower(lang)
-	if i := strings.Index(short, "-"); i > 0 {
-		short = short[:i]
-	}
+	short := shortLangTag(lang)
 	if short == "" || short == "en" {
 		return "en,null"
 	}
 	return short + ",en,null"
+}
+
+// includeImageLanguagesAll builds the UNION include_image_language for the
+// S-B all-langs GetTV path: the base short-lang first (en), then every other
+// supported user language's short form in SupportedUserLanguages order, then
+// the `null` language-agnostic tag. Deterministic order so smoke tests can
+// assert on the query string — e.g. ["en-US","ru-RU"] → "en,ru,null".
+func includeImageLanguagesAll() string {
+	seen := make(map[string]struct{}, len(locale.SupportedUserLanguages)+1)
+	parts := make([]string, 0, len(locale.SupportedUserLanguages)+1)
+	add := func(tag string) {
+		short := shortLangTag(tag)
+		if short == "" {
+			return
+		}
+		if _, ok := seen[short]; ok {
+			return
+		}
+		seen[short] = struct{}{}
+		parts = append(parts, short)
+	}
+	add(locale.Default()) // base first
+	for _, l := range locale.SupportedUserLanguages {
+		add(l)
+	}
+	parts = append(parts, "null")
+	return strings.Join(parts, ",")
 }
 
 // parseRetryAfter accepts the two RFC 7231 forms:

@@ -46,6 +46,13 @@ type SeriesWorkerHandle interface {
 	RefreshSeasonSlim(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, lang string, force bool) error
 	RefreshRecommendations(ctx context.Context, seriesID domain.SeriesID, lang string, force bool) error
 	RefreshMediaAssets(ctx context.Context, seriesID domain.SeriesID, lang string, force bool) error
+
+	// RefreshSeriesAllLangs — S-B: one GetTV → series_texts +
+	// series_media_texts for ALL supported languages. The SectionOverview
+	// dispatch routes here (superseding the per-lang RefreshSeriesText for the
+	// freshener path). RefreshSeriesText stays for Phase-4 targeted per-iso
+	// refresh.
+	RefreshSeriesAllLangs(ctx context.Context, seriesID domain.SeriesID, force bool) error
 }
 
 // SeriesFreshenerHolder satisfies seriesdetail.SeriesFreshener. Wraps a
@@ -445,7 +452,9 @@ func (h *SeriesFreshenerHolder) invokeNarrow(
 		// external_ids, status). Only fires on cold/never-synced case.
 		return inner.HandleForcedLang(ctx, seriesID, lang)
 	case freshener.SectionOverview:
-		return inner.RefreshSeriesText(ctx, seriesID, lang, force)
+		// S-B: all-langs in one call. The lang arg is intentionally dropped —
+		// RefreshSeriesAllLangs writes every supported language.
+		return inner.RefreshSeriesAllLangs(ctx, seriesID, force)
 	case freshener.SectionCast:
 		return inner.RefreshCast(ctx, seriesID, lang, force)
 	case freshener.SectionRecommendations:

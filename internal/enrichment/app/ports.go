@@ -31,6 +31,13 @@ type TMDBClient interface {
 	// Language is BCP-47 ("en-US" / "ru-RU").
 	GetTV(ctx context.Context, id int64, language string) (*tmdb.TVResponse, error)
 
+	// GetTVAllLangs fetches /tv/{id} for the S-B all-langs path: base-lang
+	// (en-US) root fields + the translations sub-resource for every supported
+	// language + a union include_image_language, in ONE round-trip.
+	// RefreshSeriesAllLangs consumes it to populate series_texts /
+	// series_media_texts for all supported langs at once.
+	GetTVAllLangs(ctx context.Context, id int64) (*tmdb.TVResponse, error)
+
 	// GetSeason fetches /tv/{id}/season/{n}.
 	GetSeason(ctx context.Context, tvID int64, seasonNumber int, language string) (*tmdb.SeasonResponse, error)
 

@@ -116,6 +116,22 @@ func (w *sectionalErrWorker) RefreshSeriesText(ctx context.Context, _ domain.Ser
 	return w.refreshSeriesTextErr
 }
 
+// RefreshSeriesAllLangs — S-B. SectionOverview dispatches here; reuse the
+// refreshSeriesText counter / err / block-gate so the existing
+// SectionOverview dispatch assertions (partial-failure, singleflight,
+// join-error) stay valid.
+func (w *sectionalErrWorker) RefreshSeriesAllLangs(ctx context.Context, _ domain.SeriesID, _ bool) error {
+	w.refreshSeriesTextCalls.Add(1)
+	if w.blockRefreshSeriesText != nil {
+		select {
+		case <-w.blockRefreshSeriesText:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return w.refreshSeriesTextErr
+}
+
 func (w *sectionalErrWorker) RefreshCast(_ context.Context, _ domain.SeriesID, _ string, _ bool) error {
 	w.refreshCastCalls.Add(1)
 	return w.refreshCastErr

@@ -58,6 +58,10 @@ func (f *a3bFakeTMDB) GetTV(_ context.Context, _ int64, _ string) (*tmdb.TVRespo
 	return f.resp, nil
 }
 
+func (f *a3bFakeTMDB) GetTVAllLangs(_ context.Context, _ int64) (*tmdb.TVResponse, error) {
+	return f.resp, nil
+}
+
 func (f *a3bFakeTMDB) GetSeason(_ context.Context, _ int64, _ int, _ string) (*tmdb.SeasonResponse, error) {
 	panic("a3bFakeTMDB.GetSeason should not be called in A3b integration test")
 }
