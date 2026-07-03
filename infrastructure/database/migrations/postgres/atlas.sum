@@ -1,4 +1,4 @@
-h1:3nzCtdiUJ5hrA7CNOqmTKox0uO/qb75kvB8auBB4Zis=
+h1:aHZSyFUSTQVEnjfbqILP20rALDa/17iHxVeKwIrMCCc=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -51,3 +51,5 @@ h1:3nzCtdiUJ5hrA7CNOqmTKox0uO/qb75kvB8auBB4Zis=
 000025_series_media_texts.up.sql h1:bcFSn4+3OjeULB7JFkLwfFl87B9NDxSTm+INTSIqmys=
 000026_season_media_texts.down.sql h1:AvIbRcY6pJif9LzY6BqoEsWtdEM0gsLa2hoDBE+yR80=
 000026_season_media_texts.up.sql h1:RVPv/+nNNT7di1UOoa34BpXQPI7MZkYJOfWQwQlwyUM=
+000027_drop_dead_i18n.down.sql h1:zRbMu+NtpIRbQnifICxAyzAigiRDfq2qP4RcgDwc8og=
+000027_drop_dead_i18n.up.sql h1:bxGgQx5p/T6Ub3Q9mileqUgF+y/aEe53FZgukJzMcG8=

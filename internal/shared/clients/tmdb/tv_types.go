@@ -185,9 +185,10 @@ type TVVideo struct {
 	PublishedAt string `json:"published_at"`
 }
 
-// TVImages — poster/backdrop/logo embeds. Only poster_path /
-// backdrop_path on the root row are used; the typed slices stay
-// here for future media pre-warm work (F-1).
+// TVImages — poster/backdrop/logo embeds. The typed slices are consumed
+// by per-language poster/backdrop selection (pickPosterForLang / S-A)
+// in the series_media_texts (584a) and season_media_texts (S-C2)
+// writers; the root poster_path/backdrop_path remain the canon fallback.
 type TVImages struct {
 	Backdrops []TVImage `json:"backdrops"`
 	Posters   []TVImage `json:"posters"`

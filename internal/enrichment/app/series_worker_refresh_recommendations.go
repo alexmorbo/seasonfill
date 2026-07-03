@@ -273,6 +273,10 @@ func (w *SeriesWorker) RefreshRecommendations(
 			// columns; this narrow UPDATE unconditionally overwrites so
 			// the rec carousel serves ru-RU posters on cold visit. Nil
 			// writer preserves pre-571 behavior (backwards-compat with
+			//
+			// TODO(S-E3): this writes series.poster_asset/backdrop_asset (canon,
+			// localizable) which S-E3 drops. Migrate to a series_media_texts
+			// en-US write (PLAN S-E3 item 2 — UpdateRecCanonMedia → media_texts).
 			// test fixtures that don't wire RecCanonWriter). Failure
 			// rolls back the entire tx so the stamp is NOT written
 			// without a successful media overwrite.

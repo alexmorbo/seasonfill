@@ -124,32 +124,6 @@ func TestInstance_OmitOptional(t *testing.T) {
 	assert.NotContains(t, string(raw), "last_error")
 }
 
-func TestSeriesSearchItem_WireFormat(t *testing.T) {
-	t.Parallel()
-	in := SeriesSearchItem{
-		SeriesID: 122, Title: "Severance",
-		Monitored: true, SeasonCount: 2, MissingAired: 8,
-	}
-	raw, err := json.Marshal(in)
-	require.NoError(t, err)
-	assert.JSONEq(t,
-		`{"series_id":122,"title":"Severance","monitored":true,"season_count":2,"missing_aired_count":8}`,
-		string(raw))
-	var out SeriesSearchItem
-	require.NoError(t, json.Unmarshal(raw, &out))
-	assert.Equal(t, in, out)
-}
-
-func TestSeriesSearchList_PreservesItemsKey(t *testing.T) {
-	t.Parallel()
-	// Empty list MUST serialize as items:[] not items:null — TS
-	// generated type is `SeriesSearchItem[]`, never null.
-	raw, err := json.Marshal(SeriesSearchList{Items: []SeriesSearchItem{}})
-	require.NoError(t, err)
-	assert.Contains(t, string(raw), `"items":[]`)
-	assert.Contains(t, string(raw), `"total":0`)
-}
-
 // 091a / F-P2-2 — DecisionIntent shape round-trips byte-equal.
 func TestDecisionIntent_WireFormat(t *testing.T) {
 	t.Parallel()

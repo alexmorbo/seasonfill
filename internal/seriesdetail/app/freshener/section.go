@@ -14,7 +14,7 @@ type Section string
 const (
 	SectionSkeleton        Section = "skeleton"        // hero + season summaries (per PLAN §7.1 B1a)
 	SectionOverview        Section = "overview"        // overview block (series_texts.lang)
-	SectionCast            Section = "cast"            // series_people + characters_i18n[lang]
+	SectionCast            Section = "cast"            // series_people; character names last-lang-wins (i18n side-table = backlog S-G)
 	SectionRecommendations Section = "recommendations" // series_recommendations + N×UPSERT series_texts side-effect (PLAN §6.3.5)
 	SectionMedia           Section = "media"           // poster/backdrop/logo/asset hashes
 )

@@ -54,13 +54,15 @@ import (
 // re-EnsurePending same hash+URL is a no-op).
 //
 // HARD RULE — ONE TMDB CALL: exactly 1 TMDB call (`GetTV(?language=lang)`);
-// lang is validated + logged for correlation but images are canonical
-// (lang-agnostic per PLAN §2.10 mapping). tv.Images.Posters[] rich payload
-// with iso_639_1 tags is available but A4 uses tv.PosterPath /
-// tv.BackdropPath / tv.Seasons[i].PosterPath (TMDB's canonical best-picks).
-// Best-poster ranking from tv.Images[] is out of scope — deferred to a
-// future story if operator surfaces language-specific season poster
-// preferences.
+// lang is validated + logged for correlation. A4 writes the CANON media
+// columns (series.poster_asset/backdrop_asset, seasons.poster_asset) using
+// TMDB's canonical best-picks (tv.PosterPath / tv.BackdropPath /
+// tv.Seasons[i].PosterPath). Per-language poster ranking from
+// tv.Images.Posters[] IS implemented, but in the sibling per-lang writers
+// (series_media_texts 584a, season_media_texts S-C2), not here.
+// TODO(S-E3): these canon media writes are slated for removal once the
+// localizable canon columns are dropped — art will live only in the
+// *_media_texts side-tables.
 //
 // force semantics (PLAN §6.-1 F-R2-5):
 //   - force=true  → bypass Probe TTL gate. Always fetch + write. Used by
@@ -156,8 +158,10 @@ func (w *SeriesWorker) RefreshMediaAssets(
 
 	// 4. TMDB call — ONE call, reuses existing GetTV (append_to_response
 	//    includes 'images' via tvAppendToResponse const — see tmdb/tv.go:16).
-	//    A4 uses tv.PosterPath / tv.BackdropPath / tv.Seasons[i].PosterPath
-	//    (TMDB's canonical picks). Ignores tv.Images.Posters[] rich payload.
+	//    A4 writes canon columns from tv.PosterPath / tv.BackdropPath /
+	//    tv.Seasons[i].PosterPath (TMDB's canonical picks). Per-lang art
+	//    from tv.Images.Posters[] is handled by the *_media_texts writers.
+	//    TODO(S-E3): drop these canon media writes with the canon columns.
 	tmdbID := int64(*canon.TMDBID)
 	tv, err := w.deps.TMDB.GetTV(ctx, tmdbID, lang)
 	if err != nil {

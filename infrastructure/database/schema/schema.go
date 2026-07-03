@@ -804,22 +804,6 @@ func addTaxonomy(s *atlasschema.Schema, d Dialect) {
 			"genres_i18n_name", // (language, name) lookup
 			false,              // no enriched_at on taxonomy i18n
 		),
-		i18nTextTable(d, "networks_i18n", networks, "network_id",
-			[]*atlasschema.Column{
-				atlasschema.NewStringColumn("name", "text").SetNull(false),
-				atlasschema.NewNullStringColumn("description", "text"),
-			},
-			"networks_i18n_name",
-			false,
-		),
-		i18nTextTable(d, "production_companies_i18n", companies, "company_id",
-			[]*atlasschema.Column{
-				atlasschema.NewStringColumn("name", "text").SetNull(false),
-				atlasschema.NewNullStringColumn("description", "text"),
-			},
-			"production_companies_i18n_name",
-			false,
-		),
 		i18nTextTable(d, "keywords_i18n", keywords, "keyword_id",
 			[]*atlasschema.Column{
 				atlasschema.NewStringColumn("name", "text").SetNull(false),
@@ -870,7 +854,8 @@ func buildKeywordsTable(d Dialect) *atlasschema.Table {
 
 // buildNetworksTable returns the canonical networks table (7 cols:
 // + name + logo_asset + origin_country on top of the canonDictTable
-// shape). Localized name + description live in networks_i18n.
+// shape). Network names are language-invariant canon (the networks_i18n
+// side-table was dropped in migration 000027 — decision O-3).
 func buildNetworksTable(d Dialect) *atlasschema.Table {
 	return canonDictTable(d, "networks", []*atlasschema.Column{
 		atlasschema.NewStringColumn("name", "text").SetNull(false),
@@ -881,7 +866,9 @@ func buildNetworksTable(d Dialect) *atlasschema.Table {
 
 // buildProductionCompaniesTable returns the canonical
 // production_companies table (same shape as networks; 7 cols).
-// Localized name + description live in production_companies_i18n.
+// Studio names are language-invariant canon (the
+// production_companies_i18n side-table was dropped in migration
+// 000027 — decision O-3).
 func buildProductionCompaniesTable(d Dialect) *atlasschema.Table {
 	return canonDictTable(d, "production_companies", []*atlasschema.Column{
 		atlasschema.NewStringColumn("name", "text").SetNull(false),
@@ -1463,8 +1450,9 @@ func attachPredicate(d Dialect, idx *atlasschema.Index, predicate string) {
 // "name" in extraCols).
 //
 // Used by D-1-3a (series_texts, episode_texts; nameLookupIdx="") and
-// D-1-3b (genres_i18n, networks_i18n, production_companies_i18n,
-// keywords_i18n; nameLookupIdx=<sibling>_name).
+// D-1-3b (genres_i18n, keywords_i18n; networks_i18n +
+// production_companies_i18n dropped in 000027 — decision O-3;
+// nameLookupIdx=<sibling>_name).
 func i18nTextTable(
 	d Dialect,
 	tableName string,

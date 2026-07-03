@@ -27,17 +27,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
-const (
-	// searchDefaultLimit — picker page size when ?limit is absent.
-	// 30 fits comfortably above the dropdown fold without forcing the
-	// operator to scroll past stale results during fast typing.
-	searchDefaultLimit = 30
-	// searchMaxLimit — hard ceiling. Picker UX caps at ~few dozen rows
-	// before the typing-to-narrow loop becomes the better UX; 100 is
-	// generous slack for power users with broad queries.
-	searchMaxLimit = 100
-)
-
 type InstancesHandler struct {
 	checker        *healthcheck.Checker
 	reg            InstanceRegistry
@@ -73,7 +62,7 @@ type SeriesMediaLocalizer interface {
 }
 
 // NewInstancesHandler — reg.Load may be nil (List then emits empty
-// url/mode-defaulting-to-auto, Missing/SearchSeries 404 every name).
+// url/mode-defaulting-to-auto, Missing 404s every name).
 // seriesCache defaults to nil; production wires it via WithSeriesCache.
 // Nil cache → Missing returns the same shape with empty TitleSlug /
 // nil Year / nil PosterHash on every row (same as a cold cache).
@@ -446,70 +435,11 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.In
 	}
 }
 
-// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
-func (h *InstancesHandler) SearchSeries(c *gin.Context) {
-	name := c.Param("name")
-	inst, ok := h.reg.snapshot()[name]
-	if !ok || inst.Client == nil {
-		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "unknown instance: " + name})
-		return
-	}
-
-	limit, err := parseSearchLimit(c.Query("limit"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
-		return
-	}
-	monFilter, err := parseMonitoredFilter(c.Query("monitored"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
-		return
-	}
-	q := strings.ToLower(strings.TrimSpace(c.Query("q")))
-
-	ctx := c.Request.Context()
-	allSeries, err := inst.Client.ListSeries(ctx)
-	if err != nil {
-		if errors.Is(err, sharedErrors.ErrInstanceUnauthorized) {
-			h.logger.WarnContext(ctx, "search_upstream_unauthorized",
-				slog.String("instance", name), slog.String("error", err.Error()))
-			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unauthorized"})
-			return
-		}
-		h.logger.ErrorContext(ctx, "search_list_series_failed",
-			slog.String("instance", name), slog.String("error", err.Error()))
-		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "sonarr unavailable"})
-		return
-	}
-
-	// Filter pass (q + monitored). Total counts post-filter, pre-limit
-	// so 013b's UI can render "showing N of M".
-	filtered := make([]series.Series, 0, len(allSeries))
-	for _, s := range allSeries {
-		if monFilter != nil && s.Monitored != *monFilter {
-			continue
-		}
-		if q != "" && !strings.Contains(strings.ToLower(s.Title), q) {
-			continue
-		}
-		filtered = append(filtered, s)
-	}
-	sort.Slice(filtered, func(i, j int) bool {
-		return strings.ToLower(filtered[i].Title) < strings.ToLower(filtered[j].Title)
-	})
-	total := len(filtered)
-	if len(filtered) > limit {
-		filtered = filtered[:limit]
-	}
-
-	items := make([]dto.SeriesSearchItem, 0, len(filtered))
-	for _, s := range filtered {
-		items = append(items, toSeriesSearchItem(s))
-	}
-	c.JSON(http.StatusOK, dto.SeriesSearchList{Items: items, Total: total})
-}
-
-// DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
+// SeasonEpisodes lists episodes for one season of one instance's series.
+// The per-instance HTTP route was retired at N-1b; this handler is now the
+// delegate target of GlobalSeasonEpisodesHandler.Get (see
+// global_season_episodes_handler.go), routed at
+// GET /series/:id/seasons/:season/episodes.
 func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
 	name := c.Param("name")
 	inst, ok := h.reg.snapshot()[name]
@@ -572,55 +502,6 @@ func (h *InstancesHandler) SeasonEpisodes(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.SeasonEpisodeList{
 		Items: items, Total: len(items), Have: have, Miss: miss,
 	})
-}
-
-// parseSearchLimit clamps to [1, searchMaxLimit]; empty = default.
-// Returns a wire-safe error string (no leaking internal types).
-func parseSearchLimit(raw string) (int, error) {
-	if raw == "" {
-		return searchDefaultLimit, nil
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, errors.New("limit must be an integer")
-	}
-	if n < 1 || n > searchMaxLimit {
-		return 0, errors.New("limit must be between 1 and 100")
-	}
-	return n, nil
-}
-
-// parseMonitoredFilter returns nil for "any"/empty (no filter), or a
-// *bool for true/false. Anything else is a 400. Kept lenient on case
-// so the operator-typed `?monitored=True` doesn't surprise-fail.
-func parseMonitoredFilter(raw string) (*bool, error) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "any":
-		return nil, nil
-	case "true":
-		t := true
-		return &t, nil
-	case "false":
-		f := false
-		return &f, nil
-	}
-	return nil, errors.New("monitored must be one of: true, false, any")
-}
-
-// toSeriesSearchItem trims series.Series down to the picker DTO.
-// SeasonCount is monitored-only (a picker filtering for "what could be
-// scanned" should not count Specials or unmonitored seasons).
-func toSeriesSearchItem(s series.Series) dto.SeriesSearchItem {
-	monSeasons := 0
-	for _, season := range s.Seasons {
-		if season.Monitored {
-			monSeasons++
-		}
-	}
-	return dto.SeriesSearchItem{
-		SeriesID: s.ID, Title: s.Title, Monitored: s.Monitored,
-		SeasonCount: monSeasons, MissingAired: s.Statistics.AiredMissing(),
-	}
 }
 
 const (

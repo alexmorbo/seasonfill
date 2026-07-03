@@ -17,11 +17,12 @@ import (
 )
 
 // TestD13b_SchemaHasSeventeenTables — D-1-3a landed 5 (core + i18n);
-// D-1-3b appends 12 more (4 canon + 4 i18n + 4 joins) → 17 total at
-// 456b ship; D-1-4a (story 457a) appended 3 people-domain tables →
-// total grew to 20. Tip-of-tree count contract lives in
+// D-1-3b appends 10 more (4 canon + 2 i18n + 4 joins) → 15 total
+// (networks_i18n + production_companies_i18n dropped by 000027);
+// D-1-4a (story 457a) appended 3 people-domain tables →
+// total grew further. Tip-of-tree count contract lives in
 // TestD14a_SchemaHasTwentyTables (d1_4a_people_test.go); this test now
-// loosens to a "12 D-1-3b tables PRESENT" assertion so it survives
+// loosens to a "10 D-1-3b tables PRESENT" assertion so it survives
 // future appends without per-story edits.
 func TestD13b_SchemaHasSeventeenTables(t *testing.T) {
 	t.Parallel()
@@ -29,14 +30,14 @@ func TestD13b_SchemaHasSeventeenTables(t *testing.T) {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			// Spot-check the 12 D-1-3b tables are present.
+			// Spot-check the 10 D-1-3b tables are present.
 			present := map[string]bool{}
 			for _, tbl := range s.Tables {
 				present[tbl.Name] = true
 			}
 			for _, name := range []string{
 				"genres", "networks", "production_companies", "keywords",
-				"genres_i18n", "networks_i18n", "production_companies_i18n", "keywords_i18n",
+				"genres_i18n", "keywords_i18n",
 				"series_genres", "series_networks", "series_companies", "series_keywords",
 			} {
 				if !present[name] {
@@ -108,8 +109,6 @@ func TestD13b_I18nCompositePKs(t *testing.T) {
 	}{
 		{"genres_i18n", "genre_id"},
 		{"keywords_i18n", "keyword_id"},
-		{"networks_i18n", "network_id"},
-		{"production_companies_i18n", "company_id"},
 	}
 	for _, d := range dialects {
 		for _, c := range cases {
@@ -141,8 +140,6 @@ func TestD13b_I18nNameLookupIndex(t *testing.T) {
 	}{
 		{"genres_i18n", "genres_i18n_name"},
 		{"keywords_i18n", "keywords_i18n_name"},
-		{"networks_i18n", "networks_i18n_name"},
-		{"production_companies_i18n", "production_companies_i18n_name"},
 	}
 	for _, d := range dialects {
 		for _, c := range cases {
@@ -249,8 +246,6 @@ func TestD13b_I18nFKsNoCascade(t *testing.T) {
 	}{
 		{"genres_i18n", "genres_i18n_genre_id_fkey", "genre_id", "genres"},
 		{"keywords_i18n", "keywords_i18n_keyword_id_fkey", "keyword_id", "keywords"},
-		{"networks_i18n", "networks_i18n_network_id_fkey", "network_id", "networks"},
-		{"production_companies_i18n", "production_companies_i18n_company_id_fkey", "company_id", "production_companies"},
 	}
 	for _, d := range dialects {
 		for _, c := range cases {
@@ -297,7 +292,7 @@ func TestD13b_DialectParityShape(t *testing.T) {
 	sq := schema.Schema(schema.DialectSQLite)
 	for _, name := range []string{
 		"genres", "networks", "production_companies", "keywords",
-		"genres_i18n", "networks_i18n", "production_companies_i18n", "keywords_i18n",
+		"genres_i18n", "keywords_i18n",
 		"series_genres", "series_networks", "series_companies", "series_keywords",
 	} {
 		pgT := mustTable(t, pg, name)

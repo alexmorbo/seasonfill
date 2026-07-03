@@ -37,7 +37,6 @@ const (
 	prewarmOutcomeCancelled    = "cancelled"
 	prewarmSummaryOp           = "prewarm_series_text_summary"
 	prewarmSingleOp            = "prewarm_series_text"
-	prewarmDomain              = "discovery"
 )
 
 // preWarmSeriesTexts fans out one PreWarm call per (item.SeriesID, lang)
@@ -94,7 +93,6 @@ func (w *Worker) preWarmSeriesTexts(
 			if err := ctx.Err(); err != nil {
 				cancelledPair += countRemainingPairs(items, activeLangs, lang, i)
 				w.log.InfoContext(ctx, "discovery.prewarm.cancelled",
-					slog.String("domain", prewarmDomain),
 					slog.String("op", prewarmSingleOp),
 					slog.String("kind", string(kind)),
 					slog.String("language", lang),
@@ -114,7 +112,6 @@ func (w *Worker) preWarmSeriesTexts(
 				// Only ctx.Err surfaces here — treat as cancellation.
 				cancelledPair += countRemainingPairs(items, activeLangs, lang, i)
 				w.log.InfoContext(ctx, "discovery.prewarm.cancelled",
-					slog.String("domain", prewarmDomain),
 					slog.String("op", prewarmSingleOp),
 					slog.String("kind", string(kind)),
 					slog.String("language", lang),
@@ -142,7 +139,6 @@ func (w *Worker) preWarmSeriesTexts(
 	observability.ObserveDiscoveryPrewarmDuration(dur)
 
 	w.log.InfoContext(ctx, prewarmSummaryOp,
-		slog.String("domain", prewarmDomain),
 		slog.String("op", prewarmSummaryOp),
 		slog.String("kind", string(kind)),
 		slog.String("param", param),
@@ -171,7 +167,6 @@ func (w *Worker) preWarmOne(
 
 	if err == nil {
 		w.log.DebugContext(ctx, prewarmSingleOp,
-			slog.String("domain", prewarmDomain),
 			slog.String("op", prewarmSingleOp),
 			slog.String("kind", string(kind)),
 			slog.String("language", lang),
@@ -185,7 +180,6 @@ func (w *Worker) preWarmOne(
 	// DeadlineExceeded — treat as cancelled. Everything else = error.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		w.log.DebugContext(ctx, prewarmSingleOp,
-			slog.String("domain", prewarmDomain),
 			slog.String("op", prewarmSingleOp),
 			slog.String("kind", string(kind)),
 			slog.String("language", lang),
@@ -196,7 +190,6 @@ func (w *Worker) preWarmOne(
 	}
 
 	w.log.DebugContext(ctx, prewarmSingleOp,
-		slog.String("domain", prewarmDomain),
 		slog.String("op", prewarmSingleOp),
 		slog.String("kind", string(kind)),
 		slog.String("language", lang),
