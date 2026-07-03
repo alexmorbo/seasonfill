@@ -60,7 +60,7 @@ func newSeasonComposer() *seriesdetail.Composer {
 	return seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       cache,
 		SeriesCacheLookup: cache,
-		Series:            &fakeSeriesPort{rows: map[domain.SeriesID]series.Canon{42: {ID: 42, Title: "X"}}},
+		Series:            &fakeSeriesPort{rows: map[domain.SeriesID]series.Canon{42: {ID: 42, OriginalTitle: new("X")}}},
 		SeriesTexts:       fakeNoTexts{},
 		Seasons:           twoSeasons{},
 		Episodes:          twoEpisodes{},

@@ -845,10 +845,11 @@ func TestAuditHandler_ListGrabs_OmitsTitleSlugWhenCacheMisses(t *testing.T) {
 	assert.False(t, present, "title_slug should be omitted when no series_cache row matches")
 }
 
-// seedCanonPosterAsset stamps poster_asset on the canon row resolved
-// for (instance, sonarrID). The grabs handler derives the wire
-// poster_hash deterministically from this raw path — independent of
-// any media_assets row state.
+// seedCanonPosterAsset writes an en-US series_media_texts row carrying the raw
+// poster path for the canon row resolved for (instance, sonarrID). S-E3a — the
+// grabs handler derives the wire poster_hash from the raw path resolved via
+// series_media_texts (was canon series.poster_asset); the hash stays
+// deterministic and independent of any media_assets row state.
 func seedCanonPosterAsset(t *testing.T, f *auditFixture, instance string, sonarrID int, path string) {
 	t.Helper()
 	var sc database.SeriesCacheModel
@@ -856,9 +857,12 @@ func seedCanonPosterAsset(t *testing.T, f *auditFixture, instance string, sonarr
 		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
 	).First(&sc).Error)
 	require.NotNil(t, sc.SeriesID, "series_cache row must resolve a canon series_id")
-	require.NoError(t, f.db.Model(&database.SeriesModel{}).
-		Where("id = ?", *sc.SeriesID).
-		Update("poster_asset", path).Error)
+	require.NoError(t, f.db.Exec(
+		`INSERT INTO series_media_texts (series_id, language, poster_asset, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT (series_id, language) DO UPDATE SET poster_asset = excluded.poster_asset`,
+		int64(*sc.SeriesID), "en-US", path, time.Now().UTC(),
+	).Error)
 }
 
 // When a series_cache row exists and the canon poster_asset is set,
@@ -1005,14 +1009,8 @@ func TestAudit_ListGrabs_EnsuresPendingMediaAssets(t *testing.T) {
 		Year:           &year,
 		Monitored:      true,
 	}))
-	var sc database.SeriesCacheModel
-	require.NoError(t, f.db.Where(
-		"instance_name = ? AND sonarr_series_id = ?", "homelab", 42,
-	).First(&sc).Error)
-	require.NotNil(t, sc.SeriesID)
-	require.NoError(t, f.db.Model(&database.SeriesModel{}).
-		Where("id = ?", *sc.SeriesID).
-		Update("poster_asset", posterPath).Error)
+	// S-E3a — the raw poster path resolves from series_media_texts, not canon.
+	seedCanonPosterAsset(t, f, "homelab", 42, posterPath)
 
 	expectedHash := appmedia.HashFromURL(
 		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, posterPath),

@@ -53,8 +53,10 @@ func TestRunBackfillBaseLang(t *testing.T) {
 
 				// tmdb-less, deficient.
 				cC := sampleCanonTMDBLess("Sonarr Only C")
-				_, err = sr.Upsert(ctx, cC)
+				sidC, err := sr.Upsert(ctx, cC)
 				require.NoError(t, err)
+				// Legacy title column (pre-S-E3a) is what the backfill copies.
+				seedLegacyTitle(t, gdb, sidC, "Sonarr Only C")
 
 				return gdb, sidA
 			}
@@ -116,19 +118,31 @@ func syncedAtIsNull(t *testing.T, gdb *gorm.DB, id domain.SeriesID) bool {
 
 // --- local canon helpers (avoid cross-package test-helper import) ---
 
-func sampleCanonTMDB(title string, tmdb domain.TMDBID) series.Canon {
+// S-E3a — canon no longer carries a Title field; the title lives in the
+// legacy `series.title` DB column (still present this story) and in
+// series_texts. Upsert(domain.Canon) no longer writes the title column, so
+// tests that exercise the legacy-column backfill seed the column directly
+// via seedLegacyTitle.
+func sampleCanonTMDB(_ string, tmdb domain.TMDBID) series.Canon {
 	return series.Canon{
-		Title:     title,
 		Hydration: series.HydrationFull,
 		TMDBID:    &tmdb,
 	}
 }
 
-func sampleCanonTMDBLess(title string) series.Canon {
+func sampleCanonTMDBLess(_ string) series.Canon {
 	tvdb := domain.TVDBID(4242)
 	return series.Canon{
-		Title:     title,
 		Hydration: series.HydrationStub,
 		TVDBID:    &tvdb,
 	}
+}
+
+// seedLegacyTitle writes the legacy `series.title` column directly, simulating
+// a row inserted before S-E3a stopped the canon mapper from copying it. The
+// base-lang backfill reads this column (raw SQL) to copy tmdb-less titles into
+// series_texts{en-US}.
+func seedLegacyTitle(t *testing.T, gdb *gorm.DB, id domain.SeriesID, title string) {
+	t.Helper()
+	require.NoError(t, gdb.Table("series").Where("id = ?", id).Update("title", title).Error)
 }

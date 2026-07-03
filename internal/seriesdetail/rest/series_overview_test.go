@@ -25,7 +25,7 @@ func TestSeriesOverviewHandler_Get_200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	awards := "Won 16 Emmys"
 	composer := newComposerForHandlerTest(
-		series.Canon{ID: 42, Title: "Breaking Bad", OMDBAwards: &awards},
+		series.Canon{ID: 42, OriginalTitle: new("Breaking Bad"), OMDBAwards: &awards},
 		map[string]series.CacheEntry{
 			"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64p(42), Title: "Breaking Bad"},
 		},

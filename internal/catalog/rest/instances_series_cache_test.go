@@ -274,6 +274,20 @@ func (f *seriesCacheFixture) canonSeriesID(t *testing.T, instance shareddomain.I
 	return *sc.SeriesID
 }
 
+// seedSeriesMediaPoster writes an en-US series_media_texts row carrying the raw
+// poster path. S-E3a — the list projection + grabs handler resolve the raw
+// poster path from series_media_texts (was canon series.poster_asset); the
+// derived poster_hash stays deterministic on this path.
+func seedSeriesMediaPoster(t *testing.T, db *gorm.DB, seriesID shareddomain.SeriesID, path string) {
+	t.Helper()
+	require.NoError(t, db.Exec(
+		`INSERT INTO series_media_texts (series_id, language, poster_asset, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT (series_id, language) DO UPDATE SET poster_asset = excluded.poster_asset`,
+		int64(seriesID), "en-US", path, time.Now().UTC(),
+	).Error)
+}
+
 // fakeCatalogLocalizer counts calls (to assert no N+1) and returns a
 // seeded title map. Satisfies rest.SeriesTextLocalizer. Story E-1-B7.
 type fakeCatalogLocalizer struct {
@@ -419,9 +433,7 @@ func TestInstancesHandler_ListSeriesCache_PosterHash(t *testing.T) {
 		"instance_name = ? AND sonarr_series_id = ?", "homelab", 1,
 	).First(&sc).Error)
 	require.NotNil(t, sc.SeriesID)
-	require.NoError(t, f.db.Model(&database.SeriesModel{}).
-		Where("id = ?", *sc.SeriesID).
-		Update("poster_asset", "/warmed.jpg").Error)
+	seedSeriesMediaPoster(t, f.db, *sc.SeriesID, "/warmed.jpg")
 
 	expectedHash := appmedia.HashFromURL(
 		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, "/warmed.jpg"),
@@ -774,9 +786,7 @@ func TestInstancesHandler_ListSeriesCache_EnsuresPendingMediaAssets(t *testing.T
 		"instance_name = ? AND sonarr_series_id = ?", "homelab", 1,
 	).First(&sc).Error)
 	require.NotNil(t, sc.SeriesID)
-	require.NoError(t, f.db.Model(&database.SeriesModel{}).
-		Where("id = ?", *sc.SeriesID).
-		Update("poster_asset", "/poster.jpg").Error)
+	seedSeriesMediaPoster(t, f.db, *sc.SeriesID, "/poster.jpg")
 
 	expectedURL := appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, "/poster.jpg")
 	expectedHash := appmedia.HashFromURL(expectedURL)
@@ -817,9 +827,7 @@ func TestInstancesHandler_ListSeriesCache_EnsurePendingIsRaceSafe(t *testing.T) 
 		"instance_name = ? AND sonarr_series_id = ?", "homelab", 1,
 	).First(&sc).Error)
 	require.NotNil(t, sc.SeriesID)
-	require.NoError(t, f.db.Model(&database.SeriesModel{}).
-		Where("id = ?", *sc.SeriesID).
-		Update("poster_asset", "/race.jpg").Error)
+	seedSeriesMediaPoster(t, f.db, *sc.SeriesID, "/race.jpg")
 
 	expectedHash := appmedia.HashFromURL(
 		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, "/race.jpg"),
@@ -870,9 +878,7 @@ func TestInstancesHandler_EnrichMissingFromCache_EnsuresPendingMediaAssets(t *te
 		"instance_name = ? AND sonarr_series_id = ?", "homelab", 1,
 	).First(&sc).Error)
 	require.NotNil(t, sc.SeriesID)
-	require.NoError(t, f.db.Model(&database.SeriesModel{}).
-		Where("id = ?", *sc.SeriesID).
-		Update("poster_asset", "/missing.jpg").Error)
+	seedSeriesMediaPoster(t, f.db, *sc.SeriesID, "/missing.jpg")
 
 	expectedHash := appmedia.HashFromURL(
 		appmedia.BuildTMDBImageURL(appmedia.SeriesPosterListSize, "/missing.jpg"),
@@ -1020,8 +1026,7 @@ func TestInstancesHandler_ListSeriesCache_LocalizePosters_RuRU(t *testing.T) {
 	canon2 := f.canonSeriesID(t, "homelab", 2)
 	// Stamp a canon poster on item 2 so it carries a canon-derived hash to
 	// hold; item 1 has none and relies on the per-lang override.
-	require.NoError(t, f.db.Model(&database.SeriesModel{}).
-		Where("id = ?", canon2).Update("poster_asset", "/canon2.jpg").Error)
+	seedSeriesMediaPoster(t, f.db, canon2, "/canon2.jpg")
 
 	loc := &fakeCatalogMediaLocalizer{posters: map[shareddomain.SeriesID]string{
 		canon1: "/ru.jpg", // per-lang poster for item 1 only

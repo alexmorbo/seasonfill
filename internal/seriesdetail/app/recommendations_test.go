@@ -72,9 +72,9 @@ func TestComposerGetRecommendations_HappyPath(t *testing.T) {
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec A"},
-		20: {ID: 20, Title: "Rec B"},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec A")},
+		20: {ID: 20, OriginalTitle: new("Rec B")},
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10, 20}}
 	lookup := &recFakeCacheLookup{rows: map[domain.SeriesID][]series.CacheEntry{
@@ -88,7 +88,7 @@ func TestComposerGetRecommendations_HappyPath(t *testing.T) {
 	require.Equal(t, 2, out.TotalCount)
 	require.Equal(t, 2, len(out.Items))
 	require.False(t, out.HasMore)
-	require.Equal(t, "Rec A", out.Items[0].Series.Title)
+	require.Equal(t, "Rec A", out.Items[0].Title)
 	require.True(t, out.Items[0].InLibrary)
 	require.Equal(t, domain.InstanceName("beta"), out.Items[0].InstanceName)
 	require.False(t, out.Items[1].InLibrary)
@@ -185,7 +185,7 @@ func TestComposerGetRecommendations_StubSkipped(t *testing.T) {
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
 		42: {ID: 42},
-		10: {ID: 10, Title: "Resolved"},
+		10: {ID: 10, OriginalTitle: new("Resolved")},
 		// 20 missing → stub-skip.
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10, 20}}
@@ -213,10 +213,10 @@ func TestComposerGetRecommendations_BatchOrderPreserved(t *testing.T) {
 	// the in-repo convention. The composer MUST project back into the
 	// recIDs sequence.
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec-10"},
-		20: {ID: 20, Title: "Rec-20"},
-		30: {ID: 30, Title: "Rec-30"},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec-10")},
+		20: {ID: 20, OriginalTitle: new("Rec-20")},
+		30: {ID: 30, OriginalTitle: new("Rec-30")},
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{30, 10, 20}}
 	c := newRecComposer(canonByID, cache, recs, &recFakeCacheLookup{})
@@ -324,8 +324,8 @@ func TestComposer_GetRecommendations_TriggersFreshenerOnScope(t *testing.T) {
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec A"},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec A")},
 	}
 	fr := &recFakeFreshener{result: FreshenResult{Refreshed: true}}
 	c := NewComposer(Deps{
@@ -360,8 +360,8 @@ func TestComposer_GetRecommendations_FreshenerErrorDegrades(t *testing.T) {
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec Canon"},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec Canon")},
 	}
 	fr := &recFakeFreshener{err: errors.New("tmdb timeout")} //nolint:err113
 	c := NewComposer(Deps{
@@ -377,7 +377,7 @@ func TestComposer_GetRecommendations_FreshenerErrorDegrades(t *testing.T) {
 	require.NoError(t, err, "freshener error MUST NOT fail the response")
 	require.NotNil(t, out)
 	require.Equal(t, 1, len(out.Items), "canon fallback preserves recs on freshener failure")
-	require.Equal(t, "Rec Canon", out.Items[0].Series.Title)
+	require.Equal(t, "Rec Canon", out.Items[0].Title)
 }
 
 // TestComposer_GetRecommendations_NilFreshenerBypasses pins the
@@ -389,8 +389,8 @@ func TestComposer_GetRecommendations_NilFreshenerBypasses(t *testing.T) {
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec Canon"},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec Canon")},
 	}
 	c := NewComposer(Deps{
 		SeriesCache:     &ovFakeCache{entries: cache},

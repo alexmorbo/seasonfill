@@ -47,15 +47,12 @@ func ResolveOrCreateSeries(
 	}
 
 	now := time.Now().UTC()
-	title := p.Title
-	if title == "" {
-		title = fmt.Sprintf("sonarr:%d", p.ID)
-	}
+	// S-E3a — canon carries no display title; the Sonarr title flows to
+	// series_texts{en-US} on the sync path (InsertBaseLangIfAbsent).
 	return series.Canon{
 		TMDBID:    tmdbID,
 		TVDBID:    tvdbID,
 		IMDBID:    imdbID,
-		Title:     title,
 		Hydration: series.HydrationStub,
 		CreatedAt: now,
 		UpdatedAt: now,

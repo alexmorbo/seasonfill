@@ -322,6 +322,8 @@ func BuildSeriesDetail(
 		SeriesCache:       sdSeriesCacheRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,
 		Series:            sdSeriesRepo,
+		SeriesTexts:       sdSeriesTextsRepo,
+		SeriesMediaTexts:  sdSeriesMediaTextsRepo,
 		SeriesPeople:      sdSeriesPeopleAdapter,
 		People:            sdPeopleRepo,
 		PersonCredits:     adapters.NewPersonCreditsAdapter(sdPersonCreditsRepo),
@@ -342,12 +344,14 @@ func BuildSeriesDetail(
 	// when stub persons land before the dispatcher is up).
 	peopleEnqueuerHolder := adapters.NewPersonEnqueuerHolder()
 	peopleUC := apppeople.NewUseCase(apppeople.Deps{
-		People:        adapters.NewPeopleReaderAdapter(sdPeopleRepo),
-		PersonCredits: adapters.NewPersonCreditsReaderAdapter(sdPersonCreditsRepo),
-		SeriesByTMDB:  sdSeriesRepo,
-		SeriesCache:   sdSeriesCacheRepo,
-		Enqueuer:      peopleEnqueuerHolder,
-		MediaResolver: mediaResolver,
+		People:           adapters.NewPeopleReaderAdapter(sdPeopleRepo),
+		PersonCredits:    adapters.NewPersonCreditsReaderAdapter(sdPersonCreditsRepo),
+		SeriesByTMDB:     sdSeriesRepo,
+		SeriesCache:      sdSeriesCacheRepo,
+		SeriesTexts:      sdSeriesTextsRepo,
+		SeriesMediaTexts: sdSeriesMediaTextsRepo,
+		Enqueuer:         peopleEnqueuerHolder,
+		MediaResolver:    mediaResolver,
 		// F-4b-8: people UC composes person-detail responses under the
 		// seriesdetail composer pipe — anchors on the "composer" slot.
 		Logger: composerLog,
@@ -382,6 +386,7 @@ func BuildSeriesDetail(
 		// TMDB-fallback paths. Reuse the same repository instances the
 		// per-instance Composer already binds (above).
 		SeriesTexts:       sdSeriesTextsRepo,
+		SeriesMediaTexts:  sdSeriesMediaTextsRepo,
 		Keywords:          sdKeywordsRepo,
 		Recommendations:   sdRecommendationsRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,

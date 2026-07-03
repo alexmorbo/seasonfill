@@ -24,10 +24,10 @@ func mapSeasons(d *seriesdetail.Detail) []dto.Season {
 	for _, s := range d.Seasons {
 		ds := dto.Season{
 			SeasonNumber: s.Canon.SeasonNumber,
-			Name:         s.Canon.Name,
-			Overview:     s.Canon.Overview,
+			Name:         s.Name,
+			Overview:     s.Overview,
 			AirDate:      s.Canon.AirDate,
-			PosterAsset:  s.Canon.PosterAsset,
+			PosterAsset:  s.PosterAsset,
 			EpisodeCount: 0,
 			Episodes:     make([]dto.Episode, 0, len(s.Episodes)),
 		}
@@ -113,9 +113,9 @@ func mapRecommendations(recs []seriesdetail.RecommendationDetail) []dto.Recommen
 		m := dto.Recommendation{
 			SeriesID:       r.Series.ID,
 			TMDBSeriesID:   r.Series.TMDBID,
-			Title:          r.Series.Title,
+			Title:          r.Title,
 			Year:           r.Series.Year,
-			PosterAsset:    r.Series.PosterAsset,
+			PosterAsset:    r.PosterAsset,
 			TMDBRating:     r.Series.TMDBRating,
 			InLibrary:      r.InLibrary,
 			InstanceName:   r.InstanceName,

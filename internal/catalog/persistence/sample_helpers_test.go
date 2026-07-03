@@ -34,7 +34,6 @@ import (
 // SeriesRepository for it gets the same row.
 func sampleCanon(title string) series.Canon {
 	return series.Canon{
-		Title:         title,
 		Hydration:     series.HydrationStub,
 		TMDBID:        ptrTMDBID(101),
 		TVDBID:        ptrTVDBID(202),

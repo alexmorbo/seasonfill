@@ -109,6 +109,28 @@ func (f *fakeFallbackTexts) ListByIDsWithFallback(_ context.Context, ids []domai
 	return out, nil
 }
 
+// fakeFallbackMedia satisfies seriesdetail.SeriesMediaTextsPort. S-E3a — the
+// TMDB-only cast/rec hero poster raw path comes from series_media_texts (canon
+// no longer carries poster_asset).
+type fakeFallbackMedia struct {
+	out series.SeriesMediaText
+	err error
+}
+
+func (f *fakeFallbackMedia) GetWithFallback(_ context.Context, _ domain.SeriesID, _ string) (series.SeriesMediaText, error) {
+	if f.err != nil {
+		return series.SeriesMediaText{}, f.err
+	}
+	return f.out, nil
+}
+
+func (f *fakeFallbackMedia) ListByIDsWithFallback(_ context.Context, _ []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesMediaText, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return map[domain.SeriesID]series.SeriesMediaText{}, nil
+}
+
 // fakeFallbackKeywords satisfies seriesdetail.KeywordsPort.
 type fakeFallbackKeywords struct {
 	ids      []int64
@@ -472,7 +494,7 @@ func (f *fakeFreshener) Calls() []fakeFreshenCall {
 func TestTMDBFallbackUseCase_Freshener_GetOverview_Called(t *testing.T) {
 	t.Parallel()
 	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Refreshed: true}}
-	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, OriginalTitle: new("Mentalist")}
 	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
 		Series:    &stubSeriesReader{canon: fullCanon},
 		Freshener: fr,
@@ -488,7 +510,7 @@ func TestTMDBFallbackUseCase_Freshener_GetOverview_Called(t *testing.T) {
 func TestTMDBFallbackUseCase_Freshener_GetRecommendations_Called(t *testing.T) {
 	t.Parallel()
 	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Refreshed: true}}
-	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, OriginalTitle: new("Mentalist")}
 	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
 		Series:    &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{8378: fullCanon}},
 		Freshener: fr,
@@ -511,7 +533,7 @@ func TestTMDBFallbackUseCase_Freshener_GetRecommendations_Called(t *testing.T) {
 func TestTMDBFallbackUseCase_Freshener_GetRecommendations_ScopeIsRecommendations(t *testing.T) {
 	t.Parallel()
 	fr := &fakeFreshener{result: seriesdetail.FreshenResult{Refreshed: true}}
-	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, Title: "Mentalist"}
+	fullCanon := series.Canon{ID: 8378, Hydration: series.HydrationFull, OriginalTitle: new("Mentalist")}
 	uc, _ := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
 		Series:    &fakeMapSeriesReader{rows: map[domain.SeriesID]series.Canon{8378: fullCanon}},
 		Freshener: fr,
@@ -543,7 +565,7 @@ func TestTMDBFallbackUseCase_GetOverview_CanonPreferred_SkipsEnUSRow(t *testing.
 			25551: {
 				ID:               25551,
 				Hydration:        series.HydrationFull,
-				Title:            "Новичок",
+				OriginalTitle:    new("Новичок"),
 				OriginalLanguage: &originalLang,
 			},
 		}},
@@ -595,16 +617,19 @@ func TestTMDBFallbackUseCase_GetCanonicalCast_ResolvesPosterAsset(t *testing.T) 
 	const wantHash = "deadbeef00000000000000000000000000000000000000000000000000000001"
 	rawPath := "/hero.jpg"
 	canon := series.Canon{
-		ID:          25551,
-		Hydration:   series.HydrationFull,
-		Title:       "Новичок",
-		PosterAsset: &rawPath,
+		ID:            25551,
+		Hydration:     series.HydrationFull,
+		OriginalTitle: new("Новичок"),
 	}
 	resolver := media.NewResolver(&fakeCastHashLookup{byURL: map[string]string{
 		"https://image.tmdb.org/t/p/w342/hero.jpg": wantHash,
 	}}, nil, nil, discardLogger())
 	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
-		Series:        &stubSeriesReader{canon: canon},
+		Series: &stubSeriesReader{canon: canon},
+		// S-E3a — hero poster raw path comes from series_media_texts.
+		SeriesMediaTexts: &fakeFallbackMedia{out: series.SeriesMediaText{
+			SeriesID: 25551, Language: "en-US", PosterAsset: &rawPath,
+		}},
 		MediaResolver: resolver,
 		Logger:        discardLogger(),
 	})
@@ -612,9 +637,10 @@ func TestTMDBFallbackUseCase_GetCanonicalCast_ResolvesPosterAsset(t *testing.T) 
 
 	out, err := uc.GetCanonicalCast(t.Context(), 25551, "en-US", 0)
 	require.NoError(t, err)
-	require.NotNil(t, out.Canon.PosterAsset, "PosterAsset must not be nil — raw path should resolve")
-	assert.Equal(t, wantHash, *out.Canon.PosterAsset, "PosterAsset must carry the resolved hash, not the raw TMDB path")
+	// S-E3a — CastFallbackResult.PosterAsset is the staged, resolved hero poster.
+	require.NotNil(t, out.PosterAsset, "PosterAsset must not be nil — raw path should resolve")
+	assert.Equal(t, wantHash, *out.PosterAsset, "PosterAsset must carry the resolved hash, not the raw TMDB path")
 	// Regression invariant: a leading slash on the wire is the exact
 	// shape that broke the FE. Lock it down explicitly.
-	assert.NotEqual(t, byte('/'), (*out.Canon.PosterAsset)[0], "PosterAsset must not start with '/' — raw TMDB path leaked")
+	assert.NotEqual(t, byte('/'), (*out.PosterAsset)[0], "PosterAsset must not start with '/' — raw TMDB path leaked")
 }

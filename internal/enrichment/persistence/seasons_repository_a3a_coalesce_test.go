@@ -32,7 +32,6 @@ func TestSeasonsRepository_MarkSeasonEpisodesSynced(t *testing.T) {
 			_, err = repo.Upsert(ctx, series.CanonSeason{
 				SeriesID:     seriesID,
 				SeasonNumber: 1,
-				Name:         new("Season 1"),
 			})
 			require.NoError(t, err)
 
@@ -94,7 +93,6 @@ func TestSeasonsRepository_EpisodesSyncedAtSurvivesSonarrUpsert_BareWrite(t *tes
 			_, err = repo.Upsert(ctx, series.CanonSeason{
 				SeriesID:     seriesID,
 				SeasonNumber: 1,
-				Name:         new("Season 1"),
 			})
 			require.NoError(t, err)
 
@@ -108,7 +106,6 @@ func TestSeasonsRepository_EpisodesSyncedAtSurvivesSonarrUpsert_BareWrite(t *tes
 			_, err = repo.Upsert(ctx, series.CanonSeason{
 				SeriesID:     seriesID,
 				SeasonNumber: 1,
-				Name:         new("Season 1 (Sonarr resync)"),
 			})
 			require.NoError(t, err)
 
@@ -156,7 +153,6 @@ func TestSeasonsRepository_EpisodesSyncedAtSurvivesSonarrUpsert_ColumnInclude(t 
 			_, err = repo.Upsert(ctx, series.CanonSeason{
 				SeriesID:     seriesID,
 				SeasonNumber: 1,
-				Name:         new("Season 1"),
 			})
 			require.NoError(t, err)
 
@@ -210,7 +206,6 @@ func TestSeasonsRepository_EpisodesSyncedAtSurvivesSonarrUpsert_ColumnInclude(t 
 			_, err = repo.Upsert(ctx, series.CanonSeason{
 				SeriesID:     seriesID,
 				SeasonNumber: 1,
-				Name:         new("Season 1 (production Upsert)"),
 			})
 			require.NoError(t, err)
 
@@ -259,7 +254,6 @@ func TestSeasonsRepository_EpisodeCountSurvivesSonarrUpsert(t *testing.T) {
 			_, err = repo.Upsert(ctx, series.CanonSeason{
 				SeriesID:     seriesID,
 				SeasonNumber: 1,
-				Name:         new("Season 1"),
 				EpisodeCount: &count,
 			})
 			require.NoError(t, err)
@@ -277,7 +271,6 @@ func TestSeasonsRepository_EpisodeCountSurvivesSonarrUpsert(t *testing.T) {
 			_, err = repo.Upsert(ctx, series.CanonSeason{
 				SeriesID:     seriesID,
 				SeasonNumber: 1,
-				Name:         new("Season 1 (no count)"),
 				EpisodeCount: nil,
 			})
 			require.NoError(t, err)

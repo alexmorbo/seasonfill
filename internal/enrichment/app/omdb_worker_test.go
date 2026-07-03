@@ -163,9 +163,9 @@ func newOMDbWorkerForTest(t *testing.T, mut func(*OMDbWorkerDeps)) (*OMDbWorker,
 	t.Helper()
 	f := &omdbWorkerFakes{
 		series: &fakeOMDbSeries{canon: series.Canon{
-			Title:     "Breaking Bad",
-			Hydration: series.HydrationFull,
-			IMDBID:    imdbPtr("tt0903747"),
+			OriginalTitle: new("Breaking Bad"),
+			Hydration:     series.HydrationFull,
+			IMDBID:        imdbPtr("tt0903747"),
 		}},
 		enrichmentErrors: &fakeOMDbErrorRepo{},
 		client: &fakeOMDbClient{resp: &omdb.Response{
@@ -228,7 +228,9 @@ func TestOMDbWorker_HappyPath_PatchesFourFieldsOnly(t *testing.T) {
 	assert.Equal(t, 100, *upserted.TMDBVotes)
 	require.NotNil(t, upserted.Status)
 	assert.Equal(t, "Ended", *upserted.Status)
-	assert.Equal(t, "Breaking Bad", upserted.Title)
+	// S-E3a — canon carries original_title (a fact), no localizable Title.
+	require.NotNil(t, upserted.OriginalTitle)
+	assert.Equal(t, "Breaking Bad", *upserted.OriginalTitle)
 
 	// Canon column stamped + no failure row recorded + ClearOnSuccess fired.
 	require.NotNil(t, f.series.canon.EnrichmentOMDBSyncedAt, "canon enrichment_omdb_synced_at must be stamped on success")
@@ -386,8 +388,6 @@ func TestOMDbWorker_WritesOnlyFourColumns(t *testing.T) {
 	status := "Ended"
 	year := 2008
 	popularity := 80.5
-	posterAsset := "p"
-	backdropAsset := "b"
 	tmdbRating := 8.5
 	tmdbVotes := 1000
 
@@ -397,14 +397,11 @@ func TestOMDbWorker_WritesOnlyFourColumns(t *testing.T) {
 		TVDBID:        &tvdbID,
 		IMDBID:        &imdb,
 		Hydration:     series.HydrationFull,
-		Title:         "Breaking Bad",
 		OriginalTitle: &origTitle,
 		Status:        &status,
 		Year:          &year,
 		Popularity:    &popularity,
 		InProduction:  false,
-		PosterAsset:   &posterAsset,
-		BackdropAsset: &backdropAsset,
 		TMDBRating:    &tmdbRating,
 		TMDBVotes:     &tmdbVotes,
 	}

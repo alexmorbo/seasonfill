@@ -75,16 +75,29 @@ func (r *SearchRepository) LocalSearch(ctx context.Context, q, language string, 
 		limit = 20
 	}
 	pattern := "%" + q + "%"
+	// S-E3a — canon series.title / poster_asset / backdrop_asset were dropped
+	// from the domain (columns now dead). Both the display projection AND the
+	// title match resolve from the i18n side-tables (series_texts /
+	// series_media_texts) with the requested-language → en-US fallback.
 	const sql = `
-SELECT s.id, s.tmdb_id, s.title, s.year, s.poster_asset, s.backdrop_asset,
+SELECT s.id, s.tmdb_id,
+       (SELECT st.title FROM series_texts st WHERE st.series_id = s.id
+         ORDER BY CASE WHEN st.language = ? THEN 2 WHEN st.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                  st.language ASC LIMIT 1) AS title,
+       s.year,
+       (SELECT smt.poster_asset FROM series_media_texts smt WHERE smt.series_id = s.id
+         ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                  smt.language ASC LIMIT 1) AS poster_asset,
+       (SELECT smt.backdrop_asset FROM series_media_texts smt WHERE smt.series_id = s.id
+         ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                  smt.language ASC LIMIT 1) AS backdrop_asset,
        s.popularity, s.tmdb_rating
   FROM series s
- WHERE LOWER(s.title) LIKE LOWER(?)
-    OR EXISTS (
+ WHERE EXISTS (
          SELECT 1 FROM series_texts st
           WHERE st.series_id = s.id
-            AND st.language = ?
             AND st.title IS NOT NULL
+            AND (st.language = ? OR st.language = 'en-US')
             AND LOWER(st.title) LIKE LOWER(?)
        )
  ORDER BY s.popularity DESC NULLS LAST,
@@ -94,7 +107,7 @@ SELECT s.id, s.tmdb_id, s.title, s.year, s.poster_asset, s.backdrop_asset,
 
 	var rows []searchRow
 	if err := r.db.WithContext(ctx).
-		Raw(sql, pattern, language, pattern, limit).
+		Raw(sql, language, language, language, language, pattern, limit).
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("discovery local search: %w", err)
 	}

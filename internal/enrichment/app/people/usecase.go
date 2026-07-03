@@ -61,9 +61,14 @@ type PersonDetail struct {
 // LibraryCredit is one library_credit — person_credits row joined
 // to a canon series with at least one live series_cache reference.
 type LibraryCredit struct {
-	Credit    dompeople.PersonCredit
-	Canon     series.Canon
-	Instances []LibraryInstance
+	Credit dompeople.PersonCredit
+	Canon  series.Canon
+	// S-E3a — Title + PosterAsset staged from series_texts /
+	// series_media_texts (lang → en-US; Title falls back to canon
+	// OriginalTitle). Canon no longer carries title/poster_asset.
+	Title       string
+	PosterAsset *string
+	Instances   []LibraryInstance
 }
 
 // LibraryInstance is one row of `LibraryCredit.Instances`: the
@@ -103,10 +108,15 @@ type Deps struct {
 	PersonCredits PersonCreditsReader
 	SeriesByTMDB  SeriesByTMDBLookup
 	SeriesCache   SeriesCacheLookup
-	Enqueuer      PersonEnqueuer
-	MediaResolver MediaResolver
-	Logger        *slog.Logger
-	Now           func() time.Time
+	// SeriesTexts / SeriesMediaTexts (S-E3a) — resolve library-credit
+	// display titles + poster raw paths from the i18n side-tables. nil-OK:
+	// title falls back to canon OriginalTitle, poster to nil.
+	SeriesTexts      SeriesTextsBatch
+	SeriesMediaTexts SeriesMediaTextsBatch
+	Enqueuer         PersonEnqueuer
+	MediaResolver    MediaResolver
+	Logger           *slog.Logger
+	Now              func() time.Time
 }
 
 // UseCase is the H-2 application use case.
@@ -204,6 +214,11 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 		}
 	}
 
+	// S-E3a — stage localized title + poster raw path onto each library
+	// credit BEFORE sorting (SortTitle reads the staged title). Canon no
+	// longer carries title/poster_asset.
+	uc.stageLibraryCreditTexts(ctx, libCredits, lang)
+
 	sortLibraryCredits(libCredits, sk)
 
 	out.LibraryCredits = libCredits
@@ -220,7 +235,7 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 		cancel()
 	}
 	for i := range out.LibraryCredits {
-		out.LibraryCredits[i].Canon.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.LibraryCredits[i].Canon.PosterAsset, "w342", "poster_w342")
+		out.LibraryCredits[i].PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.LibraryCredits[i].PosterAsset, "w342", "poster_w342")
 	}
 	// Story 317 — OtherCredits posters. Movies + canon-less TV stubs. Same
 	// resolver, w185 (the frontend's grid is denser → smaller variant). The
@@ -348,7 +363,7 @@ func sortLibraryCredits(libs []LibraryCredit, sk SortKey) {
 		})
 	case SortTitle:
 		sort.SliceStable(libs, func(i, j int) bool {
-			return strings.ToLower(libs[i].Canon.Title) < strings.ToLower(libs[j].Canon.Title)
+			return strings.ToLower(libs[i].Title) < strings.ToLower(libs[j].Title)
 		})
 	default: // SortRecent
 		sort.SliceStable(libs, func(i, j int) bool {
@@ -363,6 +378,64 @@ func sortLibraryCredits(libs []LibraryCredit, sk SortKey) {
 			}
 			return ai.After(*aj)
 		})
+	}
+}
+
+// stageLibraryCreditTexts fills each library credit's localized Title (from
+// series_texts, lang → en-US, falling back to canon OriginalTitle) and
+// PosterAsset raw path (from series_media_texts, lang → en-US). Canon no
+// longer carries title/poster_asset (S-E3a). nil-OK ports; a repo miss/error
+// degrades to OriginalTitle / nil poster and never fails the page.
+func (uc *UseCase) stageLibraryCreditTexts(ctx context.Context, libs []LibraryCredit, lang string) {
+	if len(libs) == 0 {
+		return
+	}
+	ids := make([]domain.SeriesID, 0, len(libs))
+	for i := range libs {
+		ids = append(ids, libs[i].Canon.ID)
+	}
+
+	var texts map[domain.SeriesID]series.SeriesText
+	if uc.d.SeriesTexts != nil {
+		t, err := uc.d.SeriesTexts.ListByIDsWithFallback(ctx, ids, lang)
+		if err != nil {
+			uc.d.Logger.WarnContext(ctx, "person_library_texts_failed",
+				slog.String("lang", lang),
+				slog.String("error", err.Error()))
+		} else {
+			texts = t
+		}
+	}
+	var mediaTexts map[domain.SeriesID]series.SeriesMediaText
+	if uc.d.SeriesMediaTexts != nil {
+		m, err := uc.d.SeriesMediaTexts.ListByIDsWithFallback(ctx, ids, lang)
+		if err != nil {
+			uc.d.Logger.WarnContext(ctx, "person_library_media_texts_failed",
+				slog.String("lang", lang),
+				slog.String("error", err.Error()))
+		} else {
+			mediaTexts = m
+		}
+	}
+
+	for i := range libs {
+		id := libs[i].Canon.ID
+		title := ""
+		if texts != nil {
+			if t, ok := texts[id]; ok && t.Title != nil && *t.Title != "" {
+				title = *t.Title
+			}
+		}
+		if title == "" && libs[i].Canon.OriginalTitle != nil {
+			title = *libs[i].Canon.OriginalTitle
+		}
+		libs[i].Title = title
+		if mediaTexts != nil {
+			if mt, ok := mediaTexts[id]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+				p := *mt.PosterAsset
+				libs[i].PosterAsset = &p
+			}
+		}
 	}
 }
 

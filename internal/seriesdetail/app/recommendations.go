@@ -221,17 +221,10 @@ func (c *Composer) GetRecommendations(
 			if !ok {
 				continue
 			}
-			// Story 565 — override canon.Title with the localised row
-			// when present (non-nil, non-empty). Empty / missing keeps
-			// canon.Title. Same posture as composer.go branch a in
-			// GetDetail: series_texts is the source of truth for the
-			// display title when a row exists.
-			if localised != nil {
-				if t, has := localised[recID]; has && t.Title != nil && *t.Title != "" {
-					canon.Title = *t.Title
-				}
-			}
-			rd := RecommendationDetail{Series: canon}
+			// S-E3a — the display title is staged on the read-model:
+			// series_texts (lang → en-US) when present, else canon
+			// OriginalTitle. Canon no longer carries a display title.
+			rd := RecommendationDetail{Series: canon, Title: recTitle(localised, recID, canon)}
 			if c.d.SeriesCacheLookup != nil {
 				caches, _ := c.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
 				if len(caches) > 0 {
@@ -286,12 +279,30 @@ func (c *Composer) resolveRecommendationsMedia(
 		return
 	}
 	for i := range items {
-		raw := items[i].Series.PosterAsset
+		// S-E3a — poster raw path comes ONLY from series_media_texts
+		// (lang → en-US); canon carries no poster_asset. A miss → nil →
+		// FE monogram.
+		var raw *string
 		if mediaByID != nil {
 			if mt, ok := mediaByID[items[i].Series.ID]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
 				raw = mt.PosterAsset
 			}
 		}
-		items[i].Series.PosterAsset = r.Resolve(ctx, raw, "w342", "poster_w342")
+		items[i].PosterAsset = r.Resolve(ctx, raw, "w342", "poster_w342")
 	}
+}
+
+// recTitle picks the localized recommendation title: series_texts (already
+// lang → en-US resolved by the batch) when present, else the canon
+// OriginalTitle fact. Canon carries no display title after S-E3a.
+func recTitle(localised map[domain.SeriesID]series.SeriesText, id domain.SeriesID, canon series.Canon) string {
+	if localised != nil {
+		if t, ok := localised[id]; ok && t.Title != nil && *t.Title != "" {
+			return *t.Title
+		}
+	}
+	if canon.OriginalTitle != nil {
+		return *canon.OriginalTitle
+	}
+	return ""
 }

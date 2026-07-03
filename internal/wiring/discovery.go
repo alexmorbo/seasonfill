@@ -64,7 +64,7 @@ func BuildDiscoveryPersistence(
 	return &DiscoveryPersistenceBundle{
 		ListRepo:     discopersistence.NewListRepository(db),
 		LangProvider: discopersistence.NewActiveLanguagesRepository(db),
-		Stubs:        &stubUpserterAdapter{seriesRepo: seriesRepo},
+		Stubs:        &stubUpserterAdapter{seriesRepo: seriesRepo, seriesTexts: enrichpersistence.NewSeriesTextsRepository(db)},
 	}, nil
 }
 
@@ -167,7 +167,8 @@ func BuildDiscoveryRuntime(deps DiscoveryRuntimeDeps) (*DiscoveryRuntimeBundle, 
 // existing row without downgrading a 'full' hydration to 'stub'
 // (see SeriesRepository.UpsertStub godoc for the merge invariants).
 type stubUpserterAdapter struct {
-	seriesRepo *enrichpersistence.SeriesRepository
+	seriesRepo  *enrichpersistence.SeriesRepository
+	seriesTexts *enrichpersistence.SeriesTextsRepository
 }
 
 func (a *stubUpserterAdapter) EnsureStub(
@@ -183,14 +184,33 @@ func (a *stubUpserterAdapter) EnsureStub(
 	// in series.Canon does not alias the caller's parameter slot — the
 	// adapter must own the lifetime of the value it writes through.
 	tmdbCopy := tmdbID
+	// S-E3a — canon no longer carries title/poster/backdrop. Persist the
+	// stub row (ids + hydration) then seed the base-lang title into
+	// series_texts{en-US} so downstream readers (person library credits,
+	// recommendations) have a title before enrichment fills the rest.
+	// Poster/backdrop arrive via the on-demand enrichment the discovery
+	// worker enqueues (RefreshMediaAssets → series_media_texts).
 	canon := series.Canon{
-		TMDBID:        &tmdbCopy,
-		Title:         title,
-		Hydration:     series.HydrationStub,
-		PosterAsset:   poster,
-		BackdropAsset: backdrop,
+		TMDBID:    &tmdbCopy,
+		Hydration: series.HydrationStub,
 	}
-	return a.seriesRepo.UpsertStub(ctx, canon)
+	seriesID, err := a.seriesRepo.UpsertStub(ctx, canon)
+	if err != nil {
+		return 0, err
+	}
+	if a.seriesTexts != nil {
+		t := title
+		if terr := a.seriesTexts.InsertBaseLangIfAbsent(ctx, series.SeriesText{
+			SeriesID: seriesID,
+			Language: "en-US",
+			Title:    &t,
+		}); terr != nil {
+			return 0, fmt.Errorf("discovery stub seed series_texts: %w", terr)
+		}
+	}
+	_ = poster
+	_ = backdrop
+	return seriesID, nil
 }
 
 // libraryInstancesAdapter bridges catalog SeriesCacheRepository to the

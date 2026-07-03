@@ -92,7 +92,7 @@ func castBaseDeps(t *testing.T) (CastDeps, *fakeSeriesCache, *fakeSeries, *fakeC
 	}
 	canon := &fakeSeries{
 		rows: map[domain.SeriesID]series.Canon{
-			42: {ID: 42, Title: "The Last of Us", TMDBID: tmdbIDPtr(100)},
+			42: {ID: 42, OriginalTitle: new("The Last of Us"), TMDBID: tmdbIDPtr(100)},
 		},
 	}
 	sp := &fakeCastSeriesPeople{}
@@ -176,8 +176,8 @@ func TestCastComposer_HappyPath_FullCastCrew(t *testing.T) {
 	credits.rows[10] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
 	credits.rows[11] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
 	// Canon: 200 (GoT), 300 (Mindhunter) live in library + map to TMDB.
-	canon.rows[200] = series.Canon{ID: 200, Title: "Game of Thrones", TMDBID: tmdbIDPtr(200)}
-	canon.rows[300] = series.Canon{ID: 300, Title: "Mindhunter", TMDBID: tmdbIDPtr(300)}
+	canon.rows[200] = series.Canon{ID: 200, OriginalTitle: new("Game of Thrones"), TMDBID: tmdbIDPtr(200)}
+	canon.rows[300] = series.Canon{ID: 300, OriginalTitle: new("Mindhunter"), TMDBID: tmdbIDPtr(300)}
 	cache.byCanon[200] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: seriesIDPtr(200)}}
 	cache.byCanon[300] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 7, SeriesID: seriesIDPtr(300)}}
 
@@ -368,15 +368,19 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 	lastAir := time.Date(2025, 4, 13, 0, 0, 0, 0, time.UTC)
 	year := 2023
 	canon.rows[42] = series.Canon{
-		ID:           42,
-		Title:        "The Last of Us",
-		TMDBID:       tmdbIDPtr(100),
-		PosterAsset:  &posterPath,
-		Status:       &status,
-		Year:         &year,
-		LastAirDate:  &lastAir,
-		InProduction: false,
+		ID:            42,
+		OriginalTitle: new("The Last of Us"),
+		TMDBID:        tmdbIDPtr(100),
+		Status:        &status,
+		Year:          &year,
+		LastAirDate:   &lastAir,
+		InProduction:  false,
 	}
+	// S-E3a — hero title falls back to canon OriginalTitle (no SeriesTexts
+	// fake); hero poster raw path now comes from series_media_texts.
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{row: series.SeriesMediaText{
+		SeriesID: 42, Language: "en-US", PosterAsset: &posterPath,
+	}}
 	// Story 312: composer wraps the raw TMDB path through MediaResolver;
 	// inject a fake lookup so the wire field carries the sha256 hash.
 	const wantHash = "poster-asset-hash"
@@ -394,6 +398,38 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 	require.Equal(t, 2023, *d.Summary.FirstAiredYear)
 	require.NotNil(t, d.Summary.LastAiredYear)
 	require.Equal(t, 2025, *d.Summary.LastAiredYear)
+}
+
+// TestCastComposer_Hero_TitleFromSeriesTexts_EnUSFallback — D-0 (S-E3a): the
+// cast hero title resolves from series_texts (requested-lang → en-US), winning
+// over canon OriginalTitle; a series with no texts row degrades to
+// OriginalTitle. Reuses the package fakeSeriesTexts keyed by seriesTextKey.
+func TestCastComposer_Hero_TitleFromSeriesTexts_EnUSFallback(t *testing.T) {
+	t.Parallel()
+	t.Run("en-US series_texts renders under ru-RU request", func(t *testing.T) {
+		t.Parallel()
+		deps, _, canon, _, _, _, _ := castBaseDeps(t)
+		canon.rows[42] = series.Canon{ID: 42, OriginalTitle: new("Canon Original"), TMDBID: tmdbIDPtr(100)}
+		deps.SeriesTexts = &fakeSeriesTexts{rows: map[string]series.SeriesText{
+			seriesTextKey(42, "en-US"): {SeriesID: 42, Language: "en-US", Title: new("English Title")},
+		}}
+		c := NewCastComposer(deps)
+		d, err := c.Get(context.Background(), "alpha", 1, "ru-RU")
+		require.NoError(t, err)
+		require.Equal(t, "English Title", d.Summary.Title,
+			"series_texts en-US fallback wins over canon OriginalTitle")
+	})
+	t.Run("no texts row degrades to canon OriginalTitle", func(t *testing.T) {
+		t.Parallel()
+		deps, _, canon, _, _, _, _ := castBaseDeps(t)
+		canon.rows[42] = series.Canon{ID: 42, OriginalTitle: new("Only Original"), TMDBID: tmdbIDPtr(100)}
+		deps.SeriesTexts = &fakeSeriesTexts{rows: map[string]series.SeriesText{}}
+		c := NewCastComposer(deps)
+		d, err := c.Get(context.Background(), "alpha", 1, "ru-RU")
+		require.NoError(t, err)
+		require.Equal(t, "Only Original", d.Summary.Title,
+			"no series_texts row → canon OriginalTitle fallback")
+	})
 }
 
 func TestCastComposer_SeriesSummary_StatusFallbacks(t *testing.T) {
@@ -420,10 +456,10 @@ func TestCastComposer_SeriesSummary_StatusFallbacks(t *testing.T) {
 			t.Parallel()
 			deps, _, canon, _, _, _, _ := castBaseDeps(t)
 			canon.rows[42] = series.Canon{
-				ID:           42,
-				Title:        "X",
-				Status:       tc.raw,
-				InProduction: tc.inProduction,
+				ID:            42,
+				OriginalTitle: new("X"),
+				Status:        tc.raw,
+				InProduction:  tc.inProduction,
 			}
 			c := NewCastComposer(deps)
 			d, err := c.Get(context.Background(), "alpha", 1, "en-US")
@@ -437,8 +473,8 @@ func TestCastComposer_SeriesSummary_NilYears(t *testing.T) {
 	t.Parallel()
 	deps, _, canon, _, _, _, _ := castBaseDeps(t)
 	canon.rows[42] = series.Canon{
-		ID:    42,
-		Title: "Stub series",
+		ID:            42,
+		OriginalTitle: new("Stub series"),
 	}
 	c := NewCastComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
@@ -446,6 +482,7 @@ func TestCastComposer_SeriesSummary_NilYears(t *testing.T) {
 	require.Nil(t, d.Summary.FirstAiredYear)
 	require.Nil(t, d.Summary.LastAiredYear)
 	require.Nil(t, d.Summary.PosterAsset)
+	// S-E3a — hero title falls back to canon OriginalTitle (no SeriesTexts).
 	require.Equal(t, "Stub series", d.Summary.Title)
 	require.Equal(t, "unknown", d.Summary.Status)
 }
@@ -470,10 +507,14 @@ func (f *fakeMediaLookupCast) EnsurePending(_ context.Context, _, _, _ string) e
 func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
 	t.Parallel()
 	deps, _, canon, sp, persons, _, _ := castBaseDeps(t)
-	// Seed canon poster + one cast member with raw profile path.
+	// Seed canon + one cast member with raw profile path. S-E3a — hero poster
+	// raw path comes from series_media_texts (canon dropped poster_asset).
 	canon.rows[42] = series.Canon{
-		ID: 42, Title: "Breaking Bad", PosterAsset: new("/hero.jpg"),
+		ID: 42, OriginalTitle: new("Breaking Bad"),
 	}
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{row: series.SeriesMediaText{
+		SeriesID: 42, Language: "en-US", PosterAsset: new("/hero.jpg"),
+	}}
 	sp.cast = []people.SeriesCredit{
 		{PersonID: 100, Kind: people.SeriesCreditCast, CreditOrder: new(1)},
 	}
@@ -573,7 +614,7 @@ func TestCastComposer_InLibraryBatchedAcrossCast(t *testing.T) {
 	credits.rows[2] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
 	credits.rows[3] = nil
 	// Canon for tmdb=200 exists + lives in library; tmdb=999 has no canon row.
-	canon.rows[200] = series.Canon{ID: 200, Title: "GoT", TMDBID: tmdbIDPtr(200)}
+	canon.rows[200] = series.Canon{ID: 200, OriginalTitle: new("GoT"), TMDBID: tmdbIDPtr(200)}
 	cache.byCanon[200] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: seriesIDPtr(200)}}
 
 	c := NewCastComposer(deps)
@@ -649,7 +690,7 @@ func TestCastComposer_InLibraryCacheBatchFailure(t *testing.T) {
 	seedPerson(persons, 1, "PersonA", tmdbIDPtr(1001))
 	sp.cast = []people.SeriesCredit{castCredit(1, new(0), "cha", new(9))}
 	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 200}}
-	canon.rows[200] = series.Canon{ID: 200, Title: "GoT", TMDBID: tmdbIDPtr(200)}
+	canon.rows[200] = series.Canon{ID: 200, OriginalTitle: new("GoT"), TMDBID: tmdbIDPtr(200)}
 	cache.listErr = errors.New("cache batch down")
 	c := NewCastComposer(deps)
 	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
@@ -685,7 +726,7 @@ func TestCastComposer_QueryCountBudget(t *testing.T) {
 			tmdb := 2000 + i*10 + j
 			refs = append(refs, PersonCreditRef{MediaType: "tv", TMDBMediaID: tmdb})
 			baseCanon.rows[domain.SeriesID(tmdb)] = series.Canon{
-				ID: domain.SeriesID(tmdb), Title: "X", TMDBID: tmdbIDPtr(tmdb),
+				ID: domain.SeriesID(tmdb), OriginalTitle: new("X"), TMDBID: tmdbIDPtr(tmdb),
 			}
 			baseCache.byCanon[domain.SeriesID(tmdb)] = []series.CacheEntry{
 				{InstanceName: "alpha", SonarrSeriesID: domain.SonarrSeriesID(tmdb), SeriesID: seriesIDPtr(int64(tmdb))},

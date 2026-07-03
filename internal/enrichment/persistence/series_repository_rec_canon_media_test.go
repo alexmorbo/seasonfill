@@ -7,29 +7,38 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
-// seedRecChildCanon inserts a rec-child canon row using UpsertStub semantics
-// (matches production A3b write path pre-Story 571) and returns its resolved
-// series.id + the initial poster_asset value from the stub. Tests assert
-// the initial value and the post-UpdateRecCanonMedia value differ (or match
-// as specified by the case).
-func seedRecChildCanon(t *testing.T, repo *SeriesRepository, title string, tmdbID domain.TMDBID, poster, backdrop *string) domain.SeriesID {
+// seedRecChildCanon inserts a rec-child canon row via UpsertStub (matches the
+// production A3b write path pre-Story 571) and seeds its legacy
+// poster_asset/backdrop_asset DB columns directly. S-E3a removed those fields
+// from series.Canon (the mappers stopped copying them), so Upsert no longer
+// writes the columns — the raw seed simulates the post-Sonarr-scan state that
+// UpdateRecCanonMedia's narrow UPDATE later overwrites. Reuses seedRecCanonMedia
+// / readRecCanonMedia from a3b_rec_canon_media_integration_test.go.
+func seedRecChildCanon(t *testing.T, gdb *gorm.DB, repo *SeriesRepository, title string, tmdbID domain.TMDBID, poster, backdrop *string) domain.SeriesID {
 	t.Helper()
 	canon := series.Canon{
-		Title:         title,
+		OriginalTitle: new(title),
 		TMDBID:        &tmdbID,
 		Hydration:     series.HydrationStub,
-		PosterAsset:   poster,
-		BackdropAsset: backdrop,
 	}
 	id, err := repo.UpsertStub(context.Background(), canon)
 	require.NoError(t, err)
 	require.NotZero(t, id)
+	p, b := "", ""
+	if poster != nil {
+		p = *poster
+	}
+	if backdrop != nil {
+		b = *backdrop
+	}
+	seedRecCanonMedia(t, gdb, id, p, b)
 	return id
 }
 
@@ -48,7 +57,7 @@ func TestUpdateRecCanonMedia_OverwritesExistingPoster(t *testing.T) {
 
 			enPoster := "/en.jpg"
 			enBackdrop := "/en_bd.jpg"
-			id := seedRecChildCanon(t, repo, "Rec Child",
+			id := seedRecChildCanon(t, gdb, repo, "Rec Child",
 				domain.TMDBID(1001),
 				&enPoster,
 				&enBackdrop,
@@ -58,13 +67,12 @@ func TestUpdateRecCanonMedia_OverwritesExistingPoster(t *testing.T) {
 			// backdrop untouched.
 			require.NoError(t, repo.UpdateRecCanonMedia(ctx, id, "/ru.jpg", ""))
 
-			got, err := repo.Get(ctx, id)
-			require.NoError(t, err)
-			require.NotNil(t, got.PosterAsset)
-			assert.Equal(t, "/ru.jpg", *got.PosterAsset,
+			gotPoster, gotBackdrop := readRecCanonMedia(t, gdb, id)
+			require.NotNil(t, gotPoster)
+			assert.Equal(t, "/ru.jpg", *gotPoster,
 				"poster_asset MUST be overwritten to ru-RU path (this is the B-54 root fix)")
-			require.NotNil(t, got.BackdropAsset)
-			assert.Equal(t, "/en_bd.jpg", *got.BackdropAsset,
+			require.NotNil(t, gotBackdrop)
+			assert.Equal(t, "/en_bd.jpg", *gotBackdrop,
 				"backdrop_asset MUST be untouched when backdropPath empty")
 		})
 	}
@@ -82,7 +90,7 @@ func TestUpdateRecCanonMedia_BackdropOnly(t *testing.T) {
 
 			enPoster := "/en.jpg"
 			enBackdrop := "/en_bd.jpg"
-			id := seedRecChildCanon(t, repo, "Rec Child",
+			id := seedRecChildCanon(t, gdb, repo, "Rec Child",
 				domain.TMDBID(1002),
 				&enPoster,
 				&enBackdrop,
@@ -90,13 +98,12 @@ func TestUpdateRecCanonMedia_BackdropOnly(t *testing.T) {
 
 			require.NoError(t, repo.UpdateRecCanonMedia(ctx, id, "", "/ru_bd.jpg"))
 
-			got, err := repo.Get(ctx, id)
-			require.NoError(t, err)
-			require.NotNil(t, got.PosterAsset)
-			assert.Equal(t, "/en.jpg", *got.PosterAsset,
+			gotPoster, gotBackdrop := readRecCanonMedia(t, gdb, id)
+			require.NotNil(t, gotPoster)
+			assert.Equal(t, "/en.jpg", *gotPoster,
 				"poster_asset MUST be untouched when posterPath empty")
-			require.NotNil(t, got.BackdropAsset)
-			assert.Equal(t, "/ru_bd.jpg", *got.BackdropAsset,
+			require.NotNil(t, gotBackdrop)
+			assert.Equal(t, "/ru_bd.jpg", *gotBackdrop,
 				"backdrop_asset MUST be overwritten")
 		})
 	}
@@ -116,7 +123,7 @@ func TestUpdateRecCanonMedia_BothEmpty_NoOp(t *testing.T) {
 
 			enPoster := "/en.jpg"
 			enBackdrop := "/en_bd.jpg"
-			id := seedRecChildCanon(t, repo, "Rec Child",
+			id := seedRecChildCanon(t, gdb, repo, "Rec Child",
 				domain.TMDBID(1003),
 				&enPoster,
 				&enBackdrop,
@@ -132,14 +139,15 @@ func TestUpdateRecCanonMedia_BothEmpty_NoOp(t *testing.T) {
 
 			require.NoError(t, repo.UpdateRecCanonMedia(ctx, id, "", ""))
 
+			gotPoster, gotBackdrop := readRecCanonMedia(t, gdb, id)
+			require.NotNil(t, gotPoster)
+			assert.Equal(t, "/en.jpg", *gotPoster,
+				"poster_asset MUST be unchanged on both-empty no-op")
+			require.NotNil(t, gotBackdrop)
+			assert.Equal(t, "/en_bd.jpg", *gotBackdrop,
+				"backdrop_asset MUST be unchanged on both-empty no-op")
 			got, err := repo.Get(ctx, id)
 			require.NoError(t, err)
-			require.NotNil(t, got.PosterAsset)
-			assert.Equal(t, "/en.jpg", *got.PosterAsset,
-				"poster_asset MUST be unchanged on both-empty no-op")
-			require.NotNil(t, got.BackdropAsset)
-			assert.Equal(t, "/en_bd.jpg", *got.BackdropAsset,
-				"backdrop_asset MUST be unchanged on both-empty no-op")
 			assert.Equal(t, priorUpdatedAt.Unix(), got.UpdatedAt.Unix(),
 				"updated_at MUST NOT change on both-empty no-op (no SQL emitted)")
 		})
@@ -177,7 +185,7 @@ func TestUpdateRecCanonMedia_UpdatesTimestamp(t *testing.T) {
 			ctx := context.Background()
 
 			enPoster := "/en.jpg"
-			id := seedRecChildCanon(t, repo, "Rec Child",
+			id := seedRecChildCanon(t, gdb, repo, "Rec Child",
 				domain.TMDBID(1004),
 				&enPoster,
 				nil,
@@ -204,8 +212,8 @@ func TestUpdateRecCanonMedia_UpdatesTimestamp(t *testing.T) {
 
 // TestUpdateRecCanonMedia_DoesNotClobberFullEnrichment — surgical guarantee:
 // writing ONLY poster+backdrop MUST NOT touch other Sonarr-authoritative
-// columns (title, first_air_date, status, tmdb_rating, tmdb_votes, year,
-// hydration, imdb_id, tvdb_id, etc). Regression guard against future
+// columns (first_air_date, status, tmdb_rating, tmdb_votes, year, hydration,
+// imdb_id, tvdb_id, original_title, etc). Regression guard against future
 // contributor accidentally widening the map.
 func TestUpdateRecCanonMedia_DoesNotClobberFullEnrichment(t *testing.T) {
 	t.Parallel()
@@ -228,7 +236,6 @@ func TestUpdateRecCanonMedia_DoesNotClobberFullEnrichment(t *testing.T) {
 			tvdbID := domain.TVDBID(3001)
 			imdbID := domain.IMDBID("tt7654321")
 			canon := series.Canon{
-				Title:            "Full Rec Row",
 				OriginalTitle:    new("Full Rec Row (Original)"),
 				TMDBID:           &tmdbID,
 				TVDBID:           &tvdbID,
@@ -242,14 +249,15 @@ func TestUpdateRecCanonMedia_DoesNotClobberFullEnrichment(t *testing.T) {
 				OriginalLanguage: new("en"),
 				Popularity:       &pop,
 				InProduction:     true,
-				PosterAsset:      new("/en_full.jpg"),
-				BackdropAsset:    new("/en_full_bd.jpg"),
 				TMDBRating:       &rating,
 				TMDBVotes:        &votes,
 			}
 			id, err := repo.Upsert(ctx, canon)
 			require.NoError(t, err)
 			require.NotZero(t, id)
+			// S-E3a — seed the legacy media columns directly (canon domain
+			// fields removed); UpdateRecCanonMedia later overwrites them.
+			seedRecCanonMedia(t, gdb, id, "/en_full.jpg", "/en_full_bd.jpg")
 
 			// Snapshot pre-state.
 			before, err := repo.Get(ctx, id)
@@ -261,14 +269,15 @@ func TestUpdateRecCanonMedia_DoesNotClobberFullEnrichment(t *testing.T) {
 			after, err := repo.Get(ctx, id)
 			require.NoError(t, err)
 
-			// Media columns MUST be overwritten.
-			require.NotNil(t, after.PosterAsset)
-			assert.Equal(t, "/ru_full.jpg", *after.PosterAsset)
-			require.NotNil(t, after.BackdropAsset)
-			assert.Equal(t, "/ru_full_bd.jpg", *after.BackdropAsset)
+			// Media columns MUST be overwritten (read raw — toCanon no longer
+			// surfaces poster_asset/backdrop_asset after S-E3a).
+			gotPoster, gotBackdrop := readRecCanonMedia(t, gdb, id)
+			require.NotNil(t, gotPoster)
+			assert.Equal(t, "/ru_full.jpg", *gotPoster)
+			require.NotNil(t, gotBackdrop)
+			assert.Equal(t, "/ru_full_bd.jpg", *gotBackdrop)
 
-			// Every other column MUST be untouched.
-			assert.Equal(t, before.Title, after.Title, "title MUST NOT change")
+			// Every other canon column MUST be untouched.
 			assert.Equal(t, before.Hydration, after.Hydration,
 				"hydration MUST NOT downgrade — narrow UPDATE does not touch this column")
 			assert.Equal(t, before.Status, after.Status)

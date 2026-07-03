@@ -173,13 +173,12 @@ func TestSeriesWorker_RefreshMediaAssets_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.tmdb.getTVHit, "exactly 1 GetTV call")
 
-	// Series canon upsert fired once with canon media paths.
+	// Series canon upsert fired once. S-E3a — canon no longer carries
+	// poster/backdrop; series art flows to series_media_texts + the media
+	// pipeline via MediaResolver (asserted below). The narrow writer only
+	// stamps enrichment_media_synced_at here.
 	require.Equal(t, 1, f.series.upsertN, "exactly 1 Series.Upsert call")
 	persisted := f.series.rows[1]
-	require.NotNil(t, persisted.PosterAsset)
-	assert.Equal(t, "/p.jpg", *persisted.PosterAsset)
-	require.NotNil(t, persisted.BackdropAsset)
-	assert.Equal(t, "/b.jpg", *persisted.BackdropAsset)
 	require.NotNil(t, persisted.EnrichmentMediaSyncedAt)
 
 	// Seasons: 2 upserts (season 2 dropped by skip-empty filter).
@@ -194,25 +193,29 @@ func TestSeriesWorker_RefreshMediaAssets_HappyPath(t *testing.T) {
 	require.Contains(t, f.seasons.rows, 3)
 	require.NotContains(t, f.seasons.rows, 2, "season 2 empty PosterPath → row skipped entirely")
 
-	// Per-season payload carries poster + Name/Overview/AirDate/TMDBSeasonID
-	// (writer-populates-always avoids Story 552 blanking regression class).
+	// S-E3a — canon season no longer carries Name/Overview/PosterAsset; the
+	// narrow writer keeps only air_date + tmdb_season_id fresh (per-season art
+	// flows to season_media_texts + the media pipeline, asserted via the
+	// resolver below).
 	s1 := f.seasons.rows[1]
-	require.NotNil(t, s1.PosterAsset)
-	assert.Equal(t, "/s1.jpg", *s1.PosterAsset)
-	require.NotNil(t, s1.Name)
-	assert.Equal(t, "S1", *s1.Name)
-	require.NotNil(t, s1.Overview)
-	assert.Equal(t, "ov1", *s1.Overview)
 	require.NotNil(t, s1.AirDate)
 	require.NotNil(t, s1.TMDBSeasonID)
 	assert.Equal(t, 5001, *s1.TMDBSeasonID)
 
 	// MediaResolver calls: 2 poster sizes + 1 backdrop + 2 season posters = 5.
+	// S-E3a — this is now the ONLY path A4 pushes series/season poster art into
+	// the media pipeline (canon media columns dropped).
 	require.Len(t, resolver.calls, 5)
 	assert.Equal(t, "poster_w342", resolver.calls[0].Kind)
+	require.NotNil(t, resolver.calls[0].Path)
+	assert.Equal(t, "/p.jpg", *resolver.calls[0].Path)
 	assert.Equal(t, "poster_w780", resolver.calls[1].Kind)
 	assert.Equal(t, "backdrop_w1280", resolver.calls[2].Kind)
+	require.NotNil(t, resolver.calls[2].Path)
+	assert.Equal(t, "/b.jpg", *resolver.calls[2].Path)
 	assert.Equal(t, "season_poster_w154", resolver.calls[3].Kind)
+	require.NotNil(t, resolver.calls[3].Path)
+	assert.Equal(t, "/s1.jpg", *resolver.calls[3].Path)
 	assert.Equal(t, "season_poster_w154", resolver.calls[4].Kind)
 }
 
@@ -223,12 +226,23 @@ func TestSeriesWorker_RefreshMediaAssets_SeasonsPosterAlwaysPopulated(t *testing
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	tv := canonicalMediaTV(42)
-	f := newMediaFixture(t, &tmdbID, nil, &fakeMediaResolver{}, tv)
+	resolver := &fakeMediaResolver{}
+	f := newMediaFixture(t, &tmdbID, nil, resolver, tv)
 	require.NoError(t, f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true))
-	for sn, s := range f.seasons.rows {
-		require.NotNilf(t, s.PosterAsset, "season %d written to seasons_repo with nil PosterAsset — Story 552 regression!", sn)
-		assert.NotEmpty(t, *s.PosterAsset, "season %d empty PosterAsset written — Story 552 regression!", sn)
+	// S-E3a — season poster no longer lands on canon; the skip-if-empty filter
+	// guarantees every season poster reaching the media pipeline is non-empty
+	// (Story 552 mirror class: never resolve a blank path).
+	seasonPosterCalls := 0
+	for _, c := range resolver.calls {
+		if c.Kind != "season_poster_w154" {
+			continue
+		}
+		seasonPosterCalls++
+		require.NotNilf(t, c.Path, "season poster resolve with nil path — Story 552 regression!")
+		assert.NotEmptyf(t, *c.Path, "season poster resolve with empty path — Story 552 regression!")
 	}
+	assert.Equal(t, 2, seasonPosterCalls, "season 2 empty PosterPath must be skipped")
+	require.NotContains(t, f.seasons.rows, 2, "empty-poster season must not reach seasons_repo")
 }
 
 // Universal narrow-writer audit — proves the 6 RISK fields (tvdb_id,

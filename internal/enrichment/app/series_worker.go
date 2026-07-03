@@ -769,66 +769,14 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 	)
 	canonOut := enrichmentCanonToCanon(merged, canon)
 
-	// 346: defensive write-side guard. Working hypothesis on the
-	// backdrop NULL backlog is that the merge policy zeros the asset
-	// before persist. The guard runs on the value about to be written
-	// — if TMDB returned a non-empty path but canonOut still carries
-	// nil/empty, WARN + force the path on so prod converges. Strictly
-	// additive: only writes when both (a) TMDB has a path and (b)
-	// canon-side is nil/empty, so a stored canon value is never
-	// clobbered. Mirror behavior for poster.
-	if tv != nil && tv.BackdropPath != "" && (canonOut.BackdropAsset == nil || *canonOut.BackdropAsset == "") {
-		log.WarnContext(txCtx, "enrichment.series.canon.backdrop_write_gap",
-			slog.Int64("series_id", int64(canon.ID)),
-			slog.Any("tmdb_id", canonOut.TMDBID),
-			slog.String("tmdb_backdrop_path", tv.BackdropPath),
-			slog.String("reason", "merge_policy_zeroed_nonempty_path"),
-		)
-		// S-A: prefer the language-agnostic canonical backdrop from
-		// tv.Images; root tv.BackdropPath is the fallback (guaranteed
-		// non-empty here).
-		bp := tv.BackdropPath
-		if c := pickCanonicalBackdrop(tv.Images); c != nil {
-			bp = *c
-		}
-		canonOut.BackdropAsset = &bp
-	}
-	if tv != nil && tv.PosterPath != "" && (canonOut.PosterAsset == nil || *canonOut.PosterAsset == "") {
-		log.WarnContext(txCtx, "enrichment.series.canon.poster_write_gap",
-			slog.Int64("series_id", int64(canon.ID)),
-			slog.Any("tmdb_id", canonOut.TMDBID),
-			slog.String("tmdb_poster_path", tv.PosterPath),
-			slog.String("reason", "merge_policy_zeroed_nonempty_path"),
-		)
-		// S-A: prefer the language-agnostic canonical poster from tv.Images;
-		// root tv.PosterPath is the fallback (guaranteed non-empty here).
-		pp := tv.PosterPath
-		if c := pickCanonicalPoster(tv.Images); c != nil {
-			pp = *c
-		}
-		canonOut.PosterAsset = &pp
-	}
-
+	// S-E3a — the 346 canon poster/backdrop write-gap guard + the
+	// images_persisted diagnostic were removed: canon no longer carries
+	// poster_asset / backdrop_asset. Series art is persisted per-language
+	// by RefreshMediaAssets (A4) into series_media_texts.
 	seriesID, err := w.deps.Series.Upsert(txCtx, canonOut)
 	if err != nil {
 		return nil, fmt.Errorf("upsert series canon: %w", err)
 	}
-
-	// 346: diagnostic — pinpoint backdrop write-gap. Audit found 100%
-	// of recent canon rows NULL backdrop_asset; this log line
-	// attributes blame to either (a) upstream TMDB sent no
-	// backdrop_path, or (b) mapper/merge zeroed it before persist.
-	// Sampled at INFO so it surfaces in the default log level on prod.
-	tvHasPoster := tv != nil && tv.PosterPath != ""
-	tvHasBackdrop := tv != nil && tv.BackdropPath != ""
-	log.InfoContext(txCtx, "enrichment.series.canon.images_persisted",
-		slog.Int64("series_id", int64(seriesID)),
-		slog.Any("tmdb_id", canonOut.TMDBID),
-		slog.Bool("poster_present", canonOut.PosterAsset != nil && *canonOut.PosterAsset != ""),
-		slog.Bool("backdrop_present", canonOut.BackdropAsset != nil && *canonOut.BackdropAsset != ""),
-		slog.Bool("tmdb_poster_path_present", tvHasPoster),
-		slog.Bool("tmdb_backdrop_path_present", tvHasBackdrop),
-	)
 
 	// 2. series_texts.
 	m.SeriesText.SeriesID = seriesID
@@ -1547,12 +1495,12 @@ func patchFromTMDBCanon(c series.Canon) enrichment.SeriesPatch {
 		OriginCountries:  append([]string(nil), c.OriginCountries...),
 		Popularity:       c.Popularity,
 		InProduction:     &c.InProduction,
-		PosterAsset:      c.PosterAsset,
-		BackdropAsset:    c.BackdropAsset,
 		TMDBRating:       c.TMDBRating,
 		TMDBVotes:        c.TMDBVotes,
 		RuntimeMinutes:   c.RuntimeMinutes,
-		Title:            nonEmptyStringPtr(c.Title),
+		// Title / PosterAsset / BackdropAsset dropped in S-E3a — canon no
+		// longer carries them; series text/art flow through series_texts /
+		// series_media_texts, not the merge-policy canon columns.
 	}
 }
 
@@ -1643,13 +1591,15 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 	return enrichment.SeriesCanon{
 		Hydration: enrichment.HydrationLevel(c.Hydration),
 		TMDBID:    tmdbIDPtrToInt(c.TMDBID), TVDBID: tvdbIDPtrToInt(c.TVDBID), IMDBID: imdbIDPtrToString(c.IMDBID),
-		Title: c.Title, OriginalTitle: c.OriginalTitle, Status: c.Status,
+		OriginalTitle: c.OriginalTitle, Status: c.Status,
 		FirstAirDate: c.FirstAirDate, LastAirDate: c.LastAirDate,
 		NextAirDate: c.NextAirDate, Year: c.Year,
 		RuntimeMinutes: c.RuntimeMinutes, Homepage: c.Homepage,
 		OriginalLanguage: c.OriginalLanguage, OriginCountry: c.OriginCountry, OriginCountries: append([]string(nil), c.OriginCountries...),
 		Popularity: c.Popularity, InProduction: c.InProduction,
-		PosterAsset: c.PosterAsset, BackdropAsset: c.BackdropAsset,
+		// Title / PosterAsset / BackdropAsset dropped in S-E3a (canon no
+		// longer carries them). The enrichment-local mirror leaves them
+		// zero; merge output for those fields is intentionally discarded.
 		TMDBRating: c.TMDBRating, TMDBVotes: c.TMDBVotes,
 		IMDBRating: c.IMDBRating, IMDBVotes: c.IMDBVotes,
 		OMDBRated: c.OMDBRated, OMDBAwards: c.OMDBAwards,
@@ -1661,7 +1611,8 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 	base.TMDBID = intPtrToTMDBID(ec.TMDBID)
 	base.TVDBID = intPtrToTVDBID(ec.TVDBID)
 	base.IMDBID = stringPtrToIMDBID(ec.IMDBID)
-	base.Title = ec.Title
+	// base.Title dropped in S-E3a — series display title is not a canon
+	// field; series_texts is the source of truth.
 	base.OriginalTitle = ec.OriginalTitle
 	base.Status = ec.Status
 	base.FirstAirDate = ec.FirstAirDate
@@ -1675,8 +1626,8 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 	base.OriginCountries = append([]string(nil), ec.OriginCountries...)
 	base.Popularity = ec.Popularity
 	base.InProduction = ec.InProduction
-	base.PosterAsset = ec.PosterAsset
-	base.BackdropAsset = ec.BackdropAsset
+	// base.PosterAsset / base.BackdropAsset dropped in S-E3a — series art
+	// is read from series_media_texts, not canon columns.
 	base.TMDBRating = ec.TMDBRating
 	base.TMDBVotes = ec.TMDBVotes
 	base.IMDBRating = ec.IMDBRating

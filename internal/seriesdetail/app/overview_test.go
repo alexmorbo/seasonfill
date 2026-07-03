@@ -182,7 +182,7 @@ func TestComposerGetOverview_HappyPath(t *testing.T) {
 	cache := map[string]series.CacheEntry{
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
-	canon := series.Canon{ID: 42, Title: "Breaking Bad", OMDBAwards: &awards}
+	canon := series.Canon{ID: 42, OriginalTitle: new("Breaking Bad"), OMDBAwards: &awards}
 	texts := ovFakeTexts{text: series.SeriesText{Overview: &overview, Language: "en-US"}}
 	kw := ovFakeKeywords{
 		ids: []int64{1, 2},

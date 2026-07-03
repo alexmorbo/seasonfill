@@ -76,12 +76,18 @@ type CastDeps struct {
 	SeriesCache       SeriesCachePort
 	SeriesCacheLookup SeriesCacheLookupPort
 	Series            SeriesPort
-	SeriesPeople      SeriesPeoplePort
-	People            PeoplePort
-	PersonCredits     PersonCreditsPort
-	EpisodesCount     EpisodesCountPort
-	Logger            *slog.Logger
-	Now               func() time.Time
+	// SeriesTexts / SeriesMediaTexts (S-E3a) — resolve the hero title +
+	// poster from the i18n side-tables (lang → en-US; title falls back to
+	// canon OriginalTitle). Canon no longer carries title/poster_asset.
+	// nil-OK: title degrades to OriginalTitle, poster to nil (monogram).
+	SeriesTexts      SeriesTextsPort
+	SeriesMediaTexts SeriesMediaTextsPort
+	SeriesPeople     SeriesPeoplePort
+	People           PeoplePort
+	PersonCredits    PersonCreditsPort
+	EpisodesCount    EpisodesCountPort
+	Logger           *slog.Logger
+	Now              func() time.Time
 	// MediaResolver (story 312) — translates raw TMDB ProfileAsset / PosterAsset
 	// paths into sha256 hashes the frontend serves via /api/v1/media/:hash. Nil
 	// is allowed at wiring; NewCastComposer defaults to a no-op resolver.
@@ -142,12 +148,32 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 		return nil, fmt.Errorf("series canon load: %w", gerr)
 	}
 
+	// S-E3a — hero title from series_texts (lang → en-US), else canon
+	// OriginalTitle; hero poster raw path from series_media_texts. Canon
+	// carries neither after S-E3a.
+	heroTitle := ""
+	if c.d.SeriesTexts != nil {
+		if t, terr := c.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang); terr == nil && t.Title != nil && *t.Title != "" {
+			heroTitle = *t.Title
+		}
+	}
+	if heroTitle == "" && canon.OriginalTitle != nil {
+		heroTitle = *canon.OriginalTitle
+	}
+	var posterRaw *string
+	if c.d.SeriesMediaTexts != nil {
+		if mt, merr := c.d.SeriesMediaTexts.GetWithFallback(ctx, seriesID, lang); merr == nil && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+			p := *mt.PosterAsset
+			posterRaw = &p
+		}
+	}
+
 	out := &CastPage{
 		Instance:       instanceName,
 		SonarrSeriesID: sonarrSeriesID,
 		SeriesID:       seriesID,
 		Lang:           lang,
-		Summary:        buildSeriesSummary(canon),
+		Summary:        buildSeriesSummary(canon, heroTitle, posterRaw),
 	}
 
 	// Story 312 + 316: hero summary poster — sync first-fold fetch with a
@@ -442,10 +468,13 @@ func derefStr(s *string) string {
 // shape. Mirrors handlers.mapStatusPill for the status token and
 // handlers.mapHero for the year extraction — kept composer-side
 // so the DTO mapping stays a pure projection.
-func buildSeriesSummary(c series.Canon) SeriesSummary {
+// S-E3a — title + posterRaw are staged upstream (series_texts /
+// series_media_texts → en-US; title falls back to canon OriginalTitle) since
+// canon no longer carries them.
+func buildSeriesSummary(c series.Canon, title string, posterRaw *string) SeriesSummary {
 	s := SeriesSummary{
-		Title:       c.Title,
-		PosterAsset: c.PosterAsset,
+		Title:       title,
+		PosterAsset: posterRaw,
 		Status:      mapStatusToken(c.Status, c.InProduction),
 	}
 	if c.Year != nil {

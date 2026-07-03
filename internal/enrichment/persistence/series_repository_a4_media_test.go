@@ -75,43 +75,12 @@ func TestSeriesRepository_MediaAssetsSurviveSonarrUpsert_BareWrite(t *testing.T)
 		assertFn func(t *testing.T, canon series.Canon)
 	}
 
+	// S-E3a — poster_asset/backdrop_asset are no longer round-tripped through
+	// series.Canon (mappers stopped copying them; series art lives in
+	// series_media_texts). Only the enrichment_media_synced_at stamp column is
+	// still written+read via the canon Upsert path, so it is the surviving
+	// COALESCE case here.
 	cases := []mediaCase{
-		{
-			name: "poster_asset",
-			stampFn: func(t *testing.T, repo *SeriesRepository, ctx context.Context, id domain.SeriesID) {
-				p := "/canonical/poster.jpg"
-				_, err := repo.Upsert(ctx, series.Canon{
-					ID:          id,
-					TMDBID:      ptrTMDBID(999),
-					Hydration:   series.HydrationFull,
-					Title:       "A4 Media Fixture",
-					PosterAsset: &p,
-				})
-				require.NoError(t, err)
-			},
-			assertFn: func(t *testing.T, canon series.Canon) {
-				require.NotNil(t, canon.PosterAsset, "poster_asset must survive Sonarr-driven Upsert via COALESCE")
-				assert.Equal(t, "/canonical/poster.jpg", *canon.PosterAsset)
-			},
-		},
-		{
-			name: "backdrop_asset",
-			stampFn: func(t *testing.T, repo *SeriesRepository, ctx context.Context, id domain.SeriesID) {
-				b := "/canonical/backdrop.jpg"
-				_, err := repo.Upsert(ctx, series.Canon{
-					ID:            id,
-					TMDBID:        ptrTMDBID(999),
-					Hydration:     series.HydrationFull,
-					Title:         "A4 Media Fixture",
-					BackdropAsset: &b,
-				})
-				require.NoError(t, err)
-			},
-			assertFn: func(t *testing.T, canon series.Canon) {
-				require.NotNil(t, canon.BackdropAsset, "backdrop_asset must survive Sonarr-driven Upsert via COALESCE")
-				assert.Equal(t, "/canonical/backdrop.jpg", *canon.BackdropAsset)
-			},
-		},
 		{
 			name: "enrichment_media_synced_at",
 			stampFn: func(t *testing.T, repo *SeriesRepository, ctx context.Context, id domain.SeriesID) {
@@ -182,52 +151,10 @@ func TestSeriesRepository_MediaAssetsSurviveSonarrUpsert_ColumnInclude(t *testin
 		assertFn      func(t *testing.T, canon series.Canon)
 	}
 
+	// S-E3a — poster_asset/backdrop_asset are no longer round-tripped through
+	// series.Canon; only the enrichment_media_synced_at stamp still travels the
+	// canon Upsert path, so it is the surviving force-include regression case.
 	cases := []mediaCase{
-		{
-			name:   "poster_asset",
-			column: "poster_asset",
-			writeFn: func(t *testing.T, repo *SeriesRepository, ctx context.Context, id domain.SeriesID) {
-				p := "/canonical/poster.jpg"
-				_, err := repo.Upsert(ctx, series.Canon{
-					ID:          id,
-					TMDBID:      ptrTMDBID(999),
-					Hydration:   series.HydrationFull,
-					Title:       "A4 Media Fixture",
-					PosterAsset: &p,
-				})
-				require.NoError(t, err)
-			},
-			payloadMutate: func(m *database.SeriesModel, _ domain.SeriesID) {
-				// PosterAsset nil in payload — force-include column will
-				// write NULL over the prior value.
-			},
-			assertFn: func(t *testing.T, canon series.Canon) {
-				require.NotNil(t, canon.PosterAsset, "production Upsert COALESCE must preserve poster_asset")
-				assert.Equal(t, "/canonical/poster.jpg", *canon.PosterAsset)
-			},
-		},
-		{
-			name:   "backdrop_asset",
-			column: "backdrop_asset",
-			writeFn: func(t *testing.T, repo *SeriesRepository, ctx context.Context, id domain.SeriesID) {
-				b := "/canonical/backdrop.jpg"
-				_, err := repo.Upsert(ctx, series.Canon{
-					ID:            id,
-					TMDBID:        ptrTMDBID(999),
-					Hydration:     series.HydrationFull,
-					Title:         "A4 Media Fixture",
-					BackdropAsset: &b,
-				})
-				require.NoError(t, err)
-			},
-			payloadMutate: func(m *database.SeriesModel, _ domain.SeriesID) {
-				// BackdropAsset nil.
-			},
-			assertFn: func(t *testing.T, canon series.Canon) {
-				require.NotNil(t, canon.BackdropAsset, "production Upsert COALESCE must preserve backdrop_asset")
-				assert.Equal(t, "/canonical/backdrop.jpg", *canon.BackdropAsset)
-			},
-		},
 		{
 			name:   "enrichment_media_synced_at",
 			column: "enrichment_media_synced_at",
@@ -291,12 +218,7 @@ func TestSeriesRepository_MediaAssetsSurviveSonarrUpsert_ColumnInclude(t *testin
 				// assertion below runs AFTER production Upsert restore,
 				// so the regression check is done inline.
 				var pre any
-				switch tc.column {
-				case "poster_asset":
-					pre = canon.PosterAsset
-				case "backdrop_asset":
-					pre = canon.BackdropAsset
-				case "enrichment_media_synced_at":
+				if tc.column == "enrichment_media_synced_at" {
 					pre = canon.EnrichmentMediaSyncedAt
 				}
 				assert.Nil(t, pre, "regression simulation must nuke %s — proves AssignmentColumns([all]) bypasses COALESCE", tc.column)

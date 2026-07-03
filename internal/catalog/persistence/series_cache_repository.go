@@ -116,16 +116,19 @@ const seriesCacheSelectCore = `
 		s.tmdb_id                       AS s_tmdb_id,
 		s.status                        AS s_status,
 		s.runtime_minutes               AS s_runtime_minutes,
-		s.last_air_date                 AS s_last_air_date,
-		s.poster_asset                  AS s_poster_asset
+		s.last_air_date                 AS s_last_air_date
 	`
 
 // seriesCacheSelect is the point-read projection (Get / ListBySeriesID /
-// ListBySeriesIDs / ListActiveByInstance). These paths do not localize —
-// they keep the raw canon title. The catalog list path (ListByFilter)
-// uses seriesCacheSelectCore + a resolved-title expression instead.
-const seriesCacheSelect = seriesCacheSelectCore + `,
-		s.title                         AS s_title`
+// ListBySeriesIDs / ListActiveByInstance). S-E3a — canon series.title /
+// series.poster_asset were dropped from the domain (columns now dead), so
+// the point read resolves the display title from series_texts and the poster
+// raw path from series_media_texts, both at the en-US base tier (point reads
+// carry no request language; S-E1 guarantees an en-US series_texts row). The
+// catalog list path (ListByFilter) uses the requested-lang resolvers instead.
+var seriesCacheSelect = seriesCacheSelectCore + ", " +
+	resolvedTitleExpr("en-US") + " AS s_title, " +
+	resolvedPosterExpr("en-US") + " AS s_poster_asset"
 
 // seriesCacheJoin is the canon JOIN. INNER — every cache row has a
 // canon row post-cutover; INNER catches stale data fast. No LEFT JOIN
@@ -231,7 +234,6 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 		TMDBID:         e.TMDBID,
 		TVDBID:         e.TVDBID,
 		IMDBID:         e.IMDBID,
-		Title:          e.Title,
 		Year:           e.Year,
 		Status:         e.Status,
 		RuntimeMinutes: e.RuntimeMinutes,
@@ -239,15 +241,9 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 		Hydration:      series.HydrationStub,
 		InProduction:   false,
 	}
-	if canon.Title == "" {
-		// SeriesRepository.Upsert requires a non-empty title; orphan
-		// rows that never had a title get a placeholder so the cache
-		// row still resolves.
-		canon.Title = e.TitleSlug
-		if canon.Title == "" {
-			canon.Title = fmt.Sprintf("sonarr:%s:%d", e.InstanceName, e.SonarrSeriesID)
-		}
-	}
+	// S-E3a — canon.title no longer exists on the domain aggregate. The
+	// Sonarr title flows to series_texts{en-US} via InsertBaseLangIfAbsent
+	// on the sync path; the (dead) series.title column is left empty.
 	existing, err := r.series.FindByExternalIDs(ctx, e.TMDBID, e.TVDBID, e.IMDBID)
 	if err == nil {
 		canon.ID = existing.ID
@@ -497,6 +493,7 @@ func (r *SeriesCacheRepository) ListByFilter(
 	// subquery (see resolvedTitleExpr).
 	lang := normalizeSupportedLang(filter.Lang)
 	titleExpr := resolvedTitleExpr(lang)
+	posterExpr := resolvedPosterExpr(lang)
 
 	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	base := db.Table("series_cache").
@@ -513,7 +510,7 @@ func (r *SeriesCacheRepository) ListByFilter(
 	}
 
 	q := base.Session(&gorm.Session{}).
-		Select(seriesCacheSelectCore + ", " + titleExpr + " AS s_title")
+		Select(seriesCacheSelectCore + ", " + titleExpr + " AS s_title, " + posterExpr + " AS s_poster_asset")
 	q = applyCursor(q, sort, page.Cursor, titleExpr)
 	q = applyOrder(q, sort, titleExpr)
 
@@ -662,6 +659,20 @@ func resolvedTitleExpr(lang string) string {
 	return "(SELECT st.title FROM series_texts st WHERE st.series_id = s.id " +
 		"ORDER BY CASE WHEN st.language = '" + lang + "' THEN 2 " +
 		"WHEN st.language = 'en-US' THEN 1 ELSE 0 END DESC, st.language ASC LIMIT 1)"
+}
+
+// resolvedPosterExpr mirrors resolvedTitleExpr for the per-language poster raw
+// path, sourced from series_media_texts (§5.6 fallback: requested lang → en-US
+// → first row by language ASC). S-E3a — this replaces the canon
+// series.poster_asset read on the catalog list + point reads (canon art was
+// removed from the domain; the column is dead pending the S-E3b drop). `lang`
+// MUST be a normalizeSupportedLang whitelist value — inlined as a literal for
+// the same reasons as resolvedTitleExpr (no injection surface, GORM drops
+// clause.Expr Vars inside .Order()).
+func resolvedPosterExpr(lang string) string {
+	return "(SELECT smt.poster_asset FROM series_media_texts smt WHERE smt.series_id = s.id " +
+		"ORDER BY CASE WHEN smt.language = '" + lang + "' THEN 2 " +
+		"WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC, smt.language ASC LIMIT 1)"
 }
 
 // applyCursor adds the keyset predicate for the chosen sort key.

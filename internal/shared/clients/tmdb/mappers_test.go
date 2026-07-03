@@ -64,8 +64,10 @@ func loadFind(t *testing.T, name string) *FindResponse {
 
 func TestMapTVToCanon_BreakingBad(t *testing.T) {
 	c := MapTVToCanon(loadTV(t, "tv_1396.json"))
-	if c.Title != "Breaking Bad" {
-		t.Errorf("title = %q", c.Title)
+	// S-E3a — canon no longer carries a localizable Title; the display
+	// title lives in series_texts. Canon keeps original_title (a fact).
+	if c.OriginalTitle == nil || *c.OriginalTitle != "Breaking Bad" {
+		t.Errorf("original_title = %v", c.OriginalTitle)
 	}
 	if c.TMDBID == nil || *c.TMDBID != 1396 {
 		t.Errorf("tmdb_id = %v", c.TMDBID)

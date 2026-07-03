@@ -156,7 +156,7 @@ func toSeriesCastResponseFromFallback(r *seriesdetail.CastFallbackResult) dto.Se
 		SonarrSeriesID: 0,
 		SeriesID:       r.SeriesID,
 		Lang:           r.Lang,
-		SeriesSummary:  buildFallbackSeriesSummary(r.Canon),
+		SeriesSummary:  buildFallbackSeriesSummary(r.Canon, r.Title, r.PosterAsset),
 		Cast:           make([]dto.CastPageMember, 0, len(r.Cast)),
 		Crew:           []dto.CrewPageMember{},
 		Degraded:       append([]string{}, r.Degraded...),
@@ -181,10 +181,13 @@ func toSeriesCastResponseFromFallback(r *seriesdetail.CastFallbackResult) dto.Se
 // across the layer — instead inline the projection here. Status uses the
 // same token mapping as the composer (continuing/ended/canceled/
 // in_production/upcoming/unknown).
-func buildFallbackSeriesSummary(c series.Canon) dto.SeriesSummary {
+// S-E3a — title + posterURL are staged upstream (series_texts /
+// series_media_texts → en-US, Title falls back to OriginalTitle) since canon
+// no longer carries them; passed in rather than read off the canon row.
+func buildFallbackSeriesSummary(c series.Canon, title string, posterURL *string) dto.SeriesSummary {
 	s := dto.SeriesSummary{
-		Title:     c.Title,
-		PosterURL: c.PosterAsset,
+		Title:     title,
+		PosterURL: posterURL,
 		Status:    mapStatusTokenForFallback(c.Status, c.InProduction),
 	}
 	if c.Year != nil {

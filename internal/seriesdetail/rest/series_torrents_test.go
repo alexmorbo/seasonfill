@@ -106,7 +106,7 @@ func buildTorrentsHandler(t *testing.T, store *torrentsync.Store, lookup stubTor
 		WithClock(func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) })
 	return NewSeriesTorrentsHandler(q,
 		stubTorrentsCachePort{entry: series.CacheEntry{InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrLocal(42)}},
-		stubTorrentsSeriesPort{canon: series.Canon{ID: 42, Title: "Test"}},
+		stubTorrentsSeriesPort{canon: series.Canon{ID: 42, OriginalTitle: new("Test")}},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
 }

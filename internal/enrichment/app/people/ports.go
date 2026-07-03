@@ -54,6 +54,26 @@ type SeriesCacheLookup interface {
 	ListBySeriesID(ctx context.Context, seriesID domain.SeriesID) ([]series.CacheEntry, error)
 }
 
+// SeriesTextsBatch resolves localized series titles (requested-lang →
+// en-US) for a set of canon series ids in one round-trip. S-E3a — the
+// person page's library credits read their display title from series_texts
+// (canon no longer carries a title); the production impl is
+// *enrichpersistence.SeriesTextsRepository (ListByIDsWithFallback). nil-OK:
+// when unwired the use case falls back to canon OriginalTitle.
+type SeriesTextsBatch interface {
+	ListByIDsWithFallback(ctx context.Context, seriesIDs []domain.SeriesID, lang string) (map[domain.SeriesID]series.SeriesText, error)
+}
+
+// SeriesMediaTextsBatch resolves per-language poster raw paths
+// (requested-lang → en-US) for a set of canon series ids. S-E3a — library
+// credit posters come from series_media_texts (canon no longer carries
+// poster_asset). Production impl:
+// *enrichpersistence.SeriesMediaTextsRepository. nil-OK: unwired → nil
+// poster (monogram).
+type SeriesMediaTextsBatch interface {
+	ListByIDsWithFallback(ctx context.Context, seriesIDs []domain.SeriesID, lang string) (map[domain.SeriesID]series.SeriesMediaText, error)
+}
+
 // PersonEnqueuer is the write seam for stub-on-demand. The H-2
 // path enqueues a PriorityHot job for stub persons and returns
 // immediately — no wait. The dispatcher's Enqueue is

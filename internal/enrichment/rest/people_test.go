@@ -83,6 +83,24 @@ func (f peopleHandlerFakeSeriesCache) ListBySeriesID(_ context.Context, seriesID
 	return f.rows[seriesID], nil
 }
 
+// peopleHandlerFakeSeriesMediaTexts implements apppeople.SeriesMediaTextsBatch.
+// S-E3a — library-credit posters now come from series_media_texts (canon no
+// longer carries poster_asset); the use case stages the raw path onto
+// LibraryCredit.PosterAsset, then MediaResolver resolves it to a hash.
+type peopleHandlerFakeSeriesMediaTexts struct {
+	rows map[domain.SeriesID]series.SeriesMediaText
+}
+
+func (f peopleHandlerFakeSeriesMediaTexts) ListByIDsWithFallback(_ context.Context, ids []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesMediaText, error) {
+	out := make(map[domain.SeriesID]series.SeriesMediaText, len(ids))
+	for _, id := range ids {
+		if r, ok := f.rows[id]; ok {
+			out[id] = r
+		}
+	}
+	return out, nil
+}
+
 type peopleHandlerFakeEnqueuer struct {
 	calls int
 }
@@ -110,10 +128,10 @@ func happyHandlerUseCase(t *testing.T) *apppeople.UseCase {
 		Name:      "Pedro Pascal",
 	}
 	canon := series.Canon{
-		ID:     42,
-		TMDBID: new(domain.TMDBID(100)),
-		Title:  "The Last of Us",
-		Year:   new(2023),
+		ID:            42,
+		TMDBID:        new(domain.TMDBID(100)),
+		OriginalTitle: new("The Last of Us"),
+		Year:          new(2023),
 	}
 	credits := []dompeople.PersonCredit{
 		{
@@ -284,8 +302,8 @@ func TestPeopleHandler_Get_SortQueryPropagates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tmdbPersonID := domain.TMDBID(4495)
 	person := dompeople.Person{ID: 1, TMDBID: &tmdbPersonID, Hydration: dompeople.HydrationFull, Name: "p"}
-	canonA := series.Canon{ID: 42, Title: "Alpha Show", Year: new(2020)}
-	canonZ := series.Canon{ID: 43, Title: "Zulu Show", Year: new(2025)}
+	canonA := series.Canon{ID: 42, OriginalTitle: new("Alpha Show"), Year: new(2020)}
+	canonZ := series.Canon{ID: 43, OriginalTitle: new("Zulu Show"), Year: new(2025)}
 	credits := []dompeople.PersonCredit{
 		{ID: 1, MediaType: "tv", TMDBMediaID: 100, Title: "Alpha Show", Kind: dompeople.SeriesCreditCast},
 		{ID: 2, MediaType: "tv", TMDBMediaID: 200, Title: "Zulu Show", Kind: dompeople.SeriesCreditCast},
@@ -423,7 +441,9 @@ func TestPeopleUseCase_ResolvesAssets(t *testing.T) {
 	credits := []dompeople.PersonCredit{{
 		ID: 10, PersonID: 1, MediaType: "tv", TMDBMediaID: 300, Kind: dompeople.SeriesCreditCast,
 	}}
-	canon := series.Canon{ID: 42, Title: "FROM", PosterAsset: &posterPath}
+	// S-E3a — canon carries neither title nor poster_asset; the library-credit
+	// poster raw path is staged from series_media_texts and resolved to a hash.
+	canon := series.Canon{ID: 42, OriginalTitle: new("FROM")}
 
 	uc := apppeople.NewUseCase(apppeople.Deps{
 		People:        peopleHandlerFakePeople{person: person},
@@ -431,6 +451,11 @@ func TestPeopleUseCase_ResolvesAssets(t *testing.T) {
 		SeriesByTMDB:  peopleHandlerFakeSeriesByTMDB{rows: map[int]series.Canon{300: canon}},
 		SeriesCache: peopleHandlerFakeSeriesCache{
 			rows: map[domain.SeriesID][]series.CacheEntry{42: {{InstanceName: "homelab", SonarrSeriesID: 369}}},
+		},
+		SeriesMediaTexts: peopleHandlerFakeSeriesMediaTexts{
+			rows: map[domain.SeriesID]series.SeriesMediaText{
+				42: {SeriesID: 42, Language: "en-US", PosterAsset: &posterPath},
+			},
 		},
 		MediaResolver: resolver,
 		Logger:        handlerTestLogger(),
@@ -441,8 +466,8 @@ func TestPeopleUseCase_ResolvesAssets(t *testing.T) {
 	require.NotNil(t, detail.Person.ProfileAsset, "profile_asset should be a hash, not nil")
 	assert.Len(t, *detail.Person.ProfileAsset, 64, "profile_asset should be 64-char sha256 hex")
 	require.Len(t, detail.LibraryCredits, 1)
-	require.NotNil(t, detail.LibraryCredits[0].Canon.PosterAsset)
-	assert.Len(t, *detail.LibraryCredits[0].Canon.PosterAsset, 64)
+	require.NotNil(t, detail.LibraryCredits[0].PosterAsset)
+	assert.Len(t, *detail.LibraryCredits[0].PosterAsset, 64)
 
 	// Resolver was called with the right (size, kind) tags.
 	assert.Contains(t, resolver.calls, "w185|/abc.jpg")

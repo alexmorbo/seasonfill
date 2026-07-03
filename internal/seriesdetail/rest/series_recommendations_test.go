@@ -28,7 +28,7 @@ func TestSeriesRecommendationsHandler_Get_200_Empty(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	composer := newComposerForHandlerTest(
-		series.Canon{ID: 42, Title: "Source"},
+		series.Canon{ID: 42, OriginalTitle: new("Source")},
 		map[string]series.CacheEntry{
 			"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64p(42), Title: "Source"},
 		},
@@ -135,8 +135,8 @@ func TestSeriesRecommendationsHandler_Get_LangQueryPassedToComposer(t *testing.T
 			byCanon: map[domain.SeriesID][]series.CacheEntry{},
 		},
 		Series: &fakeSeriesPort{rows: map[domain.SeriesID]series.Canon{
-			42: {ID: 42, Title: "Source"},
-			10: {ID: 10, Title: "Rec A"},
+			42: {ID: 42, OriginalTitle: new("Source")},
+			10: {ID: 10, OriginalTitle: new("Rec A")},
 		}},
 		SeriesTexts:     texts,
 		Seasons:         emptyList{},

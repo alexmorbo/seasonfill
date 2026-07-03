@@ -110,6 +110,9 @@ func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 			ctx := context.Background()
 
 			require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 12)))
+			// S-E3a — the point read resolves s_title from series_texts (en-US),
+			// no longer canon series.title. Seed the base-lang row.
+			seedSeriesTextForCache(t, db, "main", 12, "en-US", "Test Series")
 			got, err := repo.Get(ctx, "main", 12)
 			require.NoError(t, err)
 			assert.Equal(t, domain.InstanceName("main"), got.InstanceName)
@@ -166,6 +169,9 @@ func TestSeriesCacheRepository_Upsert_Replaces_AndResurrects(t *testing.T) {
 			second.Monitored = false
 			second.Genres = []string{"Thriller"}
 			require.NoError(t, repo.Upsert(ctx, second))
+			// S-E3a — display title resolves from series_texts (en-US); the cache
+			// rename must be reflected via the side-table row.
+			seedSeriesTextForCache(t, db, "main", 12, "en-US", "Renamed")
 			got, err := repo.Get(ctx, "main", 12)
 			require.NoError(t, err)
 			assert.Equal(t, "Renamed", got.Title)
@@ -281,6 +287,9 @@ func TestSeriesCacheRepository_NilPointerFieldsRoundTrip(t *testing.T) {
 				InstanceName: "main", SonarrSeriesID: 7,
 				Title: "Minimal", TitleSlug: "minimal",
 			}))
+			// S-E3a — title resolves from series_texts (en-US). Poster is left
+			// unseeded so series_media_texts stays absent → nil poster (asserted).
+			seedSeriesTextForCache(t, db, "main", 7, "en-US", "Minimal")
 			got, err := repo.Get(ctx, "main", 7)
 			require.NoError(t, err)
 			assert.Equal(t, "Minimal", got.Title)
@@ -1131,12 +1140,13 @@ func TestSeriesCacheRepository_ListByFilter_AirDateDesc(t *testing.T) {
 // catch up. The hash derivation itself lives in interface/http/
 // handlers/media_hash.go and is unit-tested at the handler level.
 //
-// seedPosterAssetOnCanon stamps `s.poster_asset = path` on the canon
-// row resolved for (instance, sonarrID). It deliberately does NOT
-// write a media_assets row — the previous projection's dependency on
-// status='stored' is the bug these tests guard against, and the new
-// behavior is "path on canon → PosterAsset projected regardless of
-// media_assets state".
+// seedPosterAssetOnCanon writes an en-US `series_media_texts` row carrying the
+// raw poster path for the canon row resolved for (instance, sonarrID). S-E3a —
+// the projection now resolves s_poster_asset from series_media_texts (was canon
+// series.poster_asset). It deliberately does NOT write a media_assets row — the
+// previous projection's dependency on status='stored' is the bug these tests
+// guard against, and the behavior under test is "raw path present → PosterAsset
+// projected regardless of media_assets state". Idempotent upsert.
 func seedPosterAssetOnCanon(
 	t *testing.T,
 	db *gorm.DB,
@@ -1150,9 +1160,12 @@ func seedPosterAssetOnCanon(
 		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
 	).First(&sc).Error)
 	require.NotNil(t, sc.SeriesID, "series_cache row must resolve a canon series_id")
-	require.NoError(t, db.Model(&database.SeriesModel{}).
-		Where("id = ?", *sc.SeriesID).
-		Update("poster_asset", path).Error)
+	require.NoError(t, db.Exec(
+		`INSERT INTO series_media_texts (series_id, language, poster_asset, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT (series_id, language) DO UPDATE SET poster_asset = excluded.poster_asset`,
+		int64(*sc.SeriesID), "en-US", path, time.Now().UTC(),
+	).Error)
 }
 
 func TestSeriesCacheRepository_ProjectsRawPosterAsset(t *testing.T) {
@@ -1332,8 +1345,11 @@ func TestSeriesCacheRepository_SingleSQL_NoMediaAssetsJoin(t *testing.T) {
 				Where("series_cache.instance_name = ? AND series_cache.deleted_at IS NULL", "main").
 				Find(&[]cacheRow{}).Statement
 			sql := stmt.SQL.String()
-			assert.Equal(t, 1, strings.Count(strings.ToLower(sql), "select "),
-				"exactly one SELECT; got: %s", sql)
+			// S-E3a — s_title / s_poster_asset now resolve via correlated
+			// subqueries over series_texts / series_media_texts, so the statement
+			// legitimately carries more than one SELECT keyword. The invariant
+			// under test is the absence of a media_assets LEFT JOIN, not the SELECT
+			// count.
 			assert.NotContains(t, strings.ToLower(sql), "media_assets",
 				"projection must not LEFT JOIN media_assets anymore: %s", sql)
 			assert.Contains(t, sql, "s_poster_asset",

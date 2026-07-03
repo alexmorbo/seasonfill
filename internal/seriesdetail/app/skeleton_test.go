@@ -211,7 +211,6 @@ func skBaseCanon() series.Canon {
 	return series.Canon{
 		ID:               42,
 		Hydration:        series.HydrationFull,
-		Title:            "Star City",
 		OriginalTitle:    new("Star City"),
 		Status:           new("Returning Series"),
 		Year:             new(2026),
@@ -222,8 +221,6 @@ func skBaseCanon() series.Canon {
 		TMDBVotes:        new(1200),
 		IMDBRating:       new(7.9),
 		IMDBVotes:        new(4500),
-		PosterAsset:      nil,
-		BackdropAsset:    nil,
 		UpdatedAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
@@ -327,7 +324,6 @@ func TestSkeletonComposer_MissingSeriesTexts_BlankTitleNotCanon(t *testing.T) {
 func TestSkeletonComposer_Hero_TitleFromTextsNotCanon(t *testing.T) {
 	t.Parallel()
 	canon := skBaseCanon()
-	canon.Title = "CANON-DIFFERENT"
 	deps, _, _ := skBaseDeps(canon)
 	// GetWithFallback emulates requested→en-US: the fake returns the en-US
 	// row regardless of the requested ru-RU (production pickLanguageFallback).
@@ -346,7 +342,6 @@ func TestSkeletonComposer_Hero_TitleFromTextsNotCanon(t *testing.T) {
 func TestSkeletonComposer_Hero_EnUSFallbackUnderRu(t *testing.T) {
 	t.Parallel()
 	canon := skBaseCanon()
-	canon.Title = "CANON-DIFFERENT"
 	deps, _, _ := skBaseDeps(canon)
 	deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
 		SeriesID: 42, Language: "en-US", Title: new("English Title"),
@@ -448,10 +443,7 @@ func TestSkeletonComposer_ContentRatingGuard(t *testing.T) {
 
 func TestSkeletonComposer_PerLangPoster_PrefersMediaText(t *testing.T) {
 	t.Parallel()
-	canon := skBaseCanon()
-	canon.PosterAsset = new("/canon.jpg")
-	canon.BackdropAsset = new("/canonbg.jpg")
-	deps, _, _ := skBaseDeps(canon)
+	deps, _, _ := skBaseDeps(skBaseCanon())
 	deps.MediaResolver = skEagerResolver()
 	deps.SeriesMediaTexts = &fakeSkMediaTexts{row: series.SeriesMediaText{
 		SeriesID:      42,
@@ -462,38 +454,32 @@ func TestSkeletonComposer_PerLangPoster_PrefersMediaText(t *testing.T) {
 	sc := NewSkeletonComposer(deps)
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
 	require.NoError(t, err)
-	// The per-lang raw path reached the resolver — hash derives from /ru.jpg,
-	// diverging from the canon /canon.jpg hash.
+	// S-E3a — series_media_texts is the ONLY hero art source; the per-lang raw
+	// path reaches the resolver.
 	require.Equal(t, skEagerHash("/ru.jpg", "w342"), dto.Hero.PosterAsset.Value())
-	require.NotEqual(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
 	require.Equal(t, skEagerHash("/rubg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
-	require.NotEqual(t, skEagerHash("/canonbg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
 }
 
-func TestSkeletonComposer_PerLangPoster_NotFoundFallsBackToCanon(t *testing.T) {
+// S-E3a — series_media_texts miss (ErrNotFound) → nil hero art. The canon
+// poster fallback was removed; the FE renders a monogram/placeholder.
+func TestSkeletonComposer_PerLangPoster_NotFound_NilArt(t *testing.T) {
 	t.Parallel()
-	canon := skBaseCanon()
-	canon.PosterAsset = new("/canon.jpg")
-	canon.BackdropAsset = new("/canonbg.jpg")
-	deps, _, _ := skBaseDeps(canon)
+	deps, _, _ := skBaseDeps(skBaseCanon())
 	deps.MediaResolver = skEagerResolver()
 	deps.SeriesMediaTexts = &fakeSkMediaTexts{err: dataports.ErrNotFound}
 	sc := NewSkeletonComposer(deps)
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
 	require.NoError(t, err)
-	require.Equal(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
-	require.Equal(t, skEagerHash("/canonbg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
+	require.True(t, dto.Hero.PosterAsset.IsZero(), "no media text row -> nil poster (no canon fallback)")
+	require.True(t, dto.Hero.BackdropAsset.IsZero())
 }
 
-func TestSkeletonComposer_PerLangPoster_NilAssetFallsBackToCanon(t *testing.T) {
+// S-E3a — a per-lang row with a nil PosterAsset yields a nil poster (no canon
+// fallback), while a present BackdropAsset still resolves.
+func TestSkeletonComposer_PerLangPoster_NilPosterField_NilPoster(t *testing.T) {
 	t.Parallel()
-	canon := skBaseCanon()
-	canon.PosterAsset = new("/canon.jpg")
-	canon.BackdropAsset = new("/canonbg.jpg")
-	deps, _, _ := skBaseDeps(canon)
+	deps, _, _ := skBaseDeps(skBaseCanon())
 	deps.MediaResolver = skEagerResolver()
-	// Row present but PosterAsset nil (never-enriched per-lang poster) →
-	// canon poster; BackdropAsset present so it wins for the backdrop.
 	deps.SeriesMediaTexts = &fakeSkMediaTexts{row: series.SeriesMediaText{
 		SeriesID:      42,
 		Language:      "ru-RU",
@@ -503,40 +489,35 @@ func TestSkeletonComposer_PerLangPoster_NilAssetFallsBackToCanon(t *testing.T) {
 	sc := NewSkeletonComposer(deps)
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
 	require.NoError(t, err)
-	require.Equal(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
+	require.True(t, dto.Hero.PosterAsset.IsZero(), "nil per-lang poster -> nil (no canon fallback)")
 	require.Equal(t, skEagerHash("/rubg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
 }
 
-func TestSkeletonComposer_PerLangPoster_NilDepUsesCanon(t *testing.T) {
+// S-E3a — SeriesMediaTexts unwired → nil hero art (no canon fallback), no panic.
+func TestSkeletonComposer_PerLangPoster_NilDep_NilArt(t *testing.T) {
 	t.Parallel()
-	canon := skBaseCanon()
-	canon.PosterAsset = new("/canon.jpg")
-	canon.BackdropAsset = new("/canonbg.jpg")
-	deps, _, _ := skBaseDeps(canon)
+	deps, _, _ := skBaseDeps(skBaseCanon())
 	deps.MediaResolver = skEagerResolver()
 	deps.SeriesMediaTexts = nil // unwired — back-compat, no panic
 	sc := NewSkeletonComposer(deps)
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
 	require.NoError(t, err)
-	require.Equal(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
-	require.Equal(t, skEagerHash("/canonbg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
+	require.True(t, dto.Hero.PosterAsset.IsZero())
+	require.True(t, dto.Hero.BackdropAsset.IsZero())
 }
 
-func TestSkeletonComposer_PerLangPoster_RepoErrorFallsBackToCanon(t *testing.T) {
+// S-E3a NULL/error pair — a non-ErrNotFound repo error must not propagate and
+// yields nil hero art (canon fallback removed).
+func TestSkeletonComposer_PerLangPoster_RepoError_NilArt(t *testing.T) {
 	t.Parallel()
-	canon := skBaseCanon()
-	canon.PosterAsset = new("/canon.jpg")
-	canon.BackdropAsset = new("/canonbg.jpg")
-	deps, _, _ := skBaseDeps(canon)
+	deps, _, _ := skBaseDeps(skBaseCanon())
 	deps.MediaResolver = skEagerResolver()
-	// NULL/error pair: a non-ErrNotFound repo error must not propagate and
-	// must leave the canon path intact.
 	deps.SeriesMediaTexts = &fakeSkMediaTexts{err: errors.New("db down")}
 	sc := NewSkeletonComposer(deps)
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
 	require.NoError(t, err)
-	require.Equal(t, skEagerHash("/canon.jpg", "w342"), dto.Hero.PosterAsset.Value())
-	require.Equal(t, skEagerHash("/canonbg.jpg", "w1280"), dto.Hero.BackdropAsset.Value())
+	require.True(t, dto.Hero.PosterAsset.IsZero())
+	require.True(t, dto.Hero.BackdropAsset.IsZero())
 }
 
 func TestSkeletonComposer_TrailerKey(t *testing.T) {

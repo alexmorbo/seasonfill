@@ -39,19 +39,23 @@ func composePrewarmAssets(canon series.Canon, m mappedPayload, tv *tmdb.TVRespon
 	}
 
 	// Series poster: both grid + hero variants. S-A: prefer the
-	// language-agnostic canonical art from tv.Images; canon.PosterAsset /
-	// canon.BackdropAsset (root-derived during merge) is the fallback.
+	// language-agnostic canonical art from tv.Images; the root
+	// tv.PosterPath / tv.BackdropPath is the fallback. S-E3a — canon no
+	// longer carries poster_asset / backdrop_asset, so the TMDB response
+	// is the only prewarm source.
 	var tvImgs *tmdb.TVImages
 	if tv != nil {
 		tvImgs = tv.Images
 	}
 	posterAsset := pickCanonicalPoster(tvImgs)
-	if posterAsset == nil {
-		posterAsset = canon.PosterAsset
+	if posterAsset == nil && tv != nil && tv.PosterPath != "" {
+		pp := tv.PosterPath
+		posterAsset = &pp
 	}
 	backdropAsset := pickCanonicalBackdrop(tvImgs)
-	if backdropAsset == nil {
-		backdropAsset = canon.BackdropAsset
+	if backdropAsset == nil && tv != nil && tv.BackdropPath != "" {
+		bp := tv.BackdropPath
+		backdropAsset = &bp
 	}
 	push(sizePosterGrid, posterAsset, "poster_w342")
 	push(sizePosterHero, posterAsset, "poster_w780")
@@ -71,9 +75,16 @@ func composePrewarmAssets(canon series.Canon, m mappedPayload, tv *tmdb.TVRespon
 		push(sizeProfileCast, p.ProfileAsset, "profile_w185")
 	}
 
-	// Season posters — every season we mapped.
-	for _, s := range m.Seasons {
-		push(sizeSeasonPoster, s.PosterAsset, "season_poster_w154")
+	// Season posters — S-E3a: canon season no longer carries poster_asset,
+	// so read the raw path from the TMDB season summaries directly.
+	if tv != nil {
+		for i := range tv.Seasons {
+			if tv.Seasons[i].PosterPath == "" {
+				continue
+			}
+			pp := tv.Seasons[i].PosterPath
+			push(sizeSeasonPoster, &pp, "season_poster_w154")
+		}
 	}
 
 	// Episode stills — w300 matches what EpisodeRow.tsx renders. Cold-start

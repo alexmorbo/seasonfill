@@ -50,7 +50,6 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 	c := series.Canon{
 		TMDBID:           new(domain.TMDBID(tv.ID)),
 		Hydration:        series.HydrationFull,
-		Title:            tv.Name,
 		OriginalTitle:    nonEmptyPtr(tv.OriginalName),
 		Status:           nonEmptyPtr(tv.Status),
 		FirstAirDate:     parseDate(tv.FirstAirDate),
@@ -59,10 +58,11 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 		OriginalLanguage: nonEmptyPtr(tv.OriginalLanguage),
 		Popularity:       nonZeroFloatPtr(tv.Popularity),
 		InProduction:     tv.InProduction,
-		PosterAsset:      nonEmptyPtr(tv.PosterPath),
-		BackdropAsset:    nonEmptyPtr(tv.BackdropPath),
-		TMDBRating:       nonZeroFloatPtr(tv.VoteAverage),
-		TMDBVotes:        nonZeroIntPtr(tv.VoteCount),
+		// S-E3a — Title / PosterAsset / BackdropAsset dropped from canon;
+		// TMDB name + art flow to series_texts / series_media_texts via the
+		// dedicated text/media refresh workers.
+		TMDBRating: nonZeroFloatPtr(tv.VoteAverage),
+		TMDBVotes:  nonZeroIntPtr(tv.VoteCount),
 	}
 	if len(tv.EpisodeRunTime) > 0 && tv.EpisodeRunTime[0] > 0 {
 		c.RuntimeMinutes = new(tv.EpisodeRunTime[0])
@@ -101,14 +101,13 @@ func MapTVToSeasons(tv *TVResponse) []series.CanonSeason {
 	}
 	out := make([]series.CanonSeason, 0, len(tv.Seasons))
 	for _, s := range tv.Seasons {
+		// S-E3a — Name / Overview / PosterAsset dropped from canon season;
+		// season text + art flow to season_texts / season_media_texts.
 		out = append(out, series.CanonSeason{
 			SeasonNumber: s.SeasonNumber,
 			TMDBSeasonID: new(int(s.ID)),
-			Name:         nonEmptyPtr(s.Name),
-			Overview:     nonEmptyPtr(s.Overview),
 			AirDate:      parseDate(s.AirDate),
 			EpisodeCount: nonZeroIntPtr(s.EpisodeCount),
-			PosterAsset:  nonEmptyPtr(s.PosterPath),
 		})
 	}
 	return out
@@ -324,11 +323,12 @@ func MapTVToRecommendations(tv *TVResponse) []series.Canon {
 	}
 	out := make([]series.Canon, 0, len(tv.Recommendations.Results))
 	for _, r := range tv.Recommendations.Results {
+		// S-E3a — Title / PosterAsset dropped from canon; the rec-refresh
+		// worker writes the stub's title + poster into series_texts /
+		// series_media_texts.
 		c := series.Canon{
 			TMDBID:       new(domain.TMDBID(r.ID)),
 			Hydration:    series.HydrationStub,
-			Title:        r.Name,
-			PosterAsset:  nonEmptyPtr(r.PosterPath),
 			TMDBRating:   nonZeroFloatPtr(r.VoteAverage),
 			TMDBVotes:    nonZeroIntPtr(r.VoteCount),
 			FirstAirDate: parseDate(r.FirstAirDate),

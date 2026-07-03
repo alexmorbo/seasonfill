@@ -106,19 +106,41 @@ func (f *fakeEnqueuer) Enqueue(kind appenrich.EntityKind, id int64, p appenrich.
 	f.calls = append(f.calls, enqueuedCall{Kind: kind, ID: id, P: p})
 }
 
+// fakePeopleSeriesTexts implements SeriesTextsBatch. S-E3a — library-credit
+// display titles are staged from series_texts (requested-lang → en-US); this
+// fake resolves by canon series.id and ignores lang (the repo applies the
+// two-tier fallback in prod, so the map already holds the resolved row).
+type fakePeopleSeriesTexts struct {
+	rows map[domain.SeriesID]series.SeriesText
+}
+
+func (f fakePeopleSeriesTexts) ListByIDsWithFallback(_ context.Context, ids []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesText, error) {
+	out := make(map[domain.SeriesID]series.SeriesText, len(ids))
+	for _, id := range ids {
+		if t, ok := f.rows[id]; ok {
+			out[id] = t
+		}
+	}
+	return out, nil
+}
+
 // --- helpers ---
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// mkCanon seeds a canon row. S-E3a — canon no longer carries a Title; the
+// display title lives in series_texts (staged onto LibraryCredit.Title, with
+// fallback to canon OriginalTitle). Tests that don't wire a SeriesTexts fake
+// rely on that OriginalTitle fallback, so the title arg is stored there.
 func mkCanon(id domain.SeriesID, tmdbID int, title string, year int, lastAir time.Time) series.Canon {
 	return series.Canon{
-		ID:          id,
-		TMDBID:      new(domain.TMDBID(tmdbID)),
-		Title:       title,
-		Year:        new(year),
-		LastAirDate: new(lastAir),
+		ID:            id,
+		TMDBID:        new(domain.TMDBID(tmdbID)),
+		OriginalTitle: new(title),
+		Year:          new(year),
+		LastAirDate:   new(lastAir),
 	}
 }
 
@@ -228,8 +250,8 @@ func TestUseCase_HappyPath_SortRecent(t *testing.T) {
 	assert.Equal(t, "en-US", out.BioLanguage)
 	assert.Equal(t, "Chilean-American actor...", out.Biography)
 	// recent: LoU 2026 first, then GoT 2019
-	assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Canon.Title)
-	assert.Equal(t, "Game of Thrones", out.LibraryCredits[1].Canon.Title)
+	assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Title)
+	assert.Equal(t, "Game of Thrones", out.LibraryCredits[1].Title)
 }
 
 func TestUseCase_SortEpisodes(t *testing.T) {
@@ -240,8 +262,8 @@ func TestUseCase_SortEpisodes(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.LibraryCredits, 2)
 	// LoU 9ep, GoT 3ep — DESC by episodes
-	assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Canon.Title)
-	assert.Equal(t, "Game of Thrones", out.LibraryCredits[1].Canon.Title)
+	assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Title)
+	assert.Equal(t, "Game of Thrones", out.LibraryCredits[1].Title)
 }
 
 func TestUseCase_SortTitle(t *testing.T) {
@@ -252,8 +274,30 @@ func TestUseCase_SortTitle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.LibraryCredits, 2)
 	// title ASC, case-insensitive: Game of Thrones, then The Last of Us
-	assert.Equal(t, "Game of Thrones", out.LibraryCredits[0].Canon.Title)
-	assert.Equal(t, "The Last of Us", out.LibraryCredits[1].Canon.Title)
+	assert.Equal(t, "Game of Thrones", out.LibraryCredits[0].Title)
+	assert.Equal(t, "The Last of Us", out.LibraryCredits[1].Title)
+}
+
+// TestUseCase_SortTitle_OrdersByStagedSeriesTextsTitle — D-0 (S-E3a): SortTitle
+// must order library credits by the series_texts display title (requested-lang
+// → en-US fallback) staged onto LibraryCredit.Title, NOT canon OriginalTitle.
+// series_texts here deliberately flips the OriginalTitle order (LoU→"Aaa",
+// GoT→"Zzz") and is seeded en-US only while the request is ru-RU, proving both
+// the staged-title sort key and the en-US fallback.
+func TestUseCase_SortTitle_OrdersByStagedSeriesTextsTitle(t *testing.T) {
+	t.Parallel()
+	deps := happyFixture(t)
+	deps.SeriesTexts = fakePeopleSeriesTexts{rows: map[domain.SeriesID]series.SeriesText{
+		42: {SeriesID: 42, Language: "en-US", Title: new("Aaa Show")}, // LoU canon id
+		43: {SeriesID: 43, Language: "en-US", Title: new("Zzz Show")}, // GoT canon id
+	}}
+	uc := NewUseCase(deps)
+	out, err := uc.Get(context.Background(), 4495, "ru-RU", "title")
+	require.NoError(t, err)
+	require.Len(t, out.LibraryCredits, 2)
+	assert.Equal(t, "Aaa Show", out.LibraryCredits[0].Title,
+		"sorted by series_texts title (en-US fallback), overriding canon OriginalTitle order")
+	assert.Equal(t, "Zzz Show", out.LibraryCredits[1].Title)
 }
 
 func TestUseCase_SortUnknownDefaultsToRecent(t *testing.T) {
@@ -267,7 +311,7 @@ func TestUseCase_SortUnknownDefaultsToRecent(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, out.LibraryCredits, 2)
 			// same as recent: LoU 2026 first
-			assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Canon.Title)
+			assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Title)
 		})
 	}
 }
@@ -442,7 +486,7 @@ func TestUseCase_InstanceDedup(t *testing.T) {
 	require.Len(t, out.LibraryCredits, 2)
 	var louEntry *LibraryCredit
 	for i := range out.LibraryCredits {
-		if out.LibraryCredits[i].Canon.Title == "The Last of Us" {
+		if out.LibraryCredits[i].Title == "The Last of Us" {
 			louEntry = &out.LibraryCredits[i]
 			break
 		}
@@ -488,7 +532,7 @@ func TestUseCase_InstanceCarriesSonarrSeriesID(t *testing.T) {
 		for _, inst := range lc.Instances {
 			m[string(inst.InstanceName)] = inst.SonarrSeriesID
 		}
-		got[lc.Canon.Title] = m
+		got[lc.Title] = m
 	}
 	assert.Equal(t, domain.SonarrSeriesID(1234), got["The Last of Us"]["alpha"])
 	assert.Equal(t, domain.SonarrSeriesID(9876), got["The Last of Us"]["4k"])
@@ -509,8 +553,8 @@ func TestUseCase_SortRecent_NilsLast(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.LibraryCredits, 2)
 	// LoU (non-nil) first, GoT (nil) last
-	assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Canon.Title)
-	assert.Equal(t, "Game of Thrones", out.LibraryCredits[1].Canon.Title)
+	assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Title)
+	assert.Equal(t, "Game of Thrones", out.LibraryCredits[1].Title)
 }
 
 func TestUseCase_SortEpisodes_NilsLast(t *testing.T) {
@@ -528,8 +572,8 @@ func TestUseCase_SortEpisodes_NilsLast(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.LibraryCredits, 2)
 	// LoU (9 ep) first, GoT (nil) last
-	assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Canon.Title)
-	assert.Equal(t, "Game of Thrones", out.LibraryCredits[1].Canon.Title)
+	assert.Equal(t, "The Last of Us", out.LibraryCredits[0].Title)
+	assert.Equal(t, "Game of Thrones", out.LibraryCredits[1].Title)
 }
 
 func TestUseCase_PersonExistsZeroCredits(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 // request. Misses (nil / empty) are skipped.
 func TestComposePrewarmAssets_EpisodeStills(t *testing.T) {
 	t.Parallel()
-	canon := series.Canon{ID: 42, Title: "Breaking Bad"}
+	canon := series.Canon{ID: 42}
 	// mappedPayload's Episodes field carries the canon episodes (see
 	// series_worker.go for the populated field name; adapt if needed).
 	m := mappedPayload{

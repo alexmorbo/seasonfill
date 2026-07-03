@@ -204,9 +204,10 @@ func TestGlobalSeriesCastHandler_Get_TMDBFallback_Returns200(t *testing.T) {
 	fallback := &stubCastFallback{out: &seriesdetail.CastFallbackResult{
 		SeriesID: 1294,
 		Lang:     "ru-RU",
+		// S-E3a — hero title is staged on CastFallbackResult, not Canon.
+		Title: "Дом Дракона",
 		Canon: series.Canon{
 			ID:        1294,
-			Title:     "Дом Дракона",
 			Hydration: series.HydrationStub,
 		},
 		Cast:     []seriesdetail.CastDetail{},
@@ -281,9 +282,10 @@ func TestGlobalSeriesCastHandler_FallbackPassesFullPageLimit(t *testing.T) {
 	spy := &spyCastFallback{out: &seriesdetail.CastFallbackResult{
 		SeriesID: 25551,
 		Lang:     "ru-RU",
+		// S-E3a — hero title is staged on CastFallbackResult, not Canon.
+		Title: "Новичок",
 		Canon: series.Canon{
 			ID:        25551,
-			Title:     "Новичок",
 			Hydration: series.HydrationFull,
 		},
 		Cast:     []seriesdetail.CastDetail{},

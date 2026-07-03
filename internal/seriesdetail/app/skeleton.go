@@ -298,13 +298,13 @@ func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, can
 		}
 	}
 
-	// Poster / backdrop first-fold sync resolve. Story 584b — prefer the
+	// Poster / backdrop first-fold sync resolve. Story 584b — read the
 	// per-language series_media_texts raw path (requested lang → en-US via
-	// the repo), falling back to canon series.poster_asset / backdrop_asset
-	// when there is no per-lang row (cold / never-enriched series). The
-	// resolve sizes + budget are unchanged.
-	posterPath := canon.PosterAsset
-	backdropPath := canon.BackdropAsset
+	// the repo). S-E3a — canon series.poster_asset / backdrop_asset removed;
+	// series_media_texts is the ONLY source (a cold/never-enriched series
+	// with no per-lang row renders a monogram). Resolve sizes + budget
+	// unchanged.
+	var posterPath, backdropPath *string
 	if sc.d.SeriesMediaTexts != nil {
 		if mt, err := sc.d.SeriesMediaTexts.GetWithFallback(ctx, seriesID, langStr); err == nil {
 			if mt.PosterAsset != nil && *mt.PosterAsset != "" {

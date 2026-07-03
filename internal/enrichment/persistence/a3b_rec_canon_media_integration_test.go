@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	enrichmentapp "github.com/alexmorbo/seasonfill/internal/enrichment/app"
@@ -60,21 +61,24 @@ func TestA3bRefreshRecommendations_OverwritesRecChildEnPoster_Integration(t *tes
 			recEnPoster := "/wW7rimhnokiQ8V6ha6VKIwHg8IV.jpg" // operator's screenshot EN case
 			recEnBackdrop := "/en_backdrop.jpg"
 			recChild := series.Canon{
-				Title:         "Imperfect Women",
+				OriginalTitle: new("Imperfect Women"),
 				TMDBID:        &recChildTMDB,
 				Hydration:     series.HydrationFull,
-				PosterAsset:   &recEnPoster,
-				BackdropAsset: &recEnBackdrop,
 			}
 			recChildID, err := seriesRepo.Upsert(ctx, recChild)
 			require.NoError(t, err)
 			require.NotEqual(t, parentID, recChildID, "rec child must be a separate row")
 
-			// Sanity — verify pre-state matches EN paths.
-			before, err := seriesRepo.Get(ctx, recChildID)
-			require.NoError(t, err)
-			require.NotNil(t, before.PosterAsset)
-			require.Equal(t, recEnPoster, *before.PosterAsset)
+			// S-E3a — canon no longer carries poster/backdrop domain fields;
+			// seed the legacy poster_asset/backdrop_asset DB columns directly to
+			// mimic the post-Sonarr-scan + first-en-US-enrichment state. The A3b
+			// UpdateRecCanonMedia narrow UPDATE still overwrites these columns.
+			seedRecCanonMedia(t, gdb, recChildID, recEnPoster, recEnBackdrop)
+
+			// Sanity — verify pre-state matches EN paths (columns read raw).
+			beforePoster, _ := readRecCanonMedia(t, gdb, recChildID)
+			require.NotNil(t, beforePoster)
+			require.Equal(t, recEnPoster, *beforePoster)
 
 			// 3. Stub TMDB — parent's ru-RU response carries the rec's
 			// RU-preferred paths.
@@ -126,18 +130,20 @@ func TestA3bRefreshRecommendations_OverwritesRecChildEnPoster_Integration(t *tes
 			err = worker.RefreshRecommendations(ctx, parentID, "ru-RU", true)
 			require.NoError(t, err)
 
-			// 6. ASSERTIONS — rec child's canon row has RU media now.
-			after, err := seriesRepo.Get(ctx, recChildID)
-			require.NoError(t, err)
-			require.NotNil(t, after.PosterAsset)
-			assert.Equal(t, ruPoster, *after.PosterAsset,
+			// 6. ASSERTIONS — rec child's poster_asset/backdrop_asset COLUMNS
+			// have RU media now (read raw — toCanon no longer surfaces them).
+			afterPoster, afterBackdrop := readRecCanonMedia(t, gdb, recChildID)
+			require.NotNil(t, afterPoster)
+			assert.Equal(t, ruPoster, *afterPoster,
 				"Story 571 B-54 root fix: rec child poster_asset MUST be overwritten with TMDB ru-RU-preferred path (pre-571 UpsertStub COALESCE bug locked in en-US)")
-			require.NotNil(t, after.BackdropAsset)
-			assert.Equal(t, ruBackdrop, *after.BackdropAsset,
+			require.NotNil(t, afterBackdrop)
+			assert.Equal(t, ruBackdrop, *afterBackdrop,
 				"rec child backdrop_asset MUST be overwritten with TMDB ru-RU-preferred path")
 
 			// Sanity — hydration NOT downgraded (narrow UPDATE doesn't
 			// touch hydration column).
+			after, err := seriesRepo.Get(ctx, recChildID)
+			require.NoError(t, err)
 			assert.Equal(t, series.HydrationFull, after.Hydration,
 				"hydration MUST remain 'full' — UpdateRecCanonMedia touches only poster/backdrop columns")
 
@@ -182,13 +188,15 @@ func TestA3bRefreshRecommendations_RecCanonWriter_NilBackwardsCompat_Integration
 			recChildTMDB := domain.TMDBID(1022)
 			recEnPoster := "/en_locked_in.jpg"
 			recChild := series.Canon{
-				Title:       "Rec Child",
-				TMDBID:      &recChildTMDB,
-				Hydration:   series.HydrationFull,
-				PosterAsset: &recEnPoster,
+				OriginalTitle: new("Rec Child"),
+				TMDBID:        &recChildTMDB,
+				Hydration:     series.HydrationFull,
 			}
 			recChildID, err := seriesRepo.Upsert(ctx, recChild)
 			require.NoError(t, err)
+			// S-E3a — seed the legacy poster_asset column directly (canon domain
+			// field removed); the A3b nil-writer path leaves it untouched.
+			seedRecCanonMedia(t, gdb, recChildID, recEnPoster, "")
 
 			fakeTMDB := newA3bFakeTMDB(&tmdbResponse{
 				Recommendations: []recPayload{
@@ -225,11 +233,11 @@ func TestA3bRefreshRecommendations_RecCanonWriter_NilBackwardsCompat_Integration
 
 			require.NoError(t, worker.RefreshRecommendations(ctx, parentID, "ru-RU", true))
 
-			// Rec child still carries EN poster (pre-571 behavior).
-			after, err := seriesRepo.Get(ctx, recChildID)
-			require.NoError(t, err)
-			require.NotNil(t, after.PosterAsset)
-			assert.Equal(t, recEnPoster, *after.PosterAsset,
+			// Rec child still carries EN poster (pre-571 behavior) — read the
+			// poster_asset column raw (toCanon no longer surfaces it).
+			afterPoster, _ := readRecCanonMedia(t, gdb, recChildID)
+			require.NotNil(t, afterPoster)
+			assert.Equal(t, recEnPoster, *afterPoster,
 				"nil RecCanonWriter = pre-571 behavior — EN poster stays locked in via UpsertStub COALESCE")
 
 			// series_texts still landed (that's the Story 566 path).
@@ -239,4 +247,39 @@ func TestA3bRefreshRecommendations_RecCanonWriter_NilBackwardsCompat_Integration
 			assert.Equal(t, "RU Name", *gotText.Title)
 		})
 	}
+}
+
+// seedRecCanonMedia writes the legacy series.poster_asset/backdrop_asset columns
+// directly. S-E3a removed these from the series.Canon domain struct (the mappers
+// stopped copying them), so Upsert(domain.Canon) no longer populates them; tests
+// that exercise the A3b UpdateRecCanonMedia narrow UPDATE seed the columns raw.
+// An empty string leaves that column NULL.
+func seedRecCanonMedia(t *testing.T, gdb *gorm.DB, id domain.SeriesID, poster, backdrop string) {
+	t.Helper()
+	updates := map[string]any{}
+	if poster != "" {
+		updates["poster_asset"] = poster
+	}
+	if backdrop != "" {
+		updates["backdrop_asset"] = backdrop
+	}
+	if len(updates) == 0 {
+		return
+	}
+	require.NoError(t, gdb.Table("series").Where("id = ?", id).Updates(updates).Error)
+}
+
+// readRecCanonMedia reads the legacy series.poster_asset/backdrop_asset columns
+// raw (toCanon no longer surfaces them after S-E3a).
+func readRecCanonMedia(t *testing.T, gdb *gorm.DB, id domain.SeriesID) (poster, backdrop *string) {
+	t.Helper()
+	var row struct {
+		PosterAsset   *string
+		BackdropAsset *string
+	}
+	require.NoError(t, gdb.Table("series").
+		Select("poster_asset", "backdrop_asset").
+		Where("id = ?", id).
+		Scan(&row).Error)
+	return row.PosterAsset, row.BackdropAsset
 }

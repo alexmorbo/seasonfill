@@ -19,9 +19,9 @@ func TestSeasonsComposer_FansOutSeasonSections_ModeSync(t *testing.T) {
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series: &seasonsFakeSeries{canon: fullCanon()},
 		Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{
-			{SeasonNumber: 1, Name: new("Season 1")},
-			{SeasonNumber: 2, Name: new("Season 2")},
-			{SeasonNumber: 3, Name: new("Season 3")},
+			{SeasonNumber: 1},
+			{SeasonNumber: 2},
+			{SeasonNumber: 3},
 		}},
 		SeasonTexts: &seasonsFakeTexts{},
 		Aggregates:  &seasonsFakeAgg{},

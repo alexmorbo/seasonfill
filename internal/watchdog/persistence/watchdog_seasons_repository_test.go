@@ -51,7 +51,7 @@ func seedOrigin(t *testing.T, _ *gorm.DB, repo *grabpersistence.OriginReleaseRep
 	}))
 }
 
-func seedSeriesCache(t *testing.T, _ *gorm.DB, repo *catalogpersistence.SeriesCacheRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, title string, monitored bool, missing int, lastAired time.Time) {
+func seedSeriesCache(t *testing.T, db *gorm.DB, repo *catalogpersistence.SeriesCacheRepository, instance domain.InstanceName, seriesID domain.SonarrSeriesID, title string, monitored bool, missing int, lastAired time.Time) {
 	t.Helper()
 	require.NoError(t, repo.Upsert(context.Background(), series.CacheEntry{
 		InstanceName:   instance,
@@ -63,6 +63,22 @@ func seedSeriesCache(t *testing.T, _ *gorm.DB, repo *catalogpersistence.SeriesCa
 		LastAiredAt:    &lastAired,
 		UpdatedAt:      time.Now().UTC(),
 	}))
+	// S-E3a — the watchdog query resolves the base display title from
+	// series_texts (en-US) and its ghost-row filter requires a non-empty en-US
+	// text row (EXISTS ... series_texts). Canon series.title is dead. Seed the
+	// base-lang text row for the resolved canon series_id so the row is not
+	// filtered out and SeriesTitle/CanonSeriesID project.
+	var sc database.SeriesCacheModel
+	require.NoError(t, db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, seriesID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "series_cache row must resolve a canon series_id")
+	require.NoError(t, db.Exec(
+		`INSERT INTO series_texts (series_id, language, title, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT (series_id, language) DO UPDATE SET title = excluded.title`,
+		int64(*sc.SeriesID), "en-US", title, time.Now().UTC(),
+	).Error)
 }
 
 func TestWatchdogSeasons_List_Empty(t *testing.T) {

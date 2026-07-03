@@ -167,11 +167,12 @@ func (w *SeriesWorker) RefreshRecommendations(
 			// Resolved-id check happens post-UpsertStub below as a second
 			// defense (a stub upsert could resolve to the parent's series.id
 			// via tmdb_id natural key match).
+			// S-E3a — Title / PosterAsset dropped from canon; the rec stub's
+			// display title + poster are written to series_texts /
+			// series_media_texts via the side effects below.
 			c := series.Canon{
 				TMDBID:       &tmdbRecID,
 				Hydration:    series.HydrationStub,
-				Title:        r.Name,
-				PosterAsset:  nonEmptyStringPtr(r.PosterPath),
 				TMDBRating:   nonZeroFloatPtr(r.VoteAverage),
 				TMDBVotes:    nonZeroIntPtrSlim(r.VoteCount),
 				FirstAirDate: parseDateOrNilSlim(r.FirstAirDate),

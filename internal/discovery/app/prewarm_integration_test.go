@@ -114,7 +114,6 @@ func integrationWorker(t *testing.T, pg *testhelpers.PostgresContainer, langs []
 		tmdbID := shareddomain.TMDBID(int64(1000 + i))
 		id, err := seriesRepo.UpsertStub(context.Background(), series.Canon{
 			TMDBID:    &tmdbID,
-			Title:     fmt.Sprintf("Seed %d", i),
 			Hydration: series.HydrationStub,
 		})
 		require.NoError(t, err)

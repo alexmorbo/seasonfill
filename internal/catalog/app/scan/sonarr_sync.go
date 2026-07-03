@@ -228,7 +228,6 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 		TMDBID:           intPtrFromTMDBID(c.TMDBID),
 		TVDBID:           intPtrFromTVDBID(c.TVDBID),
 		IMDBID:           stringPtrFromIMDBID(c.IMDBID),
-		Title:            c.Title,
 		OriginalTitle:    c.OriginalTitle,
 		Status:           c.Status,
 		FirstAirDate:     c.FirstAirDate,
@@ -242,14 +241,13 @@ func canonToEnrichmentCanon(c series.Canon) enrichment.SeriesCanon {
 		OriginCountries:  append([]string(nil), c.OriginCountries...),
 		Popularity:       c.Popularity,
 		InProduction:     c.InProduction,
-		PosterAsset:      c.PosterAsset,
-		BackdropAsset:    c.BackdropAsset,
-		TMDBRating:       c.TMDBRating,
-		TMDBVotes:        c.TMDBVotes,
-		IMDBRating:       c.IMDBRating,
-		IMDBVotes:        c.IMDBVotes,
-		OMDBRated:        c.OMDBRated,
-		OMDBAwards:       c.OMDBAwards,
+		// S-E3a — Title / PosterAsset / BackdropAsset dropped from canon.
+		TMDBRating: c.TMDBRating,
+		TMDBVotes:  c.TMDBVotes,
+		IMDBRating: c.IMDBRating,
+		IMDBVotes:  c.IMDBVotes,
+		OMDBRated:  c.OMDBRated,
+		OMDBAwards: c.OMDBAwards,
 	}
 }
 
@@ -258,7 +256,9 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 	base.TMDBID = tmdbIDPtrFromInt(ec.TMDBID)
 	base.TVDBID = tvdbIDPtrFromInt(ec.TVDBID)
 	base.IMDBID = imdbIDPtrFromString(ec.IMDBID)
-	base.Title = ec.Title
+	// S-E3a — Title / PosterAsset / BackdropAsset dropped from canon; the
+	// merge output for those fields is intentionally discarded (series
+	// text/art live in series_texts / series_media_texts).
 	base.OriginalTitle = ec.OriginalTitle
 	base.Status = ec.Status
 	base.FirstAirDate = ec.FirstAirDate
@@ -272,8 +272,6 @@ func enrichmentCanonToCanon(ec enrichment.SeriesCanon, base series.Canon) series
 	base.OriginCountries = append([]string(nil), ec.OriginCountries...)
 	base.Popularity = ec.Popularity
 	base.InProduction = ec.InProduction
-	base.PosterAsset = ec.PosterAsset
-	base.BackdropAsset = ec.BackdropAsset
 	base.TMDBRating = ec.TMDBRating
 	base.TMDBVotes = ec.TMDBVotes
 	base.IMDBRating = ec.IMDBRating

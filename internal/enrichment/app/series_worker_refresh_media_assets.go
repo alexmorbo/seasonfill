@@ -8,7 +8,6 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
-	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -188,12 +187,13 @@ func (w *SeriesWorker) RefreshMediaAssets(
 	//    removal upstream), we leave nil and let COALESCE preserve the
 	//    prior value.
 	canonPayload := series.Canon{
-		ID:            seriesID,
-		TMDBID:        canon.TMDBID,
-		Hydration:     canon.Hydration, // preserve existing (full/stub) — CASE-expr assignment keeps 'full' sticky
-		Title:         canon.Title,     // required by Upsert non-null; COALESCE on other fields preserves
-		PosterAsset:   canonPosterOrRoot(tv),
-		BackdropAsset: canonBackdropOrRoot(tv),
+		ID:        seriesID,
+		TMDBID:    canon.TMDBID,
+		Hydration: canon.Hydration, // preserve existing (full/stub) — CASE-expr assignment keeps 'full' sticky
+		// S-E3a — canon no longer carries Title / PosterAsset / BackdropAsset.
+		// Series art is written per-language into series_media_texts by the
+		// text-refresh path; this narrow writer only preserves non-localizable
+		// fields + stamps enrichment_media_synced_at below.
 		// Preservation copies — bare `excluded.X` in seriesUpsertAssignments
 		// would overwrite these to nil / zero-value with A4's narrow shape.
 		// Copied from canon.Get result to preserve prior TMDB-enriched values.
@@ -233,12 +233,13 @@ func (w *SeriesWorker) RefreshMediaAssets(
 			continue
 		}
 		p := s.PosterPath
+		// S-E3a — canon season no longer carries Name / Overview /
+		// PosterAsset. Per-season art flows into season_media_texts (S-C2);
+		// this narrow writer keeps only air_date / tmdb_season_id fresh and
+		// warms the media cache via the eager-hash side effect below.
 		cs := series.CanonSeason{
 			SeriesID:     seriesID,
 			SeasonNumber: s.SeasonNumber,
-			PosterAsset:  &p,
-			Name:         nonEmptyStringPtr(s.Name),
-			Overview:     nonEmptyStringPtr(s.Overview),
 			AirDate:      parseDateOrNilSlim(s.AirDate),
 		}
 		if s.ID != 0 {
@@ -329,29 +330,4 @@ func (w *SeriesWorker) RefreshMediaAssets(
 		slog.Int("duration_ms", durMs),
 	)
 	return nil
-}
-
-// canonPosterOrRoot returns the language-agnostic canonical poster from
-// tv.Images (nil → en) with a fall-through to the root tv.PosterPath. S-A:
-// keeps the series canon poster neutral/English rather than whatever the
-// call-language root happened to be.
-func canonPosterOrRoot(tv *tmdb.TVResponse) *string {
-	if tv == nil {
-		return nil
-	}
-	if p := pickCanonicalPoster(tv.Images); p != nil {
-		return p
-	}
-	return nonEmptyStringPtr(tv.PosterPath)
-}
-
-// canonBackdropOrRoot mirrors canonPosterOrRoot for the backdrop.
-func canonBackdropOrRoot(tv *tmdb.TVResponse) *string {
-	if tv == nil {
-		return nil
-	}
-	if b := pickCanonicalBackdrop(tv.Images); b != nil {
-		return b
-	}
-	return nonEmptyStringPtr(tv.BackdropPath)
 }

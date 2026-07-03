@@ -149,13 +149,13 @@ func mapLibraryCredit(lc apppeople.LibraryCredit) dto.LibraryCreditEntry {
 	return dto.LibraryCreditEntry{
 		SeriesID:      lc.Canon.ID,
 		TMDBID:        lc.Canon.TMDBID,
-		Title:         lc.Canon.Title,
+		Title:         lc.Title,
 		Year:          lc.Canon.Year,
 		CharacterName: lc.Credit.CharacterName,
 		EpisodeCount:  lc.Credit.EpisodeCount,
 		Kind:          string(lc.Credit.Kind),
 		RoleLabel:     deriveRoleLabel(lc.Credit),
-		PosterAsset:   lc.Canon.PosterAsset,
+		PosterAsset:   lc.PosterAsset,
 		Instances:     instances,
 	}
 }

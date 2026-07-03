@@ -101,20 +101,45 @@ func (castHandlerTestMediaLookup) HashForSourceURL(_ context.Context, url string
 	return rest[slash+1:], nil
 }
 
+// castHandlerFakeMediaTexts implements seriesdetail.SeriesMediaTextsPort. S-E3a
+// — the cast hero poster raw path comes from series_media_texts (canon no
+// longer carries poster_asset). A nil `poster` returns ErrNotFound so the hero
+// poster resolves to nil.
+type castHandlerFakeMediaTexts struct {
+	seriesID domain.SeriesID
+	poster   *string
+}
+
+func (f castHandlerFakeMediaTexts) GetWithFallback(_ context.Context, id domain.SeriesID, _ string) (series.SeriesMediaText, error) {
+	if f.poster == nil || id != f.seriesID {
+		return series.SeriesMediaText{}, ports.ErrNotFound
+	}
+	return series.SeriesMediaText{SeriesID: id, Language: "en-US", PosterAsset: f.poster}, nil
+}
+
+func (f castHandlerFakeMediaTexts) ListByIDsWithFallback(_ context.Context, _ []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesMediaText, error) {
+	return map[domain.SeriesID]series.SeriesMediaText{}, nil
+}
+
 func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]series.CacheEntry,
-	cast []people.SeriesCredit, persons map[int64]people.Person, total int,
+	cast []people.SeriesCredit, persons map[int64]people.Person, total int, posterRaw *string,
 ) *seriesdetail.CastComposer {
 	return seriesdetail.NewCastComposer(seriesdetail.CastDeps{
 		SeriesCache:       &fakeCachePort{entries: cacheEntries, byCanon: map[domain.SeriesID][]series.CacheEntry{}},
 		SeriesCacheLookup: &fakeCachePort{entries: cacheEntries, byCanon: map[domain.SeriesID][]series.CacheEntry{}},
 		Series:            &fakeSeriesPort{rows: map[domain.SeriesID]series.Canon{canon.ID: canon}},
-		SeriesPeople:      castFakeSeriesPeople{cast: cast},
-		People:            castFakePeoplePort{rows: persons},
-		PersonCredits:     castFakePersonCredits{rows: map[int64][]seriesdetail.PersonCreditRef{}},
-		EpisodesCount:     castFakeEpisodesCount{count: total},
-		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Now:               func() time.Time { return time.Now().UTC() },
-		MediaResolver:     media.NewResolver(castHandlerTestMediaLookup{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil))),
+		// S-E3a — hero title from series_texts (fallback OriginalTitle); hero
+		// poster from series_media_texts. fakeNoTexts forces the OriginalTitle
+		// fallback path.
+		SeriesTexts:      fakeNoTexts{},
+		SeriesMediaTexts: castHandlerFakeMediaTexts{seriesID: canon.ID, poster: posterRaw},
+		SeriesPeople:     castFakeSeriesPeople{cast: cast},
+		People:           castFakePeoplePort{rows: persons},
+		PersonCredits:    castFakePersonCredits{rows: map[int64][]seriesdetail.PersonCreditRef{}},
+		EpisodesCount:    castFakeEpisodesCount{count: total},
+		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:              func() time.Time { return time.Now().UTC() },
+		MediaResolver:    media.NewResolver(castHandlerTestMediaLookup{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil))),
 	})
 }
 
@@ -137,17 +162,16 @@ func TestSeriesCastHandler_Get_200(t *testing.T) {
 	lastAir := time.Date(2025, 4, 13, 0, 0, 0, 0, time.UTC)
 	composer := newCastComposerForHandlerTest(
 		series.Canon{
-			ID:          42,
-			Title:       "The Last of Us",
-			PosterAsset: &poster,
-			Status:      &status,
-			Year:        &year,
-			LastAirDate: &lastAir,
+			ID:            42,
+			OriginalTitle: new("The Last of Us"),
+			Status:        &status,
+			Year:          &year,
+			LastAirDate:   &lastAir,
 		},
 		map[string]series.CacheEntry{
 			"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64p(42)},
 		},
-		cast, persons, 10,
+		cast, persons, 10, &poster,
 	)
 	h := NewSeriesCastHandler(composer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()
@@ -189,7 +213,7 @@ func TestSeriesCastHandler_Get_400_BadID(t *testing.T) {
 	composer := newCastComposerForHandlerTest(
 		series.Canon{ID: 42},
 		map[string]series.CacheEntry{},
-		nil, nil, 0,
+		nil, nil, 0, nil,
 	)
 	h := NewSeriesCastHandler(composer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()
@@ -207,7 +231,7 @@ func TestSeriesCastHandler_Get_404_Unknown(t *testing.T) {
 	composer := newCastComposerForHandlerTest(
 		series.Canon{ID: 42},
 		map[string]series.CacheEntry{},
-		nil, nil, 0,
+		nil, nil, 0, nil,
 	)
 	h := NewSeriesCastHandler(composer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()
@@ -225,11 +249,11 @@ func TestSeriesCastHandler_Get_LangEcho(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	composer := newCastComposerForHandlerTest(
-		series.Canon{ID: 42, Title: "X"},
+		series.Canon{ID: 42, OriginalTitle: new("X")},
 		map[string]series.CacheEntry{
 			"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64p(42)},
 		},
-		nil, nil, 0,
+		nil, nil, 0, nil,
 	)
 	h := NewSeriesCastHandler(composer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := gin.New()

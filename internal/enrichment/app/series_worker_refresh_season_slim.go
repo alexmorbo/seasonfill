@@ -135,15 +135,15 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 	//    (see seasons_repository.go) — if a future narrow writer leaves
 	//    the field unset the COALESCE wrap still preserves the prior
 	//    value (Story 552 regression class).
+	// S-E3a — Name / Overview / PosterAsset dropped from canon season;
+	// per-language season name/overview go to season_texts and the poster
+	// to season_media_texts (both written below).
 	seasonPayload := series.CanonSeason{
 		SeriesID:     seriesID,
 		SeasonNumber: seasonNumber,
 		TMDBSeasonID: nonZeroIntPtrSlim(int(seasonResp.ID)),
-		Name:         nonEmptyStringPtr(seasonResp.Name),
-		Overview:     nonEmptyStringPtr(seasonResp.Overview),
 		AirDate:      parseDateOrNilSlim(seasonResp.AirDate),
 		EpisodeCount: nonZeroIntPtrSlim(len(seasonResp.Episodes)),
-		PosterAsset:  nonEmptyStringPtr(seasonResp.PosterPath),
 	}
 
 	now := w.deps.Clock()

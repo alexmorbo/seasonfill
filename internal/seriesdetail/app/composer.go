@@ -99,6 +99,13 @@ type SeasonDetail struct {
 	Canon    series.CanonSeason
 	Episodes []EpisodeDetail
 	Stats    *series.SeasonStat
+	// S-E3a — localized display fields staged from season_texts /
+	// season_media_texts (requested-lang → en-US). Canon season no longer
+	// carries name/overview/poster_asset; these are the read-model's only
+	// source. A miss leaves them nil → FE numbered-label / monogram.
+	Name        *string
+	Overview    *string
+	PosterAsset *string
 }
 
 // EpisodeDetail — canon episode + state + localised text bundle.
@@ -115,8 +122,15 @@ type CastDetail struct {
 }
 
 // RecommendationDetail — recommended canon row + in-library scope.
+//
+// S-E3a — Title + PosterAsset are staged on the read-model (localized from
+// series_texts / series_media_texts → en-US, fallback OriginalTitle for the
+// title). Series.Canon no longer carries title/poster_asset; the rest mapper
+// reads these staged fields.
 type RecommendationDetail struct {
 	Series         series.Canon
+	Title          string
+	PosterAsset    *string
 	InLibrary      bool
 	InstanceName   domain.InstanceName
 	SonarrSeriesID domain.SonarrSeriesID
@@ -291,49 +305,10 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 		}
 	}
 	d.Seasons = filtered
-	if len(filtered) > 0 && c.d.SeasonTexts != nil {
-		texts, terr := c.d.SeasonTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
-		if terr != nil {
-			c.d.Logger.WarnContext(ctx, "season_texts_fallback_failed",
-				slog.Int64("series_id", int64(seriesID)),
-				slog.String("lang", lang),
-				slog.String("error", terr.Error()))
-			texts = nil
-		}
-		// S-E2 — season name/overview come ONLY from season_texts (lang →
-		// en-US). Clear the canon-sourced values first so canon.name /
-		// canon.overview is no longer a silent tier-3 fallback (dark-launch
-		// Variant A). A miss / repo error → nil → FE numbered-label (#973).
-		d.Seasons[0].Canon.Name = nil
-		d.Seasons[0].Canon.Overview = nil
-		if txt, ok := texts[seasonNumber]; ok {
-			if txt.Name != nil && *txt.Name != "" {
-				n := *txt.Name
-				d.Seasons[0].Canon.Name = &n
-			}
-			if txt.Overview != nil && *txt.Overview != "" {
-				o := *txt.Overview
-				d.Seasons[0].Canon.Overview = &o
-			}
-		}
-	}
-	// S-C2 — localize the single season's poster via season_media_texts
-	// (lang → en-US → canon seasons.poster_asset). Sets the RAW path; resolveAssets
-	// mints the hash below. nil-OK dep; repo error → canon fallback, never fatal.
-	if len(filtered) > 0 && c.d.SeasonMediaTexts != nil {
-		media, merr := c.d.SeasonMediaTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
-		if merr != nil {
-			c.d.Logger.WarnContext(ctx, "season_media_texts_fallback_failed",
-				slog.Int64("series_id", int64(seriesID)),
-				slog.String("lang", lang),
-				slog.String("error", merr.Error()))
-			media = nil
-		}
-		if mt, ok := media[seasonNumber]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
-			p := *mt.PosterAsset
-			d.Seasons[0].Canon.PosterAsset = &p
-		}
-	}
+	// S-E2 / S-E3a — season name/overview/poster are staged from
+	// season_texts / season_media_texts by loadSeasonsAndEpisodes (below)
+	// onto SeasonDetail.{Name,Overview,PosterAsset}; the filtered slice
+	// already carries them. Canon season no longer holds those fields.
 	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)
 	d.SyncedAt = c.d.Now()
 	c.resolveAssets(ctx, d)
@@ -462,7 +437,62 @@ func (c *Composer) loadSeasonsAndEpisodes(ctx context.Context, d *Detail, lang s
 		out = append(out, sd)
 	}
 	d.Seasons = out
+	// S-E3a — stage localized season name/overview/poster onto the
+	// read-model (canon season no longer carries them).
+	c.stageSeasonTexts(ctx, d.SeriesID, lang, d.Seasons)
 	return nil
+}
+
+// stageSeasonTexts fills each SeasonDetail's localized Name/Overview (from
+// season_texts) and PosterAsset raw path (from season_media_texts), each with
+// the requested-lang → en-US fallback applied by the repo. Canon season
+// name/overview/poster_asset were removed in S-E3a — these staged fields are
+// the read-model's only source. nil-OK deps; a repo miss/error leaves the
+// field nil (FE numbered-label / monogram), never fatal.
+func (c *Composer) stageSeasonTexts(ctx context.Context, seriesID domain.SeriesID, lang string, seasons []SeasonDetail) {
+	if len(seasons) == 0 {
+		return
+	}
+	if c.d.SeasonTexts != nil {
+		texts, err := c.d.SeasonTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
+		if err != nil {
+			c.d.Logger.WarnContext(ctx, "season_texts_fallback_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.String("error", err.Error()))
+		} else {
+			for i := range seasons {
+				txt, ok := texts[seasons[i].Canon.SeasonNumber]
+				if !ok {
+					continue
+				}
+				if txt.Name != nil && *txt.Name != "" {
+					n := *txt.Name
+					seasons[i].Name = &n
+				}
+				if txt.Overview != nil && *txt.Overview != "" {
+					o := *txt.Overview
+					seasons[i].Overview = &o
+				}
+			}
+		}
+	}
+	if c.d.SeasonMediaTexts != nil {
+		mediaTexts, err := c.d.SeasonMediaTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
+		if err != nil {
+			c.d.Logger.WarnContext(ctx, "season_media_texts_fallback_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.String("error", err.Error()))
+			return
+		}
+		for i := range seasons {
+			if mt, ok := mediaTexts[seasons[i].Canon.SeasonNumber]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+				p := *mt.PosterAsset
+				seasons[i].PosterAsset = &p
+			}
+		}
+	}
 }
 
 // computeDegraded — single source of truth for the degraded[] list.
@@ -679,17 +709,16 @@ func (c *Composer) resolveAssets(ctx context.Context, d *Detail) {
 	// Story 316 — hero gets a 3s wall budget for synchronous on-demand
 	// fetch. Past the budget, ResolveSync short-circuits and falls back
 	// to the async path (still gets the priority enqueue).
-	syncCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	// First-fold (sync): hero poster + backdrop.
-	d.Canon.PosterAsset = r.ResolveSync(syncCtx, d.Canon.PosterAsset, "w342", "poster_w342")
-	d.Canon.BackdropAsset = r.ResolveSync(syncCtx, d.Canon.BackdropAsset, "w1280", "backdrop_w1280")
-	// Rest (async — priority enqueue, no wait).
+	// S-E3a — hero poster/backdrop are no longer canon fields. The
+	// above-fold hero is served by SkeletonComposer (series_media_texts);
+	// this path (GetSeason) only needs season + episode art.
 	for i := range d.Networks {
 		d.Networks[i].LogoAsset = r.Resolve(ctx, d.Networks[i].LogoAsset, "w185", "network_logo_w185")
 	}
 	for i := range d.Seasons {
-		d.Seasons[i].Canon.PosterAsset = r.Resolve(ctx, d.Seasons[i].Canon.PosterAsset, "w154", "season_poster_w154")
+		// S-E3a — season poster raw path staged onto SeasonDetail.PosterAsset
+		// from season_media_texts (canon season poster removed).
+		d.Seasons[i].PosterAsset = r.Resolve(ctx, d.Seasons[i].PosterAsset, "w154", "season_poster_w154")
 		for j := range d.Seasons[i].Episodes {
 			d.Seasons[i].Episodes[j].Canon.StillAsset = r.Resolve(ctx, d.Seasons[i].Episodes[j].Canon.StillAsset, "w300", "still_w300")
 		}
@@ -698,7 +727,7 @@ func (c *Composer) resolveAssets(ctx context.Context, d *Detail) {
 		d.Cast[i].Person.ProfileAsset = r.Resolve(ctx, d.Cast[i].Person.ProfileAsset, "w185", "profile_w185")
 	}
 	for i := range d.Recommendations {
-		d.Recommendations[i].Series.PosterAsset = r.Resolve(ctx, d.Recommendations[i].Series.PosterAsset, "w342", "poster_w342")
+		d.Recommendations[i].PosterAsset = r.Resolve(ctx, d.Recommendations[i].PosterAsset, "w342", "poster_w342")
 	}
 }
 
@@ -910,13 +939,16 @@ func (c *Composer) GetCanonicalSeasons(ctx context.Context, seriesID domain.Seri
 		}
 		out = append(out, SeasonDetail{Canon: s, Episodes: epDetails})
 	}
+	// S-E3a — stage localized season name/overview/poster onto the
+	// read-model (canon season no longer carries them).
+	c.stageSeasonTexts(ctx, seriesID, lang, out)
 	// Best-effort media resolve. Sync for season posters (above-the-fold),
 	// async for episode stills (below-the-fold). Mirrors composer.go
 	// resolveAssets shape so the wire is stable across instance + fallback.
 	if c.d.MediaResolver != nil {
 		syncCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 		for i := range out {
-			out[i].Canon.PosterAsset = c.d.MediaResolver.ResolveSync(syncCtx, out[i].Canon.PosterAsset, "w154", "season_poster_w154")
+			out[i].PosterAsset = c.d.MediaResolver.ResolveSync(syncCtx, out[i].PosterAsset, "w154", "season_poster_w154")
 			for j := range out[i].Episodes {
 				out[i].Episodes[j].Canon.StillAsset = c.d.MediaResolver.Resolve(ctx, out[i].Episodes[j].Canon.StillAsset, "w300", "still_w300")
 			}

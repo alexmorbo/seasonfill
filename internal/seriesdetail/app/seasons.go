@@ -226,7 +226,10 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 			}
 		}
 
-		posterSrc := s.PosterAsset
+		// S-E3a — season poster comes ONLY from season_media_texts
+		// (lang → en-US); canon season carries no poster_asset. A miss →
+		// nil → FE monogram.
+		var posterSrc *string
 		if mt, ok := mediaTexts[s.SeasonNumber]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
 			posterSrc = mt.PosterAsset
 		}

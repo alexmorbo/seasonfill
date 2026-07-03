@@ -221,9 +221,6 @@ func (r *SeriesRepository) FindByExternalIDs(
 // every column byte-equal except updated_at, which bumps to the new
 // `now`.
 func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (domain.SeriesID, error) {
-	if c.Title == "" {
-		return 0, fmt.Errorf("upsert series: title must be non-empty")
-	}
 	now := time.Now().UTC()
 	if c.CreatedAt.IsZero() {
 		c.CreatedAt = now
@@ -301,9 +298,6 @@ func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (domain.S
 // id-known caller should keep using Upsert (it has the authoritative
 // row in hand).
 func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (domain.SeriesID, error) {
-	if c.Title == "" {
-		return 0, fmt.Errorf("upsert stub series: title must be non-empty")
-	}
 	if c.TMDBID == nil {
 		return 0, fmt.Errorf("upsert stub series: tmdb_id required")
 	}
@@ -900,7 +894,6 @@ func toCanon(m database.SeriesModel) series.Canon {
 		TVDBID:                  m.TVDBID,
 		IMDBID:                  m.IMDBID,
 		Hydration:               series.Hydration(m.Hydration),
-		Title:                   m.Title,
 		OriginalTitle:           m.OriginalTitle,
 		Status:                  m.Status,
 		FirstAirDate:            m.FirstAirDate,
@@ -914,8 +907,6 @@ func toCanon(m database.SeriesModel) series.Canon {
 		OriginCountries:         decodeOriginCountries(m.OriginCountries),
 		Popularity:              m.Popularity,
 		InProduction:            m.InProduction,
-		PosterAsset:             m.PosterAsset,
-		BackdropAsset:           m.BackdropAsset,
 		TMDBRating:              m.TMDBRating,
 		TMDBVotes:               m.TMDBVotes,
 		IMDBRating:              m.IMDBRating,
@@ -935,12 +926,14 @@ func toCanon(m database.SeriesModel) series.Canon {
 
 func fromCanon(c series.Canon) database.SeriesModel {
 	return database.SeriesModel{
-		ID:                      c.ID,
-		TMDBID:                  c.TMDBID,
-		TVDBID:                  c.TVDBID,
-		IMDBID:                  c.IMDBID,
-		Hydration:               string(c.Hydration),
-		Title:                   c.Title,
+		ID:        c.ID,
+		TMDBID:    c.TMDBID,
+		TVDBID:    c.TVDBID,
+		IMDBID:    c.IMDBID,
+		Hydration: string(c.Hydration),
+		// Title left zero-value ("") — SeriesModel.Title is text NOT NULL,
+		// GORM writes the empty string so the constraint holds while the
+		// (now dead) canon title column awaits the S-E3b drop.
 		OriginalTitle:           c.OriginalTitle,
 		Status:                  c.Status,
 		FirstAirDate:            c.FirstAirDate,
@@ -954,8 +947,6 @@ func fromCanon(c series.Canon) database.SeriesModel {
 		OriginCountries:         encodeOriginCountries(c.OriginCountries),
 		Popularity:              c.Popularity,
 		InProduction:            c.InProduction,
-		PosterAsset:             c.PosterAsset,
-		BackdropAsset:           c.BackdropAsset,
 		TMDBRating:              c.TMDBRating,
 		TMDBVotes:               c.TMDBVotes,
 		IMDBRating:              c.IMDBRating,

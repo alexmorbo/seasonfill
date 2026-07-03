@@ -45,6 +45,7 @@ type TMDBFallbackDeps struct {
 
 	// Story 532 — canon-keyed nil-OK ports for the new section methods.
 	SeriesTexts       SeriesTextsPort
+	SeriesMediaTexts  SeriesMediaTextsPort // S-E3a — per-lang poster/hero art (nil-OK)
 	Keywords          KeywordsPort
 	Recommendations   RecommendationsPort
 	SeriesCacheLookup SeriesCacheLookupPort
@@ -314,20 +315,40 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 		}
 	}
 
+	// S-E3a — batch per-language poster paths for the resolved rec ids;
+	// canon carries no poster_asset, so series_media_texts is the only
+	// source. Failure degrades quietly to nil posters (FE monogram).
+	var localisedMedia map[domain.SeriesID]series.SeriesMediaText
+	if u.d.SeriesMediaTexts != nil && len(ids) > 0 {
+		resolvedIDs := make([]domain.SeriesID, 0, len(ids))
+		for _, recID := range ids {
+			if _, ok := byID[recID]; ok {
+				resolvedIDs = append(resolvedIDs, recID)
+			}
+		}
+		if len(resolvedIDs) > 0 {
+			var merr error
+			localisedMedia, merr = u.d.SeriesMediaTexts.ListByIDsWithFallback(ctx, resolvedIDs, resolvedLang)
+			if merr != nil {
+				u.d.Logger.WarnContext(ctx, "tmdb_fallback_recommendations_media_failed",
+					slog.Int64("series_id", int64(seriesID)),
+					slog.String("lang", resolvedLang),
+					slog.Int("rec_count", len(resolvedIDs)),
+					slog.String("err", merr.Error()))
+				localisedMedia = nil
+			}
+		}
+	}
+
 	resolved := make([]RecommendationDetail, 0, len(ids))
 	for _, recID := range ids {
 		s, ok := byID[recID]
 		if !ok {
 			continue
 		}
-		// Story 565 — override canon.Title with the localised row when
-		// present. Same guard as Composer.GetRecommendations.
-		if localised != nil {
-			if t, has := localised[recID]; has && t.Title != nil && *t.Title != "" {
-				s.Title = *t.Title
-			}
-		}
-		rd := RecommendationDetail{Series: s}
+		// S-E3a — display title staged from series_texts (lang → en-US),
+		// else canon OriginalTitle. Canon carries no display title.
+		rd := RecommendationDetail{Series: s, Title: recTitle(localised, recID, s)}
 		if u.d.SeriesCacheLookup != nil {
 			caches, _ := u.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
 			if len(caches) > 0 {
@@ -348,7 +369,14 @@ func (u *TMDBFallbackUseCase) GetRecommendations(ctx context.Context, seriesID d
 		out.HasMore = end < len(resolved)
 		if u.d.MediaResolver != nil {
 			for i := range out.Items {
-				out.Items[i].Series.PosterAsset = u.d.MediaResolver.Resolve(ctx, out.Items[i].Series.PosterAsset, "w342", "poster_w342")
+				// S-E3a — poster raw path from series_media_texts only.
+				var raw *string
+				if localisedMedia != nil {
+					if mt, ok := localisedMedia[out.Items[i].Series.ID]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+						raw = mt.PosterAsset
+					}
+				}
+				out.Items[i].PosterAsset = u.d.MediaResolver.Resolve(ctx, raw, "w342", "poster_w342")
 			}
 		}
 	}
@@ -373,11 +401,16 @@ type CastFallbackResult struct {
 	SeriesID domain.SeriesID
 	Lang     string
 	// Canon is the resolved series.Canon row — exposed so the handler can
-	// project SeriesSummary without a second port lookup. Same posture as
-	// GetCanonical's *Detail.Canon.
-	Canon    series.Canon
-	Cast     []CastDetail
-	Degraded []string
+	// project SeriesSummary (status/year range) without a second port
+	// lookup. Same posture as GetCanonical's *Detail.Canon.
+	Canon series.Canon
+	// S-E3a — hero Title + PosterAsset staged from series_texts /
+	// series_media_texts (lang → en-US; Title falls back to
+	// canon.OriginalTitle). PosterAsset is already the resolved media hash.
+	Title       string
+	PosterAsset *string
+	Cast        []CastDetail
+	Degraded    []string
 }
 
 // GetCanonicalCast — canon-only cast list for TMDB-only series. limit
@@ -407,23 +440,40 @@ func (u *TMDBFallbackUseCase) GetCanonicalCast(ctx context.Context, seriesID dom
 	if err != nil {
 		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
 	}
-	// Story 545 (Bug #3) — hero poster on the cast page must use the
-	// content-addressed media proxy hash, not the raw TMDB path. Mirrors
-	// the GetCanonical path (line 139) so the TMDB-only cast page and
-	// the TMDB-only detail page share the same hero-resolution surface.
-	// Without this the wire emits `/abc.jpg` and the FE renders
-	// `/api/v1/media/%2Fabc.jpg` → 404.
+	// S-E3a — hero title from series_texts (lang → en-US), else canon
+	// OriginalTitle. Canon carries no display title.
+	heroTitle := ""
+	if u.d.SeriesTexts != nil {
+		if t, terr := u.d.SeriesTexts.GetWithFallback(ctx, seriesID, resolvedLang); terr == nil && t.Title != nil && *t.Title != "" {
+			heroTitle = *t.Title
+		}
+	}
+	if heroTitle == "" && canon.OriginalTitle != nil {
+		heroTitle = *canon.OriginalTitle
+	}
+	// S-E3a — hero poster raw path from series_media_texts (lang → en-US);
+	// canon carries no poster_asset. Story 545 (Bug #3) — resolve to the
+	// content-addressed media hash so the wire never emits a raw TMDB path.
+	var posterRaw *string
+	if u.d.SeriesMediaTexts != nil {
+		if mt, merr := u.d.SeriesMediaTexts.GetWithFallback(ctx, seriesID, resolvedLang); merr == nil && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+			p := *mt.PosterAsset
+			posterRaw = &p
+		}
+	}
 	if u.d.MediaResolver != nil {
 		syncCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
-		canon.PosterAsset = u.d.MediaResolver.ResolveSync(syncCtx, canon.PosterAsset, "w342", "poster_w342")
+		posterRaw = u.d.MediaResolver.ResolveSync(syncCtx, posterRaw, "w342", "poster_w342")
 		cancel()
 	}
 	out := &CastFallbackResult{
-		SeriesID: seriesID,
-		Lang:     resolvedLang,
-		Canon:    canon,
-		Cast:     []CastDetail{},
-		Degraded: []string{},
+		SeriesID:    seriesID,
+		Lang:        resolvedLang,
+		Canon:       canon,
+		Title:       heroTitle,
+		PosterAsset: posterRaw,
+		Cast:        []CastDetail{},
+		Degraded:    []string{},
 	}
 	mark := func() {
 		if !containsString(out.Degraded, "tmdb_series") {

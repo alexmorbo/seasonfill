@@ -172,9 +172,9 @@ func TestRecommendationsRepository_BatchUpsert_NoDeadlockUnderConcurrency(t *tes
 							for _, id := range ids {
 								tid := domain.TMDBID(id)
 								c := series.Canon{
-									Title:     fmt.Sprintf("Test Recommendation %d", id),
-									Hydration: series.HydrationStub,
-									TMDBID:    &tid,
+									OriginalTitle: new(fmt.Sprintf("Test Recommendation %d", id)),
+									Hydration:     series.HydrationStub,
+									TMDBID:        &tid,
 								}
 								if _, err := repo.UpsertStub(context.Background(), c); err != nil {
 									return err

@@ -40,12 +40,17 @@ func (h Hydration) IsValid() bool {
 // `Popularity=ptr(0.0)` MUST be distinguishable from a worker that
 // left popularity unset.
 type Canon struct {
-	ID               domain.SeriesID
-	TMDBID           *domain.TMDBID
-	TVDBID           *domain.TVDBID
-	IMDBID           *domain.IMDBID
-	Hydration        Hydration
-	Title            string
+	ID        domain.SeriesID
+	TMDBID    *domain.TMDBID
+	TVDBID    *domain.TVDBID
+	IMDBID    *domain.IMDBID
+	Hydration Hydration
+	// Title / PosterAsset / BackdropAsset REMOVED in S-E3a. Localizable
+	// display text + art live ONLY in series_texts / series_media_texts
+	// (requested-lang → en-US fallback). Canon keeps original_title /
+	// original_language (facts, not translations). The DB columns are
+	// still present this story (dropped in S-E3b); the model→domain
+	// mappers simply stop copying them.
 	OriginalTitle    *string
 	Status           *string
 	FirstAirDate     *time.Time
@@ -60,15 +65,14 @@ type Canon struct {
 	Popularity       *float64
 	InProduction     bool
 	// Network REMOVED in E-1 (000033). Use SeriesNetworksRepository
-	// to read/write network membership.
-	PosterAsset   *string
-	BackdropAsset *string
-	TMDBRating    *float64
-	TMDBVotes     *int
-	IMDBRating    *float64
-	IMDBVotes     *int
-	OMDBRated     *string
-	OMDBAwards    *string
+	// to read/write network membership. PosterAsset / BackdropAsset
+	// REMOVED in S-E3a — series art is read from series_media_texts.
+	TMDBRating *float64
+	TMDBVotes  *int
+	IMDBRating *float64
+	IMDBVotes  *int
+	OMDBRated  *string
+	OMDBAwards *string
 	// EnrichmentTMDBSyncedAt is set by the TMDB series worker on a
 	// successful /tv/{id} fetch (PRD §D-3). NULL = never TMDB-enriched
 	// — replaces the legacy sync_log(tmdb_series, outcome='ok') TTL
@@ -100,11 +104,12 @@ type CanonSeason struct {
 	SeriesID     domain.SeriesID
 	SeasonNumber int
 	TMDBSeasonID *int
-	Name         *string
-	Overview     *string
+	// Name / Overview / PosterAsset REMOVED in S-E3a — per-season
+	// display text comes from season_texts and art from
+	// season_media_texts (requested-lang → en-US). DB columns still
+	// present (dropped in S-E3b); mappers stop copying them.
 	AirDate      *time.Time
 	EpisodeCount *int
-	PosterAsset  *string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	// EpisodesSyncedAt is the E-1-A1 per-season freshness stamp. Set by

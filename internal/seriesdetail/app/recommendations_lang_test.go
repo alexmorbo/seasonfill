@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -79,9 +80,9 @@ func TestComposerGetRecommendations_LangLocalisesPresentTitles(t *testing.T) {
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "ER"},      // has ru-RU
-		20: {ID: 20, Title: "Firefly"}, // no ru-RU row
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("ER")},      // has ru-RU
+		20: {ID: 20, OriginalTitle: new("Firefly")}, // no ru-RU row
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10, 20}}
 	texts := &recFakeTextsBatch{
@@ -101,23 +102,24 @@ func TestComposerGetRecommendations_LangLocalisesPresentTitles(t *testing.T) {
 	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(out.Items))
-	require.Equal(t, "Скорая помощь", out.Items[0].Series.Title, "localised title wins when ru-RU row present")
-	require.Equal(t, "Firefly", out.Items[1].Series.Title, "canon title held when no localised row")
+	require.Equal(t, "Скорая помощь", out.Items[0].Title, "localised title wins when ru-RU row present")
+	require.Equal(t, "Firefly", out.Items[1].Title, "canon title held when no localised row")
 }
 
 // TestComposerGetRecommendations_LangLocalisesPresentPosters pins the
 // Story 584b read path: two recs, one with a ru-RU poster row and one
-// without. The localised rec's resolved poster derives from /ru.jpg while
-// the other keeps its canon poster path.
+// without. The localised rec's resolved poster derives from /ru.jpg while the
+// other resolves to nil — S-E3a removed the canon poster fallback, so a rec
+// with no series_media_texts row renders the FE monogram.
 func TestComposerGetRecommendations_LangLocalisesPresentPosters(t *testing.T) {
 	t.Parallel()
 	cache := map[string]series.CacheEntry{
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec A", PosterAsset: new("/canon10.jpg")}, // has ru-RU poster
-		20: {ID: 20, Title: "Rec B", PosterAsset: new("/canon20.jpg")}, // no per-lang poster
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec A")}, // has ru-RU poster
+		20: {ID: 20, OriginalTitle: new("Rec B")}, // no per-lang poster
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10, 20}}
 	mediaTexts := &recFakeMediaBatch{
@@ -140,24 +142,27 @@ func TestComposerGetRecommendations_LangLocalisesPresentPosters(t *testing.T) {
 	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(out.Items))
-	require.NotNil(t, out.Items[0].Series.PosterAsset)
-	require.Equal(t, skEagerHash("/ru.jpg", "w342"), *out.Items[0].Series.PosterAsset,
+	require.NotNil(t, out.Items[0].PosterAsset)
+	require.Equal(t, skEagerHash("/ru.jpg", "w342"), *out.Items[0].PosterAsset,
 		"localised poster wins when ru-RU row present")
-	require.NotNil(t, out.Items[1].Series.PosterAsset)
-	require.Equal(t, skEagerHash("/canon20.jpg", "w342"), *out.Items[1].Series.PosterAsset,
-		"canon poster held when no per-lang row")
+	// S-E3a — no per-lang row → nil raw path; the unified-resolve resolver mints
+	// the missing-sentinel hash (FE renders the monogram). No canon fallback.
+	require.NotNil(t, out.Items[1].PosterAsset)
+	require.Equal(t, appmedia.SentinelMissingHash, *out.Items[1].PosterAsset,
+		"no per-lang row → sentinel-missing hash (canon poster fallback removed in S-E3a)")
 }
 
-// TestComposerGetRecommendations_MediaNilDepUsesCanonPosters — no media
-// port wired: every rec resolves from its canon poster (back-compat).
-func TestComposerGetRecommendations_MediaNilDepUsesCanonPosters(t *testing.T) {
+// TestComposerGetRecommendations_MediaNilDepYieldsNilPoster — no media port
+// wired: S-E3a removed the canon poster fallback, so every rec poster resolves
+// to nil (FE monogram) rather than a canon path.
+func TestComposerGetRecommendations_MediaNilDepYieldsNilPoster(t *testing.T) {
 	t.Parallel()
 	cache := map[string]series.CacheEntry{
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec A", PosterAsset: new("/canon10.jpg")},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec A")},
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10}}
 	resolver := skEagerResolver()
@@ -166,7 +171,7 @@ func TestComposerGetRecommendations_MediaNilDepUsesCanonPosters(t *testing.T) {
 		SeriesCache:     &ovFakeCache{entries: cache},
 		Series:          &ovFakeSeries{rows: canonByID},
 		Recommendations: recs,
-		// SeriesMediaTexts intentionally nil — canon poster path.
+		// SeriesMediaTexts intentionally nil — no poster source → nil.
 		MediaResolver: resolver,
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Now:           func() time.Time { return time.Now().UTC() },
@@ -175,8 +180,9 @@ func TestComposerGetRecommendations_MediaNilDepUsesCanonPosters(t *testing.T) {
 	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(out.Items))
-	require.NotNil(t, out.Items[0].Series.PosterAsset)
-	require.Equal(t, skEagerHash("/canon10.jpg", "w342"), *out.Items[0].Series.PosterAsset)
+	require.NotNil(t, out.Items[0].PosterAsset)
+	require.Equal(t, appmedia.SentinelMissingHash, *out.Items[0].PosterAsset,
+		"nil media dep → sentinel-missing hash (no canon fallback)")
 }
 
 // TestComposerGetRecommendations_MediaBatchFailureDegradesQuiet — the
@@ -188,8 +194,8 @@ func TestComposerGetRecommendations_MediaBatchFailureDegradesQuiet(t *testing.T)
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec A", PosterAsset: new("/canon10.jpg")},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec A")},
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10}}
 	mediaTexts := &recFakeMediaBatch{err: errors.New("db down")} //nolint:err113
@@ -208,9 +214,9 @@ func TestComposerGetRecommendations_MediaBatchFailureDegradesQuiet(t *testing.T)
 	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
 	require.NoError(t, err, "media batch load failure must NOT 5xx the recs endpoint")
 	require.Equal(t, 1, len(out.Items))
-	require.NotNil(t, out.Items[0].Series.PosterAsset)
-	require.Equal(t, skEagerHash("/canon10.jpg", "w342"), *out.Items[0].Series.PosterAsset,
-		"canon poster held when media batch load failed")
+	require.NotNil(t, out.Items[0].PosterAsset)
+	require.Equal(t, appmedia.SentinelMissingHash, *out.Items[0].PosterAsset,
+		"media batch load failure degrades to sentinel-missing hash (no canon fallback in S-E3a)")
 }
 
 // TestComposerGetRecommendations_LangDefaultsToEnUS pins that empty
@@ -223,8 +229,8 @@ func TestComposerGetRecommendations_LangDefaultsToEnUS(t *testing.T) {
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec A"},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec A")},
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10}}
 	// No SeriesTexts wired — verifies nil-safe branch (no crash) and
@@ -235,7 +241,7 @@ func TestComposerGetRecommendations_LangDefaultsToEnUS(t *testing.T) {
 		out, err := c.GetRecommendations(t.Context(), "alpha", 1, lang, 20, 0)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(out.Items))
-		require.Equal(t, "Rec A", out.Items[0].Series.Title, "canon title held for lang=%q", lang)
+		require.Equal(t, "Rec A", out.Items[0].Title, "canon title held for lang=%q", lang)
 	}
 }
 
@@ -248,8 +254,8 @@ func TestComposerGetRecommendations_TextsBatchFailureDegradesQuiet(t *testing.T)
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec A"},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec A")},
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10}}
 	texts := &recFakeTextsBatch{err: errors.New("db down")} //nolint:err113
@@ -266,7 +272,7 @@ func TestComposerGetRecommendations_TextsBatchFailureDegradesQuiet(t *testing.T)
 	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
 	require.NoError(t, err, "texts batch load failure must NOT 5xx the recs endpoint")
 	require.Equal(t, 1, len(out.Items))
-	require.Equal(t, "Rec A", out.Items[0].Series.Title, "canon title held when texts load failed")
+	require.Equal(t, "Rec A", out.Items[0].Title, "canon title held when texts load failed")
 }
 
 // TestComposerGetRecommendations_LangEmptyTitleFallsBackToCanon —
@@ -279,9 +285,9 @@ func TestComposerGetRecommendations_LangEmptyTitleFallsBackToCanon(t *testing.T)
 		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
 	}
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source"},
-		10: {ID: 10, Title: "Rec Canon"},
-		20: {ID: 20, Title: "Rec Canon 2"},
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec Canon")},
+		20: {ID: 20, OriginalTitle: new("Rec Canon 2")},
 	}
 	recs := recFakeRecs{ids: []domain.SeriesID{10, 20}}
 	texts := &recFakeTextsBatch{
@@ -302,6 +308,6 @@ func TestComposerGetRecommendations_LangEmptyTitleFallsBackToCanon(t *testing.T)
 	out, err := c.GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(out.Items))
-	require.Equal(t, "Rec Canon", out.Items[0].Series.Title, "nil localised title must not blank canon")
-	require.Equal(t, "Rec Canon 2", out.Items[1].Series.Title, "empty localised title must not blank canon")
+	require.Equal(t, "Rec Canon", out.Items[0].Title, "nil localised title must not blank canon")
+	require.Equal(t, "Rec Canon 2", out.Items[1].Title, "empty localised title must not blank canon")
 }

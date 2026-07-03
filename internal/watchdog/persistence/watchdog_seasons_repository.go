@@ -73,6 +73,18 @@ type WatchdogSeasonsRepository struct {
 	db *gorm.DB
 }
 
+// watchdogSeriesTextsTitleExpr resolves a series' base display title from
+// series_texts at the en-US tier. S-E3a — canon series.title was dropped from
+// the domain (column now dead), so the watchdog base title comes from
+// series_texts; the handler layer still overrides it with the request-language
+// row via CanonSeriesID. `alias` is the series-table alias in the surrounding
+// query. NULL (no en-US row) scans as "" — same "no title" signal the old
+// canon read produced for cold rows.
+func watchdogSeriesTextsTitleExpr(alias string) string {
+	return "(SELECT st.title FROM series_texts st WHERE st.series_id = " + alias + ".id " +
+		"ORDER BY CASE WHEN st.language = 'en-US' THEN 1 ELSE 0 END DESC, st.language ASC LIMIT 1)"
+}
+
 func NewWatchdogSeasonsRepository(db *gorm.DB) *WatchdogSeasonsRepository {
 	return &WatchdogSeasonsRepository{db: db}
 }
@@ -125,19 +137,22 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 			o.first_seen_at AS first_seen_at,
 			o.last_seen_at AS last_seen_at,
 			o.last_used_at AS last_used_at,
-			s.title AS title,
+			` + watchdogSeriesTextsTitleExpr("s") + ` AS title,
 			sc.monitored AS monitored,
 			sc.missing_count AS missing_count,
 			s.last_air_date AS last_aired_at`).
 		Joins("JOIN series_cache sc ON sc.instance_name = o.instance_name AND sc.sonarr_series_id = o.series_id AND sc.deleted_at IS NULL").
-		Joins("JOIN series s ON s.id = sc.series_id AND s.title <> ''").
+		// S-E3a — canon series.title is dead; the base display title resolves
+		// from series_texts (en-US). The ghost-row filter that was
+		// `AND s.title <> ''` becomes an EXISTS over a non-empty en-US text row.
+		Joins("JOIN series s ON s.id = sc.series_id AND EXISTS (SELECT 1 FROM series_texts st WHERE st.series_id = s.id AND st.title IS NOT NULL AND st.title <> '')").
 		Joins("JOIN sonarr_instance si ON si.name = o.instance_name")
 
 	if f.Instance != "" {
 		q = q.Where("o.instance_name = ?", f.Instance)
 	}
 	if f.Q != "" {
-		q = q.Where("s.title LIKE ?", "%"+f.Q+"%")
+		q = q.Where(watchdogSeriesTextsTitleExpr("s")+" LIKE ?", "%"+f.Q+"%")
 	}
 	if cur != nil {
 		q = q.Where("(o.instance_name, o.series_id, o.season_number) > (?, ?, ?)",
@@ -352,7 +367,7 @@ func (r *WatchdogSeasonsRepository) SeasonsForSeries(
 	scFound := true
 	err := db.Table("series_cache").
 		Select(`s.id AS canon_series_id,
-			s.title AS title,
+			`+watchdogSeriesTextsTitleExpr("s")+` AS title,
 			series_cache.monitored AS monitored,
 			series_cache.missing_count AS missing_count,
 			s.last_air_date AS last_aired_at`).

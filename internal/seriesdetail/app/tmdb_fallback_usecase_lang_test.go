@@ -16,8 +16,8 @@ import (
 func TestTMDBFallbackGetRecommendations_LangLocalisesTitles(t *testing.T) {
 	t.Parallel()
 	canonByID := map[domain.SeriesID]series.Canon{
-		42: {ID: 42, Title: "Source", Hydration: series.HydrationFull},
-		10: {ID: 10, Title: "ER", Hydration: series.HydrationFull},
+		42: {ID: 42, OriginalTitle: new("Source"), Hydration: series.HydrationFull},
+		10: {ID: 10, OriginalTitle: new("ER"), Hydration: series.HydrationFull},
 	}
 	seriesPort := &fakeMapSeriesReader{rows: canonByID}
 	texts := &fakeFallbackTexts{
@@ -37,5 +37,5 @@ func TestTMDBFallbackGetRecommendations_LangLocalisesTitles(t *testing.T) {
 	out, err := uc.GetRecommendations(t.Context(), 42, "ru-RU", 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(out.Items))
-	require.Equal(t, "Скорая помощь", out.Items[0].Series.Title)
+	require.Equal(t, "Скорая помощь", out.Items[0].Title)
 }

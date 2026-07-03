@@ -95,7 +95,7 @@ func TestSeasonsComposer_LocalizedName_RuPresent(t *testing.T) {
 	t.Parallel()
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series:  &seasonsFakeSeries{canon: fullCanon()},
-		Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1, Name: new("Season 1")}}},
+		Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1}}},
 		SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{
 			1: {SeasonNumber: 1, Language: "ru-RU", Name: new("Сезон 1")},
 		}},
@@ -115,7 +115,7 @@ func TestSeasonsComposer_NameFromTextsNotCanon(t *testing.T) {
 	t.Parallel()
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series:  &seasonsFakeSeries{canon: fullCanon()},
-		Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1, Name: new("CANON-SEASON")}}},
+		Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1}}},
 		SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{
 			1: {SeasonNumber: 1, Language: "en-US", Name: new("Season One")},
 		}},
@@ -134,7 +134,7 @@ func TestSeasonsComposer_LocalizedName_EnFallback(t *testing.T) {
 	// Repo already resolved en-US for the season key; composer uses the map value.
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series:  &seasonsFakeSeries{canon: fullCanon()},
-		Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 2, Name: new("Canon 2")}}},
+		Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 2}}},
 		SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{
 			2: {SeasonNumber: 2, Language: "en-US", Name: new("Season Two")},
 		}},
@@ -153,7 +153,7 @@ func TestSeasonsComposer_BothAbsent_BlankNotCanon(t *testing.T) {
 	t.Parallel()
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series:      &seasonsFakeSeries{canon: fullCanon()},
-		Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 3, Name: new("Canon 3")}}},
+		Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 3}}},
 		SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{}},
 		Aggregates:  &seasonsFakeAgg{},
 		Logger:      seasonsQuietLogger(),
@@ -169,7 +169,7 @@ func TestSeasonsComposer_BothAbsent_CanonNameNil_EmptyString(t *testing.T) {
 	t.Parallel()
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series:      &seasonsFakeSeries{canon: fullCanon()},
-		Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 4, Name: nil}}},
+		Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 4}}},
 		SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{}},
 		Aggregates:  &seasonsFakeAgg{},
 		Logger:      seasonsQuietLogger(),
@@ -258,7 +258,7 @@ func TestSeasonsComposer_SingleSeason(t *testing.T) {
 	t.Parallel()
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series:      &seasonsFakeSeries{canon: fullCanon()},
-		Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1, Name: new("Star City S1")}}},
+		Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1}}},
 		SeasonTexts: &seasonsFakeTexts{},
 		Aggregates:  &seasonsFakeAgg{},
 		Logger:      seasonsQuietLogger(),
@@ -303,7 +303,7 @@ func TestSeasonsComposer_TextsAndAggregateError_NonFatal(t *testing.T) {
 	t.Parallel()
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series:      &seasonsFakeSeries{canon: fullCanon()},
-		Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1, Name: new("Canon 1"), EpisodeCount: new(9)}}},
+		Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1, EpisodeCount: new(9)}}},
 		SeasonTexts: &seasonsFakeTexts{err: errors.New("texts db down")},
 		Aggregates:  &seasonsFakeAgg{err: errors.New("agg db down")},
 		Logger:      seasonsQuietLogger(),
