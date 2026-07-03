@@ -49,9 +49,10 @@ func sampleCanon(title string) series.Canon {
 // sites unchanged. These resolve to the moved constructors in
 // internal/enrichment/persistence.
 var (
-	NewSeriesRepository   = enrichpersistence.NewSeriesRepository
-	NewEpisodesRepository = enrichpersistence.NewEpisodesRepository
-	NewNetworksRepository = enrichpersistence.NewNetworksRepository
+	NewSeriesRepository      = enrichpersistence.NewSeriesRepository
+	NewSeriesTextsRepository = enrichpersistence.NewSeriesTextsRepository
+	NewEpisodesRepository    = enrichpersistence.NewEpisodesRepository
+	NewNetworksRepository    = enrichpersistence.NewNetworksRepository
 )
 
 // Type aliases so a catalog test can keep `*SeriesRepository` shape

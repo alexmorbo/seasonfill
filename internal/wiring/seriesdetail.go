@@ -202,7 +202,8 @@ func BuildSeriesDetail(
 	// them here is free; the enrichment block in server.go re-uses
 	// its own instances of the same set for the worker pipeline.
 	sdSeriesRepo := enrichpersistence.NewSeriesRepository(db)
-	sdSeriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, sdSeriesRepo)
+	sdSeriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, sdSeriesRepo).
+		WithSeriesTexts(enrichpersistence.NewSeriesTextsRepository(db))
 	sdSeriesTextsRepo := enrichpersistence.NewSeriesTextsRepository(db)
 	sdSeriesMediaTextsRepo := enrichpersistence.NewSeriesMediaTextsRepository(db)
 	sdSeasonsRepo := enrichpersistence.NewSeasonsRepository(db)

@@ -270,7 +270,8 @@ func BuildScan(
 
 	// seriesCacheRepo is local to this wirer — see godoc above.
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo).
+		WithSeriesTexts(enrichpersistence.NewSeriesTextsRepository(db))
 	// Story 380: season_stats writer was only wired into webhook.go and
 	// seriesdetail.go before — the scan loop's fillSeriesCache never wrote
 	// per-season counters, so DB stayed empty for any instance whose
@@ -456,7 +457,8 @@ func BuildWebhook(
 	// client → (nil, false), webhook silently falls back to the
 	// pre-E-1 thin CacheEntry path.
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo).
+		WithSeriesTexts(enrichpersistence.NewSeriesTextsRepository(db))
 	webhookEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	webhookEpisodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
 	webhookSeriesTextsRepo := enrichpersistence.NewSeriesTextsRepository(db) // S-E1 base-lang writer
@@ -746,7 +748,8 @@ func BuildTorrentsync(
 	// here is free and mirrors the pre-338 inline body which captured
 	// the seriesdetail-block instances).
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo).
+		WithSeriesTexts(enrichpersistence.NewSeriesTextsRepository(db))
 	// HTTP handler stays on bare `log` — see qbitLog godoc above.
 	seriesTorrentsHandler := seriesdetailrest.NewSeriesTorrentsHandler(
 		query, seriesCacheRepo, seriesRepo, log,

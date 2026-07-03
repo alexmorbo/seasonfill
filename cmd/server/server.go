@@ -179,7 +179,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// wrappers — each call site gets its own. seriesCacheRepo +
 	// counterRepo are still consumed by BuildHTTPServer below.
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo).
+		WithSeriesTexts(enrichpersistence.NewSeriesTextsRepository(db))
 	counterRepo := catalogpersistence.NewCounterRepository(db)
 
 	webhookBundle, err := wiring.BuildWebhook(persistence, sonarrBundle, scanBundle, cfg, log)

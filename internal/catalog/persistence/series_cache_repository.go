@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -29,12 +30,28 @@ import (
 // before writing the thin row. Soft-deleted via deleted_at to preserve
 // grab_records FK references.
 type SeriesCacheRepository struct {
-	db     *gorm.DB
-	series *enrichpersistence.SeriesRepository
+	db          *gorm.DB
+	series      *enrichpersistence.SeriesRepository
+	seriesTexts baseLangTextsWriter
+}
+
+// baseLangTextsWriter seeds series_texts{en-US} only-if-absent so a
+// Sonarr title survives on the scan path for never-enriched / tmdb-less
+// series. Satisfied by *enrichpersistence.SeriesTextsRepository.
+type baseLangTextsWriter interface {
+	InsertBaseLangIfAbsent(ctx context.Context, t series.SeriesText) error
 }
 
 func NewSeriesCacheRepository(db *gorm.DB, series *enrichpersistence.SeriesRepository) *SeriesCacheRepository {
 	return &SeriesCacheRepository{db: db, series: series}
+}
+
+// WithSeriesTexts wires the base-lang seeder so Upsert can guarantee an
+// en-US series_texts row for every cache writer. Nil-OK: Upsert skips the
+// seed when unset.
+func (r *SeriesCacheRepository) WithSeriesTexts(w baseLangTextsWriter) *SeriesCacheRepository {
+	r.seriesTexts = w
+	return r
 }
 
 // cacheRow is the internal row shape returned by every read path —
@@ -217,6 +234,28 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 	}).Create(&m)
 	if res.Error != nil {
 		return fmt.Errorf("upsert series_cache: %w", res.Error)
+	}
+
+	// S-E1 base-lang guarantee on EVERY cache writer (scan, webhook,
+	// watchdog, seriesdetail): seed series_texts{en-US} from the Sonarr
+	// title ONLY IF ABSENT so tmdb-less / never-enriched series carry a
+	// display title. Best-effort — a text-write hiccup must NOT regress
+	// the Upsert (the webhook caller aborts episode-landing on Upsert
+	// error). Re-scan re-Upserts every series, so this doubles as the
+	// idempotent catch-up pass.
+	if r.seriesTexts != nil && entry.Title != "" {
+		title := entry.Title
+		st := series.SeriesText{
+			SeriesID:  canonID,
+			Language:  locale.Default(), // "en-US"
+			Title:     &title,
+			UpdatedAt: now,
+		}
+		if terr := r.seriesTexts.InsertBaseLangIfAbsent(ctx, st); terr != nil {
+			slog.WarnContext(ctx, "series_cache_base_lang_seed_failed",
+				slog.Int64("sonarr_series_id", int64(entry.SonarrSeriesID)),
+				slog.String("error", terr.Error()))
+		}
 	}
 	return nil
 }

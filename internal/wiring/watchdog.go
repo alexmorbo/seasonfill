@@ -220,7 +220,8 @@ func BuildRegrab(
 	// 047b — blacklist handler. seriesRepo + seriesCacheRepo are local
 	// (stateless GORM wrappers, same pattern as scan.go / webhook.go).
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
-	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo)
+	seriesCacheRepo := catalogpersistence.NewSeriesCacheRepository(db, seriesRepo).
+		WithSeriesTexts(enrichpersistence.NewSeriesTextsRepository(db))
 	watchdogBlacklistHandler := watchdogrest.NewWatchdogBlacklistHandler(
 		blacklistRepo,           // BlacklistPager
 		seriesCacheRepo,         // SeriesTitleResolver
