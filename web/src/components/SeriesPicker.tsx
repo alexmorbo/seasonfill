@@ -49,15 +49,15 @@ export function SeriesPicker({
   const visible = useMemo<readonly SeriesSearchItem[]>(() => {
     const items = search.data?.items ?? [];
     return items
-      .filter((s) => s.series_id !== undefined && !value.includes(s.series_id))
+      .filter((s) => s.sonarr_series_id !== undefined && !value.includes(s.sonarr_series_id))
       .slice(0, MAX_VISIBLE);
   }, [search.data, value]);
 
   // Cache titles for chip rendering across query changes.
   useEffect(() => {
     for (const it of search.data?.items ?? []) {
-      if (it.series_id !== undefined && it.title) {
-        titleCache.current.set(it.series_id, it.title);
+      if (it.sonarr_series_id !== undefined && it.title) {
+        titleCache.current.set(it.sonarr_series_id, it.title);
       }
     }
   }, [search.data]);
@@ -77,9 +77,9 @@ export function SeriesPicker({
   const hasError = search.isError;
 
   const pick = useCallback((item: SeriesSearchItem) => {
-    if (item.series_id === undefined) return;
-    if (item.title) titleCache.current.set(item.series_id, item.title);
-    if (!value.includes(item.series_id)) onChange([...value, item.series_id]);
+    if (item.sonarr_series_id === undefined) return;
+    if (item.title) titleCache.current.set(item.sonarr_series_id, item.title);
+    if (!value.includes(item.sonarr_series_id)) onChange([...value, item.sonarr_series_id]);
     setQuery('');
     setActiveIndex(-1);
     // Keep popover open + focus in input so picks can chain.
@@ -126,8 +126,8 @@ export function SeriesPicker({
   };
 
   const activeId =
-    safeActiveIndex >= 0 && visible[safeActiveIndex]?.series_id !== undefined
-      ? `series-picker-opt-${visible[safeActiveIndex]?.series_id}`
+    safeActiveIndex >= 0 && visible[safeActiveIndex]?.sonarr_series_id !== undefined
+      ? `series-picker-opt-${visible[safeActiveIndex]?.sonarr_series_id}`
       : undefined;
 
   return (
@@ -216,7 +216,7 @@ export function SeriesPicker({
               </li>
             )}
             {!hasError && visible.map((s, idx) => {
-              const id = s.series_id;
+              const id = s.sonarr_series_id;
               if (id === undefined) return null;
               const isActive = idx === safeActiveIndex;
               return (

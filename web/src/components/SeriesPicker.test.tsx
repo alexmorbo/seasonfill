@@ -26,11 +26,15 @@ function fetchStub(
   });
 }
 
+// F-570: items carry BOTH sonarr_series_id (the scan-filter identity the BE
+// matches) and a *different* canonical series_id PK. The picker must emit the
+// sonarr_series_id, so fixtures use distinct values (e.g. 122 vs 922) to prove
+// onChange fires with the Sonarr id, not the canonical PK.
 const FIXTURE = {
   items: [
-    { series_id: 122, title: 'Severance', monitored: true, season_count: 2, missing_aired_count: 8 },
-    { series_id: 99,  title: 'Andor',     monitored: true, season_count: 2, missing_aired_count: 3 },
-    { series_id: 7,   title: 'Highlander', monitored: true, season_count: 1, missing_aired_count: 0 },
+    { sonarr_series_id: 122, series_id: 922, title: 'Severance', monitored: true, season_count: 2, missing_aired_count: 8 },
+    { sonarr_series_id: 99,  series_id: 999, title: 'Andor',     monitored: true, season_count: 2, missing_aired_count: 3 },
+    { sonarr_series_id: 7,   series_id: 907, title: 'Highlander', monitored: true, season_count: 1, missing_aired_count: 0 },
   ],
   total: 3,
 };
@@ -80,7 +84,7 @@ describe('<SeriesPicker />', () => {
     await waitFor(() => expect(screen.getByText('Severance')).toBeInTheDocument());
   });
 
-  it('clicking a suggestion calls onChange and clears query', async () => {
+  it('clicking a suggestion calls onChange with sonarr_series_id (F-570) and clears query', async () => {
     globalThis.fetch = fetchStub({
       'instance=alpha': () => json(FIXTURE),
     }) as typeof fetch;
@@ -90,9 +94,13 @@ describe('<SeriesPicker />', () => {
       <SeriesPicker instance="alpha" value={[]} onChange={onChange} />,
     );
     await user.click(screen.getByTestId('series-picker-input'));
+    // Option keyed by sonarr_series_id (122), NOT the canonical series_id (922).
     await screen.findByTestId('series-picker-opt-122');
     await user.click(screen.getByTestId('series-picker-opt-122'));
+    // F-570 regression guard: the emitted value MUST be the sonarr_series_id
+    // (122) — the id the BE scan filter matches — NOT the canonical series_id (922).
     expect(onChange).toHaveBeenCalledWith([122]);
+    expect(onChange).not.toHaveBeenCalledWith([922]);
     expect(
       (screen.getByTestId('series-picker-input') as HTMLInputElement).value,
     ).toBe('');

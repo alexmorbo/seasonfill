@@ -2,10 +2,13 @@ import { useQuery, type UseQueryResult, keepPreviousData } from '@tanstack/react
 import { ApiError, api } from './api';
 
 // FE-local shapes for the global /series search picker payload.
-// Mirrors the deleted BE per-instance dto.SeriesSearch* wire types;
-// kept here because the legacy picker still consumes this shape from
-// the global endpoint (which projects into the legacy shape on the BE).
+// The `/series` endpoint returns dto.SeriesCacheList of dto.SeriesCacheItem
+// directly (NOT a projection into a legacy shape). Each item carries both
+// `sonarr_series_id` (the Sonarr series ID — the identity the BE scan filter
+// matches ScanTriggerRequest.series_ids against) and the canonical seasonfill
+// `series_id` PK. The picker emits `sonarr_series_id` so scans filter correctly.
 export interface SeriesSearchItem {
+  readonly sonarr_series_id?: number;
   readonly series_id?: number;
   readonly title?: string;
   readonly monitored?: boolean;
