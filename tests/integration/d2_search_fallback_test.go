@@ -112,8 +112,21 @@ func TestD2_SearchFallback_LocalHit_Postgres(t *testing.T) {
 			require.NoError(t, err)
 
 			suffix := uuid.NewString()[:8]
-			_ = insertSeriesAndScanID(t, ctx, db, b.name, "Rick and Morty "+suffix)
-			_ = insertSeriesAndScanID(t, ctx, db, b.name, "Breaking Bad "+suffix)
+			// Canon series.title is dead (S-E3b): LocalSearch now matches
+			// exclusively via an EXISTS on series_texts. Seed an en-US
+			// series_texts row per fixture so the local-hit path can find
+			// them by title.
+			rickTitle := "Rick and Morty " + suffix
+			bbTitle := "Breaking Bad " + suffix
+			rickID := insertSeriesAndScanID(t, ctx, db, b.name, rickTitle)
+			bbID := insertSeriesAndScanID(t, ctx, db, b.name, bbTitle)
+			for _, s := range []struct {
+				id    int64
+				title string
+			}{{rickID, rickTitle}, {bbID, bbTitle}} {
+				_, err := db.ExecContext(ctx, insertSeriesTextSQL(b.name), s.id, "en-US", s.title, "", "")
+				require.NoError(t, err, "series_texts seed should succeed")
+			}
 
 			repo := persistence.NewSearchRepository(gdb)
 			tm := &searchTestTMDB{}
