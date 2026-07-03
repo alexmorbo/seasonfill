@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -70,6 +71,7 @@ type TMDBFallbackDeps struct {
 // GetCanonicalSeasons + GetCanonicalCast methods match this contract.
 type CanonicalSeasonsCastReader interface {
 	GetCanonicalSeasons(ctx context.Context, seriesID domain.SeriesID, lang string) ([]SeasonDetail, error)
+	GetCanonicalSeason(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, lang string) (SeasonDetail, bool, error)
 	GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, lang string, limit int) ([]CastDetail, error)
 }
 
@@ -506,6 +508,81 @@ func (u *TMDBFallbackUseCase) GetCanonicalCast(ctx context.Context, seriesID dom
 		slog.Int("cast_count", len(out.Cast)),
 		slog.Int("degraded_count", len(out.Degraded)))
 	return out, nil
+}
+
+// GetSeason — canon-only single-season detail for a TMDB-only series.
+// Mirrors GetCanonicalCast posture: freshener scoped to THIS season
+// (the user is waiting on exactly this season, ModeSync, singleflight),
+// synchronous canon load via SeriesPort (ports.ErrNotFound bubbles up so
+// the handler dispatches 404 series_not_found), then a best-effort
+// SeasonsCastSource read of the single canon season.
+//
+// The returned *Detail carries Instance="" + SonarrSeriesID=0 and no
+// per-instance episode state (all EpisodeDetail.State=nil → no on-disk
+// badges), so the handler projects the SAME dto.SeasonDetailResponse
+// shape via mapSeasons that the per-instance path produces — but with
+// degraded carrying "tmdb_series". Detail.Seasons is empty (non-nil)
+// when the series has no such season; the handler maps that to 404
+// season_not_found.
+func (u *TMDBFallbackUseCase) GetSeason(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, lang string) (*Detail, error) {
+	resolvedLang := resolveLang(lang)
+	var freshen FreshenResult
+	if u.d.Freshener != nil {
+		freshen, _ = u.d.Freshener.EnsureFreshScope(ctx, seriesID, resolvedLang,
+			[]freshener.Section{freshener.SeasonSection(seasonNumber)},
+			nil, false, ModeSync,
+		)
+	}
+	canon, err := u.d.Series.Get(ctx, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("tmdbfallback: canon load: %w", err)
+	}
+	d := &Detail{
+		Instance:       "",
+		SonarrSeriesID: 0,
+		SeriesID:       seriesID,
+		Lang:           resolvedLang,
+		Canon:          canon,
+		Seasons:        []SeasonDetail{},
+		Degraded:       []enrichment.Source{},
+		SyncedAt:       u.d.Now(),
+	}
+	mark := func() {
+		for _, s := range d.Degraded {
+			if s == enrichment.SourceTMDBSeries {
+				return
+			}
+		}
+		d.Degraded = append(d.Degraded, enrichment.SourceTMDBSeries)
+	}
+	if canon.Hydration != series.HydrationFull {
+		mark()
+	}
+	if freshen.Degraded {
+		mark()
+	}
+	if u.d.SeasonsCastSource != nil {
+		if sd, ok, serr := u.d.SeasonsCastSource.GetCanonicalSeason(ctx, seriesID, seasonNumber, resolvedLang); serr != nil {
+			u.d.Logger.WarnContext(ctx, "tmdb_fallback_season_load_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.Int("season_number", seasonNumber),
+				slog.String("err", serr.Error()))
+			mark()
+		} else if ok {
+			d.Seasons = []SeasonDetail{sd}
+		}
+	}
+	if u.d.Enricher != nil && canon.Hydration != series.HydrationFull {
+		u.d.Enricher.EnqueueIfStale(seriesID, canon.Hydration)
+	}
+	u.d.Logger.InfoContext(ctx, "tmdb_fallback_season_composed",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.Int("season_number", seasonNumber),
+		slog.String("hydration", string(canon.Hydration)),
+		slog.String("lang", resolvedLang),
+		slog.Int("season_found", len(d.Seasons)),
+		slog.Int("degraded_count", len(d.Degraded)))
+	return d, nil
 }
 
 // containsString is a []string variant of contains[T comparable]. The fallback

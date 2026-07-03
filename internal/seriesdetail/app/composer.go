@@ -962,6 +962,30 @@ func (c *Composer) GetCanonicalSeasons(ctx context.Context, seriesID domain.Seri
 	return out, nil
 }
 
+// GetCanonicalSeason returns ONE canon season (episodes + localized
+// name/overview/poster) keyed by series.id + seasonNumber, WITHOUT any
+// per-instance on-disk overlay. Used by the TMDB-fallback path when the
+// series is not carried by any Sonarr instance so the global
+// /series/:id/season/:n endpoint can serve canon episodes instead of a
+// 404. Reuses GetCanonicalSeasons' i18n + media staging, then filters to
+// the requested season.
+//
+// ok=false (nil error) when the series has no such season — the caller
+// maps that to a 404 season_not_found. A missing canon row for the
+// series surfaces as an empty result (ok=false), NOT an error.
+func (c *Composer) GetCanonicalSeason(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, lang string) (SeasonDetail, bool, error) {
+	seasons, err := c.GetCanonicalSeasons(ctx, seriesID, lang)
+	if err != nil {
+		return SeasonDetail{}, false, err
+	}
+	for _, s := range seasons {
+		if s.Canon.SeasonNumber == seasonNumber {
+			return s, true, nil
+		}
+	}
+	return SeasonDetail{}, false, nil
+}
+
 // GetCanonicalCast returns top-N cast rows for a series with no
 // in_library probe (the H-1 per-instance composer does that). Used by
 // the TMDB-fallback path (Story 533a). Limit defaults to CastDefaultLimit.

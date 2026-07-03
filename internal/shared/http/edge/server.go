@@ -72,7 +72,6 @@ func NewServer(
 	webhooksAggregateHandler *catalogrest.WebhooksAggregateHandler,
 	mediaHandler *mediaproxyrest.MediaHandler,
 	mediaPending adminrest.CatalogMediaPendingWriter,
-	seriesSeasonHandler *seriesdetailrest.SeriesSeasonHandler,
 	peopleHandler *enrichrest.PeopleHandler,
 	seriesRefreshHandler *enrichrest.SeriesRefreshHandler,
 	seriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler,
@@ -81,6 +80,7 @@ func NewServer(
 	sharedAuthRuntime *middleware.AuthRuntimePointer,
 	globalSeriesHandler *seriesdetailrest.GlobalSeriesHandler,
 	globalCastHandler *seriesdetailrest.GlobalSeriesCastHandler, // story 535
+	globalSeasonHandler *seriesdetailrest.GlobalSeriesSeasonHandler, // TMDB-only season fallback
 	globalOverviewHandler *seriesdetailrest.GlobalSeriesOverviewHandler, // story 529
 	globalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler, // story 530
 	globalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler, // story 577 E-1-B2
@@ -141,14 +141,10 @@ func NewServer(
 	// handlers; nil-OK pattern mirrors the per-instance variants so the
 	// route is omitted (not 5xx-stubbed) when the inner is absent.
 	// Story 535 — globalCastHandler now built in wiring.BuildSeriesDetail
-	// so it shares scope with tmdbFallbackUC; passed in as a param.
-	var (
-		globalSeasonHandler   *seriesdetailrest.GlobalSeriesSeasonHandler
-		globalTorrentsHandler *seriesdetailrest.GlobalSeriesTorrentsHandler
-	)
-	if seriesSeasonHandler != nil {
-		globalSeasonHandler = seriesdetailrest.NewGlobalSeriesSeasonHandler(seriesSeasonHandler, seriesCacheRepo, logger)
-	}
+	// so it shares scope with tmdbFallbackUC; passed in as a param. The
+	// global season handler moved to wiring for the same reason (TMDB-only
+	// season fallback needs tmdbFallbackUC).
+	var globalTorrentsHandler *seriesdetailrest.GlobalSeriesTorrentsHandler
 	if seriesTorrentsHandler != nil {
 		globalTorrentsHandler = seriesdetailrest.NewGlobalSeriesTorrentsHandler(seriesTorrentsHandler, seriesCacheRepo, logger)
 	}

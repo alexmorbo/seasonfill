@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
@@ -643,4 +644,106 @@ func TestTMDBFallbackUseCase_GetCanonicalCast_ResolvesPosterAsset(t *testing.T) 
 	// Regression invariant: a leading slash on the wire is the exact
 	// shape that broke the FE. Lock it down explicitly.
 	assert.NotEqual(t, byte('/'), (*out.PosterAsset)[0], "PosterAsset must not start with '/' — raw TMDB path leaked")
+}
+
+// ─── Canon-only single-season fallback (non-library series) ──────────
+
+// stubSeasonsSource satisfies seriesdetail.CanonicalSeasonsCastReader —
+// only GetCanonicalSeason is exercised by the GetSeason tests; the other
+// two methods return empty so the fake stays a full interface value.
+type stubSeasonsSource struct {
+	season series.CanonSeason
+	found  bool
+	err    error
+}
+
+func (s *stubSeasonsSource) GetCanonicalSeasons(_ context.Context, _ domain.SeriesID, _ string) ([]seriesdetail.SeasonDetail, error) {
+	return nil, nil
+}
+
+func (s *stubSeasonsSource) GetCanonicalSeason(_ context.Context, _ domain.SeriesID, _ int, _ string) (seriesdetail.SeasonDetail, bool, error) {
+	if s.err != nil {
+		return seriesdetail.SeasonDetail{}, false, s.err
+	}
+	if !s.found {
+		return seriesdetail.SeasonDetail{}, false, nil
+	}
+	return seriesdetail.SeasonDetail{Canon: s.season, Episodes: []seriesdetail.EpisodeDetail{
+		{Canon: series.CanonEpisode{SeasonNumber: s.season.SeasonNumber, EpisodeNumber: 1}},
+	}}, true, nil
+}
+
+func (s *stubSeasonsSource) GetCanonicalCast(_ context.Context, _ domain.SeriesID, _ string, _ int) ([]seriesdetail.CastDetail, error) {
+	return nil, nil
+}
+
+// GetSeason on a stub-hydration canon returns the canon season episodes
+// with instance="", sonarr_series_id=0 and degraded=["tmdb_series"].
+func TestTMDBFallbackUseCase_GetSeason_ReturnsCanonSeasonWithDegraded(t *testing.T) {
+	t.Parallel()
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:            &stubSeriesReader{canon: series.Canon{ID: 3646, Hydration: series.HydrationStub}},
+		SeasonsCastSource: &stubSeasonsSource{found: true, season: series.CanonSeason{SeriesID: 3646, SeasonNumber: 2}},
+		Logger:            discardLogger(),
+	})
+	require.NoError(t, err)
+
+	got, err := uc.GetSeason(t.Context(), 3646, 2, "ru-RU")
+	require.NoError(t, err)
+	require.Len(t, got.Seasons, 1)
+	assert.Equal(t, 2, got.Seasons[0].Canon.SeasonNumber)
+	assert.Len(t, got.Seasons[0].Episodes, 1)
+	assert.Nil(t, got.Seasons[0].Episodes[0].State, "canon-only path must not carry per-instance state")
+	assert.Equal(t, domain.InstanceName(""), got.Instance)
+	assert.Zero(t, got.SonarrSeriesID)
+	assert.Contains(t, got.Degraded, enrichment.SourceTMDBSeries)
+}
+
+// A fully-hydrated canon with a successful season load surfaces NO
+// tmdb_series marker (matches GetOverview's Story 533b posture).
+func TestTMDBFallbackUseCase_GetSeason_FullHydrationNoDegraded(t *testing.T) {
+	t.Parallel()
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:            &stubSeriesReader{canon: series.Canon{ID: 3646, Hydration: series.HydrationFull}},
+		SeasonsCastSource: &stubSeasonsSource{found: true, season: series.CanonSeason{SeriesID: 3646, SeasonNumber: 1}},
+		Logger:            discardLogger(),
+	})
+	require.NoError(t, err)
+
+	got, err := uc.GetSeason(t.Context(), 3646, 1, "en-US")
+	require.NoError(t, err)
+	require.Len(t, got.Seasons, 1)
+	assert.NotContains(t, got.Degraded, enrichment.SourceTMDBSeries)
+}
+
+// Unknown canonical id → the SeriesPort error (ports.ErrNotFound
+// wrapped) propagates so the handler can dispatch 404 series_not_found.
+func TestTMDBFallbackUseCase_GetSeason_UnknownSeriesPropagatesErr(t *testing.T) {
+	t.Parallel()
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series: &stubSeriesReader{err: errors.Join(errors.New("canon load"), ports.ErrNotFound)},
+		Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+
+	_, gerr := uc.GetSeason(t.Context(), 9999, 1, "en-US")
+	require.Error(t, gerr)
+	assert.ErrorIs(t, gerr, ports.ErrNotFound)
+}
+
+// A season the series doesn't have → empty (non-nil) Seasons, no error
+// (the handler maps that to 404 season_not_found).
+func TestTMDBFallbackUseCase_GetSeason_MissingSeasonReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	uc, err := seriesdetail.NewTMDBFallbackUseCase(seriesdetail.TMDBFallbackDeps{
+		Series:            &stubSeriesReader{canon: series.Canon{ID: 3646, Hydration: series.HydrationFull}},
+		SeasonsCastSource: &stubSeasonsSource{found: false},
+		Logger:            discardLogger(),
+	})
+	require.NoError(t, err)
+
+	got, gerr := uc.GetSeason(t.Context(), 3646, 8, "en-US")
+	require.NoError(t, gerr)
+	require.NotNil(t, got.Seasons)
+	assert.Empty(t, got.Seasons)
 }

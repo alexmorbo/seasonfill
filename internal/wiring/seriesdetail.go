@@ -107,6 +107,11 @@ type SeriesDetailBundle struct {
 	// now lives in the bundle (was: edge.NewServer inline construction) so
 	// the wiring site shares scope with tmdbFallbackUC.
 	GlobalCastHandler *seriesdetailrest.GlobalSeriesCastHandler
+	// /series/:id/season/:n TMDB-fallback. Non-library series serve
+	// canon-only season detail; the global season handler lives in the
+	// bundle (was: edge.NewServer inline) so it shares scope with
+	// tmdbFallbackUC.
+	GlobalSeasonHandler *seriesdetailrest.GlobalSeriesSeasonHandler
 	// Story 577 / E-1-B2 — per-instance Sonarr library-state endpoint.
 	GlobalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler
 	// Story 582 / E-1 B3c — canon list-of-seasons endpoint. Reuses the same
@@ -458,6 +463,13 @@ func BuildSeriesDetail(
 	// surface when the series isn't in any library.
 	globalCastHandler := seriesdetailrest.NewGlobalSeriesCastHandler(castHandler, sdSeriesCacheRepo, tmdbFallbackUC, log)
 
+	// /series/:id/season/:n TMDB-fallback. Viewing a series must work
+	// WITHOUT a Sonarr instance — Sonarr only overlays library/on-disk
+	// state. Built here (was: edge.NewServer inline) so the wiring site
+	// shares scope with tmdbFallbackUC; a TMDB-only series returns
+	// canon-only season detail (episodes + episode_texts) instead of 404.
+	globalSeasonHandler := seriesdetailrest.NewGlobalSeriesSeasonHandler(seasonHandler, sdSeriesCacheRepo, tmdbFallbackUC, log)
+
 	// Story 577 / E-1-B2 — per-instance Sonarr library-state composer +
 	// handler. Reuses the same repo handles as the fat composer; the grab
 	// history + sync trigger come in as new params. No new SQL.
@@ -512,6 +524,7 @@ func BuildSeriesDetail(
 		RecommendationsHandler:       recommendationsHandler,
 		GlobalRecommendationsHandler: globalRecommendationsHandler,
 		GlobalCastHandler:            globalCastHandler,
+		GlobalSeasonHandler:          globalSeasonHandler,
 		GlobalLibraryHandler:         globalLibraryHandler,
 		ETagFreshness:                sdETagFreshness,
 		SeasonsComposer:              seasonsComposer,

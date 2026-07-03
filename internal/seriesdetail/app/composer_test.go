@@ -928,6 +928,54 @@ func TestComposer_GetCanonicalSeasons_EpisodesError_Propagates(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestComposer_GetCanonicalSeason_ReturnsRequestedSeasonWithEpisodeTexts(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{SeasonNumber: 1},
+		{SeasonNumber: 2},
+	}}
+	deps.Episodes = &fakeEpisodes{rows: []series.CanonEpisode{
+		{ID: 11, SeasonNumber: 1, EpisodeNumber: 1},
+		{ID: 21, SeasonNumber: 2, EpisodeNumber: 1},
+		{ID: 22, SeasonNumber: 2, EpisodeNumber: 2},
+	}}
+	ruTitle := "Эпизод"
+	deps.EpisodeTexts = fakeEpisodeTexts{byEpisode: map[domain.EpisodeID]series.EpisodeText{
+		21: {EpisodeID: 21, Language: "ru-RU", Title: &ruTitle},
+	}}
+	c := NewComposer(deps)
+
+	got, ok, err := c.GetCanonicalSeason(context.Background(), 100, 2, "ru-RU")
+	require.NoError(t, err)
+	require.True(t, ok, "requested season must be found")
+	require.Equal(t, 2, got.Canon.SeasonNumber)
+	require.Len(t, got.Episodes, 2)
+	require.Nil(t, got.Episodes[0].State, "canon-only path must not load EpisodeStates")
+	require.NotNil(t, got.Episodes[0].Text, "episode_texts row must be staged")
+	require.Equal(t, "Эпизод", *got.Episodes[0].Text.Title)
+	require.Nil(t, got.Episodes[1].Text, "episode without a texts row stays blank (graceful)")
+}
+
+func TestComposer_GetCanonicalSeason_UnknownSeasonReturnsNotOK(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1}}}
+	deps.Episodes = &fakeEpisodes{rows: []series.CanonEpisode{{ID: 11, SeasonNumber: 1, EpisodeNumber: 1}}}
+	c := NewComposer(deps)
+
+	_, ok, err := c.GetCanonicalSeason(context.Background(), 100, 9, "en-US")
+	require.NoError(t, err)
+	require.False(t, ok, "a missing season is a graceful (nil-error) not-found")
+}
+
+func TestComposer_GetCanonicalSeason_SeasonsError_Propagates(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.Seasons = &fakeSeasons{err: errors.New("seasons boom")}
+	c := NewComposer(deps)
+
+	_, _, err := c.GetCanonicalSeason(context.Background(), 100, 1, "en-US")
+	require.Error(t, err)
+}
+
 func TestComposer_GetCanonicalCast_TopN(t *testing.T) {
 	// Build 15 credits + matching persons; expect CastDefaultLimit (10) returned.
 	credits := make([]people.SeriesCredit, 0, 15)
