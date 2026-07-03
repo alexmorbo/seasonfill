@@ -181,7 +181,7 @@ type EpisodeTextsPort interface {
 // SeriesPeoplePort lists series_people rows. The composer filters
 // to kind=Cast + LIMIT 10 on credit_order, then joins via PeoplePort.
 type SeriesPeoplePort interface {
-	ListBySeries(ctx context.Context, seriesID domain.SeriesID, kind people.SeriesCreditKind) ([]people.SeriesCredit, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID, kind people.SeriesCreditKind, lang string) ([]people.SeriesCredit, error)
 }
 
 // PeoplePort fetches multiple people by id; the composer batches the

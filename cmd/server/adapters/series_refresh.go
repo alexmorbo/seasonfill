@@ -7,6 +7,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 )
 
 // SeriesPeopleListPort is the narrow read surface
@@ -15,7 +16,7 @@ import (
 // satisfies it; the refresh adapter delegates to the same D-7
 // person_credits-backed path the composer reads from.
 type SeriesPeopleListPort interface {
-	ListBySeries(ctx context.Context, seriesID domain.SeriesID, kind dompeople.SeriesCreditKind) ([]dompeople.SeriesCredit, error)
+	ListBySeries(ctx context.Context, seriesID domain.SeriesID, kind dompeople.SeriesCreditKind, lang string) ([]dompeople.SeriesCredit, error)
 }
 
 // SeriesRefreshSeriesAdapter projects SeriesRepository.Get onto the
@@ -63,7 +64,9 @@ var _ seriesrefresh.TopCastReader = SeriesRefreshCastAdapter{}
 
 // TopCastPersonIDs implements seriesrefresh.TopCastReader.
 func (a SeriesRefreshCastAdapter) TopCastPersonIDs(ctx context.Context, seriesID domain.SeriesID, limit int) ([]int64, error) {
-	credits, err := a.R.ListBySeries(ctx, seriesID, dompeople.SeriesCreditCast)
+	// TopCastPersonIDs needs person IDs only — character-name localization is
+	// irrelevant here, so read the base language tier (locale.Default()).
+	credits, err := a.R.ListBySeries(ctx, seriesID, dompeople.SeriesCreditCast, locale.Default())
 	if err != nil {
 		return nil, err
 	}

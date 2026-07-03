@@ -1043,6 +1043,21 @@ type PersonCreditModel struct {
 
 func (PersonCreditModel) TableName() string { return "person_credits" }
 
+// PersonCreditTextModel — per-language cast character name (S-G,
+// migration 000029). PK (person_credit_id, language); FK →
+// person_credits(id) ON DELETE CASCADE. person_credits.character_name
+// stays as the language-neutral base/legacy tier — the reader resolves
+// requested-lang → en-US → base. Written per call-lang by RefreshCast
+// (TMDB carries no bulk credit-name translations).
+type PersonCreditTextModel struct {
+	PersonCreditID int64     `gorm:"primaryKey;column:person_credit_id"`
+	Language       string    `gorm:"primaryKey;column:language;type:text"`
+	CharacterName  *string   `gorm:"column:character_name;type:text"`
+	UpdatedAt      time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (PersonCreditTextModel) TableName() string { return "person_credits_texts" }
+
 // MediaAssetModel is the persistent row for the media_assets table
 // (migration 000024, PRD v4 §6). One row per stored object — the
 // bytes live in mediastore; this row is the lookup index for the

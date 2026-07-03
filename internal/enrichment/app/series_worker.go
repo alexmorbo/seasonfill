@@ -78,16 +78,22 @@ type SeriesWorkerDeps struct {
 	// dropped series_people table. Shares the port with PersonWorker
 	// so the same DoUpdates AssignmentColumns shape (which avoids
 	// SQLSTATE 42601 on Postgres) covers both write paths.
-	PersonCredits    PersonCreditsPort
-	Genres           GenresRepo
-	Keywords         KeywordsRepo
-	Networks         NetworksRepo
-	Companies        CompaniesRepo
-	Videos           VideosRepoPort
-	ContentRatings   ContentRatingsRepoPort
-	ExternalIDs      ExternalIDsRepoPort
-	Recommendations  RecommendationsRepoPort
-	EnrichmentErrors EnrichmentErrorRepo
+	PersonCredits PersonCreditsPort
+	// PersonCreditsTexts — S-G: optional per-language cast character-name
+	// write port consumed by RefreshCast. nil-OK — when nil, RefreshCast
+	// skips the localized write and reads fall back to
+	// person_credits.character_name. Mirrors the SeasonMediaTexts nil-OK
+	// posture. Production impl is *enrichpersistence.PersonCreditsTextsRepository.
+	PersonCreditsTexts PersonCreditsTextsPort
+	Genres             GenresRepo
+	Keywords           KeywordsRepo
+	Networks           NetworksRepo
+	Companies          CompaniesRepo
+	Videos             VideosRepoPort
+	ContentRatings     ContentRatingsRepoPort
+	ExternalIDs        ExternalIDsRepoPort
+	Recommendations    RecommendationsRepoPort
+	EnrichmentErrors   EnrichmentErrorRepo
 	// RecCanonWriter — Story 571 B-54. A3b RefreshRecommendations calls
 	// UpdateRecCanonMedia after the series_texts.Upsert side-effect to
 	// overwrite each rec child's canon poster_asset + backdrop_asset with

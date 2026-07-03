@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
@@ -32,13 +33,11 @@ import (
 //
 // HARD RULE — ONE LANG ONLY (PLAN §4.1): exactly 1 TMDB call. The
 // localisation is carried via TMDB's `?language=` parameter which
-// returns per-character translations inside the credits payload —
-// but person_credits.character_name is stored ONE row per (person,
-// media). The lang-tagged write here lives only on the TMDB request
-// side; person_credits itself is lang-agnostic (the canonical credit
-// name is whatever the requested-lang call returned, accepting TMDB
-// fallback per §4.2). A future iteration may split character_name
-// into a localised side-table; out of scope for A2.
+// returns per-character translations inside the credits payload. The
+// language-neutral base credit row lives in person_credits (last-lang-wins
+// on character_name); the per-language character name is written to the
+// person_credits_texts side-table keyed by (person_credit_id, lang) so the
+// reader can resolve requested-lang → en-US → base (S-G).
 //
 // force semantics — same as RefreshSeriesText (F-R2-5).
 //
@@ -129,8 +128,35 @@ func (w *SeriesWorker) RefreshCast(
 		finalCredits, dropped := resolveSeriesCreditsWithPersonID(tv, seriesID, personIDByTMDB)
 		if len(finalCredits) > 0 {
 			pcRows := mapSeriesCreditsToPersonCredits(finalCredits, tv, int64(*canon.TMDBID))
-			if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, pcRows); err != nil {
+			ids, err := w.deps.PersonCredits.BatchUpsert(txCtx, pcRows)
+			if err != nil {
 				return fmt.Errorf("batch upsert person_credits (tv): %w", err)
+			}
+			// S-G — write per-language cast character names keyed by the
+			// person_credits surrogate id. ids[i] ↔ pcRows[i] (BatchUpsert
+			// returns ids in input order). Only rows that actually carry a
+			// non-empty character name produce a texts row; an empty/nil
+			// name is normalized to nil so the COALESCE upsert never wipes a
+			// previously-stored value. nil-OK: skip entirely when the port
+			// is unwired (cold-boot / tests).
+			if w.deps.PersonCreditsTexts != nil && len(ids) == len(pcRows) {
+				textRows := make([]people.PersonCreditText, 0, len(pcRows))
+				for i, row := range pcRows {
+					name := normalizeCharacterName(row.CharacterName)
+					if name == nil {
+						continue
+					}
+					textRows = append(textRows, people.PersonCreditText{
+						PersonCreditID: ids[i],
+						Language:       lang,
+						CharacterName:  name,
+					})
+				}
+				if len(textRows) > 0 {
+					if err := w.deps.PersonCreditsTexts.BatchUpsert(txCtx, textRows); err != nil {
+						return fmt.Errorf("batch upsert person_credits_texts (lang=%s): %w", lang, err)
+					}
+				}
 			}
 		}
 		if dropped > 0 {
@@ -153,4 +179,18 @@ func (w *SeriesWorker) RefreshCast(
 		slog.Int("persons_upserted", len(stubs)),
 		slog.Int("duration_ms", durMs))
 	return nil
+}
+
+// normalizeCharacterName trims a credit character name and maps the empty
+// string to nil so the person_credits_texts COALESCE upsert treats "no
+// character" as "leave existing untouched" rather than overwriting with "".
+func normalizeCharacterName(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*s)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }

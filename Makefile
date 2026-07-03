@@ -208,10 +208,10 @@ migrations-diff: ## Generate migration diff for both dialects (require NAME=)
 # 15 in story 465b (D-4 scan_runs migration 000015), and from 15 to 16
 # in story 466b (D-5 app_config + sonarr_instance_settings migration
 # 000016). Every shipped migration is re-linted on every CI run.
-migrations-lint: ## Lint all 28 migrations on both dialects
+migrations-lint: ## Lint all 29 migrations on both dialects
 	@command -v atlas >/dev/null || (echo "atlas not found — run \`make atlas-install\`"; exit 1)
-	atlas migrate lint --env postgres --latest 28
-	atlas migrate lint --env sqlite --latest 28
+	atlas migrate lint --env postgres --latest 29
+	atlas migrate lint --env sqlite --latest 29
 
 # migrations-diff-check is the D-1-8 acceptance gate: it proves that the
 # 13 committed migrations fully express schema.go on BOTH dialects. The

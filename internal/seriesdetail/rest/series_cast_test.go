@@ -44,7 +44,7 @@ type castFakeSeriesPeople struct {
 	crew []people.SeriesCredit
 }
 
-func (f castFakeSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, kind people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (f castFakeSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, kind people.SeriesCreditKind, _ string) ([]people.SeriesCredit, error) {
 	if kind == people.SeriesCreditCast {
 		return f.cast, nil
 	}

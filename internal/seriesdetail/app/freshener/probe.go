@@ -191,8 +191,8 @@ func (p *DBProbe) IsStale(
 	verdicts = append(verdicts, overview)
 
 	// SectionCast: enrichment_cast_synced_at + missing_lang fallback.
-	// Character names are last-lang-wins in person_credits/series_people;
-	// a per-lang i18n side-table is backlog (S-G).
+	// Character names are localized per-language in person_credits_texts
+	// (S-G); the missing_lang probe still drives cast re-fetch per language.
 	cast := ttlSectionVerdict(
 		SectionCast, canon.EnrichmentCastSyncedAt, canon.Status,
 		SectionTTLs[SectionCast], now,

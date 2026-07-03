@@ -405,27 +405,28 @@ func BuildEnrichment(
 	// (below) keeps its single-language path because biographies remain
 	// en-US-only until a follow-up story.
 	worker, err := appenrich.NewSeriesWorker(appenrich.SeriesWorkerDeps{
-		TMDB:             tmdbHolder,
-		Tx:               tx,
-		Series:           repos.Series,
-		SeriesTexts:      repos.SeriesTexts,
-		Seasons:          repos.Seasons,
-		Episodes:         repos.Episodes,
-		EpisodeTexts:     repos.EpisodeTexts,
-		SeasonTexts:      repos.SeasonTexts,      // B3b (Story 581) — nil-OK
-		SeriesMediaTexts: repos.SeriesMediaTexts, // C-posters-A (Story 584a) — nil-OK
-		SeasonMediaTexts: repos.SeasonMediaTexts, // S-C2 — nil-OK
-		People:           repos.People,
-		PersonCredits:    repos.PersonCredits,
-		Genres:           repos.Genres,
-		Keywords:         repos.Keywords,
-		Networks:         repos.Networks,
-		Companies:        repos.Companies,
-		Videos:           repos.Videos,
-		ContentRatings:   repos.ContentRatings,
-		ExternalIDs:      repos.ExternalIDs,
-		Recommendations:  repos.Recommendations,
-		EnrichmentErrors: repos.EnrichmentErrors,
+		TMDB:               tmdbHolder,
+		Tx:                 tx,
+		Series:             repos.Series,
+		SeriesTexts:        repos.SeriesTexts,
+		Seasons:            repos.Seasons,
+		Episodes:           repos.Episodes,
+		EpisodeTexts:       repos.EpisodeTexts,
+		SeasonTexts:        repos.SeasonTexts,      // B3b (Story 581) — nil-OK
+		SeriesMediaTexts:   repos.SeriesMediaTexts, // C-posters-A (Story 584a) — nil-OK
+		SeasonMediaTexts:   repos.SeasonMediaTexts, // S-C2 — nil-OK
+		People:             repos.People,
+		PersonCredits:      repos.PersonCredits,
+		PersonCreditsTexts: repos.PersonCreditsTexts, // S-G — nil-OK
+		Genres:             repos.Genres,
+		Keywords:           repos.Keywords,
+		Networks:           repos.Networks,
+		Companies:          repos.Companies,
+		Videos:             repos.Videos,
+		ContentRatings:     repos.ContentRatings,
+		ExternalIDs:        repos.ExternalIDs,
+		Recommendations:    repos.Recommendations,
+		EnrichmentErrors:   repos.EnrichmentErrors,
 		// Story 571 B-54: rec children's canon poster/backdrop overwrite writer.
 		// Same *SeriesRepository already provides SeriesRepo above; the bundle
 		// exposes RecCanonWriter as its own field so main.go can pass the
@@ -927,7 +928,11 @@ type EnrichmentRepoBundle struct {
 	// 212 additions:
 	PersonBiographies appenrich.PersonBiographiesPort
 	PersonCredits     appenrich.PersonCreditsPort
-	ColdStartScanner  appenrich.ColdStartScanner
+	// PersonCreditsTexts — S-G: per-language cast character-name write
+	// port consumed by SeriesWorker.RefreshCast. Nil-OK.
+	// *enrichpersistence.PersonCreditsTextsRepository.
+	PersonCreditsTexts appenrich.PersonCreditsTextsPort
+	ColdStartScanner   appenrich.ColdStartScanner
 	// SeriesStaleScan — D-3 (464b): nightly TMDB-stale series scan.
 	// Production impl wraps *SeriesRepository.ListStaleForTMDB. Required
 	// when enrichment is wired (workers + composer need it).

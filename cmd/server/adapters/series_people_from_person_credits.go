@@ -112,6 +112,7 @@ func (a *SeriesPeopleFromPersonCredits) ListBySeries(
 	ctx context.Context,
 	seriesID domain.SeriesID,
 	kind people.SeriesCreditKind,
+	lang string,
 ) ([]people.SeriesCredit, error) {
 	canon, err := a.series.Get(ctx, seriesID)
 	if err != nil {
@@ -128,7 +129,7 @@ func (a *SeriesPeopleFromPersonCredits) ListBySeries(
 		// Sonarr-orphan series — no TMDB cast available. NOT an error.
 		return nil, nil
 	}
-	rows, err := a.pc.ListByMedia(ctx, tmdb.MediaTypeTV, int(*canon.TMDBID))
+	rows, err := a.pc.ListByMediaWithTextFallback(ctx, tmdb.MediaTypeTV, int(*canon.TMDBID), lang)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			return nil, nil

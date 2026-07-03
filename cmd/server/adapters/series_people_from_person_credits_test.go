@@ -125,7 +125,7 @@ func TestSeriesPeopleAdapter_ListBySeries_FiltersByKind(t *testing.T) {
 			}
 			adapter := newSeriesPeopleFromPersonCreditsForTest(pcRepo, reader)
 
-			cast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast)
+			cast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast, "en-US")
 			require.NoError(t, err)
 			require.Len(t, cast, 1, "cast filter must return exactly one row")
 			assert.Equal(t, actorID, cast[0].PersonID)
@@ -135,7 +135,7 @@ func TestSeriesPeopleAdapter_ListBySeries_FiltersByKind(t *testing.T) {
 			assert.Equal(t, domain.SeriesID(42), cast[0].SeriesID,
 				"adapter must stamp the requested seriesID (person_credits is keyed by tmdb_media_id, not series.id)")
 
-			crew, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCrew)
+			crew, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCrew, "en-US")
 			require.NoError(t, err)
 			require.Len(t, crew, 1, "crew filter must return exactly one row")
 			assert.Equal(t, directorID, crew[0].PersonID)
@@ -144,6 +144,66 @@ func TestSeriesPeopleAdapter_ListBySeries_FiltersByKind(t *testing.T) {
 			assert.Equal(t, "Directing", *crew[0].Department)
 			require.NotNil(t, crew[0].Job)
 			assert.Equal(t, "Director", *crew[0].Job)
+		})
+	}
+}
+
+// TestSeriesPeopleAdapter_ListBySeries_LocalizesCharacterName covers S-G:
+// with a person_credits_texts row seeded for ru-RU, the adapter propagates
+// lang through ListByMediaWithTextFallback and returns the localized
+// character name; en-US falls back to the base person_credits value.
+func TestSeriesPeopleAdapter_ListBySeries_LocalizesCharacterName(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+
+			peopleRepo := enrichpersistence.NewPeopleRepository(db)
+			pcRepo := enrichpersistence.NewPersonCreditsRepository(db)
+			textsRepo := enrichpersistence.NewPersonCreditsTextsRepository(db)
+
+			actorID, err := peopleRepo.Upsert(ctx, people.Person{
+				Name:      "Localize Actor",
+				Hydration: people.HydrationStub,
+				TMDBID:    tmdbIDPtr(8100),
+			})
+			require.NoError(t, err)
+
+			const tmdbSeriesID = 100200
+			row := seedPersonCreditTV(actorID, "credit-loc-1", "R&M", tmdbSeriesID)
+			row.Kind = "cast"
+			base := "Rick (base)"
+			row.CharacterName = &base
+			creditID, err := pcRepo.Upsert(ctx, row)
+			require.NoError(t, err)
+
+			ru := "Рик"
+			require.NoError(t, textsRepo.Upsert(ctx, people.PersonCreditText{
+				PersonCreditID: creditID, Language: "ru-RU", CharacterName: &ru,
+			}))
+
+			reader := stubCanonReader{
+				rows: map[domain.SeriesID]canonView{
+					42: {TMDBID: tmdbIDPtr(tmdbSeriesID)},
+				},
+			}
+			adapter := newSeriesPeopleFromPersonCreditsForTest(pcRepo, reader)
+
+			// ru-RU → localized name.
+			ruCast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast, "ru-RU")
+			require.NoError(t, err)
+			require.Len(t, ruCast, 1)
+			require.NotNil(t, ruCast[0].CharacterName)
+			assert.Equal(t, "Рик", *ruCast[0].CharacterName)
+
+			// en-US → no texts row → base person_credits value.
+			enCast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast, "en-US")
+			require.NoError(t, err)
+			require.Len(t, enCast, 1)
+			require.NotNil(t, enCast[0].CharacterName)
+			assert.Equal(t, "Rick (base)", *enCast[0].CharacterName)
 		})
 	}
 }
@@ -164,7 +224,7 @@ func TestSeriesPeopleAdapter_ListBySeries_SeriesNotFound(t *testing.T) {
 			reader := stubCanonReader{rows: map[domain.SeriesID]canonView{}}
 			adapter := newSeriesPeopleFromPersonCreditsForTest(pcRepo, reader)
 
-			_, err := adapter.ListBySeries(ctx, 9999, people.SeriesCreditCast)
+			_, err := adapter.ListBySeries(ctx, 9999, people.SeriesCreditCast, "en-US")
 			require.Error(t, err)
 			var seriesNF *sharedErrors.SeriesNotFoundError
 			require.True(t, errors.As(err, &seriesNF),
@@ -193,11 +253,11 @@ func TestSeriesPeopleAdapter_ListBySeries_SeriesWithoutTMDBID(t *testing.T) {
 			}
 			adapter := newSeriesPeopleFromPersonCreditsForTest(pcRepo, reader)
 
-			cast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast)
+			cast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast, "en-US")
 			require.NoError(t, err, "TMDB-less canon must NOT raise an error")
 			assert.Empty(t, cast)
 
-			crew, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCrew)
+			crew, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCrew, "en-US")
 			require.NoError(t, err)
 			assert.Empty(t, crew)
 		})
@@ -222,7 +282,7 @@ func TestSeriesPeopleAdapter_ListBySeries_NoCredits(t *testing.T) {
 			}
 			adapter := newSeriesPeopleFromPersonCreditsForTest(pcRepo, reader)
 
-			cast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast)
+			cast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast, "en-US")
 			require.NoError(t, err)
 			assert.Empty(t, cast, "no person_credits rows for tmdb_id ⇒ empty cast")
 		})
@@ -246,7 +306,7 @@ func TestSeriesPeopleAdapter_ListBySeries_CanonGetWrapsGenericError(t *testing.T
 			reader := stubCanonReader{err: boom}
 			adapter := newSeriesPeopleFromPersonCreditsForTest(pcRepo, reader)
 
-			_, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast)
+			_, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast, "en-US")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "series_people adapter")
 			assert.True(t, errors.Is(err, boom),
@@ -307,7 +367,7 @@ func TestSeriesPeopleAdapter_ListBySeries_BatchUpsertIdempotent_NoOrphanBranches
 				},
 			}
 			adapter := newSeriesPeopleFromPersonCreditsForTest(pcRepo, reader)
-			cast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast)
+			cast, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast, "en-US")
 			require.NoError(t, err)
 			require.Len(t, cast, n,
 				"adapter must read back the same N cast rows the write side persisted")

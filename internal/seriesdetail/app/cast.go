@@ -200,7 +200,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 	// Step 4 — load cast (kind='cast'). Repository orders by
 	// (kind ASC, credit_order ASC NULLS LAST) — exactly the
 	// shape this list wants.
-	castCredits, err := c.d.SeriesPeople.ListBySeries(ctx, seriesID, people.SeriesCreditCast)
+	castCredits, err := c.d.SeriesPeople.ListBySeries(ctx, seriesID, people.SeriesCreditCast, lang)
 	if err != nil {
 		return nil, fmt.Errorf("list cast: %w", err)
 	}
@@ -209,7 +209,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 	// Default ordering is (kind ASC, credit_order ASC) — wrong
 	// shape for crew; we re-sort by (department, name) post-join
 	// below.
-	crewCredits, err := c.d.SeriesPeople.ListBySeries(ctx, seriesID, people.SeriesCreditCrew)
+	crewCredits, err := c.d.SeriesPeople.ListBySeries(ctx, seriesID, people.SeriesCreditCrew, lang)
 	if err != nil {
 		return nil, fmt.Errorf("list crew: %w", err)
 	}

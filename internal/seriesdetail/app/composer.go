@@ -971,11 +971,11 @@ func (c *Composer) GetCanonicalSeasons(ctx context.Context, seriesID domain.Seri
 //   - Credits whose People row is missing are silently dropped (cast
 //     list shrinks gracefully — matches loadTopCast).
 //   - ProfileAsset is async-resolved through MediaResolver.
-func (c *Composer) GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, limit int) ([]CastDetail, error) {
+func (c *Composer) GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, lang string, limit int) ([]CastDetail, error) {
 	if limit <= 0 {
 		limit = CastDefaultLimit
 	}
-	credits, err := c.d.SeriesPeople.ListBySeries(ctx, seriesID, people.SeriesCreditCast)
+	credits, err := c.d.SeriesPeople.ListBySeries(ctx, seriesID, people.SeriesCreditCast, resolveLang(lang))
 	if err != nil {
 		return nil, fmt.Errorf("list series_people: %w", err)
 	}

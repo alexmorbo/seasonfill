@@ -966,15 +966,21 @@ func joinTable(
 // safety net.
 func addPeople(s *atlasschema.Schema, d Dialect) {
 	people := buildPeopleTable(d)
+	personCredits := buildPersonCreditsTable(d, people)
 	s.AddTables(
 		people,
-		buildPersonCreditsTable(d, people),
+		personCredits,
 		// person_biographies — i18n shape (person_id, language) PK,
 		// single per-language `biography` text column. Reuses the
 		// D-1-3a i18nTextTable helper (no nameLookupIdx, no enriched_at).
 		i18nTextTable(d, "person_biographies", people, "person_id",
 			[]*atlasschema.Column{atlasschema.NewNullStringColumn("biography", "text")},
 			"", false),
+		// S-G — person_credits_texts: per-language cast character names.
+		// Dedicated builder (not i18nTextTable) because the FK to
+		// person_credits(id) is ON DELETE CASCADE (texts are dead once the
+		// credit row is dropped) whereas i18nTextTable hard-codes NO ACTION.
+		buildPersonCreditsTextsTable(d, personCredits),
 	)
 }
 
@@ -1075,6 +1081,42 @@ func buildPersonCreditsTable(d Dialect, peopleTable *atlasschema.Table) *atlassc
 				SetRefTable(peopleTable).
 				AddRefColumns(parentRefCol(peopleTable)).
 				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildPersonCreditsTextsTable returns the person_credits_texts table (S-G):
+//
+//	PK (person_credit_id, language)          -- 2-column composite
+//	columns: character_name text NULL,
+//	         updated_at timestamptz NOT NULL DEFAULT now()
+//	FK person_credit_id → person_credits(id) ON DELETE CASCADE
+//
+// Per-language cast character names. person_credits.character_name STAYS as the
+// language-neutral base/legacy tier; the reader resolves
+// requested-lang → en-US → base. CASCADE (not the i18nTextTable NO ACTION default)
+// because a texts row is meaningless once its credit row is gone, and
+// person_credits.id is a directly-referenceable surrogate PK.
+func buildPersonCreditsTextsTable(d Dialect, personCreditsTable *atlasschema.Table) *atlasschema.Table {
+	personCreditID := fkColumn(d, "person_credit_id", false /* not null */)
+	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
+	characterName := atlasschema.NewNullStringColumn("character_name", "text")
+	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("person_credits_texts").
+		AddColumns(
+			personCreditID,
+			language,
+			characterName,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(personCreditID, language)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("person_credits_texts_person_credit_id_fkey").
+				AddColumns(personCreditID).
+				SetRefTable(personCreditsTable).
+				AddRefColumns(parentRefCol(personCreditsTable)).
+				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)
 }

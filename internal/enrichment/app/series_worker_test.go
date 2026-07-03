@@ -410,6 +410,20 @@ func (f *fakeSeriesWorkerPersonCredits) BatchUpsert(ctx context.Context, credits
 	return ids, nil
 }
 
+// fakeSeriesWorkerPersonCreditsTexts satisfies PersonCreditsTextsPort for the
+// series_worker tests (S-G). Records every per-language cast character-name
+// row so the writer assertion can verify lang tagging + empty-name skipping.
+type fakeSeriesWorkerPersonCreditsTexts struct {
+	rec  *callRecord
+	rows []people.PersonCreditText
+}
+
+func (f *fakeSeriesWorkerPersonCreditsTexts) BatchUpsert(ctx context.Context, texts []people.PersonCreditText) error {
+	f.rec.add("PersonCreditsTexts.BatchUpsert")
+	f.rows = append(f.rows, texts...)
+	return nil
+}
+
 type fakeGenresRepo struct {
 	rec     *callRecord
 	rows    map[int]int64 // tmdb_id -> id
@@ -640,75 +654,78 @@ func (f *fakeEnrichmentErrorRepo) lastFailure() enrichment.EnrichmentError {
 // ---- harness -------------------------------------------------------
 
 type workerFixture struct {
-	worker           *SeriesWorker
-	tmdb             *fakeTMDB
-	rec              *callRecord
-	series           *fakeSeriesRepo
-	seriesTexts      *fakeSeriesTextsRepo
-	seasons          *fakeSeasonsRepo
-	episodes         *fakeEpisodesRepo
-	episodeTexts     *fakeEpisodeTextsRepo
-	seasonTexts      *fakeSeasonTextsRepo
-	people           *fakePeopleRepo
-	personCredits    *fakeSeriesWorkerPersonCredits
-	genres           *fakeGenresRepo
-	keywords         *fakeKeywordsRepo
-	networks         *fakeNetworksRepo
-	companies        *fakeCompaniesRepo
-	videos           *fakeVideosRepo
-	contentRatings   *fakeContentRatingsRepo
-	externalIDs      *fakeExternalIDsRepo
-	recommendations  *fakeRecommendationsRepo
-	enrichmentErrors *fakeEnrichmentErrorRepo
+	worker             *SeriesWorker
+	tmdb               *fakeTMDB
+	rec                *callRecord
+	series             *fakeSeriesRepo
+	seriesTexts        *fakeSeriesTextsRepo
+	seasons            *fakeSeasonsRepo
+	episodes           *fakeEpisodesRepo
+	episodeTexts       *fakeEpisodeTextsRepo
+	seasonTexts        *fakeSeasonTextsRepo
+	people             *fakePeopleRepo
+	personCredits      *fakeSeriesWorkerPersonCredits
+	personCreditsTexts *fakeSeriesWorkerPersonCreditsTexts
+	genres             *fakeGenresRepo
+	keywords           *fakeKeywordsRepo
+	networks           *fakeNetworksRepo
+	companies          *fakeCompaniesRepo
+	videos             *fakeVideosRepo
+	contentRatings     *fakeContentRatingsRepo
+	externalIDs        *fakeExternalIDsRepo
+	recommendations    *fakeRecommendationsRepo
+	enrichmentErrors   *fakeEnrichmentErrorRepo
 }
 
 func newWorkerFixture(t *testing.T, tv *tmdb.TVResponse, seasonResp map[int]*tmdb.SeasonResponse) *workerFixture {
 	t.Helper()
 	rec := &callRecord{}
 	f := &workerFixture{
-		tmdb:             &fakeTMDB{tv: tv, seasons: seasonResp},
-		rec:              rec,
-		series:           newFakeSeriesRepo(rec),
-		seriesTexts:      &fakeSeriesTextsRepo{rec: rec},
-		seasons:          newFakeSeasonsRepo(rec),
-		episodes:         newFakeEpisodesRepo(rec),
-		episodeTexts:     &fakeEpisodeTextsRepo{rec: rec},
-		seasonTexts:      &fakeSeasonTextsRepo{rec: rec},
-		people:           newFakePeopleRepo(rec),
-		personCredits:    &fakeSeriesWorkerPersonCredits{rec: rec},
-		genres:           newFakeGenresRepo(rec),
-		keywords:         newFakeKeywordsRepo(rec),
-		networks:         &fakeNetworksRepo{rec: rec},
-		companies:        &fakeCompaniesRepo{rec: rec},
-		videos:           &fakeVideosRepo{rec: rec},
-		contentRatings:   &fakeContentRatingsRepo{rec: rec},
-		externalIDs:      &fakeExternalIDsRepo{rec: rec},
-		recommendations:  &fakeRecommendationsRepo{rec: rec},
-		enrichmentErrors: &fakeEnrichmentErrorRepo{},
+		tmdb:               &fakeTMDB{tv: tv, seasons: seasonResp},
+		rec:                rec,
+		series:             newFakeSeriesRepo(rec),
+		seriesTexts:        &fakeSeriesTextsRepo{rec: rec},
+		seasons:            newFakeSeasonsRepo(rec),
+		episodes:           newFakeEpisodesRepo(rec),
+		episodeTexts:       &fakeEpisodeTextsRepo{rec: rec},
+		seasonTexts:        &fakeSeasonTextsRepo{rec: rec},
+		people:             newFakePeopleRepo(rec),
+		personCredits:      &fakeSeriesWorkerPersonCredits{rec: rec},
+		personCreditsTexts: &fakeSeriesWorkerPersonCreditsTexts{rec: rec},
+		genres:             newFakeGenresRepo(rec),
+		keywords:           newFakeKeywordsRepo(rec),
+		networks:           &fakeNetworksRepo{rec: rec},
+		companies:          &fakeCompaniesRepo{rec: rec},
+		videos:             &fakeVideosRepo{rec: rec},
+		contentRatings:     &fakeContentRatingsRepo{rec: rec},
+		externalIDs:        &fakeExternalIDsRepo{rec: rec},
+		recommendations:    &fakeRecommendationsRepo{rec: rec},
+		enrichmentErrors:   &fakeEnrichmentErrorRepo{},
 	}
 	w, err := NewSeriesWorker(SeriesWorkerDeps{
-		TMDB:             f.tmdb,
-		Tx:               syncTransactor{},
-		Languages:        []string{"en-US"},
-		Series:           f.series,
-		SeriesTexts:      f.seriesTexts,
-		Seasons:          f.seasons,
-		Episodes:         f.episodes,
-		EpisodeTexts:     f.episodeTexts,
-		SeasonTexts:      f.seasonTexts,
-		People:           f.people,
-		PersonCredits:    f.personCredits,
-		Genres:           f.genres,
-		Keywords:         f.keywords,
-		Networks:         f.networks,
-		Companies:        f.companies,
-		Videos:           f.videos,
-		ContentRatings:   f.contentRatings,
-		ExternalIDs:      f.externalIDs,
-		Recommendations:  f.recommendations,
-		EnrichmentErrors: f.enrichmentErrors,
-		Logger:           quietLogger(),
-		Clock:            func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) },
+		TMDB:               f.tmdb,
+		Tx:                 syncTransactor{},
+		Languages:          []string{"en-US"},
+		Series:             f.series,
+		SeriesTexts:        f.seriesTexts,
+		Seasons:            f.seasons,
+		Episodes:           f.episodes,
+		EpisodeTexts:       f.episodeTexts,
+		SeasonTexts:        f.seasonTexts,
+		People:             f.people,
+		PersonCredits:      f.personCredits,
+		PersonCreditsTexts: f.personCreditsTexts,
+		Genres:             f.genres,
+		Keywords:           f.keywords,
+		Networks:           f.networks,
+		Companies:          f.companies,
+		Videos:             f.videos,
+		ContentRatings:     f.contentRatings,
+		ExternalIDs:        f.externalIDs,
+		Recommendations:    f.recommendations,
+		EnrichmentErrors:   f.enrichmentErrors,
+		Logger:             quietLogger(),
+		Clock:              func() time.Time { return time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC) },
 	})
 	require.NoError(t, err)
 	f.worker = w

@@ -60,6 +60,30 @@ func TestSeriesWorker_RefreshCast_ForceTrue_HappyPath(t *testing.T) {
 	assert.True(t, hasCall(calls, "Series.MarkCastSynced"))
 	persisted := f.series.rows[1]
 	require.NotNil(t, persisted.EnrichmentCastSyncedAt)
+
+	// S-G — per-language cast character names written to person_credits_texts.
+	// minimalTV carries one cast credit ("Hero") so exactly one text row is
+	// tagged with the call lang.
+	require.True(t, hasCall(calls, "PersonCreditsTexts.BatchUpsert"))
+	require.Len(t, f.personCreditsTexts.rows, 1)
+	textRow := f.personCreditsTexts.rows[0]
+	assert.Equal(t, "ru-RU", textRow.Language)
+	require.NotNil(t, textRow.CharacterName)
+	assert.Equal(t, "Hero", *textRow.CharacterName)
+}
+
+// TestSeriesWorker_RefreshCast_NilTextsPort_NoPanic — with PersonCreditsTexts
+// unwired (nil), RefreshCast still succeeds and writes person_credits; the
+// localized write is skipped (S-G nil-OK posture).
+func TestSeriesWorker_RefreshCast_NilTextsPort_NoPanic(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	f := newRefreshFixture(t, &tmdbID, nil)
+	f.worker.deps.PersonCreditsTexts = nil
+	err := f.worker.RefreshCast(context.Background(), 1, "ru-RU", true)
+	require.NoError(t, err)
+	assert.True(t, hasCall(f.rec.list(), "PersonCredits.BatchUpsert"))
+	assert.False(t, hasCall(f.rec.list(), "PersonCreditsTexts.BatchUpsert"))
 }
 
 func TestSeriesWorker_RefreshCast_ProbeFresh_Skip(t *testing.T) {

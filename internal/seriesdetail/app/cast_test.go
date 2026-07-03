@@ -27,7 +27,7 @@ type fakeCastSeriesPeople struct {
 	err  error
 }
 
-func (f *fakeCastSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, kind people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (f *fakeCastSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, kind people.SeriesCreditKind, _ string) ([]people.SeriesCredit, error) {
 	if f.err != nil {
 		return nil, f.err
 	}

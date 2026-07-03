@@ -153,7 +153,7 @@ func (emptyStates) ListBySeries(_ context.Context, _ domain.InstanceName, _ doma
 
 type emptyPeople struct{}
 
-func (emptyPeople) ListBySeries(_ context.Context, _ domain.SeriesID, _ people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (emptyPeople) ListBySeries(_ context.Context, _ domain.SeriesID, _ people.SeriesCreditKind, _ string) ([]people.SeriesCredit, error) {
 	return nil, nil
 }
 func (emptyPeople) ListByIDs(_ context.Context, _ []int64) ([]people.Person, error) {

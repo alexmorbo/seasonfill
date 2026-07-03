@@ -415,6 +415,14 @@ type PersonCreditsPort interface {
 	BatchUpsert(ctx context.Context, credits []people.PersonCredit) ([]int64, error)
 }
 
+// PersonCreditsTextsPort is the per-language cast-character-name write
+// surface (person_credits_texts, S-G). Separate from PersonCreditsPort so
+// only the SeriesWorker (RefreshCast) depends on it — PersonWorker does not
+// write localized character names. nil-OK on SeriesWorker.Deps.
+type PersonCreditsTextsPort interface {
+	BatchUpsert(ctx context.Context, texts []people.PersonCreditText) error
+}
+
 // ColdStartScanner is the application-layer port for the canonical
 // series-id queries the boot-time backfill + recovery loops consume.
 // Production impl is *SeriesRepository (via wiring adapter); tests pass

@@ -334,34 +334,35 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Story 211 (C-2) — enrichment dispatcher. BuildEnrichment returns
 	// a nil dispatcher when TMDB is disabled (boot stays green).
 	enrichRepos := wiring.EnrichmentRepoBundle{
-		Series:            seriesRepo,
-		SeriesTexts:       seriesTextsRepo,
-		Seasons:           seasonsRepo,
-		Episodes:          episodesRepo,
-		EpisodeTexts:      episodeTextsRepo,
-		SeasonTexts:       seasonTextsRepo,
-		SeriesMediaTexts:  seriesMediaTextsRepo, // C-posters-A (Story 584a)
-		SeasonMediaTexts:  seasonMediaTextsRepo, // S-C2
-		People:            peopleRepo,
-		Genres:            wiring.GenresRepoAdapter{Main: genresRepo, I18n: genresI18nRepo},
-		Keywords:          wiring.KeywordsRepoAdapter{Main: keywordsRepo, I18n: keywordsI18nRepo},
-		Networks:          networksRepo,
-		Companies:         companiesRepo,
-		Videos:            wiring.VideosRepoAdapter{Inner: videosRepo},
-		ContentRatings:    wiring.ContentRatingsRepoAdapter{Inner: contentRatingsRepo},
-		ExternalIDs:       wiring.ExternalIDsRepoAdapter{Inner: externalIDsRepo},
-		Recommendations:   recommendationsRepo,
-		SeriesRecCanon:    seriesRepo, // Story 571 B-54: same repo, narrow SeriesRecCanonWriter view
-		EnrichmentErrors:  enrichmentErrorsRepo,
-		PersonBiographies: personBiographiesRepo,
-		PersonCredits:     wiring.PersonCreditsRepoAdapter{Inner: personCreditsRepo},
-		ColdStartScanner:  coldStartScanner,
-		SeriesStaleScan:   wiring.NewSeriesStaleScanAdapter(seriesRepo),
-		PeopleStaleScan:   wiring.NewPeopleStaleScanAdapter(peopleRepo),
-		LibraryWithIMDB:   wiring.NewOMDbBatchScannerAdapter(seriesRepo),
-		RefreshPicker:     wiring.NewRefreshPickerAdapter(seriesRepo), // Story 534
-		MediaAssets:       mediaAssetsRepo,
-		MediaStore:        mediaStoreImpl,
+		Series:             seriesRepo,
+		SeriesTexts:        seriesTextsRepo,
+		Seasons:            seasonsRepo,
+		Episodes:           episodesRepo,
+		EpisodeTexts:       episodeTextsRepo,
+		SeasonTexts:        seasonTextsRepo,
+		SeriesMediaTexts:   seriesMediaTextsRepo, // C-posters-A (Story 584a)
+		SeasonMediaTexts:   seasonMediaTextsRepo, // S-C2
+		People:             peopleRepo,
+		Genres:             wiring.GenresRepoAdapter{Main: genresRepo, I18n: genresI18nRepo},
+		Keywords:           wiring.KeywordsRepoAdapter{Main: keywordsRepo, I18n: keywordsI18nRepo},
+		Networks:           networksRepo,
+		Companies:          companiesRepo,
+		Videos:             wiring.VideosRepoAdapter{Inner: videosRepo},
+		ContentRatings:     wiring.ContentRatingsRepoAdapter{Inner: contentRatingsRepo},
+		ExternalIDs:        wiring.ExternalIDsRepoAdapter{Inner: externalIDsRepo},
+		Recommendations:    recommendationsRepo,
+		SeriesRecCanon:     seriesRepo, // Story 571 B-54: same repo, narrow SeriesRecCanonWriter view
+		EnrichmentErrors:   enrichmentErrorsRepo,
+		PersonBiographies:  personBiographiesRepo,
+		PersonCredits:      wiring.PersonCreditsRepoAdapter{Inner: personCreditsRepo},
+		PersonCreditsTexts: enrichpersistence.NewPersonCreditsTextsRepository(db), // S-G
+		ColdStartScanner:   coldStartScanner,
+		SeriesStaleScan:    wiring.NewSeriesStaleScanAdapter(seriesRepo),
+		PeopleStaleScan:    wiring.NewPeopleStaleScanAdapter(peopleRepo),
+		LibraryWithIMDB:    wiring.NewOMDbBatchScannerAdapter(seriesRepo),
+		RefreshPicker:      wiring.NewRefreshPickerAdapter(seriesRepo), // Story 534
+		MediaAssets:        mediaAssetsRepo,
+		MediaStore:         mediaStoreImpl,
 	}
 	enrichBundle, err := wiring.BuildEnrichment(rootCtx, extSub, extSvcBundle.UC, bootCfg, enrichRepos, txr, quotaCounter, seriesDetailMediaResolver, log)
 	if err != nil {

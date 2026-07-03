@@ -239,7 +239,7 @@ type fakeSeriesPeople struct {
 	err  error
 }
 
-func (f *fakeSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, _ people.SeriesCreditKind) ([]people.SeriesCredit, error) {
+func (f *fakeSeriesPeople) ListBySeries(_ context.Context, _ domain.SeriesID, _ people.SeriesCreditKind, _ string) ([]people.SeriesCredit, error) {
 	return f.rows, f.err
 }
 
@@ -941,7 +941,7 @@ func TestComposer_GetCanonicalCast_TopN(t *testing.T) {
 	deps.SeriesPeople = &fakeSeriesPeople{rows: credits}
 	deps.People = &fakePeople{rows: persons}
 	c := NewComposer(deps)
-	got, err := c.GetCanonicalCast(context.Background(), 100, 0)
+	got, err := c.GetCanonicalCast(context.Background(), 100, "en-US", 0)
 	require.NoError(t, err)
 	require.Len(t, got, CastDefaultLimit)
 }
@@ -949,7 +949,7 @@ func TestComposer_GetCanonicalCast_TopN(t *testing.T) {
 func TestComposer_GetCanonicalCast_NoCreditsReturnsEmpty(t *testing.T) {
 	deps := baseCanonicalDeps()
 	c := NewComposer(deps)
-	got, err := c.GetCanonicalCast(context.Background(), 100, 0)
+	got, err := c.GetCanonicalCast(context.Background(), 100, "en-US", 0)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Len(t, got, 0)
@@ -964,7 +964,7 @@ func TestComposer_GetCanonicalCast_DropsMissingPeopleRow(t *testing.T) {
 	// Only PersonID=1 has a corresponding people row → cast list shrinks.
 	deps.People = &fakePeople{rows: []people.Person{{ID: 1}}}
 	c := NewComposer(deps)
-	got, err := c.GetCanonicalCast(context.Background(), 100, 0)
+	got, err := c.GetCanonicalCast(context.Background(), 100, "en-US", 0)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, int64(1), got[0].Person.ID)
@@ -981,7 +981,7 @@ func TestComposer_GetCanonicalCast_ExplicitLimit(t *testing.T) {
 	deps.SeriesPeople = &fakeSeriesPeople{rows: credits}
 	deps.People = &fakePeople{rows: persons}
 	c := NewComposer(deps)
-	got, err := c.GetCanonicalCast(context.Background(), 100, 3)
+	got, err := c.GetCanonicalCast(context.Background(), 100, "en-US", 3)
 	require.NoError(t, err)
 	require.Len(t, got, 3, "explicit positive limit must cap output")
 }
@@ -990,6 +990,6 @@ func TestComposer_GetCanonicalCast_SeriesPeopleError_Propagates(t *testing.T) {
 	deps := baseCanonicalDeps()
 	deps.SeriesPeople = &fakeSeriesPeople{err: errors.New("people boom")}
 	c := NewComposer(deps)
-	_, err := c.GetCanonicalCast(context.Background(), 100, 0)
+	_, err := c.GetCanonicalCast(context.Background(), 100, "en-US", 0)
 	require.Error(t, err)
 }

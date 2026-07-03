@@ -70,7 +70,7 @@ type TMDBFallbackDeps struct {
 // GetCanonicalSeasons + GetCanonicalCast methods match this contract.
 type CanonicalSeasonsCastReader interface {
 	GetCanonicalSeasons(ctx context.Context, seriesID domain.SeriesID, lang string) ([]SeasonDetail, error)
-	GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, limit int) ([]CastDetail, error)
+	GetCanonicalCast(ctx context.Context, seriesID domain.SeriesID, lang string, limit int) ([]CastDetail, error)
 }
 
 // TMDBFallbackUseCase returns canon-only views.
@@ -487,7 +487,7 @@ func (u *TMDBFallbackUseCase) GetCanonicalCast(ctx context.Context, seriesID dom
 		mark()
 	}
 	if u.d.SeasonsCastSource != nil {
-		if cast, cerr := u.d.SeasonsCastSource.GetCanonicalCast(ctx, seriesID, limit); cerr == nil {
+		if cast, cerr := u.d.SeasonsCastSource.GetCanonicalCast(ctx, seriesID, resolvedLang, limit); cerr == nil {
 			out.Cast = cast
 		} else {
 			u.d.Logger.WarnContext(ctx, "tmdb_fallback_cast_load_failed",

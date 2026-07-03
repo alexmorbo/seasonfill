@@ -130,3 +130,13 @@ type PersonCredit struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
+
+// PersonCreditText is one per-language cast character-name row
+// (person_credits_texts, S-G). Keyed by the person_credits surrogate id
+// + language. CharacterName is nil-able; a nil/empty value must NOT
+// overwrite an existing stored value (COALESCE-protected upsert).
+type PersonCreditText struct {
+	PersonCreditID int64
+	Language       string
+	CharacterName  *string
+}

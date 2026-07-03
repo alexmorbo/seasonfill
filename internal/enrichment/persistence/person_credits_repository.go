@@ -97,6 +97,48 @@ func (r *PersonCreditsRepository) ListByMedia(ctx context.Context, mediaType str
 	return models, nil
 }
 
+// ListByMediaWithTextFallback returns every credit row for (media_type,
+// tmdb_media_id) with character_name resolved per S-G: requested language
+// → en-US → base person_credits.character_name. Two LEFT JOINs against
+// person_credits_texts + COALESCE, one round-trip. Ordered by person_id ASC
+// (same as ListByMedia — the cast read path relies on it). lang=="" defaults
+// to en-US, collapsing both joins onto the base tier.
+func (r *PersonCreditsRepository) ListByMediaWithTextFallback(
+	ctx context.Context,
+	mediaType string,
+	tmdbMediaID int,
+	lang string,
+) ([]PersonCredit, error) {
+	if mediaType == "" {
+		return nil, fmt.Errorf("list person_credits by media (i18n): media_type must be non-empty")
+	}
+	if lang == "" {
+		lang = fallbackLanguage
+	}
+	const q = `
+SELECT
+  pc.id, pc.person_id, pc.tmdb_credit_id, pc.media_type, pc.tmdb_media_id,
+  pc.title, pc.original_title, pc.year,
+  COALESCE(t_req.character_name, t_base.character_name, pc.character_name) AS character_name,
+  pc.kind, pc.department, pc.job, pc.poster_path, pc.vote_average,
+  pc.tmdb_votes, pc.episode_count, pc.created_at, pc.updated_at
+FROM person_credits pc
+LEFT JOIN person_credits_texts t_req
+  ON t_req.person_credit_id = pc.id AND t_req.language = ?
+LEFT JOIN person_credits_texts t_base
+  ON t_base.person_credit_id = pc.id AND t_base.language = ?
+WHERE pc.media_type = ? AND pc.tmdb_media_id = ?
+ORDER BY pc.person_id ASC`
+	var models []database.PersonCreditModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Raw(q, lang, fallbackLanguage, mediaType, tmdbMediaID).
+		Scan(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("list person_credits by media (i18n): %w", err)
+	}
+	return models, nil
+}
+
 // Upsert writes one credit row by natural key. Idempotent.
 func (r *PersonCreditsRepository) Upsert(ctx context.Context, pc PersonCredit) (int64, error) {
 	ids, err := r.batchUpsert(ctx, []PersonCredit{pc})
