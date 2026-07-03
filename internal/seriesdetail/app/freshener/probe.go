@@ -269,8 +269,12 @@ func (p *DBProbe) IsStale(
 		v := ttlSectionVerdict(section, seasonSyncedAt, canon.Status, SeasonTTL, now)
 
 		// Story 548 — partial episode_texts coverage detection.
-		if p.cfg.EpisodeTextsCoverage != nil && !lang.IsZero() &&
-			!strings.EqualFold(lang.Value(), "en-US") {
+		// W15-4: no en-US exclusion here either (same false invariant as
+		// checkMissingLang). en-US episode_texts are scan-seeded per
+		// episode (sonarr_sync), so coverage is ~100% and this rarely
+		// fires; when it does it's a genuine gap that re-localizes under
+		// Season TTL + singleflight (tmdb-less → no_tmdb_id_skip no-op).
+		if p.cfg.EpisodeTextsCoverage != nil && !lang.IsZero() {
 			if covered, total, cerr := p.cfg.EpisodeTextsCoverage.CoverageBySeries(ctx, seriesID, lang.Value()); cerr == nil &&
 				total > 0 && covered*100 < total*p.cfg.EpisodeCoverageMinPct {
 				v.Stale = true
@@ -285,15 +289,18 @@ func (p *DBProbe) IsStale(
 
 // checkMissingLang returns "missing_lang" if the series_texts row for
 // the requested lang is absent or only available as a fallback. Empty
-// lang OR en-US lang OR matched row → "" (caller keeps TTL verdict).
+// lang OR matched row → "" (caller keeps TTL verdict).
 func (p *DBProbe) checkMissingLang(ctx context.Context, seriesID domain.SeriesID, lang values.LanguageTag) string {
 	if lang.IsZero() {
 		return ""
 	}
 	v := lang.Value()
-	if strings.EqualFold(v, "en-US") {
-		return ""
-	}
+	// W15-4: no en-US exclusion. The invariant "S-E1 guarantees en-US"
+	// is violated live (~45% series_texts coverage), so an en-US view
+	// whose base-lang row is missing (or only a fallback) must mark
+	// overview/cast stale to re-localize. GetWithFallback + language
+	// compare is correct for any lang; a tmdb-less series dispatches
+	// no_tmdb_id_skip (no-op), a tmdb series re-fetches under TTL.
 	row, terr := p.cfg.SeriesTexts.GetWithFallback(ctx, seriesID, v)
 	if terr != nil && errors.Is(terr, dataports.ErrNotFound) {
 		return "missing_lang"

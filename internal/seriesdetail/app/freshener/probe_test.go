@@ -306,7 +306,7 @@ func TestProbe_OverviewMissingLang_OverridesFreshTTL(t *testing.T) {
 	assertVerdict(t, verdicts, freshener.SectionCast, true, "missing_lang")
 }
 
-func TestProbe_MissingLang_SkippedForEnUS(t *testing.T) {
+func TestProbe_MissingLang_FiresForEnUS_WhenBaseRowMissing(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	fresh := now.Add(-time.Hour)
@@ -328,7 +328,37 @@ func TestProbe_MissingLang_SkippedForEnUS(t *testing.T) {
 	})
 	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "en-US"), nil)
 	require.NoError(t, err)
+	// W15-4: en-US no longer skips the missing-lang check — a missing
+	// base-lang row now marks overview+cast stale to re-localize.
+	assertVerdict(t, verdicts, freshener.SectionOverview, true, "missing_lang")
+	assertVerdict(t, verdicts, freshener.SectionCast, true, "missing_lang")
+}
+
+func TestProbe_MissingLang_EnUS_RowPresent_NotStale(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:      &stubSeries{canon: canon},
+		SeriesTexts: &stubTexts{row: catalogseries.SeriesText{Language: "en-US"}},
+		Seasons:     &stubSeasons{},
+		Now:         func() time.Time { return now },
+	})
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "en-US"), nil)
+	require.NoError(t, err)
+	// en-US row present → no false missing_lang trigger.
 	assertVerdict(t, verdicts, freshener.SectionOverview, false, "fresh")
+	assertVerdict(t, verdicts, freshener.SectionCast, false, "fresh")
 }
 
 func TestProbe_MissingLang_SkippedForEmptyLang(t *testing.T) {
@@ -421,6 +451,67 @@ func TestProbe_SeasonMissingEpisodesLang(t *testing.T) {
 	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), []int{8})
 	require.NoError(t, err)
 	assertVerdict(t, verdicts, freshener.SeasonSection(8), true, "missing_episodes_lang")
+}
+
+func TestProbe_SeasonMissingEpisodesLang_EnUS(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	seasons := &stubSeasons{
+		syncedByNumber: map[int]*time.Time{8: &fresh},
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:               &stubSeries{canon: canon},
+		SeriesTexts:          &stubTexts{row: catalogseries.SeriesText{Language: "en-US"}},
+		Seasons:              seasons,
+		EpisodeTextsCoverage: &stubEpisodeTexts{covered: 0, total: 100}, // 0% < 80%
+		Now:                  func() time.Time { return now },
+	})
+	// W15-4: en-US now enters the episode-coverage path — a genuine gap
+	// marks the season stale to re-localize episode_texts.
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "en-US"), []int{8})
+	require.NoError(t, err)
+	assertVerdict(t, verdicts, freshener.SeasonSection(8), true, "missing_episodes_lang")
+}
+
+func TestProbe_SeasonEpisodesLang_EnUS_HighCoverage_Fresh(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	seasons := &stubSeasons{
+		syncedByNumber: map[int]*time.Time{8: &fresh},
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:               &stubSeries{canon: canon},
+		SeriesTexts:          &stubTexts{row: catalogseries.SeriesText{Language: "en-US"}},
+		Seasons:              seasons,
+		EpisodeTextsCoverage: &stubEpisodeTexts{covered: 100, total: 100}, // ~100% scan-seeded
+		Now:                  func() time.Time { return now },
+	})
+	// NEGATIVE: en-US episode_texts are scan-seeded ~100% → no false storm.
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "en-US"), []int{8})
+	require.NoError(t, err)
+	assertVerdict(t, verdicts, freshener.SeasonSection(8), false, "fresh")
 }
 
 func TestProbe_NoSeasonNumbers_EmitsFixedOnly(t *testing.T) {
