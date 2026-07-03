@@ -1431,6 +1431,61 @@ func TestSeriesWorker_HandleForcedLang_DoesNotStampSyncedAt(t *testing.T) {
 		"Story 546: HandleForcedLang must NOT call ClearOnSuccess (paired with synced_at stamping)")
 }
 
+// TestSeriesWorker_HandleForcedLang_SeedsPosterMediaRow is the D-0
+// regression for the S-E3b poster gap. The skeleton composer freshens ONLY
+// SectionSkeleton (→ HandleForcedLang → applyAllForLanguage); post-S-E3b that
+// path wrote series_texts but NOT series_media_texts, and canon.poster_asset
+// was dropped, so a Sonarr-added (library) series had no poster source at all —
+// the hero + grid fell back to the "sf" placeholder. The fix seeds
+// series_media_texts on the canon-sync path with the per-lang poster (root
+// fallback here, since Images is nil). Proves the root fallback reaches the
+// side-table write.
+func TestSeriesWorker_HandleForcedLang_SeedsPosterMediaRow(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	tv := minimalTV()
+	tv.PosterPath = "/root_poster.jpg"     // only a root poster — no per-lang image
+	tv.BackdropPath = "/root_backdrop.jpg" // (the failing library-series case)
+	tv.Images = nil                        // force the root-poster fallback branch
+	media := &fakeSeriesMediaTextsRepo{}
+	f := newMediaTextFixture(t, &tmdbID, tv, &fakeMediaResolver{}, media)
+	media.rec = f.rec
+
+	require.NoError(t, f.worker.HandleForcedLang(context.Background(), 1, "en-US"))
+
+	require.Len(t, media.rows, 1,
+		"canon-sync path must seed exactly one series_media_texts row so the hero/grid have a poster")
+	row := media.last()
+	assert.Equal(t, domain.SeriesID(1), row.SeriesID)
+	assert.Equal(t, "en-US", row.Language)
+	require.NotNil(t, row.PosterAsset, "poster seeded from root fallback")
+	assert.Equal(t, "/root_poster.jpg", *row.PosterAsset)
+	require.NotNil(t, row.BackdropAsset)
+	assert.Equal(t, "/root_backdrop.jpg", *row.BackdropAsset)
+	require.NotNil(t, row.EnrichedAt, "EnrichedAt stamped on the seed write")
+	assert.True(t, hasCall(f.rec.list(), "SeriesTexts.Upsert"))
+	assert.True(t, hasCall(f.rec.list(), "SeriesMediaTexts.Upsert"),
+		"series_media_texts MUST be written alongside series_texts on the canon-sync path")
+}
+
+// TestSeriesWorker_HandleForcedLang_NilMediaTexts_NoPanic pins the nil-OK
+// branch — with no SeriesMediaTexts port wired the canon-sync path skips the
+// media seed and still writes series_texts.
+func TestSeriesWorker_HandleForcedLang_NilMediaTexts_NoPanic(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	tv := minimalTV()
+	tv.PosterPath = "/root_poster.jpg"
+	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{})
+	f.seedCanon(1, &tmdbID)
+
+	require.NoError(t, f.worker.HandleForcedLang(context.Background(), 1, "en-US"))
+
+	require.Len(t, f.seriesTexts.rows, 1, "series_texts written despite nil media port")
+	assert.False(t, hasCall(f.rec.list(), "SeriesMediaTexts.Upsert"),
+		"media seed skipped when SeriesMediaTexts port is nil")
+}
+
 // TestSeriesWorker_HandleForcedLang_GetTVError_JournalsBackoff asserts
 // that a GetTV failure on the staged path records an enrichment_errors
 // row with a NextAttemptAt set by the existing exponential backoff

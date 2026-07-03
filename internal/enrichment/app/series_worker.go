@@ -790,6 +790,44 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		return nil, fmt.Errorf("upsert series_texts: %w", err)
 	}
 
+	// 2b. series_media_texts — per-language poster/backdrop seed.
+	//     S-E3b dropped canon series.poster_asset/backdrop_asset; the art now
+	//     lives ONLY in this side-table. The always-on canon-sync path must seed
+	//     it or a library series has NO poster on first view: the skeleton
+	//     composer freshens only SectionSkeleton (→ this path), never the
+	//     SectionOverview all-langs writer nor SectionMedia, so nothing else
+	//     writes series_media_texts for a Sonarr-added series. pickPosterForLang
+	//     picks the best per-lang image with a root-poster fallback — the same
+	//     source that populated canon.poster_asset pre-S-E3b. Raw paths only:
+	//     the hero + grid resolve the media hash at read time, and
+	//     MediaResolver.Resolve is deliberately NOT called inside this multi-
+	//     table tx (it opens its own media_assets session → cross-table lock
+	//     contention risk, per the RefreshSeriesAllLangs pattern). The
+	//     COALESCE-protected Upsert preserves any hash a later all-langs/A4
+	//     refresh fills in.
+	if w.deps.SeriesMediaTexts != nil {
+		posterPath := pickPosterForLang(tv.Images, lang)
+		if posterPath == nil {
+			posterPath = nonEmptyStringPtr(tv.PosterPath)
+		}
+		backdropPath := pickBackdropForLang(tv.Images, lang)
+		if backdropPath == nil {
+			backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+		}
+		if posterPath != nil || backdropPath != nil {
+			now := w.deps.Clock()
+			if err := w.deps.SeriesMediaTexts.Upsert(txCtx, series.SeriesMediaText{
+				SeriesID:      seriesID,
+				Language:      lang,
+				PosterAsset:   posterPath,
+				BackdropAsset: backdropPath,
+				EnrichedAt:    &now,
+			}); err != nil {
+				return nil, fmt.Errorf("upsert series_media_texts: %w", err)
+			}
+		}
+	}
+
 	// 3. Seasons — upsert each + collect (number → season_id) for
 	//    episode wiring.
 	seasonIDByNumber := make(map[int]int64, len(m.Seasons))
