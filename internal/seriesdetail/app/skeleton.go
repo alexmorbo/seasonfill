@@ -281,9 +281,9 @@ func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, can
 		}
 	}
 
-	// Trailer key (best official YouTube).
+	// Trailer key (lang-aware: requested lang → original → en → any).
 	if videos, verr := sc.d.Videos.ListBySeriesAndType(ctx, seriesID, "Trailer"); verr == nil {
-		dto.Hero.TrailerKey = pickTrailerKey(videos)
+		dto.Hero.TrailerKey = pickTrailerForLang(videos, langStr, strOrEmpty(canon.OriginalLanguage))
 	}
 
 	// Next episode (nil-OK port).
@@ -546,23 +546,48 @@ func mediaHashOrZero(hash *string) values.MediaHash {
 	return mh
 }
 
-func pickTrailerKey(videos []enrichpersistence.Video) *values.TrailerKey {
+// pickTrailerForLang selects the trailer key to surface for the requested
+// language. Videos are tried in a language-priority chain (requested lang →
+// original language → English → catch-all); the first tier yielding a valid key
+// wins. Tier 4 is a regression guard: a series whose only trailer is in some
+// other language must still surface a trailer rather than hide it — the pre-i18n
+// pick showed the best official trailer regardless of language, so dropping to
+// nil here would be a regression.
+func pickTrailerForLang(videos []enrichpersistence.Video, lang, originalLanguage string) *values.TrailerKey {
+	for _, want := range []string{primarySubtag(lang), primarySubtag(originalLanguage), "en"} {
+		if want == "" {
+			continue
+		}
+		if tk := pickBestInLang(videos, want); tk != nil {
+			return tk
+		}
+	}
+	// Tier 4 catch-all: any remaining video (empty want matches all languages,
+	// including a nil Language).
+	return pickBestInLang(videos, "")
+}
+
+// pickBestInLang returns the best trailer key among videos whose primary
+// language subtag equals want. want=="" matches any video (catch-all tier).
+// Within the group an official YouTube "Trailer" is preferred; ties break on
+// PublishedAt desc (nil published sorts last). Nil Site/Key rows are skipped.
+func pickBestInLang(videos []enrichpersistence.Video, want string) *values.TrailerKey {
 	var bestKey *string
 	var bestPublished *time.Time
+	var bestPreferred bool
 	for i := range videos {
 		v := videos[i]
 		if v.Site == nil || v.Key == nil {
 			continue
 		}
-		if !v.Official {
+		if want != "" && (v.Language == nil || primarySubtag(*v.Language) != want) {
 			continue
 		}
-		if len(*v.Site) == 0 {
-			continue
-		}
-		if bestKey == nil || (v.PublishedAt != nil && (bestPublished == nil || v.PublishedAt.After(*bestPublished))) {
+		preferred := v.Official && v.Type != nil && *v.Type == "Trailer" && *v.Site == "YouTube"
+		if bestKey == nil || betterTrailer(preferred, v.PublishedAt, bestPreferred, bestPublished) {
 			bestKey = v.Key
 			bestPublished = v.PublishedAt
+			bestPreferred = preferred
 		}
 	}
 	if bestKey == nil {
@@ -573,6 +598,19 @@ func pickTrailerKey(videos []enrichpersistence.Video) *values.TrailerKey {
 		return nil
 	}
 	return &tk
+}
+
+func betterTrailer(candPref bool, candPub *time.Time, curPref bool, curPub *time.Time) bool {
+	if candPref != curPref {
+		return candPref
+	}
+	if candPub == nil {
+		return false
+	}
+	if curPub == nil {
+		return true
+	}
+	return candPub.After(*curPub)
 }
 
 func tmdbIntOf(id *domain.TMDBID) int {

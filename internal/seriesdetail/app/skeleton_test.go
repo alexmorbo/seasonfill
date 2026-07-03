@@ -533,6 +533,154 @@ func TestSkeletonComposer_TrailerKey(t *testing.T) {
 	require.Equal(t, "dQw4w9WgXcQ", dto.Hero.TrailerKey.Value())
 }
 
+// S-F trailer i18n — direct table-driven coverage of the lang-aware pick.
+func trailerVid(lang, key string, official bool, published *time.Time) enrichpersistence.Video {
+	v := enrichpersistence.Video{
+		Site:        new("YouTube"),
+		Key:         new(key),
+		Type:        new("Trailer"),
+		Official:    official,
+		PublishedAt: published,
+	}
+	if lang != "" {
+		v.Language = new(lang)
+	}
+	return v
+}
+
+func TestPickTrailerForLang(t *testing.T) {
+	t.Parallel()
+
+	ru := trailerVid("ru", "ruKEY123456", true, nil)
+	en := trailerVid("en", "enKEY123456", true, nil)
+	orig := trailerVid("ja", "jaKEY123456", true, nil) // original_language = ja
+	foreign := trailerVid("de", "deKEY123456", true, nil)
+
+	tests := []struct {
+		name    string
+		videos  []enrichpersistence.Video
+		lang    string
+		origLng string
+		wantKey string // "" means expect nil
+	}{
+		{
+			name:    "ru present -> ru key",
+			videos:  []enrichpersistence.Video{en, ru, orig},
+			lang:    "ru-RU",
+			origLng: "ja",
+			wantKey: "ruKEY123456",
+		},
+		{
+			name:    "ru absent, original_language present -> original key",
+			videos:  []enrichpersistence.Video{en, orig},
+			lang:    "ru-RU",
+			origLng: "ja",
+			wantKey: "jaKEY123456",
+		},
+		{
+			name:    "only en videos -> en key",
+			videos:  []enrichpersistence.Video{en},
+			lang:    "ru-RU",
+			origLng: "ja",
+			wantKey: "enKEY123456",
+		},
+		{
+			name:    "empty list -> nil",
+			videos:  nil,
+			lang:    "ru-RU",
+			origLng: "ja",
+			wantKey: "",
+		},
+		{
+			name:    "catch-all: only a foreign language -> still returned",
+			videos:  []enrichpersistence.Video{foreign},
+			lang:    "ru-RU",
+			origLng: "ja",
+			wantKey: "deKEY123456",
+		},
+		{
+			name: "NULL Language falls to catch-all, no panic",
+			videos: []enrichpersistence.Video{
+				trailerVid("", "nilLANG1234", true, nil),
+			},
+			lang:    "ru-RU",
+			origLng: "ja",
+			wantKey: "nilLANG1234",
+		},
+		{
+			name: "NULL Site/Key skipped",
+			videos: []enrichpersistence.Video{
+				{Language: new("ru"), Site: nil, Key: new("badSITE1234"), Type: new("Trailer"), Official: true},
+				{Language: new("ru"), Site: new("YouTube"), Key: nil, Type: new("Trailer"), Official: true},
+				ru,
+			},
+			lang:    "ru-RU",
+			origLng: "ja",
+			wantKey: "ruKEY123456",
+		},
+		{
+			name:    "empty original_language tier skipped",
+			videos:  []enrichpersistence.Video{en},
+			lang:    "ru-RU",
+			origLng: "",
+			wantKey: "enKEY123456",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := pickTrailerForLang(tc.videos, tc.lang, tc.origLng)
+			if tc.wantKey == "" {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, tc.wantKey, got.Value())
+		})
+	}
+}
+
+// Within a language group an official YouTube Trailer is preferred over a
+// non-official / non-YouTube sibling in the same language.
+func TestPickTrailerForLang_PreferOfficialYouTube(t *testing.T) {
+	t.Parallel()
+
+	nonOfficial := trailerVid("ru", "nonoffic123", false, nil)
+	nonYouTube := enrichpersistence.Video{
+		Language: new("ru"), Site: new("Vimeo"), Key: new("vimeoKEY123"),
+		Type: new("Trailer"), Official: true,
+	}
+	official := trailerVid("ru", "officialK12", true, nil)
+
+	got := pickTrailerForLang(
+		[]enrichpersistence.Video{nonOfficial, nonYouTube, official},
+		"ru-RU", "ja",
+	)
+	require.NotNil(t, got)
+	require.Equal(t, "officialK12", got.Value())
+}
+
+// Among equally-preferred same-language videos the newest PublishedAt wins;
+// a nil PublishedAt sorts last.
+func TestPickTrailerForLang_TieBreakPublishedAt(t *testing.T) {
+	t.Parallel()
+
+	older := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	got := pickTrailerForLang(
+		[]enrichpersistence.Video{
+			trailerVid("ru", "nilPubli123", true, nil),
+			trailerVid("ru", "olderPub123", true, &older),
+			trailerVid("ru", "newerPub123", true, &newer),
+		},
+		"ru-RU", "ja",
+	)
+	require.NotNil(t, got)
+	require.Equal(t, "newerPub123", got.Value())
+}
+
 // --- C3c-1 external_links footer restore ---
 
 func TestSkeletonComposer_ExternalLinks_Present(t *testing.T) {
