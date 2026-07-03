@@ -23,6 +23,7 @@ type PersonResponse struct {
 	TVCredits    *PersonTVCredits    `json:"tv_credits"`
 	MovieCredits *PersonMovieCredits `json:"movie_credits"`
 	ExternalIDs  *PersonExternalIDs  `json:"external_ids"`
+	Translations *PersonTranslations `json:"translations"`
 }
 
 // PersonTVCredits mirrors tv_credits sub-resource.
@@ -79,4 +80,30 @@ type PersonExternalIDs struct {
 	TwitterID   string         `json:"twitter_id"`
 	WikidataID  string         `json:"wikidata_id"`
 	TVDBID      *domain.TVDBID `json:"tvdb_id"`
+}
+
+// PersonTranslations — append_to_response=translations sub-resource on
+// /person/{id}. Each entry carries one language's localised biography.
+// S-H reads this to populate person_biographies for every supported
+// language from a single GetPerson round-trip (mirrors TVTranslations).
+type PersonTranslations struct {
+	Translations []PersonTranslation `json:"translations"`
+}
+
+// PersonTranslation is one row of translations.translations[*]. ISO6391 is
+// the bare 2-letter language code (matched against shortLang(userTag)); Data
+// holds the localised biography.
+type PersonTranslation struct {
+	ISO6391  string                `json:"iso_639_1"`
+	ISO31661 string                `json:"iso_3166_1"`
+	Data     PersonTranslationData `json:"data"`
+}
+
+// PersonTranslationData is the `data` object inside a PersonTranslation. The
+// person-translations sub-resource ships a localised biography (and name); S-H
+// uses Biography. A named type (not an anonymous struct) mirrors
+// TVTranslationData and keeps test fixtures constructible.
+type PersonTranslationData struct {
+	Biography string `json:"biography"`
+	Name      string `json:"name"`
 }

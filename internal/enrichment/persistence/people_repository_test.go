@@ -446,3 +446,38 @@ func TestPeopleRepository_Get_ResolvesBiographyViaFallback(t *testing.T) {
 		})
 	}
 }
+
+// TestPeopleRepository_Get_BiographyFallsBackToEnUS proves the reader used by
+// people/usecase (PeopleRepository.Get → pickLanguageFallback) resolves a
+// ru-RU request to the en-US biography when no ru-RU row exists — the exact
+// contract that lets PersonWorker skip writing an empty ru row (S-H). No
+// person_biographies reader change was required for the all-langs writer.
+func TestPeopleRepository_Get_BiographyFallsBackToEnUS(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+
+			peopleRepo := NewPeopleRepository(db)
+			personID, err := peopleRepo.Upsert(ctx, samplePerson("Bryan Cranston"))
+			require.NoError(t, err)
+
+			// Seed ONLY the en-US biography — mirrors the S-H writer skipping
+			// an absent/empty ru-RU translation entry.
+			bios := NewPersonBiographiesRepository(db)
+			require.NoError(t, bios.Upsert(ctx, people.PersonBiography{
+				PersonID:  personID,
+				Language:  "en-US",
+				Biography: new("An American actor."),
+			}))
+
+			// A ru-RU read must fall back to the en-US row.
+			got, err := peopleRepo.Get(ctx, personID, "ru-RU")
+			require.NoError(t, err)
+			assert.Equal(t, "An American actor.", got.Biography)
+			assert.Equal(t, "en-US", got.BiographyLanguage)
+		})
+	}
+}

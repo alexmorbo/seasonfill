@@ -113,5 +113,25 @@
     "twitter_id": "BryanCranston",
     "wikidata_id": "Q272270",
     "tvdb_id": 253935
+  },
+  "translations": {
+    "translations": [
+      {
+        "iso_639_1": "en",
+        "iso_3166_1": "US",
+        "data": {
+          "name": "",
+          "biography": "Bryan Lee Cranston is an American actor, voice actor, writer, and director."
+        }
+      },
+      {
+        "iso_639_1": "ru",
+        "iso_3166_1": "RU",
+        "data": {
+          "name": "",
+          "biography": "Брайан Ли Крэнстон — американский актёр озвучивания, сценарист и режиссёр."
+        }
+      }
+    ]
   }
 }

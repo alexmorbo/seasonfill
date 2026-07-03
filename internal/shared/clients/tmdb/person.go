@@ -9,9 +9,9 @@ import (
 )
 
 // personAppendToResponse mirrors PRD §5.5: one /person/{id} call
-// returns biography + filmography + external ids in a single
-// round-trip.
-const personAppendToResponse = "tv_credits,movie_credits,external_ids"
+// returns biography + filmography + external ids + per-language
+// biography translations in a single round-trip.
+const personAppendToResponse = "tv_credits,movie_credits,external_ids,translations"
 
 // GetPerson fetches /person/{id} with append_to_response.
 func (c *Client) GetPerson(ctx context.Context, id int64, language string) (*PersonResponse, error) {

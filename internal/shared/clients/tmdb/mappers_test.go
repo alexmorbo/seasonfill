@@ -300,3 +300,26 @@ func TestMapTVToCanon_OriginCountriesEmpty(t *testing.T) {
 		t.Errorf("OriginCountries should be nil, got %v", c.OriginCountries)
 	}
 }
+
+// TestPersonResponse_TranslationsParse proves the append_to_response=
+// translations sub-resource on /person/{id} decodes into PersonResponse
+// (S-H all-langs biography source). One GetPerson yields both en + ru bios.
+func TestPersonResponse_TranslationsParse(t *testing.T) {
+	p := loadPerson(t, "person_17419.json")
+	if p.Translations == nil {
+		t.Fatal("PersonResponse.Translations must be non-nil after append_to_response=translations")
+	}
+	byLang := make(map[string]string, len(p.Translations.Translations))
+	for _, tr := range p.Translations.Translations {
+		byLang[tr.ISO6391] = tr.Data.Biography
+	}
+	if byLang["en"] == "" {
+		t.Errorf("en biography must be present, got %q", byLang["en"])
+	}
+	if byLang["ru"] == "" {
+		t.Errorf("ru biography must be present, got %q", byLang["ru"])
+	}
+	if byLang["en"] == byLang["ru"] {
+		t.Error("en and ru biographies must differ (proves per-lang decode, not a shared root)")
+	}
+}

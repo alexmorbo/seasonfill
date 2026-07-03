@@ -4,8 +4,10 @@
 //   1. Read person row.
 //   2. Skip if hydration=full AND person.EnrichmentSyncedAt is within TTL.
 //   3. tmdbClient.GetPerson → MapPersonToDomain → person + credits.
-//   4. ONE tx: upsert people (full) + person_biographies (en-US) +
-//      person_credits (batch) + external_ids (imdb / homepage / socials).
+//   4. ONE tx: upsert people (full) + person_biographies (one row per
+//      supported user language, from the single GetPerson translations
+//      sub-resource) + person_credits (batch) + external_ids (imdb /
+//      homepage / socials).
 //   5. Stamp people.enrichment_synced_at via MarkSynced + clear any
 //      outstanding enrichment_errors row.
 //
@@ -26,6 +28,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -34,7 +37,7 @@ import (
 type PersonWorkerDeps struct {
 	TMDB              TMDBClient
 	Tx                Transactor
-	Language          string // "en-US"; ru lands in C-5
+	Language          string // base TMDB call language (en-US); all supported langs populated via translations
 	People            PeopleWritePort
 	PersonBiographies PersonBiographiesPort
 	PersonCredits     PersonCreditsPort
@@ -143,11 +146,11 @@ func (w *PersonWorker) Handle(ctx context.Context, personID int64) error {
 	mapped, credits := tmdb.MapPersonToDomain(resp)
 	mapped.ID = personID // preserve PK across the upsert path
 	xids := personExternalIDsFromResponse(resp)
-	bio := personBiographyRow(personID, w.deps.Language, mapped.Biography)
+	bios := w.personBiographyRows(personID, mapped.Biography, resp)
 
 	// 5. ONE tx: people → person_biographies → person_credits → external_ids.
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		return w.applyAll(txCtx, personID, mapped, bio, credits, xids)
+		return w.applyAll(txCtx, personID, mapped, bios, credits, xids)
 	})
 	if err != nil {
 		return w.handleTMDBError(ctx, personID, "tx", err, prevAttempts, start)
@@ -167,16 +170,59 @@ func (w *PersonWorker) Handle(ctx context.Context, personID int64) error {
 	return nil
 }
 
+// personBiographyRows builds one person_biographies row per supported user
+// language from a SINGLE GetPerson response. The call-language biography is
+// the response ROOT (mapped.Biography, fetched with language=w.deps.Language);
+// every OTHER supported language is taken from the
+// append_to_response=translations sub-resource, matched by short iso code.
+//
+// A language with no biography text yields a row whose Biography pointer is
+// nil — applyAll skips it, so an empty ru row is NEVER written and the reader's
+// §5.6 fallback (lang → en-US) serves the English text at read time rather than
+// mislabelling English under a ru key.
+//
+// Base-lang guarantee: w.deps.Language is the base tag (en-US), so the root IS
+// the en-US biography — the en-US row is always covered when non-empty. If the
+// call language were ever changed away from en-US, en-US would instead be
+// covered by the translations "en" entry, so en-US is never left
+// unrepresented.
+func (w *PersonWorker) personBiographyRows(
+	personID int64,
+	rootBiography string,
+	resp *tmdb.PersonResponse,
+) []people.PersonBiography {
+	trByLang := make(map[string]*tmdb.PersonTranslation)
+	if resp != nil && resp.Translations != nil {
+		for i := range resp.Translations.Translations {
+			t := &resp.Translations.Translations[i]
+			trByLang[shortLang(t.ISO6391)] = t
+		}
+	}
+	callLang := shortLang(w.deps.Language)
+
+	rows := make([]people.PersonBiography, 0, len(locale.SupportedUserLanguages))
+	for _, lang := range locale.SupportedUserLanguages {
+		text := ""
+		if shortLang(lang) == callLang {
+			text = rootBiography // response root = call-language biography
+		} else if tr := trByLang[shortLang(lang)]; tr != nil {
+			text = tr.Data.Biography
+		}
+		rows = append(rows, personBiographyRow(personID, lang, text))
+	}
+	return rows
+}
+
 // applyAll runs every repo write inside ONE tx. Order: people →
-// biographies → credits (batched) → external_ids. The people upsert
-// is BY PK (mapped.ID = personID) so we lift the existing stub row
-// rather than insert a new one — preserving series_people foreign
-// keys.
+// biographies (one row per supported language) → credits (batched) →
+// external_ids. The people upsert is BY PK (mapped.ID = personID) so we
+// lift the existing stub row rather than insert a new one — preserving
+// series_people foreign keys.
 func (w *PersonWorker) applyAll(
 	txCtx context.Context,
 	personID int64,
 	person people.Person,
-	bio people.PersonBiography,
+	bios []people.PersonBiography,
 	credits []people.PersonCredit,
 	xids []externalIDRow,
 ) error {
@@ -185,13 +231,17 @@ func (w *PersonWorker) applyAll(
 		return fmt.Errorf("upsert person: %w", err)
 	}
 
-	// 2. person_biographies (en-US) — only write when biography text
-	//    is non-empty. Empty bio is normal for a Person with no TMDB
-	//    biography text yet; writing an empty row pollutes the
-	//    §5.6 fallback (it would return "" as a successful match).
-	if bio.Biography != nil && *bio.Biography != "" {
+	// 2. person_biographies — one row per supported user language. Write
+	//    ONLY rows whose biography text is non-empty (personBiographyRow
+	//    yields a nil Biography pointer for empty text). An empty ru row is
+	//    never persisted; the reader's §5.6 fallback returns en-US instead of
+	//    an empty ru match, and never mislabels English as ru.
+	for _, bio := range bios {
+		if bio.Biography == nil || *bio.Biography == "" {
+			continue
+		}
 		if err := w.deps.PersonBiographies.Upsert(txCtx, bio); err != nil {
-			return fmt.Errorf("upsert person_biographies: %w", err)
+			return fmt.Errorf("upsert person_biographies (lang=%s): %w", bio.Language, err)
 		}
 	}
 

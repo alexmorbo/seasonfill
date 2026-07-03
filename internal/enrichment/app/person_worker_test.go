@@ -344,3 +344,85 @@ func TestPersonWorker_RejectsMissingDeps(t *testing.T) {
 	_, err = NewPersonWorker(PersonWorkerDeps{TMDB: &fakeTMDBPerson{}, Tx: fakeTxr{}})
 	require.Error(t, err, "missing repository ports should error")
 }
+
+// TestPersonWorker_AllLangs_BothBiographiesWritten — one GetPerson response
+// carrying en (root) + ru (translations) biographies must yield BOTH the
+// en-US and ru-RU person_biographies rows in a single round-trip.
+func TestPersonWorker_AllLangs_BothBiographiesWritten(t *testing.T) {
+	t.Parallel()
+	w, f := newPersonWorkerForTest(t, nil)
+	f.tmdb.person.Biography = "An actor." // root = call-lang (en-US)
+	f.tmdb.person.Translations = &tmdb.PersonTranslations{
+		Translations: []tmdb.PersonTranslation{
+			{ISO6391: "en", ISO31661: "US", Data: tmdb.PersonTranslationData{Biography: "An actor."}},
+			{ISO6391: "ru", ISO31661: "RU", Data: tmdb.PersonTranslationData{Biography: "Актёр."}},
+		},
+	}
+	require.NoError(t, w.Handle(context.Background(), 42))
+
+	assert.Equal(t, 1, f.tmdb.calls, "single TMDB round-trip covers all langs")
+	require.Len(t, f.biographies.rows, 2, "both en-US and ru-RU biographies written")
+	byLang := make(map[string]string, 2)
+	for _, r := range f.biographies.rows {
+		require.NotNil(t, r.Biography, "written rows never carry a nil biography")
+		byLang[r.Language] = *r.Biography
+	}
+	assert.Equal(t, "An actor.", byLang["en-US"], "en-US = response root biography")
+	assert.Equal(t, "Актёр.", byLang["ru-RU"], "ru-RU = translations entry biography")
+}
+
+// TestPersonWorker_EmptyRuBiography_OnlyEnUSWritten — when the ru translation
+// entry is ABSENT (or empty), the ru-RU row must NOT be persisted; only the
+// en-US root row is written. The reader falls back en-US for a ru-RU request.
+func TestPersonWorker_EmptyRuBiography_OnlyEnUSWritten(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		trans *tmdb.PersonTranslations
+	}{
+		{
+			name: "ru entry absent",
+			trans: &tmdb.PersonTranslations{Translations: []tmdb.PersonTranslation{
+				{ISO6391: "en", ISO31661: "US", Data: tmdb.PersonTranslationData{Biography: "An actor."}},
+			}},
+		},
+		{
+			name: "ru entry present but empty biography",
+			trans: &tmdb.PersonTranslations{Translations: []tmdb.PersonTranslation{
+				{ISO6391: "en", ISO31661: "US", Data: tmdb.PersonTranslationData{Biography: "An actor."}},
+				{ISO6391: "ru", ISO31661: "RU", Data: tmdb.PersonTranslationData{Biography: ""}},
+			}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w, f := newPersonWorkerForTest(t, nil)
+			f.tmdb.person.Biography = "An actor."
+			f.tmdb.person.Translations = tc.trans
+
+			require.NoError(t, w.Handle(context.Background(), 42))
+
+			require.Len(t, f.biographies.rows, 1, "empty ru row must never be persisted")
+			assert.Equal(t, "en-US", f.biographies.rows[0].Language)
+			require.NotNil(t, f.biographies.rows[0].Biography)
+			assert.Equal(t, "An actor.", *f.biographies.rows[0].Biography)
+		})
+	}
+}
+
+// TestPersonWorker_NoBiographyAnywhere_NoRows — a person with no root and no
+// translation biographies writes zero bio rows and does not error (stub-person
+// behaviour preserved).
+func TestPersonWorker_NoBiographyAnywhere_NoRows(t *testing.T) {
+	t.Parallel()
+	w, f := newPersonWorkerForTest(t, nil)
+	f.tmdb.person.Biography = ""
+	f.tmdb.person.Translations = nil
+
+	require.NoError(t, w.Handle(context.Background(), 42))
+	assert.Empty(t, f.biographies.rows, "no biography anywhere → no rows, no error")
+	require.Empty(t, f.enrichmentErrors.failures, "no biography is not an error")
+}
