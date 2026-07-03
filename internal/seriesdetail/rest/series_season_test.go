@@ -106,6 +106,12 @@ func TestSeriesSeasonHandler_Get_200(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, 2, body.Season.SeasonNumber)
 	require.Len(t, body.Season.Episodes, 1)
+	// S-E2 regression guard: with EpisodeTexts returning nothing, the
+	// episode title/overview stay blank. CanonEpisode carries no title
+	// field, so there is no canon episode-title fallback to reintroduce —
+	// this locks the already-correct texts-only behaviour (mapSeasons).
+	require.Empty(t, body.Season.Episodes[0].Title, "episode title is texts-only, never canon")
+	require.Empty(t, body.Season.Episodes[0].Overview)
 }
 
 func TestSeriesSeasonHandler_Get_404_UnknownSeason(t *testing.T) {

@@ -108,6 +108,27 @@ func TestSeasonsComposer_LocalizedName_RuPresent(t *testing.T) {
 	assert.Equal(t, "Сезон 1", out.Seasons[0].Name)
 }
 
+// S-E2 — the season name resolves ONLY from season_texts, never canon,
+// even when canon.name differs from every text row (en-US fallback under
+// a ru-RU request).
+func TestSeasonsComposer_NameFromTextsNotCanon(t *testing.T) {
+	t.Parallel()
+	c := NewSeasonsComposer(SeasonsDeps{
+		Series:  &seasonsFakeSeries{canon: fullCanon()},
+		Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1, Name: new("CANON-SEASON")}}},
+		SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{
+			1: {SeasonNumber: 1, Language: "en-US", Name: new("Season One")},
+		}},
+		Aggregates: &seasonsFakeAgg{},
+		Logger:     seasonsQuietLogger(),
+	})
+	out, err := c.Compose(context.Background(), 42, "ru-RU")
+	require.NoError(t, err)
+	require.Len(t, out.Seasons, 1)
+	assert.Equal(t, "Season One", out.Seasons[0].Name, "name from season_texts, NEVER canon")
+	assert.NotEqual(t, "CANON-SEASON", out.Seasons[0].Name)
+}
+
 func TestSeasonsComposer_LocalizedName_EnFallback(t *testing.T) {
 	t.Parallel()
 	// Repo already resolved en-US for the season key; composer uses the map value.
@@ -126,7 +147,9 @@ func TestSeasonsComposer_LocalizedName_EnFallback(t *testing.T) {
 	assert.Equal(t, "Season Two", out.Seasons[0].Name)
 }
 
-func TestSeasonsComposer_BothAbsent_CanonName(t *testing.T) {
+// S-E2 — no season_texts row → blank name (canon seasons.name is no
+// longer a tier-3 fallback; FE renders the numbered-label placeholder).
+func TestSeasonsComposer_BothAbsent_BlankNotCanon(t *testing.T) {
 	t.Parallel()
 	c := NewSeasonsComposer(SeasonsDeps{
 		Series:      &seasonsFakeSeries{canon: fullCanon()},
@@ -138,7 +161,8 @@ func TestSeasonsComposer_BothAbsent_CanonName(t *testing.T) {
 	out, err := c.Compose(context.Background(), 42, "ru-RU")
 	require.NoError(t, err)
 	require.Len(t, out.Seasons, 1)
-	assert.Equal(t, "Canon 3", out.Seasons[0].Name)
+	assert.Equal(t, "", out.Seasons[0].Name, "no texts row → blank, NEVER canon")
+	assert.NotEqual(t, "Canon 3", out.Seasons[0].Name)
 }
 
 func TestSeasonsComposer_BothAbsent_CanonNameNil_EmptyString(t *testing.T) {
@@ -287,7 +311,9 @@ func TestSeasonsComposer_TextsAndAggregateError_NonFatal(t *testing.T) {
 	out, err := c.Compose(context.Background(), 42, "ru-RU")
 	require.NoError(t, err, "texts/aggregate errors must not fail the page")
 	require.Len(t, out.Seasons, 1)
-	assert.Equal(t, "Canon 1", out.Seasons[0].Name)
+	// S-E2 — texts repo error → nil map → blank name (not canon). EpisodeCount
+	// is NOT a text field so it still resolves from canon.
+	assert.Equal(t, "", out.Seasons[0].Name)
 	assert.Equal(t, 9, out.Seasons[0].EpisodeCount)
 	assert.NotContains(t, out.Degraded, "freshener")
 }

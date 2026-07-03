@@ -147,6 +147,27 @@ func (f *seriesCacheFixture) seedWith(
 	require.NoError(t, f.db.Model(&database.SeriesCacheModel{}).
 		Where("instance_name = ? AND sonarr_series_id = ?", instance, id).
 		Update("updated_at", ts).Error)
+	f.seedEnUSSeriesText(t, instance, id, title)
+}
+
+// seedEnUSSeriesText writes the base en-US series_texts row for a seeded
+// series_cache (instance, sonarr_id). S-E2: ListByFilter resolves the
+// display title / title_asc sort key from series_texts (not canon
+// series.title), so every fixture row needs a base row — this mirrors
+// the S-E1 prod guarantee that each series carries an en-US text.
+func (f *seriesCacheFixture) seedEnUSSeriesText(t *testing.T, instance shareddomain.InstanceName, id shareddomain.SonarrSeriesID, title string) {
+	t.Helper()
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, id,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "seeded row must have a resolved canon series_id")
+	require.NoError(t, f.db.Exec(
+		`INSERT INTO series_texts (series_id, language, title, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT (series_id, language) DO UPDATE SET title = excluded.title`,
+		int64(*sc.SeriesID), "en-US", title, time.Now().UTC(),
+	).Error)
 }
 
 func (f *seriesCacheFixture) seed(t *testing.T, instance shareddomain.InstanceName, id shareddomain.SonarrSeriesID, title string, missing int, updatedAt time.Time) {
@@ -163,6 +184,7 @@ func (f *seriesCacheFixture) seed(t *testing.T, instance shareddomain.InstanceNa
 	require.NoError(t, f.db.Model(&database.SeriesCacheModel{}).
 		Where("instance_name = ? AND sonarr_series_id = ?", instance, id).
 		Update("updated_at", updatedAt).Error)
+	f.seedEnUSSeriesText(t, instance, id, title)
 }
 
 func (f *seriesCacheFixture) seedAired(t *testing.T, instance shareddomain.InstanceName, id shareddomain.SonarrSeriesID, title string, lastAired *time.Time, updatedAt time.Time) {
@@ -179,6 +201,7 @@ func (f *seriesCacheFixture) seedAired(t *testing.T, instance shareddomain.Insta
 	require.NoError(t, f.db.Model(&database.SeriesCacheModel{}).
 		Where("instance_name = ? AND sonarr_series_id = ?", instance, id).
 		Update("updated_at", updatedAt).Error)
+	f.seedEnUSSeriesText(t, instance, id, title)
 }
 
 // seedNetworkForSeries writes a (networks, series_networks) row for the

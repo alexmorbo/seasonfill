@@ -593,6 +593,7 @@ func (h *InstancesHandler) ListSeriesCache(c *gin.Context) {
 			Search:        q,
 			MonitoredOnly: monitored,
 			Networks:      networks,
+			Lang:          c.Query("lang"),
 		},
 		sortKey,
 		ports.Pagination{Limit: limit, Cursor: cursor},

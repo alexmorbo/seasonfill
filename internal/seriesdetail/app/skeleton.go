@@ -223,11 +223,15 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 }
 
 func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, canon series.Canon, seriesID domain.SeriesID, langStr string, langTag values.LanguageTag) error {
-	// Localized title/tagline via fallback chain; canon.Title on miss.
-	display := canon.Title
+	// S-E2 — title/tagline resolved ONLY from series_texts (requested
+	// lang → en-US via GetWithFallback). Canon series.title is no longer
+	// a fallback tier (dark-launch Variant A; S-E1 guarantees an en-US
+	// row). A total miss leaves the Title a zero VO → JSON null, which the
+	// FE renders as a placeholder.
+	var display string
 	text, terr := sc.d.SeriesTexts.GetWithFallback(ctx, seriesID, langStr)
 	if terr == nil {
-		if text.Title != nil && *text.Title != "" && !shouldPreferCanon(canon, langStr, text.Language) {
+		if text.Title != nil {
 			display = *text.Title
 		}
 		if text.Tagline != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/dbtx"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 )
 
 // SeriesCacheRepository persists the thin per-instance Sonarr projection
@@ -92,7 +93,12 @@ type cacheRow struct {
 // available the moment the canon row carries a path, independent of
 // whether media_assets has caught up. This replaces the earlier LEFT
 // JOIN on media_assets, which made tiles wait for the downloader.
-const seriesCacheSelect = `
+// seriesCacheSelectCore projects every column EXCEPT the display title.
+// The title is appended per read path: canon s.title for the point reads
+// (seriesCacheSelect, no localization), or the series_texts-resolved
+// expression for the catalog list (ListByFilter, S-E2). Column ordering
+// is irrelevant — cacheRow is scanned by alias.
+const seriesCacheSelectCore = `
 		series_cache.instance_name      AS instance_name,
 		series_cache.sonarr_series_id   AS sonarr_series_id,
 		series_cache.series_id          AS series_id,
@@ -104,7 +110,6 @@ const seriesCacheSelect = `
 		series_cache.aired_episode_count AS aired_episode_count,
 		series_cache.updated_at         AS updated_at,
 		series_cache.deleted_at         AS deleted_at,
-		s.title                         AS s_title,
 		s.year                          AS s_year,
 		s.tvdb_id                       AS s_tvdb_id,
 		s.imdb_id                       AS s_imdb_id,
@@ -114,6 +119,13 @@ const seriesCacheSelect = `
 		s.last_air_date                 AS s_last_air_date,
 		s.poster_asset                  AS s_poster_asset
 	`
+
+// seriesCacheSelect is the point-read projection (Get / ListBySeriesID /
+// ListBySeriesIDs / ListActiveByInstance). These paths do not localize —
+// they keep the raw canon title. The catalog list path (ListByFilter)
+// uses seriesCacheSelectCore + a resolved-title expression instead.
+const seriesCacheSelect = seriesCacheSelectCore + `,
+		s.title                         AS s_title`
 
 // seriesCacheJoin is the canon JOIN. INNER — every cache row has a
 // canon row post-cutover; INNER catches stale data fast. No LEFT JOIN
@@ -479,6 +491,13 @@ func (r *SeriesCacheRepository) ListByFilter(
 		return nil, 0, false, nil, fmt.Errorf("list series_cache: invalid state %q", filter.State)
 	}
 
+	// S-E2: resolve the display title / title_asc sort key from
+	// series_texts (requested lang → en-US). lang is clamped to the
+	// supported whitelist so it is safe to inline into the correlated
+	// subquery (see resolvedTitleExpr).
+	lang := normalizeSupportedLang(filter.Lang)
+	titleExpr := resolvedTitleExpr(lang)
+
 	db := dbtx.DBFromContext(ctx, r.db).WithContext(ctx)
 	base := db.Table("series_cache").
 		Joins(seriesCacheJoin).
@@ -493,9 +512,10 @@ func (r *SeriesCacheRepository) ListByFilter(
 		return nil, 0, false, nil, fmt.Errorf("count series_cache: %w", err)
 	}
 
-	q := base.Session(&gorm.Session{}).Select(seriesCacheSelect)
-	q = applyCursor(q, sort, page.Cursor)
-	q = applyOrder(q, sort)
+	q := base.Session(&gorm.Session{}).
+		Select(seriesCacheSelectCore + ", " + titleExpr + " AS s_title")
+	q = applyCursor(q, sort, page.Cursor, titleExpr)
+	q = applyOrder(q, sort, titleExpr)
 
 	var rows []cacheRow
 	if err := q.Limit(page.Limit + 1).Find(&rows).Error; err != nil {
@@ -542,13 +562,14 @@ func applyStateFilter(q *gorm.DB, state ports.SeriesCacheState) *gorm.DB {
 	}
 }
 
-// applySearchFilter adds a case-insensitive substring predicate over
-// (s.title, title_slug) when q is non-empty. Story 120: uses
-// `LOWER(col) LIKE LOWER(?)` rather than Postgres ILIKE so the same
-// expression runs on SQLite (tests) and Postgres (prod) without a
-// dialect branch. The pattern is wrapped in `%…%` after wildcard
-// escaping so user input cannot smuggle SQL wildcards. An empty
-// trimmed q ⇒ no-op (returns the unmodified query).
+// applySearchFilter adds a case-insensitive substring predicate. S-E2 /
+// 569: the title match runs across ALL languages via series_texts (so a
+// Russian query finds the row whose display/en-US title is English),
+// plus the Sonarr title_slug. Canon s.title is no longer searched.
+// LOWER(...) LIKE LOWER(?) keeps sqlite (tests) and Postgres (prod) on
+// one expression; Postgres folds Cyrillic case, sqlite folds ASCII only
+// (unchanged from the prior canon-title search). Wildcards escaped;
+// empty trimmed q ⇒ no-op.
 func applySearchFilter(q *gorm.DB, search string) *gorm.DB {
 	trimmed := strings.TrimSpace(search)
 	if trimmed == "" {
@@ -556,7 +577,9 @@ func applySearchFilter(q *gorm.DB, search string) *gorm.DB {
 	}
 	pat := "%" + escapeLikePattern(trimmed) + "%"
 	return q.Where(
-		"(LOWER(s.title) LIKE LOWER(?) ESCAPE '\\' "+
+		"(EXISTS (SELECT 1 FROM series_texts st "+
+			"WHERE st.series_id = s.id "+
+			"AND LOWER(st.title) LIKE LOWER(?) ESCAPE '\\') "+
 			"OR LOWER(series_cache.title_slug) LIKE LOWER(?) ESCAPE '\\')",
 		pat, pat,
 	)
@@ -607,6 +630,40 @@ func escapeLikePattern(in string) string {
 	return r.Replace(in)
 }
 
+// normalizeSupportedLang clamps a caller-supplied tag to the closed
+// supported set (locale.SupportedUserLanguages). Anything blank or
+// unrecognised collapses to the base language (en-US). The return value
+// is ALWAYS one of the whitelist constants — which is what makes it safe
+// to inline into SQL (resolvedTitleExpr) without a bind parameter.
+func normalizeSupportedLang(lang string) string {
+	lang = strings.TrimSpace(lang)
+	for _, s := range locale.SupportedUserLanguages {
+		if lang == s {
+			return lang
+		}
+	}
+	return locale.Default()
+}
+
+// resolvedTitleExpr builds a correlated scalar subquery that resolves a
+// series' display title from series_texts using the §5.6 language
+// fallback: requested lang (CASE=2) → en-US (CASE=1) → first row by
+// language ASC. S-E2: this replaces the canon series.title read on the
+// catalog list (projection + title_asc sort + keyset cursor). Canon is
+// no longer a fallback tier (dark-launch Variant A; S-E1 guarantees an
+// en-US row per series).
+//
+// `lang` MUST come from normalizeSupportedLang — it is inlined as a
+// literal, NOT bound, because (1) GORM silently drops clause.Expr Vars
+// inside .Order(), and (2) the value is provably one of {en-US, ru-RU},
+// so there is no injection surface. `s` is the series alias from
+// seriesCacheJoin.
+func resolvedTitleExpr(lang string) string {
+	return "(SELECT st.title FROM series_texts st WHERE st.series_id = s.id " +
+		"ORDER BY CASE WHEN st.language = '" + lang + "' THEN 2 " +
+		"WHEN st.language = 'en-US' THEN 1 ELSE 0 END DESC, st.language ASC LIMIT 1)"
+}
+
 // applyCursor adds the keyset predicate for the chosen sort key.
 // updated_desc:    WHERE (updated_at, sonarr_series_id) < (ts, id)
 // title_asc:       WHERE (LOWER(s.title), sonarr_series_id) > (title, id)
@@ -619,14 +676,16 @@ func escapeLikePattern(in string) string {
 //	  WHERE last_air_date IS NULL AND sonarr_series_id < id
 //
 // nil cursor = first page (no predicate).
-func applyCursor(q *gorm.DB, sort ports.SeriesCacheSort, cur *ports.Cursor) *gorm.DB {
+func applyCursor(q *gorm.DB, sort ports.SeriesCacheSort, cur *ports.Cursor, titleExpr string) *gorm.DB {
 	if cur == nil {
 		return q
 	}
 	switch sort {
 	case ports.SeriesCacheSortTitleAsc:
 		title, sid := splitTitleCursorID(cur.ID)
-		return q.Where("(LOWER(s.title), series_cache.sonarr_series_id) > (?, ?)", title, sid)
+		// S-E2: keyset over the series_texts-resolved title (lang inlined
+		// in titleExpr), matching applyOrder + cursorFromRow.
+		return q.Where("(LOWER("+titleExpr+"), series_cache.sonarr_series_id) > (?, ?)", title, sid)
 	case ports.SeriesCacheSortAirDateDesc:
 		sid, _ := strconv.Atoi(cur.ID)
 		if cur.Timestamp.IsZero() {
@@ -649,10 +708,13 @@ func applyCursor(q *gorm.DB, sort ports.SeriesCacheSort, cur *ports.Cursor) *gor
 // sort BEFORE NULL rows (NULLS LAST semantics) on both Postgres and
 // SQLite — both engines treat `IS NULL` as a 0/1 expression and
 // accept ASC ordering on it.
-func applyOrder(q *gorm.DB, sort ports.SeriesCacheSort) *gorm.DB {
+func applyOrder(q *gorm.DB, sort ports.SeriesCacheSort, titleExpr string) *gorm.DB {
 	switch sort {
 	case ports.SeriesCacheSortTitleAsc:
-		return q.Order("LOWER(s.title) ASC, series_cache.sonarr_series_id ASC")
+		// S-E2: order by the series_texts-resolved title (lang inlined in
+		// titleExpr). GORM drops clause.Expr Vars in Order, hence the
+		// literal-inlined, bind-free expression.
+		return q.Order("LOWER(" + titleExpr + ") ASC, series_cache.sonarr_series_id ASC")
 	case ports.SeriesCacheSortAirDateDesc:
 		return q.Order("s.last_air_date IS NULL ASC, s.last_air_date DESC, series_cache.sonarr_series_id DESC")
 	default:

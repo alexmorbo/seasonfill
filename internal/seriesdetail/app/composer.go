@@ -291,10 +291,6 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 		}
 	}
 	d.Seasons = filtered
-	// C-season-fix — localize the single season's name/overview via
-	// season_texts (mirrors B3c SeasonsComposer). Missing row / nil / blank
-	// keeps canon (§5.6 tier 3). nil-OK dep; repo error → canon fallback,
-	// never fails the request.
 	if len(filtered) > 0 && c.d.SeasonTexts != nil {
 		texts, terr := c.d.SeasonTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
 		if terr != nil {
@@ -304,6 +300,12 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 				slog.String("error", terr.Error()))
 			texts = nil
 		}
+		// S-E2 — season name/overview come ONLY from season_texts (lang →
+		// en-US). Clear the canon-sourced values first so canon.name /
+		// canon.overview is no longer a silent tier-3 fallback (dark-launch
+		// Variant A). A miss / repo error → nil → FE numbered-label (#973).
+		d.Seasons[0].Canon.Name = nil
+		d.Seasons[0].Canon.Overview = nil
 		if txt, ok := texts[seasonNumber]; ok {
 			if txt.Name != nil && *txt.Name != "" {
 				n := *txt.Name

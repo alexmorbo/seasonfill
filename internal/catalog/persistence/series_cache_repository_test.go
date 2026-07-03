@@ -81,6 +81,25 @@ func seedNetworkJoinForCache(t *testing.T, db *gorm.DB, instance domain.Instance
 	}).Error)
 }
 
+// seedSeriesTextForCache writes a series_texts row for the canon series
+// resolved by (instance, sonarrID). S-E2 tests use it to give the list
+// query a localized title to resolve/search/sort on (post-repoint the
+// catalog no longer reads canon series.title). Idempotent upsert.
+func seedSeriesTextForCache(t *testing.T, db *gorm.DB, instance domain.InstanceName, sonarrID int, lang, title string) {
+	t.Helper()
+	var sc database.SeriesCacheModel
+	require.NoError(t, db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "series_cache row must have a resolved series_id")
+	require.NoError(t, db.Exec(
+		`INSERT INTO series_texts (series_id, language, title, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT (series_id, language) DO UPDATE SET title = excluded.title`,
+		int64(*sc.SeriesID), lang, title, time.Now().UTC(),
+	).Error)
+}
+
 func TestSeriesCacheRepository_Upsert_Insert_Get(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
@@ -490,6 +509,7 @@ func TestSeriesCacheRepository_ListByFilter_Search_MatchesTitleCaseInsensitive(t
 				entry.Title = c.title
 				entry.TitleSlug = c.slug
 				require.NoError(t, repo.Upsert(ctx, entry))
+				seedSeriesTextForCache(t, db, "main", int(c.id), "en-US", c.title)
 			}
 
 			queries := []struct {
@@ -571,11 +591,13 @@ func TestSeriesCacheRepository_ListByFilter_Search_EscapesWildcards(t *testing.T
 			a.Title = "100% Wolf"
 			a.TitleSlug = "100-percent-wolf"
 			require.NoError(t, repo.Upsert(ctx, a))
+			seedSeriesTextForCache(t, db, "main", 1, "en-US", "100% Wolf")
 
 			b := sampleEntry("main", 2)
 			b.Title = "Severance"
 			b.TitleSlug = "severance"
 			require.NoError(t, repo.Upsert(ctx, b))
+			seedSeriesTextForCache(t, db, "main", 2, "en-US", "Severance")
 
 			// `%` in user input must match the literal `%` row only — NOT
 			// degenerate to "match anything" (which is what unescaped LIKE does).
@@ -622,6 +644,7 @@ func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
 				entry := sampleEntry("main", domain.SonarrSeriesID(i+1))
 				entry.Title = title
 				require.NoError(t, repo.Upsert(ctx, entry))
+				seedSeriesTextForCache(t, db, "main", i+1, "en-US", title)
 			}
 
 			items, _, _, _, err := repo.ListByFilter(ctx, "main",
@@ -635,6 +658,115 @@ func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
 				got = append(got, strings.ToLower(it.Title))
 			}
 			assert.Equal(t, []string{"alpha", "bravo", "charlie", "mike", "zulu"}, got)
+		})
+	}
+}
+
+func TestSeriesCacheRepository_ListByFilter_Search_AllLanguages_569(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			ctx := context.Background()
+
+			// Row 1: en-US "Presumed Innocent" + ru-RU "Презумпция невиновности".
+			e1 := sampleEntry("main", 1)
+			e1.Title = "Presumed Innocent"
+			e1.TitleSlug = "presumed-innocent"
+			require.NoError(t, repo.Upsert(ctx, e1))
+			seedSeriesTextForCache(t, db, "main", 1, "en-US", "Presumed Innocent")
+			seedSeriesTextForCache(t, db, "main", 1, "ru-RU", "Презумпция невиновности")
+
+			// Row 2: a distractor with no matching text.
+			e2 := sampleEntry("main", 2)
+			e2.Title = "Severance"
+			e2.TitleSlug = "severance"
+			require.NoError(t, repo.Upsert(ctx, e2))
+			seedSeriesTextForCache(t, db, "main", 2, "en-US", "Severance")
+
+			// Russian query (matching case — sqlite folds ASCII only;
+			// Postgres would also match lowercase) finds the row whose
+			// display/en-US title is English, via its ru-RU series_texts row.
+			items, total, _, _, err := repo.ListByFilter(ctx, "main",
+				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll, Search: "Презумпция", Lang: "ru-RU"},
+				ports.SeriesCacheSortTitleAsc,
+				ports.Pagination{Limit: 10})
+			require.NoError(t, err)
+			require.Equal(t, 1, total)
+			require.Len(t, items, 1)
+			assert.Equal(t, domain.SonarrSeriesID(1), items[0].SonarrSeriesID)
+
+			// English query still finds it too.
+			items, total, _, _, err = repo.ListByFilter(ctx, "main",
+				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll, Search: "presumed", Lang: "en-US"},
+				ports.SeriesCacheSortTitleAsc,
+				ports.Pagination{Limit: 10})
+			require.NoError(t, err)
+			assert.Equal(t, 1, total)
+			require.Len(t, items, 1)
+			assert.Equal(t, domain.SonarrSeriesID(1), items[0].SonarrSeriesID)
+		})
+	}
+}
+
+func TestSeriesCacheRepository_ListByFilter_TitleAsc_PerLanguage(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			ctx := context.Background()
+
+			// Three series. en-US titles Alpha/Mike/Zulu; ru-RU titles chosen
+			// so the Russian ordering differs, and series 3 has NO ru row
+			// (en-US fallback). Pure-ASCII ru titles keep the order assertion
+			// dialect-stable (sqlite byte-orders, Cyrillic collation differs).
+			rows := []struct {
+				id     int
+				en, ru string
+				seedRu bool
+			}{
+				{1, "Zulu", "AAA_ru", true},  // ru sorts FIRST under ru-RU
+				{2, "Alpha", "BBB_ru", true}, // ru sorts SECOND
+				{3, "Mike", "", false},       // no ru row → en-US "Mike"
+			}
+			for _, r := range rows {
+				e := sampleEntry("main", domain.SonarrSeriesID(r.id))
+				e.Title = r.en
+				require.NoError(t, repo.Upsert(ctx, e))
+				seedSeriesTextForCache(t, db, "main", r.id, "en-US", r.en)
+				if r.seedRu {
+					seedSeriesTextForCache(t, db, "main", r.id, "ru-RU", r.ru)
+				}
+			}
+
+			// Under ru-RU: order by resolved title → AAA_ru(1), BBB_ru(2),
+			// Mike(3, en-US fallback).
+			items, _, _, _, err := repo.ListByFilter(ctx, "main",
+				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll, Lang: "ru-RU"},
+				ports.SeriesCacheSortTitleAsc,
+				ports.Pagination{Limit: 10})
+			require.NoError(t, err)
+			require.Len(t, items, 3)
+			gotRu := []int{int(items[0].SonarrSeriesID), int(items[1].SonarrSeriesID), int(items[2].SonarrSeriesID)}
+			assert.Equal(t, []int{1, 2, 3}, gotRu, "ru-RU order by russian titles, en-US fallback last")
+			// Display title reflects the resolved language.
+			assert.Equal(t, "AAA_ru", items[0].Title)
+			assert.Equal(t, "Mike", items[2].Title, "series 3 falls back to en-US")
+
+			// Under en-US: order by english titles → Alpha(2), Mike(3), Zulu(1).
+			items, _, _, _, err = repo.ListByFilter(ctx, "main",
+				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll, Lang: "en-US"},
+				ports.SeriesCacheSortTitleAsc,
+				ports.Pagination{Limit: 10})
+			require.NoError(t, err)
+			require.Len(t, items, 3)
+			gotEn := []int{int(items[0].SonarrSeriesID), int(items[1].SonarrSeriesID), int(items[2].SonarrSeriesID)}
+			assert.Equal(t, []int{2, 3, 1}, gotEn, "en-US order by english titles")
+			assert.Equal(t, "Alpha", items[0].Title)
 		})
 	}
 }
@@ -892,6 +1024,7 @@ func TestSeriesCacheRepository_ListByFilter_CombinedFilters(t *testing.T) {
 				e.Monitored = s.monitored
 				e.MissingCount = s.missing
 				require.NoError(t, repo.Upsert(ctx, e))
+				seedSeriesTextForCache(t, db, "main", int(s.id), "en-US", s.title)
 				seedNetworkJoinForCache(t, db, "main", int(s.id), s.network)
 			}
 

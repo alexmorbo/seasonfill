@@ -620,6 +620,12 @@ type SeriesCacheFilter struct {
 	// matched verbatim (case-sensitive) against series_cache.network;
 	// the network strings come from Sonarr and are stable.
 	Networks []string
+	// Lang is the caller's requested BCP-47 tag (e.g. "ru-RU"). S-E2:
+	// ListByFilter resolves the display title AND the title_asc sort key
+	// from series_texts using this language with an en-US fallback,
+	// instead of the canon series.title column. Empty / unsupported ⇒
+	// en-US. The repo validates against locale.SupportedUserLanguages.
+	Lang string
 }
 
 // LastGrabInfo holds the aggregated grab data for the list endpoint.

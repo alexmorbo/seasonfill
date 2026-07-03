@@ -518,8 +518,10 @@ func TestComposer_GetSeason_EN_DoesNotGetRU(t *testing.T) {
 	require.NotEqual(t, "Русское описание", *d.Seasons[0].Canon.Overview)
 }
 
-// Localized row entirely absent (empty map) → canon name+overview fallback.
-func TestComposer_GetSeason_NoTextsRow_CanonFallback(t *testing.T) {
+// S-E2 — localized row entirely absent (empty map) with the SeasonTexts
+// dep wired → canon name/overview are cleared to nil (canon is no longer
+// a tier-3 fallback; FE renders the numbered-label placeholder).
+func TestComposer_GetSeason_NoTextsRow_BlankNotCanon(t *testing.T) {
 	deps, _, _ := baseDeps(t)
 	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
 		{ID: 1, SeriesID: 42, SeasonNumber: 1, Name: new("Canon Name"), Overview: new("Canon Overview")},
@@ -529,18 +531,21 @@ func TestComposer_GetSeason_NoTextsRow_CanonFallback(t *testing.T) {
 	d, err := c.GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
 	require.NoError(t, err)
 	require.Len(t, d.Seasons, 1)
-	require.Equal(t, "Canon Name", *d.Seasons[0].Canon.Name)
-	require.Equal(t, "Canon Overview", *d.Seasons[0].Canon.Overview)
+	require.Nil(t, d.Seasons[0].Canon.Name, "no texts row → nil, NEVER canon")
+	require.Nil(t, d.Seasons[0].Canon.Overview)
 }
 
-// NULL/error pair: nil SeasonTexts dep AND a fake returning an error both
-// degrade to canon with no panic and a nil GetSeason error.
-func TestComposer_GetSeason_SeasonTexts_NilAndError_CanonFallback(t *testing.T) {
+// S-E2 NULL/error pair. The nil-dep case is back-compat: when the
+// SeasonTexts port is unwired the composer never touches canon, so canon
+// name/overview survive. A wired dep that ERRORS degrades to nil texts →
+// canon is cleared to nil (canon is no longer a fallback tier). Both
+// return a nil GetSeason error and never panic.
+func TestComposer_GetSeason_SeasonTexts_NilAndError(t *testing.T) {
 	canonRows := []series.CanonSeason{
 		{ID: 1, SeriesID: 42, SeasonNumber: 1, Name: new("Canon Name"), Overview: new("Canon Overview")},
 	}
 
-	t.Run("nil dep", func(t *testing.T) {
+	t.Run("nil dep keeps canon (unwired back-compat)", func(t *testing.T) {
 		deps, _, _ := baseDeps(t)
 		deps.Seasons = &fakeSeasons{rows: canonRows}
 		deps.SeasonTexts = nil
@@ -552,7 +557,7 @@ func TestComposer_GetSeason_SeasonTexts_NilAndError_CanonFallback(t *testing.T) 
 		require.Equal(t, "Canon Overview", *d.Seasons[0].Canon.Overview)
 	})
 
-	t.Run("repo error", func(t *testing.T) {
+	t.Run("repo error clears canon", func(t *testing.T) {
 		deps, _, _ := baseDeps(t)
 		deps.Seasons = &fakeSeasons{rows: canonRows}
 		deps.SeasonTexts = &seasonsFakeTexts{err: errors.New("season_texts db down")}
@@ -560,8 +565,8 @@ func TestComposer_GetSeason_SeasonTexts_NilAndError_CanonFallback(t *testing.T) 
 		d, err := c.GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
 		require.NoError(t, err)
 		require.Len(t, d.Seasons, 1)
-		require.Equal(t, "Canon Name", *d.Seasons[0].Canon.Name)
-		require.Equal(t, "Canon Overview", *d.Seasons[0].Canon.Overview)
+		require.Nil(t, d.Seasons[0].Canon.Name, "wired dep + repo error → nil, NEVER canon")
+		require.Nil(t, d.Seasons[0].Canon.Overview)
 	})
 }
 

@@ -307,14 +307,54 @@ func TestSkeletonComposer_HappyPath(t *testing.T) {
 	require.Equal(t, ModeSync, sf.gotMode)
 }
 
-func TestSkeletonComposer_MissingSeriesTexts_FallsBackToCanon(t *testing.T) {
+// S-E2 — series_texts miss/error → blank hero title (canon series.title
+// is no longer a fallback tier; the FE renders a placeholder). S-E1
+// guarantees an en-US row in prod, so this zero-title path is the
+// degraded case only.
+func TestSkeletonComposer_MissingSeriesTexts_BlankTitleNotCanon(t *testing.T) {
 	t.Parallel()
 	deps, _, _ := skBaseDeps(skBaseCanon()) // SeriesTexts errors by default
 	sc := NewSkeletonComposer(deps)
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
 	require.NoError(t, err)
-	require.Equal(t, "Star City", dto.Hero.Title.Value()) // canon fallback
-	require.True(t, dto.Hero.Tagline.IsZero())            // no tagline row → null
+	require.True(t, dto.Hero.Title.IsZero(), "series_texts miss → blank title, NEVER canon")
+	require.NotEqual(t, "Star City", dto.Hero.Title.Value())
+	require.True(t, dto.Hero.Tagline.IsZero()) // no tagline row → null
+}
+
+// S-E2 — hero title resolves ONLY from series_texts, never canon, even
+// when canon.Title differs from every text row.
+func TestSkeletonComposer_Hero_TitleFromTextsNotCanon(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	canon.Title = "CANON-DIFFERENT"
+	deps, _, _ := skBaseDeps(canon)
+	// GetWithFallback emulates requested→en-US: the fake returns the en-US
+	// row regardless of the requested ru-RU (production pickLanguageFallback).
+	deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
+		SeriesID: 42, Language: "en-US", Title: new("English Title"),
+	}}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, "English Title", dto.Hero.Title.Value(), "hero uses en-US series_texts fallback, NEVER canon")
+	require.NotEqual(t, "CANON-DIFFERENT", dto.Hero.Title.Value())
+}
+
+// S-E2 — a series with ONLY an en-US row renders that under a ru-RU
+// request via the repo's en-US fallback.
+func TestSkeletonComposer_Hero_EnUSFallbackUnderRu(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	canon.Title = "CANON-DIFFERENT"
+	deps, _, _ := skBaseDeps(canon)
+	deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
+		SeriesID: 42, Language: "en-US", Title: new("English Title"),
+	}}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, "English Title", dto.Hero.Title.Value())
 }
 
 func TestSkeletonComposer_CanonLoadError(t *testing.T) {

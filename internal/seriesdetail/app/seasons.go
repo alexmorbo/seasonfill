@@ -148,15 +148,16 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 	}
 
 	// Localized names/overviews — read AFTER the season:N fan-out so a cold open
-	// observes the freshly-written rows. (nil-safe: repo miss → nil map, canon
-	// fallback.)
+	// observes the freshly-written rows. S-E2: name/overview come ONLY from
+	// season_texts (requested lang → en-US); a repo miss / nil map renders blank
+	// (canon is no longer a tier-3 fallback), never fails the page.
 	texts, terr := sc.d.SeasonTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
 	if terr != nil {
 		sc.d.Logger.WarnContext(ctx, "seasons_texts_fallback_failed",
 			slog.Int64("series_id", int64(seriesID)),
 			slog.String("lang", lang),
 			slog.String("error", terr.Error()))
-		texts = nil // degrade to canon names, do NOT fail the page
+		texts = nil // degrade to blank names, do NOT fail the page
 	}
 
 	// S-C2 — per-season localized posters (lang → en-US; canon seasons.poster_asset
@@ -192,16 +193,18 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 	for i := range seasons {
 		s := seasons[i]
 
-		// Name: canon (tier 3) → overridden by localized row when present.
-		name := derefStr(s.Name)
-		if txt, ok := texts[s.SeasonNumber]; ok && txt.Name != nil && *txt.Name != "" {
-			name = *txt.Name
-		}
-
-		// Overview: canon → overridden by localized row when present.
-		overview := derefStr(s.Overview)
-		if txt, ok := texts[s.SeasonNumber]; ok && txt.Overview != nil && *txt.Overview != "" {
-			overview = *txt.Overview
+		// S-E2 — name/overview resolved ONLY from season_texts (requested
+		// lang → en-US via ListBySeriesWithFallback). Canon seasons.name /
+		// seasons.overview are no longer a fallback tier; a miss renders
+		// blank and the FE shows the numbered-label placeholder (#973).
+		var name, overview string
+		if txt, ok := texts[s.SeasonNumber]; ok {
+			if txt.Name != nil {
+				name = *txt.Name
+			}
+			if txt.Overview != nil {
+				overview = *txt.Overview
+			}
 		}
 
 		// air_date_start: canon season air_date, else aggregate MIN.
