@@ -10,11 +10,6 @@
 //     and the TMDB worker repopulates the base rows through the EXISTING
 //     4.5-rps limiter. Paces over hours/days by design; safe to re-run.
 //
-//  2. Series WITHOUT tmdb_id (never TMDB-enrichable) MISSING an en-US
-//     series_texts row → copy canon.title into series_texts{en-US} directly,
-//     only-if-absent (INSERT … ON CONFLICT DO NOTHING). Sonarr titles are
-//     latin, which is exactly the base-lang contract.
-//
 // Idempotent: a second run over a converged library nudges/copies zero rows.
 // Reuses the same DB bootstrap path as backfill-assets / auth-mode.
 package commands
@@ -76,8 +71,8 @@ func BackfillBaseLang(args []string) error {
 		verb = "would nudge/copy"
 	}
 	if _, err := fmt.Fprintf(os.Stdout,
-		"backfill-base-lang: %s %d tmdb-series (re-enrich) + %d tmdb-less series (canon.title copy)%s\n",
-		verb, res.TMDBNudged, res.CanonCopied, dryRunSuffix(*dryRun)); err != nil {
+		"backfill-base-lang: %s %d tmdb-series (re-enrich)%s\n",
+		verb, res.TMDBNudged, dryRunSuffix(*dryRun)); err != nil {
 		return fmt.Errorf("write stdout: %w", err)
 	}
 	return nil
@@ -95,19 +90,15 @@ type BackfillBaseLangResult struct {
 	// TMDBNudged is the number of TMDB series whose enrichment_tmdb_synced_at
 	// was cleared (or would be, in dry-run) to trigger re-enrichment.
 	TMDBNudged int64
-	// CanonCopied is the number of tmdb-less series that received (or would
-	// receive) a canon.title → series_texts{en-US} copy.
-	CanonCopied int64
 }
 
 // runBackfillBaseLang is the testable core.
 //
-//   - dryRun=true  → COUNT both sets, mutate nothing.
+//   - dryRun=true  → COUNT the deficient TMDB set, mutate nothing.
 //   - dryRun=false → clear enrichment_tmdb_synced_at on the deficient TMDB
-//     set; INSERT … ON CONFLICT DO NOTHING the canon.title copies.
+//     set so the cold-start re-sweep re-enriches it.
 //
-// The two sets are disjoint by construction (tmdb_id NOT NULL vs IS NULL),
-// so ordering is irrelevant and the whole thing is idempotent.
+// Idempotent: a converged library nudges zero rows.
 func runBackfillBaseLang(ctx context.Context, db *gorm.DB, dryRun bool, log *slog.Logger) (BackfillBaseLangResult, error) {
 	base := locale.Default() // "en-US"
 	var out BackfillBaseLangResult
@@ -138,41 +129,6 @@ func runBackfillBaseLang(ctx context.Context, db *gorm.DB, dryRun bool, log *slo
 		}
 		out.TMDBNudged = res.RowsAffected
 		log.InfoContext(ctx, "backfill_base_lang.tmdb_nudged",
-			slog.Int64("rows", res.RowsAffected))
-	}
-
-	// --- Set 2: tmdb-less series missing an en-US series_texts row → copy canon.title.
-	if dryRun {
-		var n int64
-		if err := db.WithContext(ctx).
-			Table("series AS s").
-			Where("s.tmdb_id IS NULL").
-			Where("s.title IS NOT NULL AND s.title <> ''").
-			Where(`NOT EXISTS (SELECT 1 FROM series_texts st
-			         WHERE st.series_id = s.id AND st.language = ?)`, base).
-			Count(&n).Error; err != nil {
-			return out, fmt.Errorf("count tmdb-less series: %w", err)
-		}
-		out.CanonCopied = n
-	} else {
-		// INSERT … SELECT … ON CONFLICT DO NOTHING keeps this atomic and
-		// only-if-absent in one round-trip. ? binds are dialect-portable
-		// (Postgres prod + SQLite test lane).
-		res := db.WithContext(ctx).Exec(`
-			INSERT INTO series_texts (series_id, language, title, updated_at)
-			SELECT s.id, ?, s.title, ?
-			  FROM series s
-			 WHERE s.tmdb_id IS NULL
-			   AND s.title IS NOT NULL AND s.title <> ''
-			   AND NOT EXISTS (SELECT 1 FROM series_texts st
-			         WHERE st.series_id = s.id AND st.language = ?)
-			ON CONFLICT (series_id, language) DO NOTHING`,
-			base, time.Now().UTC(), base)
-		if res.Error != nil {
-			return out, fmt.Errorf("copy canon.title to series_texts: %w", res.Error)
-		}
-		out.CanonCopied = res.RowsAffected
-		log.InfoContext(ctx, "backfill_base_lang.canon_copied",
 			slog.Int64("rows", res.RowsAffected))
 	}
 

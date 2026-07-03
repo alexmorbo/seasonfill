@@ -328,7 +328,6 @@ func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (doma
 			"tvdb_id":           gorm.Expr("COALESCE(series.tvdb_id, excluded.tvdb_id)"),
 			"imdb_id":           gorm.Expr("COALESCE(series.imdb_id, excluded.imdb_id)"),
 			"hydration":         gorm.Expr("CASE WHEN series.hydration = 'full' THEN series.hydration ELSE excluded.hydration END"),
-			"title":             gorm.Expr("excluded.title"),
 			"original_title":    gorm.Expr("COALESCE(series.original_title, excluded.original_title)"),
 			"status":            gorm.Expr("COALESCE(series.status, excluded.status)"),
 			"first_air_date":    gorm.Expr("COALESCE(series.first_air_date, excluded.first_air_date)"),
@@ -342,8 +341,6 @@ func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (doma
 			"origin_countries":  gorm.Expr("COALESCE(series.origin_countries, excluded.origin_countries)"),
 			"popularity":        gorm.Expr("COALESCE(series.popularity, excluded.popularity)"),
 			"in_production":     gorm.Expr("series.in_production"),
-			"poster_asset":      gorm.Expr("COALESCE(series.poster_asset, excluded.poster_asset)"),
-			"backdrop_asset":    gorm.Expr("COALESCE(series.backdrop_asset, excluded.backdrop_asset)"),
 			"tmdb_rating":       gorm.Expr("COALESCE(series.tmdb_rating, excluded.tmdb_rating)"),
 			"tmdb_votes":        gorm.Expr("COALESCE(series.tmdb_votes, excluded.tmdb_votes)"),
 			"imdb_rating":       gorm.Expr("series.imdb_rating"),
@@ -359,27 +356,26 @@ func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (doma
 	return m.ID, nil
 }
 
-// UpdateRecCanonMedia — Story 571 B-54. Narrow UPDATE that overwrites
-// series.poster_asset + series.backdrop_asset for a rec child from A3b's
-// TMDB summary payload. Bypasses UpsertStub's COALESCE-preserve on
-// poster_asset/backdrop_asset (which locks legacy en-US paths permanently
-// for existing rec children — the operator-surfaced bug this story
-// closes).
+// UpdateRecCanonMedia writes the rec child's en-US poster/backdrop into
+// series_media_texts — the read source of truth after S-E3b dropped the
+// canon series.poster_asset/backdrop_asset columns. Story 571 B-54: A3b
+// refreshes a parent's recommendations and stamps each rec child's
+// media from the parent's TMDB rec-summary payload so the rec carousel
+// serves language-preferred art on a cold visit.
 //
-// Uses UPDATE (not Upsert) so we ONLY touch the two media columns —
-// never mutate other Sonarr-authoritative fields (title, first_air_date,
-// status, tmdb_rating, etc). Safe to call within A3b's tx alongside
-// UpsertStub for the same row: UpsertStub COALESCE runs FIRST on ON
-// CONFLICT (preserves existing values), then this narrow UPDATE
-// unconditionally overwrites the two media columns with TMDB's
-// lang-preferred paths.
+// Mirrors the 584a SeriesMediaTextsRepository.Upsert OnConflict
+// semantics: COALESCE(excluded.X, series_media_texts.X) — a non-empty
+// path OVERWRITES the stored value (TMDB is authoritative for media per
+// PRD §5.4), an empty path preserves the prior value. Writes at the
+// en-US (base) tier; poster_hash/backdrop_hash/enriched_at are left
+// untouched (not in DO UPDATE) so a prior 584a per-lang write's hashes
+// survive.
 //
-// Both paths empty → no-op (avoids writing NULL and triggering the
-// Story 319 image-null cold-start recovery loop). Single non-empty path
-// updates only that column.
-//
-// Row-not-found → returns nil (rec child stub upsert may have raced with
-// a delete; A3b overall degrades gracefully). Loud errors on DB IO.
+// Both paths empty → no-op (no row written). series_media_texts has an
+// FK to series(id); A3b step 6b always calls this AFTER UpsertStub
+// creates the rec-child row in the same tx, so the FK is satisfied. A
+// genuinely missing series row surfaces the FK error loudly rather than
+// silently no-oping.
 func (r *SeriesRepository) UpdateRecCanonMedia(ctx context.Context, recSeriesID domain.SeriesID, posterPath, backdropPath string) error {
 	if posterPath == "" && backdropPath == "" {
 		return nil
@@ -387,79 +383,32 @@ func (r *SeriesRepository) UpdateRecCanonMedia(ctx context.Context, recSeriesID 
 	if recSeriesID == 0 {
 		return fmt.Errorf("update rec canon media: series_id must be non-zero")
 	}
-	updates := map[string]any{
-		"updated_at": time.Now().UTC(),
+	m := database.SeriesMediaTextModel{
+		SeriesID:  recSeriesID,
+		Language:  fallbackLanguage,
+		UpdatedAt: time.Now().UTC(),
 	}
 	if posterPath != "" {
-		updates["poster_asset"] = posterPath
+		m.PosterAsset = &posterPath
 	}
 	if backdropPath != "" {
-		updates["backdrop_asset"] = backdropPath
+		m.BackdropAsset = &backdropPath
 	}
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Table("series").
-		Where("id = ?", recSeriesID).
-		Updates(updates).Error
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "series_id"},
+			{Name: "language"},
+		},
+		DoUpdates: clause.Assignments(map[string]any{
+			"poster_asset":   gorm.Expr("COALESCE(excluded.poster_asset, series_media_texts.poster_asset)"),
+			"backdrop_asset": gorm.Expr("COALESCE(excluded.backdrop_asset, series_media_texts.backdrop_asset)"),
+			"updated_at":     gorm.Expr("excluded.updated_at"),
+		}),
+	}).Create(&m).Error
 	if err != nil {
 		return fmt.Errorf("update rec canon media (series_id=%d): %w", recSeriesID, err)
 	}
-	// Row-not-found silently OK per docstring — RowsAffected=0 is
-	// treated as no-op (rec child stub might have been deleted between
-	// UpsertStub and this UPDATE within the same tx; A3b overall
-	// degrades gracefully rather than rolling back the whole recs sync).
 	return nil
-}
-
-// ListCanonImagesCorrupted returns series.id rows where the canon row
-// finished a full enrichment pass (tmdb_id IS NOT NULL AND
-// hydration = 'full') but EITHER poster_asset OR backdrop_asset is
-// NULL. Story 319: rows corrupted by the pre-fix recommendation-stub
-// upsert path. Caller (cmd/server/enrichment_wiring.go boot one-shot)
-// enqueues each id to the enrichment dispatcher at PriorityCold; the
-// TMDB sync repopulates the missing paths via MergeSeries.
-//
-// Limit caps the result-set size at 5000 to mirror the cold-start
-// re-sweep budget. Selectivity is good on a typical library (300
-// series, ~30 corrupted on a fresh library that's been through one
-// recommendations pass) — the WHERE NULL filter rides the planner's
-// row scan; no index added.
-func (r *SeriesRepository) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]domain.SeriesID, error) {
-	if limit <= 0 {
-		limit = 1000
-	}
-	var ids []domain.SeriesID
-	err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Table("series").
-		Select("id").
-		Where("tmdb_id IS NOT NULL").
-		Where("hydration = 'full'").
-		Where("(poster_asset IS NULL OR backdrop_asset IS NULL)").
-		Limit(limit).
-		Pluck("id", &ids).Error
-	if err != nil {
-		return nil, fmt.Errorf("list canon images corrupted: %w", err)
-	}
-	return ids, nil
-}
-
-// CountCanonImagesBreakdown returns (poster_null_count, backdrop_null_count)
-// across the same population ListCanonImagesCorrupted draws from
-// (tmdb_id IS NOT NULL AND hydration = 'full'). Story 346 telemetry so
-// operators can grep the cold-start log for converging counts across
-// successive deploys. Two indexed scans; no full table walk — the
-// hydration='full' filter narrows the scan to the library-active set.
-func (r *SeriesRepository) CountCanonImagesBreakdown(ctx context.Context) (int, int, error) {
-	base := dbFromContext(ctx, r.db).WithContext(ctx).Table("series").
-		Where("tmdb_id IS NOT NULL").
-		Where("hydration = 'full'")
-	var posterNull, backdropNull int64
-	if err := base.Session(&gorm.Session{}).Where("poster_asset IS NULL").Count(&posterNull).Error; err != nil {
-		return 0, 0, fmt.Errorf("count canon poster nulls: %w", err)
-	}
-	if err := base.Session(&gorm.Session{}).Where("backdrop_asset IS NULL").Count(&backdropNull).Error; err != nil {
-		return 0, 0, fmt.Errorf("count canon backdrop nulls: %w", err)
-	}
-	return int(posterNull), int(backdropNull), nil
 }
 
 // MarkTMDBSynced stamps series.enrichment_tmdb_synced_at = now for one row.
@@ -837,7 +786,6 @@ func seriesUpsertAssignments() map[string]any {
 		"tvdb_id":           gorm.Expr("excluded.tvdb_id"),
 		"imdb_id":           gorm.Expr("excluded.imdb_id"),
 		"hydration":         gorm.Expr("CASE WHEN series.hydration = 'full' THEN 'full' WHEN excluded.hydration = 'full' THEN 'full' ELSE excluded.hydration END"),
-		"title":             gorm.Expr("excluded.title"),
 		"original_title":    gorm.Expr("COALESCE(excluded.original_title, series.original_title)"),
 		"status":            gorm.Expr("COALESCE(excluded.status, series.status)"),
 		"first_air_date":    gorm.Expr("COALESCE(excluded.first_air_date, series.first_air_date)"),
@@ -856,8 +804,6 @@ func seriesUpsertAssignments() map[string]any {
 		"origin_countries": gorm.Expr("COALESCE(NULLIF(excluded.origin_countries, '[]'), series.origin_countries)"),
 		"popularity":       gorm.Expr("COALESCE(excluded.popularity, series.popularity)"),
 		"in_production":    gorm.Expr("excluded.in_production"),
-		"poster_asset":     gorm.Expr("COALESCE(excluded.poster_asset, series.poster_asset)"),
-		"backdrop_asset":   gorm.Expr("COALESCE(excluded.backdrop_asset, series.backdrop_asset)"),
 		"tmdb_rating":      gorm.Expr("COALESCE(excluded.tmdb_rating, series.tmdb_rating)"),
 		"tmdb_votes":       gorm.Expr("COALESCE(excluded.tmdb_votes, series.tmdb_votes)"),
 		"imdb_rating":      gorm.Expr("COALESCE(excluded.imdb_rating, series.imdb_rating)"),

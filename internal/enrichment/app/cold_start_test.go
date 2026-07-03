@@ -36,20 +36,6 @@ func (f *fakeScanner) ListMissingTMDBSync(_ context.Context, _ int) ([]domain.Se
 	return nil, nil
 }
 
-// ListCanonImagesCorrupted — Story 319: cold_start_test cases never
-// touch the recovery path (it lives in the enrichment_wiring closure,
-// not in cold_start.go), so the fake returns an empty slice.
-func (f *fakeScanner) ListCanonImagesCorrupted(_ context.Context, _ int) ([]domain.SeriesID, error) {
-	return nil, nil
-}
-
-// CountCanonImagesBreakdown — Story 346: cold_start_test cases never
-// touch the breakdown path (same justification as ListCanonImagesCorrupted),
-// so the fake returns zeroes.
-func (f *fakeScanner) CountCanonImagesBreakdown(_ context.Context) (int, int, error) {
-	return 0, 0, nil
-}
-
 type recordedCall struct {
 	Kind     EntityKind
 	ID       int64
@@ -247,17 +233,6 @@ func (c *countingScanner) callCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.passes
-}
-
-// ListCanonImagesCorrupted — Story 319: countingScanner exercises the
-// re-sweep loop, not the recovery path; return empty.
-func (c *countingScanner) ListCanonImagesCorrupted(_ context.Context, _ int) ([]domain.SeriesID, error) {
-	return nil, nil
-}
-
-// CountCanonImagesBreakdown — Story 346: same justification.
-func (c *countingScanner) CountCanonImagesBreakdown(_ context.Context) (int, int, error) {
-	return 0, 0, nil
 }
 
 func TestRunBackfillLoop_RunsImmediatelyThenOnTick(t *testing.T) {

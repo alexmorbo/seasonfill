@@ -9,8 +9,8 @@
 //   - Postgres lane gates on SEASONFILL_TEST_POSTGRES_ENABLE (matches
 //     testhelpers.AllBackends — same opt-in surface, so CI's
 //     test-integration-postgres target covers it).
-//   - Unique UUIDs for series.title avoid collisions across parallel
-//     runs against the shared Postgres container.
+//   - Unique UUIDs for series.original_title avoid collisions across
+//     parallel runs against the shared Postgres container.
 //   - Explicit error-pair coverage: FK violation MUST fail, with the
 //     specific reason left dialect-side (PG SQLSTATE 23503, SQLite
 //     "FOREIGN KEY constraint failed" — both are sufficient signal).

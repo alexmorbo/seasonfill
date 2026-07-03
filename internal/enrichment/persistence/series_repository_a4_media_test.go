@@ -192,7 +192,7 @@ func TestSeriesRepository_MediaAssetsSurviveSonarrUpsert_ColumnInclude(t *testin
 				tmdbID := domain.TMDBID(424242)
 				sonarrPayload := database.SeriesModel{
 					ID:              seriesID,
-					Title:           "A4 Media Test B (force-include sim)",
+					OriginalTitle:   new("A4 Media Test B (force-include sim)"),
 					TMDBID:          &tmdbID,
 					Hydration:       "full",
 					OriginCountries: []byte("[]"),
@@ -204,7 +204,7 @@ func TestSeriesRepository_MediaAssetsSurviveSonarrUpsert_ColumnInclude(t *testin
 				err = gormDB.WithContext(ctx).Clauses(clause.OnConflict{
 					Columns: []clause.Column{{Name: "id"}},
 					DoUpdates: clause.AssignmentColumns([]string{
-						"title", "tmdb_id", "hydration",
+						"original_title", "tmdb_id", "hydration",
 						tc.column, // FORCE-INCLUDE — proves the regression
 						"updated_at",
 					}),

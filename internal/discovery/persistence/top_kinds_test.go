@@ -154,7 +154,7 @@ func insertSeries(t *testing.T, db *gorm.DB) shareddomain.SeriesID {
 	ctx := context.Background()
 	title := "tst-" + uuid.NewString()[:8]
 	s := dbmodels.SeriesModel{
-		Title:           title,
+		OriginalTitle:   &title,
 		Hydration:       "stub",
 		OriginCountries: datatypes.JSON("[]"),
 	}

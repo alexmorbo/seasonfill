@@ -146,7 +146,7 @@ func TestSeriesRepository_RecsSyncedAtSurvivesSonarrUpsert_ColumnInclude(t *test
 			tmdbID := domain.TMDBID(424242)
 			sonarrPayload := database.SeriesModel{
 				ID:              seriesID,
-				Title:           "A3b Recs Test B (force-include sim)",
+				OriginalTitle:   new("A3b Recs Test B (force-include sim)"),
 				TMDBID:          &tmdbID,
 				Hydration:       "full",
 				OriginCountries: []byte("[]"),
@@ -157,7 +157,7 @@ func TestSeriesRepository_RecsSyncedAtSurvivesSonarrUpsert_ColumnInclude(t *test
 			err = gormDB.WithContext(ctx).Clauses(clause.OnConflict{
 				Columns: []clause.Column{{Name: "id"}},
 				DoUpdates: clause.AssignmentColumns([]string{
-					"title", "tmdb_id", "hydration",
+					"original_title", "tmdb_id", "hydration",
 					"enrichment_recs_synced_at", // FORCE-INCLUDE — proves the regression
 					"updated_at",
 				}),

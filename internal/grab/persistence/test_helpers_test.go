@@ -80,6 +80,6 @@ func seedSonarrInstance(tb testing.TB, db *gorm.DB, name domain.InstanceName) {
 // ON CONFLICT DO NOTHING keeps the call idempotent.
 func seedSeries(tb testing.TB, db *gorm.DB, id int64, title string) {
 	tb.Helper()
-	const insertSQL = `INSERT INTO series (id, title) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`
+	const insertSQL = `INSERT INTO series (id, original_title) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`
 	require.NoError(tb, db.Exec(insertSQL, id, title).Error)
 }

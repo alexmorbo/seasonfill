@@ -175,21 +175,19 @@ type SeriesTextsRepo interface {
 // authoritative columns stay untouched.
 //
 // Nil-OK — SeriesWorkerDeps.RecCanonWriter=nil degrades A3b to the
-// pre-571 behavior (rec children keep whatever poster_asset was first
-// written, usually en-US). Preserves backwards compat for test
+// pre-571 behavior (rec children keep whatever series_media_texts
+// en-US row was first written). Preserves backwards compat for test
 // fixtures that don't wire the writer.
 type SeriesRecCanonWriter interface {
-	// UpdateRecCanonMedia sets series.poster_asset + series.backdrop_asset
-	// for recSeriesID from the TMDB rec-summary paths. Overwrites
-	// regardless of existing value (TMDB is authoritative for media per
-	// PRD §5.4).
+	// UpdateRecCanonMedia writes series_media_texts{en-US} poster/backdrop
+	// for recSeriesID from the TMDB rec-summary paths. A non-empty path
+	// overwrites the stored value (TMDB is authoritative for media per
+	// PRD §5.4); an empty path preserves the prior value.
 	//
-	// No-op when both posterPath and backdropPath are empty — TMDB
-	// returned no signal to overwrite with, and writing NULL would
-	// trigger Story 319 image-null cold-start recovery loop.
+	// No-op when both posterPath and backdropPath are empty.
 	//
-	// Row-missing → returns nil (rec child stub upsert may have raced
-	// with a delete; A3b overall degrades gracefully). DB IO errors
+	// series_media_texts has an FK to series(id); A3b calls this after
+	// UpsertStub creates the rec-child row in the same tx. DB IO errors
 	// bubble as fmt.Errorf-wrapped.
 	UpdateRecCanonMedia(ctx context.Context, recSeriesID domain.SeriesID, posterPath, backdropPath string) error
 }
@@ -426,15 +424,4 @@ type ColdStartScanner interface {
 	// cold-start backfill loop. Returns series.id rows whose
 	// enrichment_tmdb_synced_at IS NULL (never enriched).
 	ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error)
-	// ListCanonImagesCorrupted — Story 319: returns series.id rows
-	// where the canon is past stub phase but poster_asset or
-	// backdrop_asset is NULL, so the boot one-shot recovery sweep can
-	// enqueue them at PriorityCold for the TMDB re-sync to repopulate.
-	ListCanonImagesCorrupted(ctx context.Context, limit int) ([]domain.SeriesID, error)
-	// CountCanonImagesBreakdown — Story 346: returns
-	// (poster_null_count, backdrop_null_count) over the same
-	// population ListCanonImagesCorrupted draws from. Lets the boot
-	// recovery sweep bump per-kind Prometheus counters so operators
-	// can verify the sweep is moving backdrop nulls (not just poster).
-	CountCanonImagesBreakdown(ctx context.Context) (int, int, error)
 }

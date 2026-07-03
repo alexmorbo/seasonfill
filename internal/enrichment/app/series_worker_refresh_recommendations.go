@@ -269,18 +269,13 @@ func (w *SeriesWorker) RefreshRecommendations(
 			// call-language root path; canonical per-lang art applies only to
 			// the parent series' own refresh paths.
 			//
-			// UpsertStub's COALESCE
-			// preserves the existing (usually en-US) values for these two
-			// columns; this narrow UPDATE unconditionally overwrites so
-			// the rec carousel serves ru-RU posters on cold visit. Nil
-			// writer preserves pre-571 behavior (backwards-compat with
-			//
-			// TODO(S-E3): this writes series.poster_asset/backdrop_asset (canon,
-			// localizable) which S-E3 drops. Migrate to a series_media_texts
-			// en-US write (PLAN S-E3 item 2 — UpdateRecCanonMedia → media_texts).
-			// test fixtures that don't wire RecCanonWriter). Failure
-			// rolls back the entire tx so the stamp is NOT written
-			// without a successful media overwrite.
+			// UpdateRecCanonMedia writes the rec child's en-US
+			// series_media_texts poster/backdrop (COALESCE-overwrite on a
+			// non-empty path) so the rec carousel serves language-preferred
+			// art on a cold visit. Nil writer preserves pre-571 behavior
+			// (backwards-compat with test fixtures that don't wire
+			// RecCanonWriter). Failure rolls back the entire tx so the
+			// stamp is NOT written without a successful media write.
 			if w.deps.RecCanonWriter != nil {
 				if err := w.deps.RecCanonWriter.UpdateRecCanonMedia(txCtx, recSeriesID, payload.PosterPath, payload.BackdropPath); err != nil {
 					return fmt.Errorf("update rec canon media (rec_series_id=%d): %w", recSeriesID, err)

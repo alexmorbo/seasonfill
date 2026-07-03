@@ -324,9 +324,9 @@ func scanSeriesIDByTitle(t *testing.T, ctx context.Context, db *sql.DB, driver, 
 	var q string
 	switch driver {
 	case "postgres":
-		q = `SELECT id FROM series WHERE title = $1`
+		q = `SELECT id FROM series WHERE original_title = $1`
 	case "sqlite":
-		q = `SELECT id FROM series WHERE title = ?`
+		q = `SELECT id FROM series WHERE original_title = ?`
 	default:
 		t.Fatalf("unknown driver %q", driver)
 	}

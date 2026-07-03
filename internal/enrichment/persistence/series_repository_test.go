@@ -683,54 +683,6 @@ func TestSeriesRepository_UpsertStub_RejectsMissingTMDBID(t *testing.T) {
 	}
 }
 
-// Story 319 — ListCanonImagesCorrupted returns 'full'-hydrated rows
-// with tmdb_id set where poster_asset OR backdrop_asset is NULL. Stub
-// rows and tmdb_id-NULL rows are excluded.
-func TestSeriesRepository_ListCanonImagesCorrupted_FiltersCorrectly(t *testing.T) {
-
-	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
-		t.Run(backend.Name, func(t *testing.T) {
-			t.Parallel()
-			db := backend.NewDB(t)
-			repo := NewSeriesRepository(db)
-			ctx := context.Background()
-
-			// S-E3a — poster_asset/backdrop_asset are no longer domain fields;
-			// Upsert cannot write them. ListCanonImagesCorrupted still reads the
-			// columns raw, so seed them via seedRecCanonMedia after the full-canon
-			// Upsert. An empty string leaves the column NULL (= "missing").
-			mkFull := func(tmdb int, title, poster, backdrop string) domain.SeriesID {
-				id, err := repo.Upsert(ctx, series.Canon{
-					TMDBID: ptrTMDBID(tmdb), OriginalTitle: new(title), Hydration: series.HydrationFull,
-				})
-				require.NoError(t, err)
-				seedRecCanonMedia(t, db, id, poster, backdrop)
-				return id
-			}
-			healthy := mkFull(1001, "Healthy", "/p.jpg", "/b.jpg")
-			missingBackdrop := mkFull(1002, "MissingBackdrop", "/p.jpg", "")
-			missingBoth := mkFull(1003, "MissingBoth", "", "")
-
-			// Stub row — even though it has no backdrop, hydration != 'full'
-			// so it must not appear in the corrupted set.
-			_, err := repo.UpsertStub(ctx, series.Canon{
-				TMDBID:        ptrTMDBID(1004),
-				OriginalTitle: new("Stub"),
-				Hydration:     series.HydrationStub,
-			})
-			require.NoError(t, err)
-
-			ids, err := repo.ListCanonImagesCorrupted(ctx, 100)
-			require.NoError(t, err)
-			assert.NotContains(t, ids, healthy)
-			assert.Contains(t, ids, missingBackdrop)
-			assert.Contains(t, ids, missingBoth)
-			assert.Len(t, ids, 2)
-		})
-	}
-}
-
 // Sonarr-sync prod bug — a stub-input Upsert MUST NOT downgrade a
 // 'full' canon row back to 'stub'.
 func TestSeriesRepository_Upsert_PreservesHydrationFull(t *testing.T) {
@@ -792,42 +744,6 @@ func TestSeriesRepository_Upsert_UpgradesHydrationStubToFull(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, series.HydrationFull, got.Hydration,
 				"hydration upgrade stub -> full MUST work")
-		})
-	}
-}
-
-// Story 346 — CountCanonImagesBreakdown returns (poster_null,
-// backdrop_null) counts over the SAME population
-// ListCanonImagesCorrupted draws from.
-func TestSeriesRepository_CountCanonImagesBreakdown(t *testing.T) {
-
-	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
-		t.Run(backend.Name, func(t *testing.T) {
-			t.Parallel()
-			db := backend.NewDB(t)
-			repo := NewSeriesRepository(db)
-			ctx := context.Background()
-
-			// S-E3a — seed poster_asset/backdrop_asset columns raw (Upsert no
-			// longer writes them); CountCanonImagesBreakdown reads them raw.
-			mkFull := func(tmdb int, title, poster, backdrop string) {
-				id, err := repo.Upsert(ctx, series.Canon{
-					TMDBID: ptrTMDBID(tmdb), OriginalTitle: new(title), Hydration: series.HydrationFull,
-				})
-				require.NoError(t, err)
-				seedRecCanonMedia(t, db, id, poster, backdrop)
-			}
-			// 1 healthy (no nulls), 1 backdrop-null, 1 poster-null, 1 both-null.
-			mkFull(2001, "Healthy", "/p.jpg", "/b.jpg")
-			mkFull(2002, "BackdropNull", "/p.jpg", "")
-			mkFull(2003, "PosterNull", "", "/b.jpg")
-			mkFull(2004, "BothNull", "", "")
-
-			posterNull, backdropNull, err := repo.CountCanonImagesBreakdown(ctx)
-			require.NoError(t, err)
-			assert.Equal(t, 2, posterNull, "PosterNull + BothNull = 2 poster-null rows")
-			assert.Equal(t, 2, backdropNull, "BackdropNull + BothNull = 2 backdrop-null rows")
 		})
 	}
 }

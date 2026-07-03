@@ -90,10 +90,9 @@ func BackfillAssets(args []string) error {
 	return nil
 }
 
-// runBackfillAssets is the testable core. The select-where clauses
-// mirror ListCanonImagesCorrupted's population (tmdb_id NOT NULL,
-// hydration='full', the named column IS NULL). dryRun=true → COUNT(*);
-// false → UPDATE hydration='partial' over the same set.
+// runBackfillAssets is the testable core. Selects the population
+// (tmdb_id NOT NULL, hydration='full', the named asset column IS NULL).
+// dryRun=true → COUNT(*); false → UPDATE hydration='partial' over the set.
 func runBackfillAssets(ctx context.Context, db *gorm.DB, kind string, dryRun bool, log *slog.Logger) (int64, error) {
 	col := kind + "_asset"
 	base := db.WithContext(ctx).

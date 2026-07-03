@@ -398,10 +398,10 @@ func columnNamesFromTable(tbl *atlasschema.Table) []string {
 func insertSeriesSQL(driver string) string {
 	switch driver {
 	case "postgres":
-		return `INSERT INTO series (title, hydration, in_production, origin_countries, created_at, updated_at)
+		return `INSERT INTO series (original_title, hydration, in_production, origin_countries, created_at, updated_at)
 		        VALUES ($1, $2, $3, $4, now(), now())`
 	case "sqlite":
-		return `INSERT INTO series (title, hydration, in_production, origin_countries, created_at, updated_at)
+		return `INSERT INTO series (original_title, hydration, in_production, origin_countries, created_at, updated_at)
 		        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
 	}
 	panic("unknown driver " + driver)

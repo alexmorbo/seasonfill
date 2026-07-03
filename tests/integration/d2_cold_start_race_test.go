@@ -79,7 +79,7 @@ func TestD2_ColdStartRace_KickerFiresWithinMs(t *testing.T) {
 			//    (Sonarr's /api/v3/series typically includes tmdbId).
 			for i := 1; i <= 10; i++ {
 				_, err := db.ExecContext(ctx,
-					`INSERT INTO series (title, tmdb_id, hydration, in_production, origin_countries, created_at, updated_at)
+					`INSERT INTO series (original_title, tmdb_id, hydration, in_production, origin_countries, created_at, updated_at)
 					 VALUES ($1, $2, 'stub', false, '[]', now(), now())`,
 					fmt.Sprintf("Series %d", i),
 					int64(1000+i))
@@ -89,7 +89,7 @@ func TestD2_ColdStartRace_KickerFiresWithinMs(t *testing.T) {
 			// 4b. One legacy stub WITHOUT tmdb_id — must NOT be enqueued
 			//     (B-38: ListMissingTMDBSync filters AND tmdb_id IS NOT NULL).
 			_, err = db.ExecContext(ctx,
-				`INSERT INTO series (title, hydration, in_production, origin_countries, created_at, updated_at)
+				`INSERT INTO series (original_title, hydration, in_production, origin_countries, created_at, updated_at)
 				 VALUES ($1, 'stub', false, '[]', now(), now())`,
 				"Legacy stub without tmdb_id")
 			require.NoError(t, err)

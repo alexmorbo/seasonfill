@@ -511,7 +511,6 @@ type SeriesModel struct {
 	TVDBID           *domain.TVDBID  `gorm:"column:tvdb_id;index:series_tvdb_id"`
 	IMDBID           *domain.IMDBID  `gorm:"column:imdb_id;type:text;index:series_imdb_id"`
 	Hydration        string          `gorm:"column:hydration;type:text;not null;default:'stub'"`
-	Title            string          `gorm:"column:title;type:text;not null"`
 	OriginalTitle    *string         `gorm:"column:original_title;type:text"`
 	Status           *string         `gorm:"column:status;type:text"`
 	FirstAirDate     *time.Time      `gorm:"column:first_air_date"`
@@ -531,14 +530,12 @@ type SeriesModel struct {
 	InProduction    bool           `gorm:"column:in_production;not null;default:false"`
 	// Network field REMOVED in E-1 (000033). Network membership lives
 	// in series_networks join, resolved via NetworksRepository.
-	PosterAsset   *string  `gorm:"column:poster_asset;type:text"`
-	BackdropAsset *string  `gorm:"column:backdrop_asset;type:text"`
-	TMDBRating    *float64 `gorm:"column:tmdb_rating"`
-	TMDBVotes     *int     `gorm:"column:tmdb_votes"`
-	IMDBRating    *float64 `gorm:"column:imdb_rating"`
-	IMDBVotes     *int     `gorm:"column:imdb_votes"`
-	OMDBRated     *string  `gorm:"column:omdb_rated;type:text"`
-	OMDBAwards    *string  `gorm:"column:omdb_awards;type:text"`
+	TMDBRating *float64 `gorm:"column:tmdb_rating"`
+	TMDBVotes  *int     `gorm:"column:tmdb_votes"`
+	IMDBRating *float64 `gorm:"column:imdb_rating"`
+	IMDBVotes  *int     `gorm:"column:imdb_votes"`
+	OMDBRated  *string  `gorm:"column:omdb_rated;type:text"`
+	OMDBAwards *string  `gorm:"column:omdb_awards;type:text"`
 	// EnrichmentTMDBSyncedAt / EnrichmentOMDBSyncedAt — D-3 enrichment
 	// freshness columns (migration 000001 §D-3). NULL = never
 	// enriched. Set by workers on success; canonical replacement for
@@ -581,11 +578,8 @@ type SeasonModel struct {
 	SeriesID     domain.SeriesID `gorm:"column:series_id;not null"`
 	SeasonNumber int             `gorm:"column:season_number;not null"`
 	TMDBSeasonID *int            `gorm:"column:tmdb_season_id"`
-	Name         *string         `gorm:"column:name;type:text"`
-	Overview     *string         `gorm:"column:overview;type:text"`
 	AirDate      *time.Time      `gorm:"column:air_date"`
 	EpisodeCount *int            `gorm:"column:episode_count"`
-	PosterAsset  *string         `gorm:"column:poster_asset;type:text"`
 	CreatedAt    time.Time       `gorm:"column:created_at;not null"`
 	UpdatedAt    time.Time       `gorm:"column:updated_at;not null"`
 	// E-1-A1 per-season freshness stamp. Bumped by Worker.RefreshSeasonSlim

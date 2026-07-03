@@ -136,14 +136,11 @@ func (r *SeasonsRepository) Upsert(ctx context.Context, s series.CanonSeason) (i
 // stamp written by Worker.RefreshSeasonSlim (A3a).
 //
 // The list mirrors the pre-A3a clause.AssignmentColumns explicit list
-// (tmdb_season_id / name / overview / air_date / episode_count /
-// poster_asset / updated_at) plus the new episodes_synced_at COALESCE
-// entry.
+// (tmdb_season_id / air_date / episode_count / updated_at) plus the new
+// episodes_synced_at COALESCE entry.
 func seasonsUpsertAssignments() map[string]any {
 	return map[string]any{
 		"tmdb_season_id": gorm.Expr("excluded.tmdb_season_id"),
-		"name":           gorm.Expr("excluded.name"),
-		"overview":       gorm.Expr("excluded.overview"),
 		"air_date":       gorm.Expr("excluded.air_date"),
 		// E-1 A3a I-IMPORTANT carry-forward — episode_count is populated
 		// by both Sonarr-side mappers (tmdb/mappers.go via len(Episodes))
@@ -151,11 +148,9 @@ func seasonsUpsertAssignments() map[string]any {
 		// Defense in depth: if any future narrow writer leaves the field
 		// nil, COALESCE preserves the prior value rather than blanking it
 		// (Story 552 regression class — same shape as episodes_synced_at
-		// below). Other TMDB-owned overrides above (name/overview/air_date/
-		// poster_asset) intentionally do NOT COALESCE — fresh TMDB data
-		// must replace stale values.
+		// below). Other TMDB-owned override above (air_date) intentionally
+		// does NOT COALESCE — fresh TMDB data must replace stale values.
 		"episode_count": gorm.Expr("COALESCE(excluded.episode_count, seasons.episode_count)"),
-		"poster_asset":  gorm.Expr("excluded.poster_asset"),
 		// E-1 A1 carry-forward I-2 — Worker.RefreshSeasonSlim (A3a) stamps
 		// episodes_synced_at via a single-column UPDATE inside its own
 		// narrow tx. Without COALESCE the very next Sonarr-driven

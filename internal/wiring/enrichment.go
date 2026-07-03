@@ -629,49 +629,6 @@ func BuildEnrichment(
 		if repos.ColdStartScanner == nil {
 			return
 		}
-		// Story 319 — one-shot recovery sweep for canon rows whose
-		// poster_asset / backdrop_asset were nulled by the legacy
-		// recommendation-stub upsert bug. Enqueues each at
-		// PriorityCold so the TMDB sync repopulates the paths via
-		// MergeSeries. Safe to re-run (idempotent — healed rows have
-		// both columns non-NULL and are not returned). Set
-		// SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED=1 to skip
-		// during disaster recovery / manual control.
-		//
-		// 470 (B-7): canon-images recovery is gated on holder so a still-
-		// boot-disabled instance does not enqueue 1000 useless rows.
-		if tmdbHolder.Load() != nil &&
-			os.Getenv("SEASONFILL_ENRICHMENT_CANON_RECOVERY_DISABLED") != "1" {
-			// Story 346: per-kind breakdown log so operators can
-			// confirm the sweep observed both poster + backdrop NULLs
-			// (or just one). Counted BEFORE the enqueue so a converging
-			// counter reads "this many rows still need fixing" rather
-			// than "this many we enqueued". Cheap (two indexed
-			// COUNT(*) on hydration='full'); failures non-fatal.
-			posterNull, backdropNull, cntErr := repos.ColdStartScanner.CountCanonImagesBreakdown(ctx)
-			if cntErr != nil {
-				enrichmentLog.WarnContext(ctx, "enrichment.canon_images.recovery.breakdown_failed",
-					slog.String("error", cntErr.Error()))
-			} else {
-				enrichmentLog.InfoContext(ctx, "enrichment.canon_images.recovery.breakdown",
-					slog.Int("poster_null", posterNull),
-					slog.Int("backdrop_null", backdropNull))
-				observability.AddRecoverySweepEnqueued("poster", posterNull)
-				observability.AddRecoverySweepEnqueued("backdrop", backdropNull)
-			}
-			ids, err := repos.ColdStartScanner.ListCanonImagesCorrupted(ctx, 5000)
-			if err != nil {
-				enrichmentLog.WarnContext(ctx, "enrichment.canon_images.recovery.failed",
-					slog.String("error", err.Error()))
-			} else if len(ids) > 0 {
-				for _, id := range ids {
-					dispatcher.Enqueue(appenrich.EntitySeries, int64(id), appenrich.PriorityCold)
-				}
-				enrichmentLog.InfoContext(ctx, "enrichment.canon_images.recovery.enqueued",
-					slog.Int("series_count", len(ids)),
-					slog.String("priority", "cold"))
-			}
-		}
 		appenrich.RunBackfillLoop(ctx, repos.ColdStartScanner, dispatcher, resweepInterval,
 			enrichmentLog, appenrich.RunBackfillLoopOptions{
 				// 470 (B-7): per-tick gate so a still-empty TMDB holder
@@ -1244,19 +1201,6 @@ func NewColdStartScannerAdapter(s *enrichpersistence.SeriesRepository) appenrich
 // backfill loop. Forwards to the underlying repository.
 func (a coldStartScannerAdapter) ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error) {
 	return a.inner.ListMissingTMDBSync(ctx, limit)
-}
-
-// ListCanonImagesCorrupted — Story 319: forwards to the underlying
-// repository. The wrapper exists so the application port doesn't
-// import infrastructure/database.
-func (a coldStartScannerAdapter) ListCanonImagesCorrupted(ctx context.Context, limit int) ([]domain.SeriesID, error) {
-	return a.inner.ListCanonImagesCorrupted(ctx, limit)
-}
-
-// CountCanonImagesBreakdown — Story 346: forwards to the underlying
-// repository.
-func (a coldStartScannerAdapter) CountCanonImagesBreakdown(ctx context.Context) (int, int, error) {
-	return a.inner.CountCanonImagesBreakdown(ctx)
 }
 
 // mediaPrewarmerAdapter satisfies appenrich.MediaPrewarmer against

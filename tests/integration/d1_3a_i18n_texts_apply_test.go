@@ -84,9 +84,9 @@ func TestD13a_I18nTextsMigrationRoundTrip(t *testing.T) {
 func selectSeriesIDByTitleSQL(driver string) string {
 	switch driver {
 	case "postgres":
-		return `SELECT id FROM series WHERE title = $1`
+		return `SELECT id FROM series WHERE original_title = $1`
 	case "sqlite":
-		return `SELECT id FROM series WHERE title = ?`
+		return `SELECT id FROM series WHERE original_title = ?`
 	}
 	panic("unknown driver " + driver)
 }

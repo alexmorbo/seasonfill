@@ -351,7 +351,7 @@ func addCoreSeries(s *atlasschema.Schema, d Dialect) {
 	s.AddTables(series, seasons, episodes)
 }
 
-// buildSeriesTable assembles the canonical `series` table — 32 columns
+// buildSeriesTable assembles the canonical `series` table — 29 columns
 // + 6 indexes (4 plain b-tree + 2 partial).
 func buildSeriesTable(d Dialect) *atlasschema.Table {
 	id := pkColumn(d)
@@ -361,7 +361,6 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 	hydration := atlasschema.NewStringColumn("hydration", "text").
 		SetNull(false).
 		SetDefault(&atlasschema.Literal{V: "'stub'"})
-	title := atlasschema.NewStringColumn("title", "text").SetNull(false)
 	originalTitle := atlasschema.NewNullStringColumn("original_title", "text")
 	status := atlasschema.NewNullStringColumn("status", "text")
 	firstAirDate := dateColumn(d, "first_air_date")
@@ -380,8 +379,6 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 	inProduction := atlasschema.NewBoolColumn("in_production", "boolean").
 		SetNull(false).
 		SetDefault(&atlasschema.Literal{V: "false"})
-	posterAsset := atlasschema.NewNullStringColumn("poster_asset", "text")
-	backdropAsset := atlasschema.NewNullStringColumn("backdrop_asset", "text")
 	tmdbRating := atlasschema.NewNullFloatColumn("tmdb_rating", "double precision")
 	tmdbVotes := atlasschema.NewNullIntColumn("tmdb_votes", "integer")
 	imdbRating := atlasschema.NewNullFloatColumn("imdb_rating", "double precision")
@@ -404,7 +401,6 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			tvdbID,
 			imdbID,
 			hydration,
-			title,
 			originalTitle,
 			status,
 			firstAirDate,
@@ -419,8 +415,6 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			tmdbType,
 			popularity,
 			inProduction,
-			posterAsset,
-			backdropAsset,
 			tmdbRating,
 			tmdbVotes,
 			imdbRating,
@@ -458,18 +452,15 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 	return t
 }
 
-// buildSeasonsTable assembles the canonical `seasons` table — 11 columns
+// buildSeasonsTable assembles the canonical `seasons` table — 8 columns
 // + seasons_natural unique index + FK series_id → series.id (no cascade).
 func buildSeasonsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
 	id := pkColumn(d)
 	seriesID := fkColumn(d, "series_id", false /* not null */)
 	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
 	tmdbSeasonID := atlasschema.NewNullIntColumn("tmdb_season_id", "integer")
-	name := atlasschema.NewNullStringColumn("name", "text")
-	overview := atlasschema.NewNullStringColumn("overview", "text")
 	airDate := dateColumn(d, "air_date")
 	episodeCount := atlasschema.NewNullIntColumn("episode_count", "integer")
-	posterAsset := atlasschema.NewNullStringColumn("poster_asset", "text")
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 	episodesSyncedAt := timestampColumn(d, "episodes_synced_at", false, false)
@@ -480,11 +471,8 @@ func buildSeasonsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.T
 			seriesID,
 			seasonNumber,
 			tmdbSeasonID,
-			name,
-			overview,
 			airDate,
 			episodeCount,
-			posterAsset,
 			createdAt,
 			updatedAt,
 			episodesSyncedAt,

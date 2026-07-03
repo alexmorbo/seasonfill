@@ -50,15 +50,17 @@ type searchTestStubs struct {
 	calls  atomic.Int64
 }
 
-func (s *searchTestStubs) EnsureStub(ctx context.Context, tmdbID shareddomain.TMDBID, title string, poster, _ *string) (shareddomain.SeriesID, error) {
+func (s *searchTestStubs) EnsureStub(ctx context.Context, tmdbID shareddomain.TMDBID, title string, _, _ *string) (shareddomain.SeriesID, error) {
 	s.calls.Add(1)
 	// Insert directly with raw SQL so we don't depend on GORM model
-	// metadata (avoids the datatypes.JSON empty-default footgun).
+	// metadata (avoids the datatypes.JSON empty-default footgun). S-E3b
+	// dropped series.title/poster_asset; the stub carries only
+	// original_title (poster now lives in series_media_texts).
 	var id int64
 	row := s.db.WithContext(ctx).Raw(
-		`INSERT INTO series (tmdb_id, title, hydration, poster_asset, origin_countries, created_at, updated_at)
-		 VALUES (?, ?, 'stub', ?, '[]', now(), now()) RETURNING id`,
-		int64(tmdbID), title, poster).Row()
+		`INSERT INTO series (tmdb_id, original_title, hydration, origin_countries, created_at, updated_at)
+		 VALUES (?, ?, 'stub', '[]', now(), now()) RETURNING id`,
+		int64(tmdbID), title).Row()
 	if err := row.Scan(&id); err != nil {
 		return 0, err
 	}

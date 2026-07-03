@@ -24,7 +24,9 @@ func TestSD_DropDeadI18nMigrationRoundTrip(t *testing.T) {
 			db, m, cleanup := b.migrate(t)
 			t.Cleanup(cleanup)
 
-			require.NoError(t, m.Up(), "Up() should apply through 000027 on %s", b.name)
+			// Migrate to exactly 000027 (not head) so Steps(-1) reverses
+			// 000027, not a later migration.
+			require.NoError(t, m.Migrate(27), "Migrate(27) should apply through 000027 on %s", b.name)
 
 			// After 000027: the two dead i18n tables are ABSENT, the canon
 			// parents remain PRESENT.

@@ -75,7 +75,7 @@ func TestAllBackends_IsolationAcrossCalls(t *testing.T) {
 	// witness because every migrated DB has it and it's writable
 	// with no FK dependencies.
 	require.NoError(t, dbA.Exec(`INSERT INTO series
-		(title, hydration, origin_countries)
+		(original_title, hydration, origin_countries)
 		VALUES ('Test', 'stub', '[]')`).Error)
 
 	var countA, countB int64

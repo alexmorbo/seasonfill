@@ -15,12 +15,12 @@ import (
 )
 
 // seedRecChildCanon inserts a rec-child canon row via UpsertStub (matches the
-// production A3b write path pre-Story 571) and seeds its legacy
-// poster_asset/backdrop_asset DB columns directly. S-E3a removed those fields
-// from series.Canon (the mappers stopped copying them), so Upsert no longer
-// writes the columns — the raw seed simulates the post-Sonarr-scan state that
-// UpdateRecCanonMedia's narrow UPDATE later overwrites. Reuses seedRecCanonMedia
-// / readRecCanonMedia from a3b_rec_canon_media_integration_test.go.
+// production A3b write path pre-Story 571) and seeds its en-US series_media_texts
+// row directly. S-E3b dropped the canon series.poster_asset/backdrop_asset
+// columns; rec-card art now lives in series_media_texts — the seed simulates the
+// post-Sonarr-scan state that UpdateRecCanonMedia's Upsert later COALESCE-
+// overwrites. Reuses seedRecCanonMedia / readRecCanonMedia from
+// a3b_rec_canon_media_integration_test.go.
 func seedRecChildCanon(t *testing.T, gdb *gorm.DB, repo *SeriesRepository, title string, tmdbID domain.TMDBID, poster, backdrop *string) domain.SeriesID {
 	t.Helper()
 	canon := series.Canon{
@@ -154,9 +154,12 @@ func TestUpdateRecCanonMedia_BothEmpty_NoOp(t *testing.T) {
 	}
 }
 
-// TestUpdateRecCanonMedia_RowMissing_NoError — non-existent id: RowsAffected=0
-// treated as no-op (docstring contract). No error bubbled.
-func TestUpdateRecCanonMedia_RowMissing_NoError(t *testing.T) {
+// TestUpdateRecCanonMedia_CreatesEnUSRowWhenAbsent — series row exists but has
+// no en-US series_media_texts row yet; UpdateRecCanonMedia INSERTs one (the
+// INSERT branch of the OnConflict Upsert). S-E3b: the old UPDATE-WHERE-id no-op
+// on a missing row is gone — series_media_texts.series_id has an FK to
+// series(id), so the caller (A3b step 6b) always runs after UpsertStub.
+func TestUpdateRecCanonMedia_CreatesEnUSRowWhenAbsent(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -165,16 +168,30 @@ func TestUpdateRecCanonMedia_RowMissing_NoError(t *testing.T) {
 			repo := NewSeriesRepository(gdb)
 			ctx := context.Background()
 
-			// Empty DB, id=99999 doesn't exist.
-			require.NoError(t, repo.UpdateRecCanonMedia(ctx, domain.SeriesID(99999), "/ru.jpg", "/ru_bd.jpg"),
-				"UpdateRecCanonMedia MUST NOT error on missing row (defensive per docstring)")
+			// Series row only — no series_media_texts row seeded.
+			tmdbID := domain.TMDBID(1005)
+			id, err := repo.UpsertStub(ctx, series.Canon{
+				OriginalTitle: new("Rec Child No Media"),
+				TMDBID:        &tmdbID,
+				Hydration:     series.HydrationStub,
+			})
+			require.NoError(t, err)
+
+			require.NoError(t, repo.UpdateRecCanonMedia(ctx, id, "/ru.jpg", "/ru_bd.jpg"))
+
+			gotPoster, gotBackdrop := readRecCanonMedia(t, gdb, id)
+			require.NotNil(t, gotPoster)
+			assert.Equal(t, "/ru.jpg", *gotPoster,
+				"en-US series_media_texts row MUST be created with the payload poster")
+			require.NotNil(t, gotBackdrop)
+			assert.Equal(t, "/ru_bd.jpg", *gotBackdrop,
+				"en-US series_media_texts row MUST be created with the payload backdrop")
 		})
 	}
 }
 
-// TestUpdateRecCanonMedia_UpdatesTimestamp — updated_at MUST advance on a
-// real write. Complementary to BothEmpty_NoOp; asserts the write path
-// stamps the row.
+// TestUpdateRecCanonMedia_UpdatesTimestamp — series_media_texts.updated_at MUST
+// advance on a real write.
 func TestUpdateRecCanonMedia_UpdatesTimestamp(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
@@ -186,26 +203,18 @@ func TestUpdateRecCanonMedia_UpdatesTimestamp(t *testing.T) {
 
 			enPoster := "/en.jpg"
 			id := seedRecChildCanon(t, gdb, repo, "Rec Child",
-				domain.TMDBID(1004),
-				&enPoster,
-				nil,
-			)
-			before, err := repo.Get(ctx, id)
-			require.NoError(t, err)
-			priorUpdatedAt := before.UpdatedAt
+				domain.TMDBID(1004), &enPoster, nil)
+			priorUpdatedAt := readRecCanonMediaUpdatedAt(t, gdb, id)
 
-			// Sleep enough that Postgres millisecond precision resolves a
-			// difference. SQLite stores DATETIME strings with second
-			// precision — sleep >1s to be safe on both backends.
+			// Sleep >1s so SQLite second-precision resolves a delta.
 			time.Sleep(1100 * time.Millisecond)
 
 			require.NoError(t, repo.UpdateRecCanonMedia(ctx, id, "/ru.jpg", ""))
 
-			got, err := repo.Get(ctx, id)
-			require.NoError(t, err)
-			assert.True(t, got.UpdatedAt.After(priorUpdatedAt),
-				"updated_at MUST advance on write: prior=%s got=%s",
-				priorUpdatedAt.Format(time.RFC3339Nano), got.UpdatedAt.Format(time.RFC3339Nano))
+			got := readRecCanonMediaUpdatedAt(t, gdb, id)
+			assert.True(t, got.After(priorUpdatedAt),
+				"series_media_texts.updated_at MUST advance on write: prior=%s got=%s",
+				priorUpdatedAt.Format(time.RFC3339Nano), got.Format(time.RFC3339Nano))
 		})
 	}
 }
@@ -255,8 +264,8 @@ func TestUpdateRecCanonMedia_DoesNotClobberFullEnrichment(t *testing.T) {
 			id, err := repo.Upsert(ctx, canon)
 			require.NoError(t, err)
 			require.NotZero(t, id)
-			// S-E3a — seed the legacy media columns directly (canon domain
-			// fields removed); UpdateRecCanonMedia later overwrites them.
+			// S-E3b — seed the en-US series_media_texts row directly;
+			// UpdateRecCanonMedia later COALESCE-overwrites it.
 			seedRecCanonMedia(t, gdb, id, "/en_full.jpg", "/en_full_bd.jpg")
 
 			// Snapshot pre-state.
@@ -269,8 +278,7 @@ func TestUpdateRecCanonMedia_DoesNotClobberFullEnrichment(t *testing.T) {
 			after, err := repo.Get(ctx, id)
 			require.NoError(t, err)
 
-			// Media columns MUST be overwritten (read raw — toCanon no longer
-			// surfaces poster_asset/backdrop_asset after S-E3a).
+			// Media MUST be overwritten (en-US series_media_texts row).
 			gotPoster, gotBackdrop := readRecCanonMedia(t, gdb, id)
 			require.NotNil(t, gotPoster)
 			assert.Equal(t, "/ru_full.jpg", *gotPoster)

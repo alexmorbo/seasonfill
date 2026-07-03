@@ -5,15 +5,15 @@
 // Locks in the post-cutover schema invariants the operator depends on
 // before dropping+recreating the production database. The four guards:
 //
-//  1. All 27 migrations apply cleanly from an empty DB (no compound
+//  1. All 28 migrations apply cleanly from an empty DB (no compound
 //     failures, no partial-state crashes).
 //  2. Every name in d1AcceptanceTablesPostgres (54 entries) is present
 //     post-Up on both dialects — and no surprise extras snuck in.
 //  3. No legacy table names survive — admin_users, app_settings,
 //     sync_log, etc. were retired during D-3..D-7; this denylist
 //     trips if a stray .up.sql resurrects one.
-//  4. schema_migrations reports exactly 27 applied versions —
-//     matches the 27 .up.sql files under
+//  4. schema_migrations reports exactly 28 applied versions —
+//     matches the 28 .up.sql files under
 //     infrastructure/database/migrations/{postgres,sqlite}.
 //
 // Runs on the standard dual-backend rig (sqlite always, postgres
@@ -127,15 +127,15 @@ func TestD8_Closure_NoLegacyTables(t *testing.T) {
 
 // TestD8_Closure_SchemaMigrationsHeadVersion verifies that after a
 // full Up() the golang-migrate tracker table reports the highest
-// expected version (27) with dirty=false. golang-migrate stores a
+// expected version (28) with dirty=false. golang-migrate stores a
 // single "current head" row (not a per-migration history), so the
-// invariant is MAX(version)=27 AND dirty=false. Catches the "I forgot
+// invariant is MAX(version)=28 AND dirty=false. Catches the "I forgot
 // to add the new migration to the embed list" failure mode and the
 // "Up() silently stopped after N" failure mode (which would leave a
 // lower version pinned), plus the "previous run crashed mid-Up"
 // failure mode (dirty=true, blocks subsequent migrations).
 func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
-	const wantHead = 27
+	const wantHead = 28
 
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
 				"read head row from schema_migrations on %s", b.name)
 			assert.Equalf(t, wantHead, head,
 				"schema_migrations.version on %s = %d; want %d "+
-					"(matches the 27 .up.sql files committed in 000001..000027)",
+					"(matches the 28 .up.sql files committed in 000001..000028)",
 				b.name, head, wantHead)
 			assert.Falsef(t, dirty,
 				"schema_migrations.dirty=true on %s — a previous Up() crashed mid-migration; "+

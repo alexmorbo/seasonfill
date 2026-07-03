@@ -34,23 +34,24 @@ func NewLiveAssetsRepository(db *gorm.DB) *LiveAssetsRepository {
 // probes in the sweep loop.
 //
 // Columns covered:
-//   - series.poster_asset, series.backdrop_asset
-//   - seasons.poster_asset
+//   - series_media_texts.poster_asset, series_media_texts.backdrop_asset
+//   - season_media_texts.poster_asset, season_media_texts.backdrop_asset
 //   - episodes.still_asset
 //   - people.profile_asset
 //   - networks.logo_asset
 //   - production_companies.logo_asset
-//   - series_cache.poster_path, fanart_path, banner_path (transitional)
 //
-// series_cache columns are read defensively during the 000032 cutover
-// transition — once those columns drop, the queries become no-op
-// errors (silenced; CollectLiveAssetHashes returns the partial set).
+// S-E3b dropped the localizable series/seasons poster_asset/backdrop_asset
+// canon columns; poster/backdrop art now lives per-language in the
+// series_media_texts / season_media_texts side tables, which this sweep
+// reads instead so the GC never treats an in-use per-lang asset as dead.
 func (r *LiveAssetsRepository) CollectLiveAssetHashes(ctx context.Context) (map[string]struct{}, error) {
 	out := make(map[string]struct{}, 8192)
 	queries := []string{
-		`SELECT poster_asset   FROM series         WHERE poster_asset   IS NOT NULL`,
-		`SELECT backdrop_asset FROM series         WHERE backdrop_asset IS NOT NULL`,
-		`SELECT poster_asset   FROM seasons        WHERE poster_asset   IS NOT NULL`,
+		`SELECT poster_asset   FROM series_media_texts WHERE poster_asset   IS NOT NULL`,
+		`SELECT backdrop_asset FROM series_media_texts WHERE backdrop_asset IS NOT NULL`,
+		`SELECT poster_asset   FROM season_media_texts WHERE poster_asset   IS NOT NULL`,
+		`SELECT backdrop_asset FROM season_media_texts WHERE backdrop_asset IS NOT NULL`,
 		`SELECT still_asset    FROM episodes       WHERE still_asset    IS NOT NULL`,
 		`SELECT profile_asset  FROM people         WHERE profile_asset  IS NOT NULL`,
 		`SELECT logo_asset     FROM networks       WHERE logo_asset     IS NOT NULL`,

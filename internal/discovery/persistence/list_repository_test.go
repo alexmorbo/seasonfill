@@ -28,7 +28,7 @@ func seedSeries(t *testing.T, db *gorm.DB, n int) []shareddomain.SeriesID {
 	for i := range n {
 		title := "disc-" + uuid.NewString()[:8]
 		m := database.SeriesModel{
-			Title:           title,
+			OriginalTitle:   &title,
 			Hydration:       "stub",
 			InProduction:    false,
 			OriginCountries: datatypes.JSON("[]"),
@@ -273,8 +273,9 @@ func TestListRepository_GetRanked_TVDBIDAndOriginalLanguage(t *testing.T) {
 			// Row A — populated tvdb_id + original_language.
 			tvdb := shareddomain.TVDBID(81189)
 			ol := "en"
+			otA := "with-tvdb-" + uuid.NewString()[:6]
 			a := database.SeriesModel{
-				Title:            "with-tvdb-" + uuid.NewString()[:6],
+				OriginalTitle:    &otA,
 				Hydration:        "stub",
 				InProduction:     false,
 				OriginCountries:  datatypes.JSON("[]"),
@@ -284,8 +285,9 @@ func TestListRepository_GetRanked_TVDBIDAndOriginalLanguage(t *testing.T) {
 			require.NoError(t, db.Create(&a).Error)
 
 			// Row B — NULL tvdb_id, NULL original_language.
+			otB := "no-tvdb-" + uuid.NewString()[:6]
 			b := database.SeriesModel{
-				Title:           "no-tvdb-" + uuid.NewString()[:6],
+				OriginalTitle:   &otB,
 				Hydration:       "stub",
 				InProduction:    false,
 				OriginCountries: datatypes.JSON("[]"),

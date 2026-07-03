@@ -171,7 +171,7 @@ func TestSeasonsRepository_EpisodesSyncedAtSurvivesSonarrUpsert_ColumnInclude(t 
 			sonarrPayload := database.SeasonModel{
 				SeriesID:     seriesID,
 				SeasonNumber: 1,
-				Name:         new("Season 1 (force-include sim)"),
+				TMDBSeasonID: new(101),
 				CreatedAt:    now,
 				UpdatedAt:    now,
 				// EpisodesSyncedAt nil — Sonarr never writes it.
@@ -187,8 +187,8 @@ func TestSeasonsRepository_EpisodesSyncedAtSurvivesSonarrUpsert_ColumnInclude(t 
 				// FORCE-INCLUDE the column via AssignmentColumns to prove
 				// the column-absent regression path is real.
 				DoUpdates: clause.AssignmentColumns([]string{
-					"tmdb_season_id", "name", "overview",
-					"air_date", "episode_count", "poster_asset",
+					"tmdb_season_id",
+					"air_date", "episode_count",
 					"updated_at",
 					"episodes_synced_at",
 				}),
