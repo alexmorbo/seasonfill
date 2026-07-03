@@ -12,6 +12,10 @@ type SeasonResponse struct {
 	SeasonNumber int             `json:"season_number"`
 	PosterPath   string          `json:"poster_path"`
 	Episodes     []SeasonEpisode `json:"episodes"`
+
+	// append_to_response sub-resource (S-C). Nilable — callers MUST treat a
+	// missing array as empty.
+	Translations *SeasonTranslations `json:"translations"`
 }
 
 // SeasonEpisode mirrors episodes[*] on the season payload.
@@ -59,4 +63,29 @@ type SeasonCrewMember struct {
 	CreditID           string  `json:"credit_id"`
 	Department         string  `json:"department"`
 	Job                string  `json:"job"`
+}
+
+// SeasonTranslations — append_to_response=translations sub-resource on
+// /tv/{id}/season/{n}. Each entry carries one language's localised
+// name/overview for the SEASON (NOT its episodes — see S-C O-4). Mirrors
+// TVTranslations; the `data` object is season-scoped (name + overview only).
+type SeasonTranslations struct {
+	Translations []SeasonTranslation `json:"translations"`
+}
+
+// SeasonTranslation is one row of translations.translations[*]. ISO6391 is the
+// bare 2-letter language code (matched against shortLang(userTag)); Data holds
+// the localised season text fields.
+type SeasonTranslation struct {
+	ISO6391  string                `json:"iso_639_1"`
+	ISO31661 string                `json:"iso_3166_1"`
+	Data     SeasonTranslationData `json:"data"`
+}
+
+// SeasonTranslationData is the `data` object inside a SeasonTranslation.
+// Season translations expose only name + overview (unlike TV translations,
+// which also carry tagline/homepage).
+type SeasonTranslationData struct {
+	Name     string `json:"name"`
+	Overview string `json:"overview"`
 }

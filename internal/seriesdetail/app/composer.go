@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -239,6 +240,32 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 		)
 	}
 	seriesID := *cache.SeriesID
+
+	// S-C — the missing season:N trigger. Before reading, drive the freshener
+	// for THIS season only, ModeSync: the user is waiting on exactly this
+	// season, singleflight (series_freshener.go) dedups concurrent opens, and
+	// SyncTimeout (5s) bounds the wait. This is what makes RefreshSeasonSlim
+	// populate season_texts (all langs) + episodes on a cold/stale open so the
+	// season_texts read below sees fresh rows. nil-OK dep; error is degraded,
+	// never fatal (we still render whatever is in the DB).
+	if c.d.Freshener != nil {
+		if _, freshErr := c.d.Freshener.EnsureFreshScope(
+			ctx,
+			seriesID,
+			lang,
+			[]freshener.Section{freshener.SeasonSection(seasonNumber)},
+			nil,   // seasonNumbers — the holder derives it from the section
+			false, // force=false — TTL respected (episodes_synced_at gate)
+			ModeSync,
+		); freshErr != nil {
+			c.d.Logger.WarnContext(ctx, "season_freshener_error",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.Int("season_number", seasonNumber),
+				slog.String("lang", lang),
+				slog.String("err", freshErr.Error()))
+		}
+	}
+
 	canon, err := c.d.Series.Get(ctx, seriesID)
 	if err != nil {
 		return nil, fmt.Errorf("series canon load: %w", err)

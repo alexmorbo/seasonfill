@@ -117,7 +117,38 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 		return SeasonsListDTO{}, fmt.Errorf("seasons list: %w", err)
 	}
 
-	// Localized names/overviews (nil-safe: repo miss → nil map, canon fallback).
+	// S-C phase 2 — season:N fan-out. Phase 1 (SectionSkeleton, above) syncs the
+	// canon + season rows on a cold open; now that we know every season number,
+	// drive the freshener for each in ModeSync so season_texts (all langs) land
+	// before we read them below. What fits the SyncTimeout budget is written
+	// synchronously; the rest the freshener catches up async (standard
+	// ModeSync-past-budget behaviour). TTL (episodes_synced_at/SeasonTTL) gates
+	// repeats and AdaptivePause protects the TMDB rate limit for wide series.
+	// nil-OK dep; errors are degraded (Degraded flag), never fatal.
+	if sc.d.Freshener != nil && len(seasons) > 0 {
+		seasonSections := make([]freshener.Section, 0, len(seasons))
+		for i := range seasons {
+			seasonSections = append(seasonSections, freshener.SeasonSection(seasons[i].SeasonNumber))
+		}
+		if _, ferr := sc.d.Freshener.EnsureFreshScope(
+			ctx, seriesID, lang,
+			seasonSections,
+			nil,   // seasonNumbers — holder derives them from the sections
+			false, // force — TTL respected
+			ModeSync,
+		); ferr != nil {
+			sc.d.Logger.WarnContext(ctx, "seasons_freshener_error",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.Int("season_count", len(seasons)),
+				slog.String("err", ferr.Error()))
+			freshen.Degraded = true
+		}
+	}
+
+	// Localized names/overviews — read AFTER the season:N fan-out so a cold open
+	// observes the freshly-written rows. (nil-safe: repo miss → nil map, canon
+	// fallback.)
 	texts, terr := sc.d.SeasonTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
 	if terr != nil {
 		sc.d.Logger.WarnContext(ctx, "seasons_texts_fallback_failed",

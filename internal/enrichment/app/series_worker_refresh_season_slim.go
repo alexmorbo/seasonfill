@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 )
 
 // RefreshSeasonSlim fetches /tv/{tmdb_id}/season/{seasonNumber}?language={lang}
@@ -146,6 +147,16 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 	}
 
 	now := w.deps.Clock()
+
+	// Prepare season_texts writes for ALL supported languages from the SAME
+	// GetSeason(+translations) payload (S-C). Built OUTSIDE the tx (pure
+	// projection, no I/O); the tx just replays the slice. nil-OK dep: when
+	// SeasonTexts is not wired the slice is empty and the tx skips the step.
+	var seasonTextWrites []series.SeasonText
+	if w.deps.SeasonTexts != nil {
+		seasonTextWrites = buildSeasonTextWrites(seasonResp, seriesID, seasonNumber, lang, now)
+	}
+
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
 		// 5a. Upsert season row (lightweight — gets season_id for
 		//     episode FK). Existing-row update (if a prior full-canon
@@ -158,47 +169,21 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 			return fmt.Errorf("upsert season: %w", err)
 		}
 
-		// 5a-bis. season_texts.{series_id, season_number, lang} UPSERT
-		//   (B3b — Story 581). Localised season Name/Overview come from
-		//   the SAME seasonResp already fetched above — NO second TMDB
-		//   call. Keyed on the composite (series_id, season_number,
-		//   language), independent of season_id, so it runs here right
-		//   after the season row mint and is NOT gated by
-		//   len(episodes)==0 (a future-scheduled season can carry a
-		//   localised name/overview with zero episodes yet).
+		// 5a-bis. season_texts UPSERT for ALL supported languages (S-C,
+		//   generalises Story 581's single-lang write). Rows come from the
+		//   SAME seasonResp(+translations) already fetched above — NO second
+		//   TMDB call. Keyed on (series_id, season_number, language),
+		//   independent of season_id, so it runs right after the season mint
+		//   and is NOT gated by len(episodes)==0.
 		//
-		//   Empty-field handling: Name/Overview are *string; nonEmptyStringPtr
-		//   maps "" → nil → SQL NULL, and the repo COALESCE
-		//   (COALESCE(excluded.col, season_texts.col)) then PRESERVES any
-		//   prior localised value on a partial write. We additionally SKIP
-		//   the whole upsert when BOTH are empty so an all-empty TMDB pass
-		//   does not bump enriched_at to now on a content-less row (which
-		//   would mask a never-enriched season + falsely satisfy the
-		//   freshness probe).
-		//
-		//   lang is passed VERBATIM (raw BCP-47 "ru-RU") into the language
-		//   column — mirrors the episode_texts write; langVO above is
-		//   validation-only.
-		//
-		//   nil-OK dep: when SeasonTexts is not wired the step is skipped and
-		//   the method still writes episodes + episode_texts + the stamp.
-		if w.deps.SeasonTexts != nil {
-			name := nonEmptyStringPtr(seasonResp.Name)
-			overview := nonEmptyStringPtr(seasonResp.Overview)
-			if name != nil || overview != nil {
-				enrichedAt := now
-				st := series.SeasonText{
-					SeriesID:     seriesID,
-					SeasonNumber: seasonNumber,
-					Language:     lang,
-					Name:         name,
-					Overview:     overview,
-					EnrichedAt:   &enrichedAt,
-				}
-				if err := w.deps.SeasonTexts.Upsert(txCtx, st); err != nil {
-					return fmt.Errorf("upsert season_texts (season=%d, lang=%s): %w",
-						seasonNumber, lang, err)
-				}
+		//   Content is prepared by buildSeasonTextWrites (see its O-4 note on
+		//   why episodes[] do NOT get the all-langs benefit). Empty projections
+		//   are already skipped there; the repo COALESCE additionally preserves
+		//   prior values on partial writes.
+		for _, st := range seasonTextWrites {
+			if err := w.deps.SeasonTexts.Upsert(txCtx, st); err != nil {
+				return fmt.Errorf("upsert season_texts (season=%d, lang=%s): %w",
+					seasonNumber, st.Language, err)
 			}
 		}
 
@@ -279,4 +264,100 @@ func parseDateOrNilSlim(s string) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+// buildSeasonTextWrites projects a GetSeason(+translations) payload into one
+// season_texts row per supported user language (S-C all-langs). Pure function;
+// no I/O — the caller replays the slice inside the write tx.
+//
+// O-4 (fundamental TMDB limitation, NOT a defect): GetSeason(+translations)
+// returns all languages ONLY for the SEASON name/overview. The episodes[]
+// array in the SAME response is single-lang (the call language). TMDB has NO
+// bulk episode-translation endpoint, so episode_texts do NOT get the all-langs
+// benefit — they are written call-lang now (step 5d) and the second language
+// is caught up later by a per-lang GetSeason via the existing TTL mechanism.
+// Do NOT attempt to all-langs the episodes here.
+//
+// Row policy (mirrors RefreshSeriesAllLangs / S-B D2):
+//   - The CALL language is ALWAYS written: the ROOT Name/Overview are that
+//     language's source (GetSeason localises the root to the call lang), so a
+//     per-field root fallback yields a complete row even with no translations[].
+//   - Every OTHER supported language is written ONLY when translations[] carries
+//     a matching iso_639_1 entry, and uses ONLY that entry's OWN fields — it
+//     does NOT fall back to root, because root here is localised to the CALL
+//     lang (unlike RefreshSeriesAllLangs, whose root is pinned to en-US). An
+//     empty translation field stays nil so the skip-both guard + repo COALESCE
+//     preserve any prior value instead of poisoning the row with call-lang text
+//     (the #973 "seasons RU-in-EN" class, aimed here at the en-US fallback tier).
+//     Absent entry → the language is SKIPPED (row stays absent so the probe's
+//     missing_episodes_lang verdict stays Stale and the per-lang async path can
+//     fill it later).
+//   - A both-empty projection is skipped (no content-less row bumps enriched_at).
+//
+// The stored `language` column is the SUPPORTED tag (e.g. "en-US"), matched to
+// the call lang by primary subtag — so opening a season under ru-RU also lands
+// the en-US row and vice-versa.
+func buildSeasonTextWrites(
+	seasonResp *tmdb.SeasonResponse,
+	seriesID domain.SeriesID,
+	seasonNumber int,
+	callLang string,
+	now time.Time,
+) []series.SeasonText {
+	trByLang := make(map[string]*tmdb.SeasonTranslation)
+	if seasonResp.Translations != nil {
+		for i := range seasonResp.Translations.Translations {
+			t := &seasonResp.Translations.Translations[i]
+			trByLang[shortLang(t.ISO6391)] = t
+		}
+	}
+
+	writes := make([]series.SeasonText, 0, len(locale.SupportedUserLanguages))
+	for _, l := range locale.SupportedUserLanguages {
+		tr := trByLang[shortLang(l)]
+		isCall := shortLang(l) == shortLang(callLang)
+		if !isCall && tr == nil {
+			// Non-call lang with no translation entry → skip (keep row absent).
+			continue
+		}
+
+		// Root fallback is SAFE ONLY for the call-language row: GetSeason
+		// localises the ROOT Name/Overview to the CALL lang, so seeding a
+		// NON-call lang from root would store the call-lang text under the
+		// wrong key (the #973 "seasons RU-in-EN" class — the en-US row is the
+		// universal COALESCE fallback tier, so poisoning it is worst-case).
+		// The call lang uses root as its source (tr may be nil → root-only, or
+		// the matching entry); every other lang uses the translation entry's
+		// OWN fields ONLY (empty → nil, letting the skip-both guard + repo
+		// COALESCE handle absence).
+		name, overview := "", ""
+		if isCall {
+			name, overview = seasonResp.Name, seasonResp.Overview
+		}
+		if tr != nil {
+			if tr.Data.Name != "" {
+				name = tr.Data.Name
+			}
+			if tr.Data.Overview != "" {
+				overview = tr.Data.Overview
+			}
+		}
+
+		nPtr := nonEmptyStringPtr(name)
+		oPtr := nonEmptyStringPtr(overview)
+		if nPtr == nil && oPtr == nil {
+			continue // both empty → no content-less row
+		}
+
+		enrichedAt := now
+		writes = append(writes, series.SeasonText{
+			SeriesID:     seriesID,
+			SeasonNumber: seasonNumber,
+			Language:     l,
+			Name:         nPtr,
+			Overview:     oPtr,
+			EnrichedAt:   &enrichedAt,
+		})
+	}
+	return writes
 }
