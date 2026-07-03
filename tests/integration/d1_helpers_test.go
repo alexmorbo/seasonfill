@@ -255,6 +255,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"qbit_torrent_events",
 	"qbit_torrents",
 	"scan_runs",
+	"season_media_texts",
 	"season_stats",
 	"season_texts",
 	"seasons",

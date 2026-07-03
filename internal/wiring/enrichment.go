@@ -414,6 +414,7 @@ func BuildEnrichment(
 		EpisodeTexts:     repos.EpisodeTexts,
 		SeasonTexts:      repos.SeasonTexts,      // B3b (Story 581) — nil-OK
 		SeriesMediaTexts: repos.SeriesMediaTexts, // C-posters-A (Story 584a) — nil-OK
+		SeasonMediaTexts: repos.SeasonMediaTexts, // S-C2 — nil-OK
 		People:           repos.People,
 		PersonCredits:    repos.PersonCredits,
 		Genres:           repos.Genres,
@@ -943,6 +944,9 @@ type EnrichmentRepoBundle struct {
 	// SeriesMediaTexts — C-posters-A (Story 584a): per-language poster
 	// write port. Nil-OK. *enrichpersistence.SeriesMediaTextsRepository.
 	SeriesMediaTexts appenrich.SeriesMediaTextsRepo
+	// SeasonMediaTexts — S-C2: per-language SEASON poster write port. Nil-OK.
+	// *enrichpersistence.SeasonMediaTextsRepository.
+	SeasonMediaTexts appenrich.SeasonMediaTextsRepo
 	People           peopleRepoCombined
 	Genres           appenrich.GenresRepo
 	Keywords         appenrich.KeywordsRepo

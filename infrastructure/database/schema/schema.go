@@ -588,6 +588,7 @@ func addI18nTexts(s *atlasschema.Schema, d Dialect) {
 		buildEpisodeTextsTable(d, episodes),
 		buildSeasonTextsTable(d, series),
 		buildSeriesMediaTextsTable(d, series),
+		buildSeasonMediaTextsTable(d, series),
 	)
 }
 
@@ -715,6 +716,60 @@ func buildSeriesMediaTextsTable(d Dialect, seriesTable *atlasschema.Table) *atla
 		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID, language)).
 		AddForeignKeys(
 			atlasschema.NewForeignKey("series_media_texts_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildSeasonMediaTextsTable returns the season_media_texts table (S-C2):
+//
+//	PK (series_id, season_number, language)   -- 3-column composite, mirrors
+//	                                             season_texts (000024)
+//	columns: poster_asset text NULL, poster_hash text NULL,
+//	         backdrop_asset text NULL, backdrop_hash text NULL,
+//	         enriched_at timestamptz NULL,
+//	         updated_at timestamptz NOT NULL DEFAULT now()
+//	FK series_id → series(id) NO ACTION (mirrors season_texts / series_media_texts;
+//	                                     season_number carries no standalone FK,
+//	                                     exactly like episodes.season_number — the
+//	                                     seasons natural key is a bare UNIQUE INDEX,
+//	                                     not a constraint, so a composite FK to
+//	                                     seasons is not portable).
+//
+// Per-language season poster paths are written by RefreshSeasonSlim from the
+// SAME GetSeason(+images) payload (S-C2) and read by GetSeason / SeasonsComposer
+// with the lang → en-US → canon seasons.poster_asset fallback chain. backdrop_*
+// mirror series_media_texts for symmetry but stay NULL — TMDB season images carry
+// posters only.
+func buildSeasonMediaTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	seriesID := fkColumn(d, "series_id", false /* not null */)
+	seasonNumber := atlasschema.NewIntColumn("season_number", "integer").SetNull(false)
+	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
+	posterAsset := atlasschema.NewNullStringColumn("poster_asset", "text")
+	posterHash := atlasschema.NewNullStringColumn("poster_hash", "text")
+	backdropAsset := atlasschema.NewNullStringColumn("backdrop_asset", "text")
+	backdropHash := atlasschema.NewNullStringColumn("backdrop_hash", "text")
+	enrichedAt := timestampColumn(d, "enriched_at", false /* withDefault */, false /* notNull */)
+	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("season_media_texts").
+		AddColumns(
+			seriesID,
+			seasonNumber,
+			language,
+			posterAsset,
+			posterHash,
+			backdropAsset,
+			backdropHash,
+			enrichedAt,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID, seasonNumber, language)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("season_media_texts_series_id_fkey").
 				AddColumns(seriesID).
 				SetRefTable(seriesTable).
 				AddRefColumns(parentRefCol(seriesTable)).

@@ -238,6 +238,27 @@ type SeriesMediaText struct {
 	UpdatedAt     time.Time
 }
 
+// SeasonMediaText is one per-language season poster/backdrop row of
+// season_media_texts (S-C2). Same 3-column composite PK shape as SeasonText
+// (series_id, season_number, language) and the same read/write contract as
+// SeriesMediaText: PosterAsset is the raw TMDB path (READ source of truth),
+// PosterHash the eager pre-warm sha256 the RefreshSeasonSlim worker mints via
+// MediaResolver (side-effect: EnsurePending). BackdropAsset/BackdropHash mirror
+// series_media_texts for symmetry but stay nil — TMDB season images carry
+// posters only. EnrichedAt is the TMDB-worker freshness stamp; non-TMDB paths
+// leave every field nil and the Upsert COALESCEs to preserve prior values.
+type SeasonMediaText struct {
+	SeriesID      domain.SeriesID
+	SeasonNumber  int
+	Language      string
+	PosterAsset   *string
+	PosterHash    *string
+	BackdropAsset *string
+	BackdropHash  *string
+	EnrichedAt    *time.Time
+	UpdatedAt     time.Time
+}
+
 // SeasonEpisodeAggregate is the per-season rollup the E-1 B3c SeasonsComposer
 // reads to fill air_date_end + episode_count without an N+1 walk. There is no
 // seasons.air_date_end column (seasons carries a single AirDate), so LastAirDate

@@ -134,3 +134,26 @@ func pickByLangPriority(imgs []tmdb.TVImage, tiers []langMatcher) *string {
 	}
 	return nil
 }
+
+// pickSeasonPosterForLang: full priority chain (short(lang) → language-agnostic
+// (nil) → "en"), used for the CALL language. Mirrors pickPosterForLang but over
+// SeasonImages (posters only). nil → caller falls back to the root season
+// poster_path.
+func pickSeasonPosterForLang(imgs *tmdb.SeasonImages, lang string) *string {
+	if imgs == nil || len(imgs.Posters) == 0 {
+		return nil
+	}
+	return pickByLangPriority(imgs.Posters, langPriority(shortLang(lang)))
+}
+
+// pickSeasonPosterStrict: per-language tier ONLY (matchISO(short(lang)) — no
+// agnostic, no "en", no root fallback). Used for NON-call languages so the en-US
+// season-poster tier is never poisoned by call-lang or English art: a non-call
+// row is written only when TMDB actually carries a poster tagged in that EXACT
+// language. Empty short(lang) → nil.
+func pickSeasonPosterStrict(imgs *tmdb.SeasonImages, lang string) *string {
+	if imgs == nil || len(imgs.Posters) == 0 || shortLang(lang) == "" {
+		return nil
+	}
+	return pickByLangPriority(imgs.Posters, []langMatcher{matchISO(shortLang(lang))})
+}

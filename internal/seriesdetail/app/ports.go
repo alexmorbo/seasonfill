@@ -121,6 +121,15 @@ type SeasonTextsPort interface {
 	ListBySeriesWithFallback(ctx context.Context, seriesID domain.SeriesID, lang string) (map[int]series.SeasonText, error)
 }
 
+// SeasonMediaTextsPort reads the per-season localized poster map with the §5.6
+// two-tier fallback (requested language → en-US), keyed by season_number. A
+// missing key means the caller keeps canon seasons.poster_asset (the third,
+// non-persistence tier). Implemented by
+// SeasonMediaTextsRepository.ListBySeriesWithFallback. S-C2.
+type SeasonMediaTextsPort interface {
+	ListBySeriesWithFallback(ctx context.Context, seriesID domain.SeriesID, lang string) (map[int]series.SeasonMediaText, error)
+}
+
 // SeasonEpisodeAggregatesPort returns the per-season episode rollup
 // (episode_count + MIN/MAX air_date) in one GROUP BY. air_date_end has no source
 // column on `seasons`; B3c computes it as MAX(episodes.air_date) here. Implemented

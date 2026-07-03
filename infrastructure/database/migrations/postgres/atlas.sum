@@ -1,4 +1,4 @@
-h1:O8wvCSyEtjmtuFKNFMoY9DZy1UdPieCVTh/AV4RWN78=
+h1:3nzCtdiUJ5hrA7CNOqmTKox0uO/qb75kvB8auBB4Zis=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -49,3 +49,5 @@ h1:O8wvCSyEtjmtuFKNFMoY9DZy1UdPieCVTh/AV4RWN78=
 000024_season_texts.up.sql h1:RxIbqEbrJhQewEFR6BpNtU8sFW8oLKhRdgV0jEjoQ7k=
 000025_series_media_texts.down.sql h1:y7+TzdZpK/baxA90lCvTyTa6epQURXvDTSnISgESoEA=
 000025_series_media_texts.up.sql h1:bcFSn4+3OjeULB7JFkLwfFl87B9NDxSTm+INTSIqmys=
+000026_season_media_texts.down.sql h1:AvIbRcY6pJif9LzY6BqoEsWtdEM0gsLa2hoDBE+yR80=
+000026_season_media_texts.up.sql h1:RVPv/+nNNT7di1UOoa34BpXQPI7MZkYJOfWQwQlwyUM=

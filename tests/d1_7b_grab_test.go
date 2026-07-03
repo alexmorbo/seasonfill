@@ -266,9 +266,10 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// D-7 story 468c re-added media_assets, then to 53 after
 			// N-2a story 502 added discovery_lists, then to 54 after E-1
 			// B3a added season_texts, then to 55 after E-1 story 584a
-			// added series_media_texts.
-			if len(s.Tables) != 55 {
-				t.Errorf("Schema(%s) tables = %d, want 55 (after E-1 story 584a series_media_texts)", d, len(s.Tables))
+			// added series_media_texts, then to 56 after S-C2 added
+			// season_media_texts.
+			if len(s.Tables) != 56 {
+				t.Errorf("Schema(%s) tables = %d, want 56 (after S-C2 season_media_texts)", d, len(s.Tables))
 			}
 		})
 	}

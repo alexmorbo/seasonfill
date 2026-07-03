@@ -66,6 +66,11 @@ type SeriesWorkerDeps struct {
 	// posture. Production wiring injects
 	// *enrichpersistence.SeriesMediaTextsRepository.
 	SeriesMediaTexts SeriesMediaTextsRepo
+	// SeasonMediaTexts — S-C2: optional per-language SEASON poster write port
+	// consumed by RefreshSeasonSlim. Mirrors SeriesMediaTexts / SeasonTexts
+	// nil-OK posture. Production impl is
+	// *enrichpersistence.SeasonMediaTextsRepository.
+	SeasonMediaTexts SeasonMediaTextsRepo
 	People           PeopleRepo
 	// PersonCredits — D-7 (468a): the series_worker writes
 	// series-level credits into the polymorphic person_credits table

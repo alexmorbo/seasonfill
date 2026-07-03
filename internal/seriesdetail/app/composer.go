@@ -149,9 +149,12 @@ type Deps struct {
 	Seasons           SeasonsPort
 	// SeasonTexts — nil-OK: canon name/overview fallback (C-season-fix).
 	// Localizes the single-season path via season_texts, mirroring B3c.
-	SeasonTexts   SeasonTextsPort
-	Episodes      EpisodesPort
-	EpisodeStates EpisodeStatesPort
+	SeasonTexts SeasonTextsPort
+	// SeasonMediaTexts — nil-OK: per-lang season poster with canon
+	// seasons.poster_asset fallback (S-C2).
+	SeasonMediaTexts SeasonMediaTextsPort
+	Episodes         EpisodesPort
+	EpisodeStates    EpisodeStatesPort
 	// SeasonStats — story 377. Per-(instance, series, season) Sonarr
 	// statistics projection. Nil-OK: when not wired the composer skips
 	// the load + the handler falls back to walking episode_states.
@@ -310,6 +313,23 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 				o := *txt.Overview
 				d.Seasons[0].Canon.Overview = &o
 			}
+		}
+	}
+	// S-C2 — localize the single season's poster via season_media_texts
+	// (lang → en-US → canon seasons.poster_asset). Sets the RAW path; resolveAssets
+	// mints the hash below. nil-OK dep; repo error → canon fallback, never fatal.
+	if len(filtered) > 0 && c.d.SeasonMediaTexts != nil {
+		media, merr := c.d.SeasonMediaTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
+		if merr != nil {
+			c.d.Logger.WarnContext(ctx, "season_media_texts_fallback_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.String("error", merr.Error()))
+			media = nil
+		}
+		if mt, ok := media[seasonNumber]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+			p := *mt.PosterAsset
+			d.Seasons[0].Canon.PosterAsset = &p
 		}
 	}
 	d.Degraded, _ = c.computeDegraded(ctx, seriesID, canon, branches)

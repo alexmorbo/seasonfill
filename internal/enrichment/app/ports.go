@@ -238,6 +238,14 @@ type SeriesMediaTextsRepo interface {
 	Upsert(ctx context.Context, t series.SeriesMediaText) error
 }
 
+// SeasonMediaTextsRepo persists one per-language season poster/backdrop row
+// (season_media_texts.Upsert). Nil-OK on SeriesWorkerDeps — when nil the worker
+// skips the season-media step. COALESCE-preserve Upsert guards every column so a
+// partial write never blanks a prior value. S-C2.
+type SeasonMediaTextsRepo interface {
+	Upsert(ctx context.Context, t series.SeasonMediaText) error
+}
+
 type PeopleRepo interface {
 	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (people.Person, error)
 	Upsert(ctx context.Context, p people.Person) (int64, error)

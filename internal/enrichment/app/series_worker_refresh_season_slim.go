@@ -157,6 +157,17 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 		seasonTextWrites = buildSeasonTextWrites(seasonResp, seriesID, seasonNumber, lang, now)
 	}
 
+	// S-C2: per-language SEASON poster writes from the SAME GetSeason(+images)
+	// payload. Built OUTSIDE the tx — buildSeasonMediaTextWrites eager-resolves
+	// each poster hash (MediaResolver.Resolve → media_assets pending row +
+	// download enqueue); nesting those cross-table writes inside the season_texts
+	// tx risks lock contention (refresh_text.go pattern). nil-OK dep.
+	var seasonMediaWrites []series.SeasonMediaText
+	if w.deps.SeasonMediaTexts != nil {
+		seasonMediaWrites = buildSeasonMediaTextWrites(
+			ctx, w.deps.MediaResolver, seasonResp, seriesID, seasonNumber, lang, now)
+	}
+
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
 		// 5a. Upsert season row (lightweight — gets season_id for
 		//     episode FK). Existing-row update (if a prior full-canon
@@ -184,6 +195,17 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 			if err := w.deps.SeasonTexts.Upsert(txCtx, st); err != nil {
 				return fmt.Errorf("upsert season_texts (season=%d, lang=%s): %w",
 					seasonNumber, st.Language, err)
+			}
+		}
+
+		// 5a-ter. season_media_texts UPSERT for the langs computed above (S-C2).
+		//   Same seasonResp(+images) — NO second TMDB call. Keyed on
+		//   (series_id, season_number, language), independent of season_id;
+		//   COALESCE in the repo preserves prior values on partial writes.
+		for _, sm := range seasonMediaWrites {
+			if err := w.deps.SeasonMediaTexts.Upsert(txCtx, sm); err != nil {
+				return fmt.Errorf("upsert season_media_texts (season=%d, lang=%s): %w",
+					seasonNumber, sm.Language, err)
 			}
 		}
 
@@ -357,6 +379,68 @@ func buildSeasonTextWrites(
 			Name:         nPtr,
 			Overview:     oPtr,
 			EnrichedAt:   &enrichedAt,
+		})
+	}
+	return writes
+}
+
+// buildSeasonMediaTextWrites projects a GetSeason(+images) payload into one
+// season_media_texts row per supported language (S-C2). Eager-resolves each
+// poster hash via the resolver (media_assets pre-warm side-effect) — call it
+// OUTSIDE the write tx.
+//
+// Row policy (mirrors buildSeasonTextWrites' anti-poison discipline):
+//   - CALL language: poster = pickSeasonPosterForLang (short(lang) → agnostic →
+//     "en"); if nil → root seasonResp.PosterPath (TMDB localises the root poster
+//     to the call language). ALWAYS written when any poster exists.
+//   - NON-call language: poster = pickSeasonPosterStrict (that EXACT language's
+//     posters only — no agnostic/en/root fallback), so the en-US tier is never
+//     poisoned by call-lang art. When nil the language is SKIPPED (row stays
+//     absent; the per-lang async GetSeason path + reader en-US→canon fallback
+//     cover it).
+//   - A lang with no poster at all → skipped (no content-less row bumps
+//     enriched_at). backdrop_* stay nil — TMDB season images are posters-only.
+//
+// The stored `language` column is the SUPPORTED tag (e.g. "en-US"), matched to
+// the call lang by primary subtag.
+func buildSeasonMediaTextWrites(
+	ctx context.Context,
+	resolver MediaResolver, // nil-OK
+	seasonResp *tmdb.SeasonResponse,
+	seriesID domain.SeriesID,
+	seasonNumber int,
+	callLang string,
+	now time.Time,
+) []series.SeasonMediaText {
+	writes := make([]series.SeasonMediaText, 0, len(locale.SupportedUserLanguages))
+	for _, l := range locale.SupportedUserLanguages {
+		var posterPath *string
+		if shortLang(l) == shortLang(callLang) {
+			posterPath = pickSeasonPosterForLang(seasonResp.Images, l)
+			if posterPath == nil {
+				posterPath = nonEmptyStringPtr(seasonResp.PosterPath)
+			}
+		} else {
+			posterPath = pickSeasonPosterStrict(seasonResp.Images, l)
+		}
+		if posterPath == nil {
+			continue // no poster for this lang → keep row absent
+		}
+
+		var posterHash *string
+		if resolver != nil {
+			posterHash = resolver.Resolve(ctx, posterPath, "w342", "poster_w342")
+		}
+
+		enrichedAt := now
+		writes = append(writes, series.SeasonMediaText{
+			SeriesID:     seriesID,
+			SeasonNumber: seasonNumber,
+			Language:     l,
+			PosterAsset:  posterPath,
+			PosterHash:   posterHash,
+			// BackdropAsset/BackdropHash intentionally nil (season images = posters only).
+			EnrichedAt: &enrichedAt,
 		})
 	}
 	return writes

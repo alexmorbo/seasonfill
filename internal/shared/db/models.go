@@ -672,6 +672,25 @@ type SeriesMediaTextModel struct {
 
 func (SeriesMediaTextModel) TableName() string { return "series_media_texts" }
 
+// SeasonMediaTextModel — one per-language season poster/backdrop row per
+// (series_id, season_number, language). S-C2. 3-column composite PK mirrors
+// SeasonTextModel; media columns mirror SeriesMediaTextModel. backdrop_* stay
+// NULL (TMDB season images are posters-only). Non-TMDB write paths leave the
+// media columns nil and the Upsert COALESCEs to preserve prior values.
+type SeasonMediaTextModel struct {
+	SeriesID      domain.SeriesID `gorm:"primaryKey;column:series_id"`
+	SeasonNumber  int             `gorm:"primaryKey;column:season_number"`
+	Language      string          `gorm:"primaryKey;column:language;type:text"`
+	PosterAsset   *string         `gorm:"column:poster_asset;type:text"`
+	PosterHash    *string         `gorm:"column:poster_hash;type:text"`
+	BackdropAsset *string         `gorm:"column:backdrop_asset;type:text"`
+	BackdropHash  *string         `gorm:"column:backdrop_hash;type:text"`
+	EnrichedAt    *time.Time      `gorm:"column:enriched_at"`
+	UpdatedAt     time.Time       `gorm:"column:updated_at;not null"`
+}
+
+func (SeasonMediaTextModel) TableName() string { return "season_media_texts" }
+
 // EpisodeStateModel — per-instance file state. PK
 // (instance_name, episode_id) — file state is instance-scoped (§5.11).
 type EpisodeStateModel struct {

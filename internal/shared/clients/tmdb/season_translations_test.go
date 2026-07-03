@@ -47,10 +47,10 @@ func TestGetSeason_RequestsTranslations_Decodes(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "/tv/1396/season/1", seenPath)
-	assert.Contains(t, seenQuery, "append_to_response=translations",
-		"S-C: season request MUST ask for translations; got %q", seenQuery)
-	assert.NotContains(t, seenQuery, "images",
-		"S-C must NOT request images (that is S-C2)")
+	assert.Contains(t, seenQuery, "append_to_response=translations%2Cimages",
+		"S-C2: season request MUST ask for translations,images; got %q", seenQuery)
+	assert.Contains(t, seenQuery, "include_image_language=en%2Cru%2Cnull",
+		"S-C2: season request MUST carry the en,ru,null image-language union; got %q", seenQuery)
 
 	require.NotNil(t, got.Translations)
 	require.Len(t, got.Translations.Translations, 2)

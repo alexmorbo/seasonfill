@@ -16,6 +16,11 @@ type SeasonResponse struct {
 	// append_to_response sub-resource (S-C). Nilable — callers MUST treat a
 	// missing array as empty.
 	Translations *SeasonTranslations `json:"translations"`
+
+	// append_to_response=images sub-resource (S-C2). Nilable — callers MUST
+	// treat a missing object as empty. Posters only (TMDB season images carry
+	// no backdrops).
+	Images *SeasonImages `json:"images"`
 }
 
 // SeasonEpisode mirrors episodes[*] on the season payload.
@@ -88,4 +93,12 @@ type SeasonTranslation struct {
 type SeasonTranslationData struct {
 	Name     string `json:"name"`
 	Overview string `json:"overview"`
+}
+
+// SeasonImages — append_to_response=images sub-resource on /tv/{id}/season/{n}
+// (S-C2). TMDB season images expose ONLY posters (no backdrops/logos). Each
+// entry carries iso_639_1 for per-language selection (matched via shortLang).
+// Reuses TVImage (same package, tv_types.go).
+type SeasonImages struct {
+	Posters []TVImage `json:"posters"`
 }

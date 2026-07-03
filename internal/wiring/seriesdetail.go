@@ -203,6 +203,7 @@ func BuildSeriesDetail(
 	sdSeasonsRepo := enrichpersistence.NewSeasonsRepository(db)
 	sdEpisodesRepo := enrichpersistence.NewEpisodesRepository(db)
 	sdSeasonTextsRepo := enrichpersistence.NewSeasonTextsRepository(db)
+	sdSeasonMediaTextsRepo := enrichpersistence.NewSeasonMediaTextsRepository(db) // S-C2
 	sdEpisodeStatesRepo := catalogpersistence.NewEpisodeStatesRepository(db)
 	sdSeasonStatsRepo := catalogpersistence.NewSeasonStatsRepository(db)
 	sdEpisodeTextsRepo := enrichpersistence.NewEpisodeTextsRepository(db)
@@ -287,6 +288,7 @@ func BuildSeriesDetail(
 		SeriesMediaTexts:  sdSeriesMediaTextsRepo,
 		Seasons:           sdSeasonsRepo,
 		SeasonTexts:       sdSeasonTextsRepo,
+		SeasonMediaTexts:  sdSeasonMediaTextsRepo,
 		Episodes:          sdEpisodesRepo,
 		EpisodeStates:     sdEpisodeStatesRepo,
 		SeasonStats:       sdSeasonStatsRepo,
@@ -472,13 +474,14 @@ func BuildSeriesDetail(
 	// the shared mediaResolver (per-season posters), and the shared freshener
 	// (SectionSkeleton scope — no second probe). No new SQL beyond AggregateBySeries.
 	seasonsComposer := seriesdetail.NewSeasonsComposer(seriesdetail.SeasonsDeps{
-		Series:        sdSeriesRepo,
-		Seasons:       sdSeasonsRepo,
-		SeasonTexts:   sdSeasonTextsRepo,
-		Aggregates:    sdEpisodesRepo,
-		Freshener:     seriesFreshenerHolder,
-		MediaResolver: mediaResolver,
-		Logger:        composerLog,
+		Series:           sdSeriesRepo,
+		Seasons:          sdSeasonsRepo,
+		SeasonTexts:      sdSeasonTextsRepo,
+		SeasonMediaTexts: sdSeasonMediaTextsRepo,
+		Aggregates:       sdEpisodesRepo,
+		Freshener:        seriesFreshenerHolder,
+		MediaResolver:    mediaResolver,
+		Logger:           composerLog,
 	})
 	seasonsHandler := seriesdetailrest.NewSeasonsHandler(seasonsComposer, log)
 

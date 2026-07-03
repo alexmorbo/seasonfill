@@ -49,14 +49,15 @@ type SeasonSummary struct {
 // SeasonsDeps groups the composer's narrow ports. Freshener + MediaResolver are
 // nil-OK seams (defaulted in NewSeasonsComposer).
 type SeasonsDeps struct {
-	Series        SeriesPort
-	Seasons       SeasonsPort
-	SeasonTexts   SeasonTextsPort
-	Aggregates    SeasonEpisodeAggregatesPort
-	Freshener     SeriesFreshener
-	MediaResolver *media.Resolver
-	Logger        *slog.Logger
-	Now           func() time.Time
+	Series           SeriesPort
+	Seasons          SeasonsPort
+	SeasonTexts      SeasonTextsPort
+	SeasonMediaTexts SeasonMediaTextsPort // S-C2 — nil-OK, canon poster fallback
+	Aggregates       SeasonEpisodeAggregatesPort
+	Freshener        SeriesFreshener
+	MediaResolver    *media.Resolver
+	Logger           *slog.Logger
+	Now              func() time.Time
 }
 
 // SeasonsComposer is the one application use case for the /series/:id/seasons page.
@@ -158,6 +159,21 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 		texts = nil // degrade to canon names, do NOT fail the page
 	}
 
+	// S-C2 — per-season localized posters (lang → en-US; canon seasons.poster_asset
+	// = tier 3, applied per-row below). nil-safe: miss → nil map → canon poster.
+	var mediaTexts map[int]series.SeasonMediaText
+	if sc.d.SeasonMediaTexts != nil {
+		var merr error
+		mediaTexts, merr = sc.d.SeasonMediaTexts.ListBySeriesWithFallback(ctx, seriesID, lang)
+		if merr != nil {
+			sc.d.Logger.WarnContext(ctx, "seasons_media_texts_fallback_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.String("error", merr.Error()))
+			mediaTexts = nil
+		}
+	}
+
 	// Per-season episode aggregate (episode_count + air_date_end).
 	aggs, aerr := sc.d.Aggregates.AggregateBySeries(ctx, seriesID)
 	if aerr != nil {
@@ -207,6 +223,10 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 			}
 		}
 
+		posterSrc := s.PosterAsset
+		if mt, ok := mediaTexts[s.SeasonNumber]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+			posterSrc = mt.PosterAsset
+		}
 		summary := SeasonSummary{
 			SeasonNumber: s.SeasonNumber,
 			Name:         name,
@@ -214,7 +234,7 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 			AirDateEnd:   airEnd,
 			EpisodeCount: epCount,
 			Overview:     overview,
-			PosterAsset:  sc.d.MediaResolver.Resolve(ctx, s.PosterAsset, "w342", "poster_w342"),
+			PosterAsset:  sc.d.MediaResolver.Resolve(ctx, posterSrc, "w342", "poster_w342"),
 		}
 		out.Seasons = append(out.Seasons, summary)
 	}
