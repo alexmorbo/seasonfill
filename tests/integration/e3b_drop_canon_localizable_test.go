@@ -41,8 +41,8 @@ func e3bColumnSet(t *testing.T, ctx context.Context, db *sql.DB, dialect, tbl st
 	return out
 }
 
-// TestE3bDropCanonLocalizable_ColumnsGone — after Up() to head 28, the 6
-// localizable canon columns are absent on both dialects; original_title /
+// TestE3bDropCanonLocalizable_ColumnsGone — after migrating to version 28,
+// the 6 localizable canon columns are absent on both dialects; original_title /
 // original_language survive.
 func TestE3bDropCanonLocalizable_ColumnsGone(t *testing.T) {
 	for _, b := range allD1Backends(t) {
@@ -52,7 +52,7 @@ func TestE3bDropCanonLocalizable_ColumnsGone(t *testing.T) {
 
 			db, m, cleanup := b.migrate(t)
 			t.Cleanup(cleanup)
-			require.NoError(t, m.Up(), "Up() to head 28 must succeed on %s", b.name)
+			require.NoError(t, m.Migrate(28), "Migrate(28) must succeed on %s", b.name)
 
 			seriesCols := e3bColumnSet(t, ctx, db, b.name, "series")
 			for _, c := range []string{"title", "poster_asset", "backdrop_asset"} {
@@ -81,7 +81,7 @@ func TestE3bDropCanonLocalizable_DownReAddsNullableOnSeededTable(t *testing.T) {
 
 			db, m, cleanup := b.migrate(t)
 			t.Cleanup(cleanup)
-			require.NoError(t, m.Up(), "Up() to head 28 must succeed on %s", b.name)
+			require.NoError(t, m.Migrate(28), "Migrate(28) must succeed on %s", b.name)
 
 			// Seed one series row (post-drop schema — no title column; every
 			// NOT NULL column below either is provided or carries a DEFAULT).
