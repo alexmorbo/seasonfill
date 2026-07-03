@@ -38,10 +38,24 @@ func composePrewarmAssets(canon series.Canon, m mappedPayload, tv *tmdb.TVRespon
 		})
 	}
 
-	// Series poster: both grid + hero variants.
-	push(sizePosterGrid, canon.PosterAsset, "poster_w342")
-	push(sizePosterHero, canon.PosterAsset, "poster_w780")
-	push(sizeBackdropHero, canon.BackdropAsset, "backdrop_w1280")
+	// Series poster: both grid + hero variants. S-A: prefer the
+	// language-agnostic canonical art from tv.Images; canon.PosterAsset /
+	// canon.BackdropAsset (root-derived during merge) is the fallback.
+	var tvImgs *tmdb.TVImages
+	if tv != nil {
+		tvImgs = tv.Images
+	}
+	posterAsset := pickCanonicalPoster(tvImgs)
+	if posterAsset == nil {
+		posterAsset = canon.PosterAsset
+	}
+	backdropAsset := pickCanonicalBackdrop(tvImgs)
+	if backdropAsset == nil {
+		backdropAsset = canon.BackdropAsset
+	}
+	push(sizePosterGrid, posterAsset, "poster_w342")
+	push(sizePosterHero, posterAsset, "poster_w780")
+	push(sizeBackdropHero, backdropAsset, "backdrop_w1280")
 
 	// Network logos.
 	for _, n := range m.Networks {

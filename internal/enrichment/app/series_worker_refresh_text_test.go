@@ -401,3 +401,92 @@ func hasCall(list []string, target string) bool {
 	}
 	return false
 }
+
+// mediaTVPayloadWithImages builds a TV payload whose ROOT poster/backdrop are
+// Russian while images[] carries EN + RU + language-agnostic entries — the
+// S-A (#977) scenario. Used to prove the en-US writer selects the EN poster.
+func mediaTVPayloadWithImages(parentTMDB int64) *tmdb.TVResponse {
+	en := "en"
+	ru := "ru"
+	return &tmdb.TVResponse{
+		ID:           parentTMDB,
+		Name:         "FROM",
+		Overview:     "ov",
+		Status:       "Returning Series",
+		FirstAirDate: "2022-02-20",
+		PosterPath:   "/ru_root_ferma.jpg",
+		BackdropPath: "/ru_root_backdrop.jpg",
+		Images: &tmdb.TVImages{
+			Posters: []tmdb.TVImage{
+				{FilePath: "/en_high.jpg", ISO6391: &en, VoteAverage: 8.1, VoteCount: 40},
+				{FilePath: "/ru_ferma.jpg", ISO6391: &ru, VoteAverage: 7.2, VoteCount: 11},
+				{FilePath: "/neutral.jpg", ISO6391: nil, VoteAverage: 6.0, VoteCount: 9},
+			},
+			Backdrops: []tmdb.TVImage{
+				{FilePath: "/neutral_bd.jpg", ISO6391: nil, VoteAverage: 5.5, VoteCount: 12},
+				{FilePath: "/en_bd.jpg", ISO6391: &en, VoteAverage: 7.0, VoteCount: 30},
+			},
+		},
+	}
+}
+
+// S-A (#977): en-US writer must store the EN poster from images[], NOT the
+// Russian root poster_path.
+func TestSeriesWorker_RefreshSeriesText_EnLang_PicksEnPosterFromImages(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(117648)
+	tv := mediaTVPayloadWithImages(117648)
+	resolver := &fakeMediaResolver{}
+	media := &fakeSeriesMediaTextsRepo{}
+	f := newMediaTextFixture(t, &tmdbID, tv, resolver, media)
+	media.rec = f.rec
+
+	require.NoError(t, f.worker.RefreshSeriesText(context.Background(), 1, "en-US", true))
+
+	require.Len(t, media.rows, 1)
+	row := media.last()
+	assert.Equal(t, "en-US", row.Language)
+	require.NotNil(t, row.PosterAsset)
+	assert.Equal(t, "/en_high.jpg", *row.PosterAsset, "EN poster from images[], not RU root")
+	require.NotNil(t, row.BackdropAsset)
+	assert.Equal(t, "/neutral_bd.jpg", *row.BackdropAsset, "neutral backdrop preferred")
+	// Resolver saw the EN poster path, not the RU root.
+	require.NotEmpty(t, resolver.calls)
+	require.NotNil(t, resolver.calls[0].Path)
+	assert.Equal(t, "/en_high.jpg", *resolver.calls[0].Path)
+}
+
+// S-A: ru-RU writer stores the RU poster from images[].
+func TestSeriesWorker_RefreshSeriesText_RuLang_PicksRuPosterFromImages(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(117648)
+	tv := mediaTVPayloadWithImages(117648)
+	media := &fakeSeriesMediaTextsRepo{}
+	f := newMediaTextFixture(t, &tmdbID, tv, &fakeMediaResolver{}, media)
+	media.rec = f.rec
+
+	require.NoError(t, f.worker.RefreshSeriesText(context.Background(), 1, "ru-RU", true))
+	require.Len(t, media.rows, 1)
+	row := media.last()
+	require.NotNil(t, row.PosterAsset)
+	assert.Equal(t, "/ru_ferma.jpg", *row.PosterAsset)
+}
+
+// S-A negative: no images[] → per-lang writer falls back to the root path
+// (not empty), so a TMDB-minimal series still gets a poster.
+func TestSeriesWorker_RefreshSeriesText_NoImages_RootFallback(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	tv := mediaTVPayload(42, "/root.jpg", "/root-bd.jpg", nil) // Images nil
+	media := &fakeSeriesMediaTextsRepo{}
+	f := newMediaTextFixture(t, &tmdbID, tv, &fakeMediaResolver{}, media)
+	media.rec = f.rec
+
+	require.NoError(t, f.worker.RefreshSeriesText(context.Background(), 1, "en-US", true))
+	require.Len(t, media.rows, 1)
+	row := media.last()
+	require.NotNil(t, row.PosterAsset)
+	assert.Equal(t, "/root.jpg", *row.PosterAsset, "no images[] → root poster fallback")
+	require.NotNil(t, row.BackdropAsset)
+	assert.Equal(t, "/root-bd.jpg", *row.BackdropAsset)
+}

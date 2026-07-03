@@ -258,7 +258,17 @@ func (w *SeriesWorker) RefreshRecommendations(
 			}
 
 			// Story 571 B-54 — overwrite rec child's canon poster/backdrop
-			// with TMDB's lang-preferred paths. UpsertStub's COALESCE
+			// with TMDB's lang-preferred paths.
+			//
+			// S-A (#977) limitation: recommendation items carry only
+			// root poster_path/backdrop_path (recommendations.results[*] has
+			// no images[] array), so per-language poster selection is NOT
+			// possible here — an extra GetTV per rec child to fetch images[]
+			// is forbidden by the TMDB request budget. Rec carousels keep the
+			// call-language root path; canonical per-lang art applies only to
+			// the parent series' own refresh paths.
+			//
+			// UpsertStub's COALESCE
 			// preserves the existing (usually en-US) values for these two
 			// columns; this narrow UPDATE unconditionally overwrites so
 			// the rec carousel serves ru-RU posters on cold visit. Nil

@@ -8,6 +8,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -187,8 +188,8 @@ func (w *SeriesWorker) RefreshMediaAssets(
 		TMDBID:        canon.TMDBID,
 		Hydration:     canon.Hydration, // preserve existing (full/stub) — CASE-expr assignment keeps 'full' sticky
 		Title:         canon.Title,     // required by Upsert non-null; COALESCE on other fields preserves
-		PosterAsset:   nonEmptyStringPtr(tv.PosterPath),
-		BackdropAsset: nonEmptyStringPtr(tv.BackdropPath),
+		PosterAsset:   canonPosterOrRoot(tv),
+		BackdropAsset: canonBackdropOrRoot(tv),
 		// Preservation copies — bare `excluded.X` in seriesUpsertAssignments
 		// would overwrite these to nil / zero-value with A4's narrow shape.
 		// Copied from canon.Get result to preserve prior TMDB-enriched values.
@@ -324,4 +325,29 @@ func (w *SeriesWorker) RefreshMediaAssets(
 		slog.Int("duration_ms", durMs),
 	)
 	return nil
+}
+
+// canonPosterOrRoot returns the language-agnostic canonical poster from
+// tv.Images (nil → en) with a fall-through to the root tv.PosterPath. S-A:
+// keeps the series canon poster neutral/English rather than whatever the
+// call-language root happened to be.
+func canonPosterOrRoot(tv *tmdb.TVResponse) *string {
+	if tv == nil {
+		return nil
+	}
+	if p := pickCanonicalPoster(tv.Images); p != nil {
+		return p
+	}
+	return nonEmptyStringPtr(tv.PosterPath)
+}
+
+// canonBackdropOrRoot mirrors canonPosterOrRoot for the backdrop.
+func canonBackdropOrRoot(tv *tmdb.TVResponse) *string {
+	if tv == nil {
+		return nil
+	}
+	if b := pickCanonicalBackdrop(tv.Images); b != nil {
+		return b
+	}
+	return nonEmptyStringPtr(tv.BackdropPath)
 }

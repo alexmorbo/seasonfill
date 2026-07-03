@@ -128,8 +128,18 @@ func (w *SeriesWorker) RefreshSeriesText(
 	//     series_worker_refresh_media_assets.go:45-53). nil resolver → hash
 	//     stays nil (asset path still stored + read paths re-derive).
 	var posterHash, backdropHash *string
-	posterPath := nonEmptyStringPtr(tv.PosterPath)
-	backdropPath := nonEmptyStringPtr(tv.BackdropPath)
+	// S-A (#977): prefer the per-language poster/backdrop from the
+	// already-fetched tv.Images; fall back to the root path when Images is
+	// nil or carries nothing for this language. Same GetTV(lang) payload —
+	// zero extra TMDB round-trips.
+	posterPath := pickPosterForLang(tv.Images, lang)
+	if posterPath == nil {
+		posterPath = nonEmptyStringPtr(tv.PosterPath)
+	}
+	backdropPath := pickBackdropForLang(tv.Images, lang)
+	if backdropPath == nil {
+		backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+	}
 	if w.deps.MediaResolver != nil {
 		if posterPath != nil {
 			posterHash = w.deps.MediaResolver.Resolve(ctx, posterPath, "w342", "poster_w342")

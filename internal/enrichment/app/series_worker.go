@@ -779,7 +779,13 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 			slog.String("tmdb_backdrop_path", tv.BackdropPath),
 			slog.String("reason", "merge_policy_zeroed_nonempty_path"),
 		)
+		// S-A: prefer the language-agnostic canonical backdrop from
+		// tv.Images; root tv.BackdropPath is the fallback (guaranteed
+		// non-empty here).
 		bp := tv.BackdropPath
+		if c := pickCanonicalBackdrop(tv.Images); c != nil {
+			bp = *c
+		}
 		canonOut.BackdropAsset = &bp
 	}
 	if tv != nil && tv.PosterPath != "" && (canonOut.PosterAsset == nil || *canonOut.PosterAsset == "") {
@@ -789,7 +795,12 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 			slog.String("tmdb_poster_path", tv.PosterPath),
 			slog.String("reason", "merge_policy_zeroed_nonempty_path"),
 		)
+		// S-A: prefer the language-agnostic canonical poster from tv.Images;
+		// root tv.PosterPath is the fallback (guaranteed non-empty here).
 		pp := tv.PosterPath
+		if c := pickCanonicalPoster(tv.Images); c != nil {
+			pp = *c
+		}
 		canonOut.PosterAsset = &pp
 	}
 

@@ -1,0 +1,78 @@
+{
+  "id": 117648,
+  "name": "FROM",
+  "original_name": "FROM",
+  "overview": "A town in middle America traps everyone who enters.",
+  "tagline": "There's no way out.",
+  "status": "Returning Series",
+  "type": "Scripted",
+  "original_language": "en",
+  "first_air_date": "2022-02-20",
+  "poster_path": "/ru_root_ferma.jpg",
+  "backdrop_path": "/ru_root_backdrop.jpg",
+  "seasons": [],
+  "genres": [],
+  "images": {
+    "posters": [
+      {
+        "file_path": "/en_high.jpg",
+        "width": 2000,
+        "height": 3000,
+        "iso_639_1": "en",
+        "vote_average": 8.1,
+        "vote_count": 40
+      },
+      {
+        "file_path": "/en_low.jpg",
+        "width": 2000,
+        "height": 3000,
+        "iso_639_1": "en",
+        "vote_average": 5.0,
+        "vote_count": 3
+      },
+      {
+        "file_path": "/ru_ferma.jpg",
+        "width": 2000,
+        "height": 3000,
+        "iso_639_1": "ru",
+        "vote_average": 7.2,
+        "vote_count": 11
+      },
+      {
+        "file_path": "/neutral_a.jpg",
+        "width": 2000,
+        "height": 3000,
+        "iso_639_1": null,
+        "vote_average": 6.0,
+        "vote_count": 9
+      },
+      {
+        "file_path": "/neutral_b.jpg",
+        "width": 2000,
+        "height": 3000,
+        "iso_639_1": null,
+        "vote_average": 6.0,
+        "vote_count": 25
+      }
+    ],
+    "backdrops": [
+      {
+        "file_path": "/neutral_bd.jpg",
+        "width": 1920,
+        "height": 1080,
+        "iso_639_1": null,
+        "vote_average": 5.5,
+        "vote_count": 12
+      },
+      {
+        "file_path": "/en_bd.jpg",
+        "width": 1920,
+        "height": 1080,
+        "iso_639_1": "en",
+        "vote_average": 7.0,
+        "vote_count": 30
+      }
+    ],
+    "logos": []
+  }
+}
