@@ -2485,6 +2485,11 @@
                     "series_id": {
                         "type": "integer"
                     },
+                    "served_language": {
+                        "description": "ServedLanguage is the BCP-47 language the season's name/overview was\nprincipally served in (W15-9). Empty when no season_texts row\ncontributed. When it differs from Lang, Degraded includes \"missing_lang\".",
+                        "example": "ru-RU",
+                        "type": "string"
+                    },
                     "sonarr_series_id": {
                         "type": "integer"
                     },
@@ -2709,6 +2714,11 @@
                     "series_summary": {
                         "$ref": "#/components/schemas/dto.SeriesSummary"
                     },
+                    "served_language": {
+                        "description": "ServedLanguage is the BCP-47 language the hero summary title was\nprincipally served in (W15-9). Empty when the title fell through to\ncanon.OriginalTitle. When it differs from Lang, Degraded includes\n\"missing_lang\".",
+                        "example": "ru-RU",
+                        "type": "string"
+                    },
                     "sonarr_series_id": {
                         "description": "SonarrSeriesID is the Sonarr-side id from the URL.",
                         "example": 1,
@@ -2849,6 +2859,11 @@
                     "series_id": {
                         "type": "integer"
                     },
+                    "served_language": {
+                        "description": "ServedLanguage is the BCP-47 language the rec titles were principally\nserved in (W15-9). Empty when no rec title came from a localized row.\nWhen it differs from the requested lang, Degraded includes \"missing_lang\".",
+                        "example": "ru-RU",
+                        "type": "string"
+                    },
                     "sonarr_series_id": {
                         "type": "integer"
                     },
@@ -2883,7 +2898,7 @@
             "dto.SeriesSeasonsResponse": {
                 "properties": {
                     "degraded": {
-                        "description": "Degraded lists cold/timeout sources (\"tmdb_series\", \"freshener\"); omitted\nwhen the document is fully fresh.",
+                        "description": "Degraded lists cold/timeout sources (\"tmdb_series\", \"freshener\") plus\n\"missing_lang\" when served_language differs from the request; omitted\nwhen the document is fully fresh.",
                         "items": {
                             "type": "string"
                         },
@@ -2900,6 +2915,11 @@
                     "series_id": {
                         "example": 42,
                         "type": "integer"
+                    },
+                    "served_language": {
+                        "description": "ServedLanguage is the BCP-47 language the season names were principally\nserved in (W15-9). Empty when no season carried a localized name. When it\ndiffers from the requested lang, Degraded includes \"missing_lang\".",
+                        "example": "ru-RU",
+                        "type": "string"
                     },
                     "synced_at": {
                         "description": "SyncedAt is the canon series row's updated_at.",
@@ -3818,6 +3838,10 @@
                     },
                     "series_id": {
                         "type": "integer"
+                    },
+                    "served_language": {
+                        "description": "ServedLanguage is the BCP-47 language the hero title (the section's\nprincipal localized text) was actually served in (W15-9). Empty when\nthe title fell through to canon.OriginalTitle (no series_texts row).\nWhen it differs from the requested Lang, computeDegraded appends the\n\"missing_lang\" marker so the FE re-polls until en-US lands.",
+                        "type": "string"
                     },
                     "sidebar": {
                         "properties": {
@@ -7715,7 +7739,7 @@
         },
         "/series/{id}/season/{n}": {
             "get": {
-                "description": "Season detail document for a series keyed by canonical\nseries.id. Resolves the preferred Sonarr instance\nautomatically (lex-first instance that carries the series\nin series_cache). 404 when no library carries the series —\nTMDB-only series have no per-season surface.",
+                "description": "Season detail document for a series keyed by canonical\nseries.id. Resolves the preferred Sonarr instance\nautomatically (lex-first instance that carries the series\nin series_cache). When the series is TMDB-only (no library\ncarries it), returns a canon-only season detail (episodes\nfrom episodes + episode_texts) with degraded=[\"tmdb_series\"],\ninstance=\"\" and no on-disk state. 404 only when the\ncanonical id is truly unknown.",
                 "parameters": [
                     {
                         "description": "Canonical series.id",

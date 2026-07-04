@@ -35,6 +35,12 @@ type Recommendations struct {
 	TotalCount     int
 	HasMore        bool
 	Degraded       []string
+	// ServedLanguage is the BCP-47 language the rec titles were principally
+	// served in (W15-9): the requested lang when every localized title is in
+	// it, else the first-seen fallback language. Empty when no rec title came
+	// from a series_texts row. The handler appends "missing_lang" when it
+	// differs from the request.
+	ServedLanguage string
 }
 
 // Pagination bounds. Caller layer clamps; this is the source of truth.
@@ -216,6 +222,12 @@ func (c *Composer) GetRecommendations(
 			}
 		}
 
+		// W15-9 — track the served language of the rec titles: sawRequested
+		// flags a localized title in the requested lang, firstFallback records
+		// the first title served in another (fallback) language.
+		var firstFallback string
+		sawRequested := false
+
 		for _, recID := range ids {
 			canon, ok := byID[recID]
 			if !ok {
@@ -225,6 +237,15 @@ func (c *Composer) GetRecommendations(
 			// series_texts (lang → en-US) when present, else canon
 			// OriginalTitle. Canon no longer carries a display title.
 			rd := RecommendationDetail{Series: canon, Title: recTitle(localised, recID, canon)}
+			if localised != nil {
+				if t, ok := localised[recID]; ok && t.Title != nil && *t.Title != "" {
+					if t.Language == lang {
+						sawRequested = true
+					} else if firstFallback == "" {
+						firstFallback = t.Language
+					}
+				}
+			}
 			if c.d.SeriesCacheLookup != nil {
 				caches, _ := c.d.SeriesCacheLookup.ListBySeriesID(ctx, recID)
 				if len(caches) > 0 {
@@ -234,6 +255,15 @@ func (c *Composer) GetRecommendations(
 				}
 			}
 			resolved = append(resolved, rd)
+		}
+
+		// W15-9 — a fallback title anywhere wins (first-seen); otherwise the
+		// requested language when at least one title was localized; else empty.
+		switch {
+		case firstFallback != "":
+			out.ServedLanguage = firstFallback
+		case sawRequested:
+			out.ServedLanguage = lang
 		}
 	}
 

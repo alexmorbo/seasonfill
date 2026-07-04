@@ -126,7 +126,7 @@ func (h *GlobalSeriesRecommendationsHandler) Get(c *gin.Context) {
 			slog.Int64("series_id", int64(seriesID)),
 			slog.Int("limit", limit),
 			slog.Int("offset", offset))
-		c.JSON(http.StatusOK, toSeriesRecommendationsResponse(rec, limit, offset))
+		c.JSON(http.StatusOK, toSeriesRecommendationsResponse(rec, limit, offset, lang))
 		return
 	}
 	if h.inner == nil {

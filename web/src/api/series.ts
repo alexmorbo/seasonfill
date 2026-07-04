@@ -170,7 +170,7 @@ export function useSeries({
     refetchInterval: (query) => {
       if (!pollWhileDegraded) return false;
       const data = query.state.data;
-      if (!data || !isHotDegraded(data)) {
+      if (!data || (!isHotDegraded(data) && !isMissingLang(data, effectiveLang))) {
         tickRef.current = { lastLen: -1, ticks: 0 };
         return false;
       }
@@ -219,6 +219,24 @@ const HOT_SOURCES: ReadonlySet<DegradedSource> = new Set([
 export function isHotDegraded(resp: SeriesSkeleton | undefined): boolean {
   const degraded = resp?.degraded ?? [];
   return degraded.some((s): boolean => HOT_SOURCES.has(s as DegradedSource));
+}
+
+// W15-9 — under-localized signal. The BE appends `"missing_lang"` to
+// `degraded[]` and sets `served_language` to the BCP-47 it actually served
+// whenever it fell back to a non-requested language row. Returns true while
+// that fallback is still in effect so `useSeries` keeps polling (bounded by
+// the same tick cap) until the requested-language row lands — at which point
+// the BE drops the marker and `served_language === requestedLang`, flipping
+// this false and stopping the poll.
+export function isMissingLang(
+  resp: SeriesSkeleton | undefined,
+  requestedLang: string,
+): boolean {
+  return (
+    (resp?.degraded ?? []).includes('missing_lang') &&
+    (resp?.served_language ?? '') !== requestedLang &&
+    requestedLang !== ''
+  );
 }
 
 // Story 531 — set of degraded tokens the FE knows how to surface.

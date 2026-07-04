@@ -283,7 +283,11 @@ type SeriesRecommendationsResponse struct {
 	HasMore        bool                  `json:"has_more"`
 	Limit          int                   `json:"limit" example:"20"`
 	Offset         int                   `json:"offset" example:"0"`
-	Degraded       []string              `json:"degraded"`
+	// ServedLanguage is the BCP-47 language the rec titles were principally
+	// served in (W15-9). Empty when no rec title came from a localized row.
+	// When it differs from the requested lang, Degraded includes "missing_lang".
+	ServedLanguage string   `json:"served_language,omitempty" example:"ru-RU"`
+	Degraded       []string `json:"degraded"`
 }
 
 // RecentEvent — one row of the last-5 activity strip. Empty in
@@ -405,8 +409,12 @@ type SeasonDetailResponse struct {
 	SeriesID       domain.SeriesID       `json:"series_id"`
 	Lang           string                `json:"lang"`
 	Season         Season                `json:"season"`
-	Degraded       []string              `json:"degraded"`
-	SyncedAt       time.Time             `json:"synced_at"`
+	// ServedLanguage is the BCP-47 language the season's name/overview was
+	// principally served in (W15-9). Empty when no season_texts row
+	// contributed. When it differs from Lang, Degraded includes "missing_lang".
+	ServedLanguage string    `json:"served_language,omitempty" example:"ru-RU"`
+	Degraded       []string  `json:"degraded"`
+	SyncedAt       time.Time `json:"synced_at"`
 }
 
 // LibrarySeasonCount — per-season on-disk / downloading tally for ONE Sonarr
@@ -479,7 +487,12 @@ type SeriesLibraryResponse struct {
 type SeriesSeasonsResponse struct {
 	SeriesID domain.SeriesID    `json:"series_id" example:"42"`
 	Seasons  []SeasonSummaryDTO `json:"seasons"`
-	// Degraded lists cold/timeout sources ("tmdb_series", "freshener"); omitted
+	// ServedLanguage is the BCP-47 language the season names were principally
+	// served in (W15-9). Empty when no season carried a localized name. When it
+	// differs from the requested lang, Degraded includes "missing_lang".
+	ServedLanguage string `json:"served_language,omitempty" example:"ru-RU"`
+	// Degraded lists cold/timeout sources ("tmdb_series", "freshener") plus
+	// "missing_lang" when served_language differs from the request; omitted
 	// when the document is fully fresh.
 	Degraded []string `json:"degraded,omitempty"`
 	// SyncedAt is the canon series row's updated_at.

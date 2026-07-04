@@ -754,3 +754,40 @@ func TestCastComposer_QueryCountBudget(t *testing.T) {
 	require.LessOrEqual(t, cs.listByTMDBIDsCalls.Load(), int32(1), "series batch fires at most once")
 	require.LessOrEqual(t, cc.listBySeriesIDsCalls.Load(), int32(1), "cache batch fires at most once")
 }
+
+// W15-9 — served-language contract on the cast page (hero summary title
+// served via SeriesTexts.GetWithFallback).
+func TestCastComposer_ServedLanguage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("summary-title fallback lang surfaced", func(t *testing.T) {
+		t.Parallel()
+		deps, _, _, _, _, _, _ := castBaseDeps(t)
+		deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
+			SeriesID: 42, Language: "en-US", Title: new("The Last of Us"),
+		}}
+		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU")
+		require.NoError(t, err)
+		require.Equal(t, "en-US", out.ServedLanguage)
+	})
+
+	t.Run("summary title in requested lang → served=requested", func(t *testing.T) {
+		t.Parallel()
+		deps, _, _, _, _, _, _ := castBaseDeps(t)
+		deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
+			SeriesID: 42, Language: "ru-RU", Title: new("Одни из нас"),
+		}}
+		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU")
+		require.NoError(t, err)
+		require.Equal(t, "ru-RU", out.ServedLanguage)
+	})
+
+	t.Run("no series_texts (original_title path) → served empty", func(t *testing.T) {
+		t.Parallel()
+		deps, _, _, _, _, _, _ := castBaseDeps(t)
+		// SeriesTexts unwired → hero title falls to canon.OriginalTitle.
+		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU")
+		require.NoError(t, err)
+		require.Empty(t, out.ServedLanguage)
+	})
+}

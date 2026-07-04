@@ -284,6 +284,83 @@ func TestSeasonsComposer_Degraded_ColdCanonAndFreshener(t *testing.T) {
 	assert.Contains(t, out.Degraded, "freshener")
 }
 
+// W15-9 — served-language contract on the seasons list.
+func TestSeasonsComposer_ServedLanguage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("all names in requested lang → served=requested", func(t *testing.T) {
+		t.Parallel()
+		c := NewSeasonsComposer(SeasonsDeps{
+			Series:  &seasonsFakeSeries{canon: fullCanon()},
+			Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1}, {SeasonNumber: 2}}},
+			SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{
+				1: {SeasonNumber: 1, Language: "ru-RU", Name: new("Сезон 1")},
+				2: {SeasonNumber: 2, Language: "ru-RU", Name: new("Сезон 2")},
+			}},
+			Aggregates: &seasonsFakeAgg{},
+			Logger:     seasonsQuietLogger(),
+		})
+		out, err := c.Compose(context.Background(), 42, "ru-RU")
+		require.NoError(t, err)
+		assert.Equal(t, "ru-RU", out.ServedLanguage)
+	})
+
+	t.Run("a fallback name → first-seen fallback lang surfaced", func(t *testing.T) {
+		t.Parallel()
+		c := NewSeasonsComposer(SeasonsDeps{
+			Series:  &seasonsFakeSeries{canon: fullCanon()},
+			Seasons: &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1}, {SeasonNumber: 2}}},
+			SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{
+				1: {SeasonNumber: 1, Language: "ru-RU", Name: new("Сезон 1")},
+				2: {SeasonNumber: 2, Language: "en-US", Name: new("Season Two")},
+			}},
+			Aggregates: &seasonsFakeAgg{},
+			Logger:     seasonsQuietLogger(),
+		})
+		out, err := c.Compose(context.Background(), 42, "ru-RU")
+		require.NoError(t, err)
+		assert.Equal(t, "en-US", out.ServedLanguage, "any fallback wins → first-seen fallback lang")
+	})
+
+	t.Run("no name rows → served empty", func(t *testing.T) {
+		t.Parallel()
+		c := NewSeasonsComposer(SeasonsDeps{
+			Series:      &seasonsFakeSeries{canon: fullCanon()},
+			Seasons:     &seasonsFakeSeasons{rows: []series.CanonSeason{{SeasonNumber: 1}}},
+			SeasonTexts: &seasonsFakeTexts{rows: map[int]series.SeasonText{}},
+			Aggregates:  &seasonsFakeAgg{},
+			Logger:      seasonsQuietLogger(),
+		})
+		out, err := c.Compose(context.Background(), 42, "ru-RU")
+		require.NoError(t, err)
+		assert.Empty(t, out.ServedLanguage)
+	})
+}
+
+// W15-9 — the shared missing_lang marker helper.
+func TestAppendMissingLang(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		served    string
+		requested string
+		want      []string
+	}{
+		{"served empty → no marker", "", "ru-RU", nil},
+		{"served==requested → no marker", "ru-RU", "ru-RU", nil},
+		{"served!=requested → marker", "en-US", "ru-RU", []string{"missing_lang"}},
+		{"empty request normalizes to en-US; en-US served → no marker", "en-US", "", nil},
+		{"empty request normalizes to en-US; ru served → marker", "ru-RU", "", []string{"missing_lang"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := AppendMissingLang(nil, tc.served, tc.requested)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestSeasonsComposer_NotFound(t *testing.T) {
 	t.Parallel()
 	notFound := errors.Join(&sharedErrors.SeriesNotFoundError{ID: 42}, ports.ErrNotFound)

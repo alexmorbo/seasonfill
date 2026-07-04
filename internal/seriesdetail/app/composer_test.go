@@ -1041,3 +1041,38 @@ func TestComposer_GetCanonicalCast_SeriesPeopleError_Propagates(t *testing.T) {
 	_, err := c.GetCanonicalCast(context.Background(), 100, "en-US", 0)
 	require.Error(t, err)
 }
+
+// W15-9 — served-language contract on the season detail (the requested
+// season's name/overview row language).
+func TestComposer_GetSeason_ServedLanguage(t *testing.T) {
+	t.Run("fallback name lang surfaced", func(t *testing.T) {
+		deps, _, _ := baseDeps(t)
+		deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{{ID: 1, SeriesID: 42, SeasonNumber: 1}}}
+		deps.SeasonTexts = &seasonsFakeTexts{rows: map[int]series.SeasonText{
+			1: {SeriesID: 42, SeasonNumber: 1, Language: "en-US", Name: new("Season 1")},
+		}}
+		d, err := NewComposer(deps).GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
+		require.NoError(t, err)
+		require.Equal(t, "en-US", d.ServedLanguage)
+	})
+
+	t.Run("requested lang → served=requested", func(t *testing.T) {
+		deps, _, _ := baseDeps(t)
+		deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{{ID: 1, SeriesID: 42, SeasonNumber: 1}}}
+		deps.SeasonTexts = &seasonsFakeTexts{rows: map[int]series.SeasonText{
+			1: {SeriesID: 42, SeasonNumber: 1, Language: "ru-RU", Name: new("Сезон 1")},
+		}}
+		d, err := NewComposer(deps).GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
+		require.NoError(t, err)
+		require.Equal(t, "ru-RU", d.ServedLanguage)
+	})
+
+	t.Run("no texts row → served empty", func(t *testing.T) {
+		deps, _, _ := baseDeps(t)
+		deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{{ID: 1, SeriesID: 42, SeasonNumber: 1}}}
+		deps.SeasonTexts = &seasonsFakeTexts{rows: map[int]series.SeasonText{}}
+		d, err := NewComposer(deps).GetSeason(context.Background(), "alpha", 1, 1, "ru-RU")
+		require.NoError(t, err)
+		require.Empty(t, d.ServedLanguage)
+	})
+}

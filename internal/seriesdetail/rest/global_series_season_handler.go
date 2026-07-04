@@ -148,7 +148,8 @@ func (h *GlobalSeriesSeasonHandler) Get(c *gin.Context) {
 			SeriesID:       detail.SeriesID,
 			Lang:           detail.Lang,
 			Season:         seasons[0],
-			Degraded:       sourceStringSlice(detail.Degraded),
+			ServedLanguage: detail.ServedLanguage,
+			Degraded:       seriesdetail.AppendMissingLang(sourceStringSlice(detail.Degraded), detail.ServedLanguage, detail.Lang),
 			SyncedAt:       detail.SyncedAt,
 		})
 		return

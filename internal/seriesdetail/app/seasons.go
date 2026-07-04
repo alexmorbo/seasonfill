@@ -28,8 +28,14 @@ import (
 type SeasonsListDTO struct {
 	SeriesID domain.SeriesID `json:"series_id"`
 	Seasons  []SeasonSummary `json:"seasons"`
-	Degraded []string        `json:"degraded,omitempty"`
-	SyncedAt time.Time       `json:"synced_at"`
+	// ServedLanguage is the BCP-47 language the season names were principally
+	// served in (W15-9): the requested lang when every resolved name is in it
+	// (or there are no name rows), else the first-seen fallback language. Empty
+	// when no season carried a localized name. The handler appends the
+	// "missing_lang" marker when it differs from the request.
+	ServedLanguage string    `json:"served_language,omitempty"`
+	Degraded       []string  `json:"degraded,omitempty"`
+	SyncedAt       time.Time `json:"synced_at"`
 }
 
 // SeasonSummary is one accordion row. No episodes embed (that's /season/:n); no
@@ -190,6 +196,13 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 		SyncedAt: canon.UpdatedAt,
 	}
 
+	// W15-9 — track the served language of the season names. requestedLang is
+	// the normalized request; sawRequested records a name row in that language,
+	// firstFallback the first name row served in another (fallback) language.
+	requestedLang := resolveLang(lang)
+	var firstFallback string
+	sawRequested := false
+
 	for i := range seasons {
 		s := seasons[i]
 
@@ -201,6 +214,11 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 		if txt, ok := texts[s.SeasonNumber]; ok {
 			if txt.Name != nil {
 				name = *txt.Name
+				if txt.Language == requestedLang {
+					sawRequested = true
+				} else if firstFallback == "" {
+					firstFallback = txt.Language
+				}
 			}
 			if txt.Overview != nil {
 				overview = *txt.Overview
@@ -243,6 +261,15 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 			PosterAsset:  sc.d.MediaResolver.Resolve(ctx, posterSrc, "w342", "poster_w342"),
 		}
 		out.Seasons = append(out.Seasons, summary)
+	}
+
+	// W15-9 — a fallback name anywhere wins (first-seen); otherwise the
+	// requested language when at least one name was served; else empty.
+	switch {
+	case firstFallback != "":
+		out.ServedLanguage = firstFallback
+	case sawRequested:
+		out.ServedLanguage = requestedLang
 	}
 
 	out.Degraded = sc.computeDegraded(canon, freshen)

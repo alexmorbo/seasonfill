@@ -84,10 +84,10 @@ func (h *SeasonsHandler) Get(c *gin.Context) {
 		_ = c.Error(err) // ErrorResponseMiddleware maps to 500
 		return
 	}
-	c.JSON(http.StatusOK, toSeriesSeasonsResponse(result))
+	c.JSON(http.StatusOK, toSeriesSeasonsResponse(result, lang))
 }
 
-func toSeriesSeasonsResponse(d seriesdetail.SeasonsListDTO) dto.SeriesSeasonsResponse {
+func toSeriesSeasonsResponse(d seriesdetail.SeasonsListDTO, requestedLang string) dto.SeriesSeasonsResponse {
 	seasons := make([]dto.SeasonSummaryDTO, 0, len(d.Seasons))
 	for i := range d.Seasons {
 		s := d.Seasons[i]
@@ -102,9 +102,10 @@ func toSeriesSeasonsResponse(d seriesdetail.SeasonsListDTO) dto.SeriesSeasonsRes
 		})
 	}
 	return dto.SeriesSeasonsResponse{
-		SeriesID: d.SeriesID,
-		Seasons:  seasons,
-		Degraded: d.Degraded,
-		SyncedAt: d.SyncedAt,
+		SeriesID:       d.SeriesID,
+		Seasons:        seasons,
+		ServedLanguage: d.ServedLanguage,
+		Degraded:       seriesdetail.AppendMissingLang(d.Degraded, d.ServedLanguage, requestedLang),
+		SyncedAt:       d.SyncedAt,
 	}
 }

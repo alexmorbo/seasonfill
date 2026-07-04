@@ -36,6 +36,11 @@ type CastPage struct {
 	Cast              []CastEntry
 	Crew              []CrewEntry
 	SyncedAt          time.Time
+	// ServedLanguage is the BCP-47 language the hero summary title (the cast
+	// page's principal localized text) was served in (W15-9). Empty when the
+	// title fell through to canon.OriginalTitle. The handler appends
+	// "missing_lang" when it differs from the requested Lang.
+	ServedLanguage string
 }
 
 // SeriesSummary is the lightweight series-meta projection the cast
@@ -152,9 +157,14 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 	// OriginalTitle; hero poster raw path from series_media_texts. Canon
 	// carries neither after S-E3a.
 	heroTitle := ""
+	servedLang := ""
 	if c.d.SeriesTexts != nil {
 		if t, terr := c.d.SeriesTexts.GetWithFallback(ctx, seriesID, lang); terr == nil && t.Title != nil && *t.Title != "" {
 			heroTitle = *t.Title
+			// W15-9 — the summary title's row language is the served signal;
+			// only meaningful when the title came from series_texts (not the
+			// OriginalTitle fallback below).
+			servedLang = t.Language
 		}
 	}
 	if heroTitle == "" && canon.OriginalTitle != nil {
@@ -174,6 +184,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 		SeriesID:       seriesID,
 		Lang:           lang,
 		Summary:        buildSeriesSummary(canon, heroTitle, posterRaw),
+		ServedLanguage: servedLang,
 	}
 
 	// Story 312 + 316: hero summary poster — sync first-fold fetch with a

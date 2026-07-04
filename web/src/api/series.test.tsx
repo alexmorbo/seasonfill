@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   useSeries,
   seriesQueryKey,
+  isMissingLang,
   adaptHero,
   adaptCast,
   adaptSeasons,
@@ -54,6 +55,57 @@ describe('useSeries', () => {
     expect(seriesQueryKey(42, 'en-US')).toEqual([
       'series-detail', 42, 'en-US',
     ]);
+  });
+});
+
+// ── W15-9 — under-localized poll signal. `isMissingLang` gates the useSeries
+// refetch loop: KEEP polling while the BE served a fallback-language row
+// (`missing_lang` marker + served_language !== requested); STOP once the
+// requested-language row lands (marker dropped, served_language === requested).
+describe('isMissingLang', () => {
+  it('is true while a fallback row is served (marker + served != requested)', () => {
+    const data = {
+      degraded: ['missing_lang'],
+      served_language: 'ru-RU',
+    } as SeriesSkeleton;
+    expect(isMissingLang(data, 'en-US')).toBe(true);
+  });
+
+  it('is false once the requested-language row lands (marker gone, langs match)', () => {
+    const data = {
+      degraded: [],
+      served_language: 'en-US',
+    } as SeriesSkeleton;
+    expect(isMissingLang(data, 'en-US')).toBe(false);
+  });
+
+  it('is false when the marker is absent even if served != requested', () => {
+    const data = {
+      degraded: ['tmdb_series'],
+      served_language: 'ru-RU',
+    } as SeriesSkeleton;
+    expect(isMissingLang(data, 'en-US')).toBe(false);
+  });
+
+  it('is false when the marker is present but served already equals requested', () => {
+    const data = {
+      degraded: ['missing_lang'],
+      served_language: 'en-US',
+    } as SeriesSkeleton;
+    expect(isMissingLang(data, 'en-US')).toBe(false);
+  });
+
+  it('is false for an empty requested lang (no language pinned)', () => {
+    const data = {
+      degraded: ['missing_lang'],
+      served_language: 'ru-RU',
+    } as SeriesSkeleton;
+    expect(isMissingLang(data, '')).toBe(false);
+  });
+
+  it('is false for undefined data / missing served_language', () => {
+    expect(isMissingLang(undefined, 'en-US')).toBe(false);
+    expect(isMissingLang({ degraded: ['missing_lang'] } as SeriesSkeleton, 'en-US')).toBe(true);
   });
 });
 

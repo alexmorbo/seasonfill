@@ -3393,8 +3393,11 @@ export type paths = {
          * @description Season detail document for a series keyed by canonical
          *     series.id. Resolves the preferred Sonarr instance
          *     automatically (lex-first instance that carries the series
-         *     in series_cache). 404 when no library carries the series —
-         *     TMDB-only series have no per-season surface.
+         *     in series_cache). When the series is TMDB-only (no library
+         *     carries it), returns a canon-only season detail (episodes
+         *     from episodes + episode_texts) with degraded=["tmdb_series"],
+         *     instance="" and no on-disk state. 404 only when the
+         *     canonical id is truly unknown.
          */
         readonly get: {
             readonly parameters: {
@@ -5440,6 +5443,13 @@ export type components = {
             readonly lang?: string;
             readonly season?: components["schemas"]["dto.Season"];
             readonly series_id?: number;
+            /**
+             * @description ServedLanguage is the BCP-47 language the season's name/overview was
+             *     principally served in (W15-9). Empty when no season_texts row
+             *     contributed. When it differs from Lang, Degraded includes "missing_lang".
+             * @example ru-RU
+             */
+            readonly served_language?: string;
             readonly sonarr_series_id?: number;
             readonly synced_at?: string;
         };
@@ -5580,6 +5590,14 @@ export type components = {
             readonly series_id?: number;
             readonly series_summary?: components["schemas"]["dto.SeriesSummary"];
             /**
+             * @description ServedLanguage is the BCP-47 language the hero summary title was
+             *     principally served in (W15-9). Empty when the title fell through to
+             *     canon.OriginalTitle. When it differs from Lang, Degraded includes
+             *     "missing_lang".
+             * @example ru-RU
+             */
+            readonly served_language?: string;
+            /**
              * @description SonarrSeriesID is the Sonarr-side id from the URL.
              * @example 1
              */
@@ -5661,6 +5679,13 @@ export type components = {
             /** @example 0 */
             readonly offset?: number;
             readonly series_id?: number;
+            /**
+             * @description ServedLanguage is the BCP-47 language the rec titles were principally
+             *     served in (W15-9). Empty when no rec title came from a localized row.
+             *     When it differs from the requested lang, Degraded includes "missing_lang".
+             * @example ru-RU
+             */
+            readonly served_language?: string;
             readonly sonarr_series_id?: number;
             /** @example 42 */
             readonly total_count?: number;
@@ -5677,13 +5702,21 @@ export type components = {
         };
         readonly "dto.SeriesSeasonsResponse": {
             /**
-             * @description Degraded lists cold/timeout sources ("tmdb_series", "freshener"); omitted
+             * @description Degraded lists cold/timeout sources ("tmdb_series", "freshener") plus
+             *     "missing_lang" when served_language differs from the request; omitted
              *     when the document is fully fresh.
              */
             readonly degraded?: readonly string[];
             readonly seasons?: readonly components["schemas"]["dto.SeasonSummaryDTO"][];
             /** @example 42 */
             readonly series_id?: number;
+            /**
+             * @description ServedLanguage is the BCP-47 language the season names were principally
+             *     served in (W15-9). Empty when no season carried a localized name. When it
+             *     differs from the requested lang, Degraded includes "missing_lang".
+             * @example ru-RU
+             */
+            readonly served_language?: string;
             /** @description SyncedAt is the canon series row's updated_at. */
             readonly synced_at?: string;
         };
@@ -6202,6 +6235,14 @@ export type components = {
             readonly lang?: string;
             readonly season_count?: number;
             readonly series_id?: number;
+            /**
+             * @description ServedLanguage is the BCP-47 language the hero title (the section's
+             *     principal localized text) was actually served in (W15-9). Empty when
+             *     the title fell through to canon.OriginalTitle (no series_texts row).
+             *     When it differs from the requested Lang, computeDegraded appends the
+             *     "missing_lang" marker so the FE re-polls until en-US lands.
+             */
+            readonly served_language?: string;
             readonly sidebar?: {
                 readonly first_air_date?: string;
                 readonly keywords?: readonly components["schemas"]["seriesdetail.KeywordRef"][];

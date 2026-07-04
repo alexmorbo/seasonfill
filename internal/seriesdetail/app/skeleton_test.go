@@ -365,6 +365,76 @@ func TestSkeletonComposer_Hero_EnUSFallbackUnderRu(t *testing.T) {
 	require.Equal(t, "English Title", dto.Hero.Title.Value())
 }
 
+// W15-9 — served-language contract on the skeleton hero title.
+func TestSkeletonComposer_ServedLanguage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("served row lang set; served==requested → no marker", func(t *testing.T) {
+		t.Parallel()
+		deps, _, _ := skBaseDeps(skBaseCanon())
+		deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
+			SeriesID: 42, Language: "ru-RU", Title: new("Звёздный городок"),
+		}}
+		sc := NewSkeletonComposer(deps)
+		dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+		require.NoError(t, err)
+		require.Equal(t, "ru-RU", dto.ServedLanguage)
+		require.NotContains(t, dto.Degraded, "missing_lang")
+	})
+
+	t.Run("served!=requested → missing_lang marker", func(t *testing.T) {
+		t.Parallel()
+		deps, _, _ := skBaseDeps(skBaseCanon())
+		deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
+			SeriesID: 42, Language: "en-US", Title: new("English Title"),
+		}}
+		sc := NewSkeletonComposer(deps)
+		dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+		require.NoError(t, err)
+		require.Equal(t, "en-US", dto.ServedLanguage)
+		require.Contains(t, dto.Degraded, "missing_lang")
+	})
+
+	t.Run("no text row (original_title path) → served empty, no marker", func(t *testing.T) {
+		t.Parallel()
+		deps, _, _ := skBaseDeps(skBaseCanon()) // SeriesTexts errors by default → original_title
+		sc := NewSkeletonComposer(deps)
+		dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+		require.NoError(t, err)
+		require.Equal(t, "Star City", dto.Hero.Title.Value())
+		require.Empty(t, dto.ServedLanguage)
+		require.NotContains(t, dto.Degraded, "missing_lang")
+	})
+
+	t.Run("text row present but nil Title (original_title used) → served empty, no marker", func(t *testing.T) {
+		t.Parallel()
+		deps, _, _ := skBaseDeps(skBaseCanon())
+		deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
+			SeriesID: 42, Language: "en-US", Title: nil, // no title → hero falls to original_title
+		}}
+		sc := NewSkeletonComposer(deps)
+		dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+		require.NoError(t, err)
+		require.Equal(t, "Star City", dto.Hero.Title.Value())
+		require.Empty(t, dto.ServedLanguage)
+		require.NotContains(t, dto.Degraded, "missing_lang")
+	})
+
+	t.Run("fallback row with empty-string Title (original_title used) → served empty, no marker", func(t *testing.T) {
+		t.Parallel()
+		deps, _, _ := skBaseDeps(skBaseCanon())
+		deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
+			SeriesID: 42, Language: "en-US", Title: new(""), // empty title → hero falls to original_title
+		}}
+		sc := NewSkeletonComposer(deps)
+		dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+		require.NoError(t, err)
+		require.Equal(t, "Star City", dto.Hero.Title.Value(), "empty text title falls through to original_title")
+		require.Empty(t, dto.ServedLanguage, "empty-title fallback row must NOT set served_language")
+		require.NotContains(t, dto.Degraded, "missing_lang", "no spurious marker for unused empty-title row")
+	})
+}
+
 func TestSkeletonComposer_CanonLoadError(t *testing.T) {
 	t.Parallel()
 	deps, _, _ := skBaseDeps(skBaseCanon())

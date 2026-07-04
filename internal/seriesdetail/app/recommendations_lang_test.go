@@ -311,3 +311,55 @@ func TestComposerGetRecommendations_LangEmptyTitleFallsBackToCanon(t *testing.T)
 	require.Equal(t, "Rec Canon", out.Items[0].Title, "nil localised title must not blank canon")
 	require.Equal(t, "Rec Canon 2", out.Items[1].Title, "empty localised title must not blank canon")
 }
+
+// W15-9 — served-language contract on the recommendations list.
+func TestComposerGetRecommendations_ServedLanguage(t *testing.T) {
+	t.Parallel()
+	cache := map[string]series.CacheEntry{
+		"alpha|1": {InstanceName: "alpha", SonarrSeriesID: 1, SeriesID: i64ptrOV(42)},
+	}
+	canonByID := map[domain.SeriesID]series.Canon{
+		42: {ID: 42, OriginalTitle: new("Source")},
+		10: {ID: 10, OriginalTitle: new("Rec A")},
+		20: {ID: 20, OriginalTitle: new("Rec B")},
+	}
+	newComposer := func(texts SeriesTextsPort, ids ...domain.SeriesID) *Composer {
+		return NewComposer(Deps{
+			SeriesCache:     &ovFakeCache{entries: cache},
+			Series:          &ovFakeSeries{rows: canonByID},
+			SeriesTexts:     texts,
+			Recommendations: recFakeRecs{ids: ids},
+			Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Now:             func() time.Time { return time.Now().UTC() },
+		})
+	}
+
+	t.Run("all rec titles in requested lang → served=requested", func(t *testing.T) {
+		t.Parallel()
+		texts := &recFakeTextsBatch{batch: map[domain.SeriesID]series.SeriesText{
+			10: {SeriesID: 10, Language: "ru-RU", Title: new("Рек А")},
+			20: {SeriesID: 20, Language: "ru-RU", Title: new("Рек Б")},
+		}}
+		out, err := newComposer(texts, 10, 20).GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
+		require.NoError(t, err)
+		require.Equal(t, "ru-RU", out.ServedLanguage)
+	})
+
+	t.Run("a fallback rec title → first-seen fallback lang", func(t *testing.T) {
+		t.Parallel()
+		texts := &recFakeTextsBatch{batch: map[domain.SeriesID]series.SeriesText{
+			10: {SeriesID: 10, Language: "ru-RU", Title: new("Рек А")},
+			20: {SeriesID: 20, Language: "en-US", Title: new("Rec B")},
+		}}
+		out, err := newComposer(texts, 10, 20).GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
+		require.NoError(t, err)
+		require.Equal(t, "en-US", out.ServedLanguage)
+	})
+
+	t.Run("no localised titles → served empty", func(t *testing.T) {
+		t.Parallel()
+		out, err := newComposer(nil, 10).GetRecommendations(t.Context(), "alpha", 1, "ru-RU", 20, 0)
+		require.NoError(t, err)
+		require.Empty(t, out.ServedLanguage)
+	})
+}

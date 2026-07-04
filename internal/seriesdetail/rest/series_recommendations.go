@@ -58,7 +58,7 @@ func (h *SeriesRecommendationsHandler) Get(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	c.JSON(http.StatusOK, toSeriesRecommendationsResponse(rec, limit, offset))
+	c.JSON(http.StatusOK, toSeriesRecommendationsResponse(rec, limit, offset, lang))
 }
 
 // parseRecLimit reads ?limit=N. Empty → default. Negative / non-int /
@@ -91,7 +91,7 @@ func parseRecOffset(c *gin.Context) (int, bool) {
 	return n, true
 }
 
-func toSeriesRecommendationsResponse(r *seriesdetail.Recommendations, limit, offset int) dto.SeriesRecommendationsResponse {
+func toSeriesRecommendationsResponse(r *seriesdetail.Recommendations, limit, offset int, requestedLang string) dto.SeriesRecommendationsResponse {
 	resp := dto.SeriesRecommendationsResponse{
 		Instance:       r.Instance,
 		SonarrSeriesID: r.SonarrSeriesID,
@@ -101,7 +101,8 @@ func toSeriesRecommendationsResponse(r *seriesdetail.Recommendations, limit, off
 		HasMore:        r.HasMore,
 		Limit:          limit,
 		Offset:         offset,
-		Degraded:       append([]string{}, r.Degraded...),
+		ServedLanguage: r.ServedLanguage,
+		Degraded:       seriesdetail.AppendMissingLang(append([]string{}, r.Degraded...), r.ServedLanguage, requestedLang),
 	}
 	if resp.Items == nil {
 		resp.Items = []dto.Recommendation{}

@@ -59,6 +59,13 @@ type SkeletonDTO struct {
 	SeasonCount        int      `json:"season_count"`
 	InLibraryInstances []string `json:"in_library_instances"`
 
+	// ServedLanguage is the BCP-47 language the hero title (the section's
+	// principal localized text) was actually served in (W15-9). Empty when
+	// the title fell through to canon.OriginalTitle (no series_texts row).
+	// When it differs from the requested Lang, computeDegraded appends the
+	// "missing_lang" marker so the FE re-polls until en-US lands.
+	ServedLanguage string `json:"served_language,omitempty"`
+
 	// ExternalLinks is the IMDb / TMDB / TVDB / homepage footer row (C3c-1,
 	// restored from the pre-B1b fat contract). Always present on the wire;
 	// each inner field is nil when the canon carries no value. The FE footer
@@ -218,7 +225,7 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 		return SkeletonDTO{}, gerr
 	}
 
-	dto.Degraded = sc.computeDegraded(canon, freshen)
+	dto.Degraded = sc.computeDegraded(canon, freshen, dto.ServedLanguage, langStr)
 	return dto, nil
 }
 
@@ -234,8 +241,18 @@ func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, can
 	var display string
 	text, terr := sc.d.SeriesTexts.GetWithFallback(ctx, seriesID, langStr)
 	if terr == nil {
-		if text.Title != nil {
+		if text.Title != nil && *text.Title != "" {
 			display = *text.Title
+			// W15-9 — the served row's language is the principal-title signal.
+			// Only meaningful when the title was actually USED from this row
+			// (non-empty; an empty-string title falls through to original_title
+			// below, so it must NOT emit a fallback signal — parity with
+			// cast.go). Written on the DTO here in the hero errgroup branch,
+			// which exclusively owns hero fields — the sidebar/counts branches
+			// never touch ServedLanguage and Compose reads it only after
+			// g.Wait(), so this is race-safe (identical ownership to
+			// dto.Hero.Title).
+			dto.ServedLanguage = text.Language
 		}
 		if text.Tagline != nil {
 			dto.Hero.Tagline = buildTagline(*text.Tagline, langTag)
@@ -424,7 +441,7 @@ func (sc *SkeletonComposer) buildCounts(ctx context.Context, dto *SkeletonDTO, s
 	return nil
 }
 
-func (sc *SkeletonComposer) computeDegraded(canon series.Canon, freshen FreshenResult) []string {
+func (sc *SkeletonComposer) computeDegraded(canon series.Canon, freshen FreshenResult, served, requested string) []string {
 	var out []string
 	if canon.Hydration != series.HydrationFull {
 		out = append(out, "tmdb_series")
@@ -432,6 +449,7 @@ func (sc *SkeletonComposer) computeDegraded(canon series.Canon, freshen FreshenR
 	if freshen.Degraded {
 		out = append(out, "freshener")
 	}
+	out = AppendMissingLang(out, served, requested)
 	return out
 }
 

@@ -57,6 +57,12 @@ type Detail struct {
 	// instance the request hit) for wire-shape parity with the global
 	// endpoint. Story 491 / N-1a.
 	InLibraryInstances []domain.InstanceName
+	// ServedLanguage is the BCP-47 language the season-detail principal text
+	// (the requested season's name/overview) was actually served in (W15-9).
+	// Set by GetSeason from the filtered season's staged NameLanguage; empty
+	// when no season_texts row contributed. The season-detail handler appends
+	// "missing_lang" when it differs from the request.
+	ServedLanguage string
 }
 
 // NextEpisodeDetail — the composer's pick of the earliest future-dated
@@ -106,6 +112,10 @@ type SeasonDetail struct {
 	Name        *string
 	Overview    *string
 	PosterAsset *string
+	// NameLanguage is the BCP-47 language the staged Name/Overview row was
+	// served in (W15-9). Empty when no season_texts row contributed. Used by
+	// GetSeason to surface the season-detail served-language signal.
+	NameLanguage string
 }
 
 // EpisodeDetail — canon episode + state + localised text bundle.
@@ -305,6 +315,11 @@ func (c *Composer) GetSeason(ctx context.Context, instanceName domain.InstanceNa
 		}
 	}
 	d.Seasons = filtered
+	// W15-9 — surface the served language of the requested season's
+	// name/overview so the handler can emit the missing_lang signal.
+	if len(filtered) > 0 {
+		d.ServedLanguage = filtered[0].NameLanguage
+	}
 	// S-E2 / S-E3a — season name/overview/poster are staged from
 	// season_texts / season_media_texts by loadSeasonsAndEpisodes (below)
 	// onto SeasonDetail.{Name,Overview,PosterAsset}; the filtered slice
@@ -469,10 +484,14 @@ func (c *Composer) stageSeasonTexts(ctx context.Context, seriesID domain.SeriesI
 				if txt.Name != nil && *txt.Name != "" {
 					n := *txt.Name
 					seasons[i].Name = &n
+					seasons[i].NameLanguage = txt.Language
 				}
 				if txt.Overview != nil && *txt.Overview != "" {
 					o := *txt.Overview
 					seasons[i].Overview = &o
+					if seasons[i].NameLanguage == "" {
+						seasons[i].NameLanguage = txt.Language
+					}
 				}
 			}
 		}
@@ -578,6 +597,20 @@ func (c *Composer) computeDegraded(ctx context.Context, seriesID domain.SeriesID
 }
 
 // --- helpers ---
+
+// AppendMissingLang appends the "missing_lang" degraded marker when a
+// section served a real fallback-language row (W15-9). served is the BCP-47
+// language the section's PRINCIPAL localized text was actually served in;
+// requested is the (raw) requested language tag, normalised here via
+// resolveLang so an empty/absent request compares against its en-US default.
+// A miss (served == "") means no localized row existed at all — the FE
+// already shows the W15-2 original_title, so no re-poll marker is emitted.
+func AppendMissingLang(degraded []string, served, requested string) []string {
+	if served == "" || served == resolveLang(requested) {
+		return degraded
+	}
+	return append(degraded, "missing_lang")
+}
 
 func resolveLang(lang string) string {
 	lang = strings.TrimSpace(lang)

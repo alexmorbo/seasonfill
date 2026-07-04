@@ -69,7 +69,8 @@ func toSeriesCastResponse(d *seriesdetail.CastPage) dto.SeriesCastResponse {
 		Cast:              make([]dto.CastPageMember, 0, len(d.Cast)),
 		Crew:              make([]dto.CrewPageMember, 0, len(d.Crew)),
 		SyncedAt:          d.SyncedAt.Format("2006-01-02T15:04:05Z07:00"),
-		Degraded:          []string{},
+		ServedLanguage:    d.ServedLanguage,
+		Degraded:          seriesdetail.AppendMissingLang([]string{}, d.ServedLanguage, d.Lang),
 	}
 	for _, e := range d.Cast {
 		resp.Cast = append(resp.Cast, dto.CastPageMember{
