@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -165,6 +166,152 @@ func TestOnDemandFetcher_FetchSync_HTTPError(t *testing.T) {
 	require.NoError(t, err)
 	_, ok := f.FetchSync(t.Context(), server.URL+"/missing.jpg", "poster_w342", "jpg")
 	assert.False(t, ok)
+}
+
+// TestOnDemandFetcher_FetchSync_NegativeCache_SkipsWithinTTL — W16-5: a
+// FAILING fetch puts the hash into an in-memory cooldown; a second FetchSync
+// for the same URL within negativeCacheTTL is skipped (no second round trip
+// to the upstream), protecting TMDB from per-render re-hammering.
+func TestOnDemandFetcher_FetchSync_NegativeCache_SkipsWithinTTL(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	now := time.Now().UTC()
+	f, err := NewOnDemandFetcher(OnDemandDeps{
+		Store: newOndemandFakeStore(), Repo: newOndemandFakeRepo(),
+		HTTPClient: server.Client(),
+		Limiter:    rate.NewLimiter(rate.Inf, 1),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Clock:      func() time.Time { return now },
+	})
+	require.NoError(t, err)
+
+	url := server.URL + "/img.jpg"
+	_, ok := f.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.False(t, ok, "first fetch fails")
+	require.Equal(t, int32(1), hits.Load())
+
+	// Same URL, clock not advanced → cooldown skips the round trip.
+	_, ok = f.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.False(t, ok, "second fetch stays failed")
+	assert.Equal(t, int32(1), hits.Load(), "second call must be skipped by cooldown")
+}
+
+// TestOnDemandFetcher_FetchSync_NegativeCache_RetriesAfterTTL — the cooldown
+// self-heals: once negativeCacheTTL elapses, the next FetchSync retries the
+// upstream (round-trip counter advances).
+func TestOnDemandFetcher_FetchSync_NegativeCache_RetriesAfterTTL(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	now := time.Now().UTC()
+	f, err := NewOnDemandFetcher(OnDemandDeps{
+		Store: newOndemandFakeStore(), Repo: newOndemandFakeRepo(),
+		HTTPClient: server.Client(),
+		Limiter:    rate.NewLimiter(rate.Inf, 1),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Clock:      func() time.Time { return now },
+	})
+	require.NoError(t, err)
+
+	url := server.URL + "/img.jpg"
+	_, ok := f.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.False(t, ok)
+	require.Equal(t, int32(1), hits.Load())
+
+	// Advance past the TTL → cooldown expires → retry hits upstream again.
+	now = now.Add(negativeCacheTTL + time.Second)
+	_, ok = f.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.False(t, ok)
+	assert.Equal(t, int32(2), hits.Load(), "post-TTL call must retry the upstream")
+}
+
+// TestOnDemandFetcher_FetchSync_Success_NoCooldown — negative case: a
+// SUCCESSFUL fetch must NOT leave the hash in cooldown (heals immediately).
+func TestOnDemandFetcher_FetchSync_Success_NoCooldown(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("hello"))
+	}))
+	defer server.Close()
+
+	f, err := NewOnDemandFetcher(OnDemandDeps{
+		Store: newOndemandFakeStore(), Repo: newOndemandFakeRepo(),
+		HTTPClient: server.Client(),
+		Limiter:    rate.NewLimiter(rate.Inf, 1),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	})
+	require.NoError(t, err)
+
+	url := server.URL + "/img.jpg"
+	hash, ok := f.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.True(t, ok)
+
+	impl, isImpl := f.(*onDemandFetcher)
+	require.True(t, isImpl, "expected concrete *onDemandFetcher")
+	assert.False(t, impl.inCooldown(hash), "successful fetch must not leave a cooldown entry")
+}
+
+// TestOnDemandFetcher_FetchSync_NegativeCache_HealsOnRecovery — W16-5: once a
+// failed hash is in cooldown, an asset that becomes available in the store
+// (e.g. the async Downloader filled it) heals IMMEDIATELY via the stat
+// short-circuit — which sits BEFORE the cooldown gate — clearing the cooldown
+// WITHOUT waiting out the TTL and WITHOUT a fresh upstream round trip. Clock is
+// never advanced, so this isolates clearCooldown from mere TTL expiry.
+func TestOnDemandFetcher_FetchSync_NegativeCache_HealsOnRecovery(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	store := newOndemandFakeStore()
+	now := time.Now().UTC()
+	fi, err := NewOnDemandFetcher(OnDemandDeps{
+		Store: store, Repo: newOndemandFakeRepo(),
+		HTTPClient: server.Client(),
+		Limiter:    rate.NewLimiter(rate.Inf, 1),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Clock:      func() time.Time { return now },
+	})
+	require.NoError(t, err)
+	impl, isImpl := fi.(*onDemandFetcher)
+	require.True(t, isImpl, "expected concrete *onDemandFetcher")
+
+	url := server.URL + "/img.jpg"
+	hash := HashFromURL(url)
+
+	// Call 1: store miss → http fails → cooldown set.
+	_, ok := fi.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.False(t, ok)
+	require.Equal(t, int32(1), hits.Load())
+	require.True(t, impl.inCooldown(hash), "failed fetch must set cooldown")
+
+	// Simulate the async Downloader having filled the store.
+	key := mediastore.Key(url, "jpg")
+	store.puts[key] = []byte("hello")
+	store.cts[key] = "image/jpeg"
+
+	// Call 2 (clock NOT advanced): stat short-circuit serves+clears BEFORE the
+	// cooldown gate — no new round trip, cooldown gone.
+	got, ok := fi.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.True(t, ok, "stored asset must serve despite live cooldown")
+	require.Equal(t, hash, got)
+	assert.Equal(t, int32(1), hits.Load(), "stat hit must not re-hit upstream")
+	assert.False(t, impl.inCooldown(hash), "stat-hit path must clear the cooldown")
 }
 
 func TestOnDemandFetcher_Nil(t *testing.T) {

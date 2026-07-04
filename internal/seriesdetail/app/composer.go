@@ -975,18 +975,17 @@ func (c *Composer) GetCanonicalSeasons(ctx context.Context, seriesID domain.Seri
 	// S-E3a — stage localized season name/overview/poster onto the
 	// read-model (canon season no longer carries them).
 	c.stageSeasonTexts(ctx, seriesID, lang, out)
-	// Best-effort media resolve. Sync for season posters (above-the-fold),
-	// async for episode stills (below-the-fold). Mirrors composer.go
-	// resolveAssets shape so the wire is stable across instance + fallback.
+	// Below-the-fold season posters + episode stills resolve async (plain
+	// Resolve): hash-on-hit, nil-on-miss, background fetch. Matches the
+	// resolver guidance (seasons stay on plain Resolve) so the response is
+	// never blocked on a per-asset sync fetch budget.
 	if c.d.MediaResolver != nil {
-		syncCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 		for i := range out {
-			out[i].PosterAsset = c.d.MediaResolver.ResolveSync(syncCtx, out[i].PosterAsset, "w154", "season_poster_w154")
+			out[i].PosterAsset = c.d.MediaResolver.Resolve(ctx, out[i].PosterAsset, "w154", "season_poster_w154")
 			for j := range out[i].Episodes {
 				out[i].Episodes[j].Canon.StillAsset = c.d.MediaResolver.Resolve(ctx, out[i].Episodes[j].Canon.StillAsset, "w300", "still_w300")
 			}
 		}
-		cancel()
 	}
 	c.d.Logger.InfoContext(ctx, "canonical_seasons_composed",
 		slog.Int64("series_id", int64(seriesID)),

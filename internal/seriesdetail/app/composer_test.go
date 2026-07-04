@@ -928,6 +928,55 @@ func TestComposer_GetCanonicalSeasons_EpisodesError_Propagates(t *testing.T) {
 	require.Error(t, err)
 }
 
+// fakeSeasonMediaTexts stages a per-season localized poster raw path so the
+// canon-seasons path has a PosterAsset to resolve.
+type fakeSeasonMediaTexts struct {
+	rows map[int]series.SeasonMediaText
+	err  error
+}
+
+func (f fakeSeasonMediaTexts) ListBySeriesWithFallback(_ context.Context, _ domain.SeriesID, _ string) (map[int]series.SeasonMediaText, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.rows, nil
+}
+
+// TestComposer_GetCanonicalSeasons_AsyncSeasonPoster locks the W16-5 contract:
+// GetCanonicalSeasons resolves season posters via the ASYNC Resolve
+// (hash-on-hit, nil-on-miss) — NOT the old blocking ResolveSync unified path.
+// A lookup HIT returns the sha256 hash; a MISS returns nil (frontend renders a
+// monogram), never the raw TMDB path.
+func TestComposer_GetCanonicalSeasons_AsyncSeasonPoster(t *testing.T) {
+	deps := baseCanonicalDeps()
+	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{
+		{SeasonNumber: 1},
+		{SeasonNumber: 2},
+	}}
+	deps.Episodes = &fakeEpisodes{rows: []series.CanonEpisode{
+		{ID: 11, SeasonNumber: 1, EpisodeNumber: 1},
+		{ID: 21, SeasonNumber: 2, EpisodeNumber: 1},
+	}}
+	deps.SeasonMediaTexts = fakeSeasonMediaTexts{rows: map[int]series.SeasonMediaText{
+		1: {SeasonNumber: 1, PosterAsset: new("/seasonHit.jpg")},
+		2: {SeasonNumber: 2, PosterAsset: new("/seasonMiss.jpg")},
+	}}
+	const hashHit = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w154/seasonHit.jpg": hashHit,
+		// seasonMiss.jpg intentionally absent — async Resolve returns nil.
+	}}
+	deps.MediaResolver = media.NewResolver(lookup, nil, nil, newSilentLogger())
+
+	c := NewComposer(deps)
+	got, err := c.GetCanonicalSeasons(context.Background(), 100, "en-US")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.NotNil(t, got[0].PosterAsset, "hit season poster must resolve to a hash")
+	require.Equal(t, hashHit, *got[0].PosterAsset)
+	require.Nil(t, got[1].PosterAsset, "miss must return nil, NOT the raw TMDB path")
+}
+
 func TestComposer_GetCanonicalSeason_ReturnsRequestedSeasonWithEpisodeTexts(t *testing.T) {
 	deps := baseCanonicalDeps()
 	deps.Seasons = &fakeSeasons{rows: []series.CanonSeason{

@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -38,6 +39,12 @@ import (
 // a tighter ctx deadline; the http client also enforces this as a hard
 // floor.
 const onDemandTimeout = 1500 * time.Millisecond
+
+// negativeCacheTTL bounds how long a hash stays in the failed-fetch
+// cooldown. Short enough to self-heal once the store recovers or the
+// image becomes fetchable; long enough to stop per-render re-hammering
+// of TMDB while a store/image is broken.
+const negativeCacheTTL = 2 * time.Minute
 
 // OnDemandFetcher is the public interface; *onDemandFetcher is the
 // production impl. Kept as an interface so the composer test stubs
@@ -67,6 +74,9 @@ type onDemandFetcher struct {
 	limiter *rate.Limiter
 	logger  *slog.Logger
 	clock   func() time.Time
+
+	negMu    sync.Mutex
+	negUntil map[string]time.Time // asset hash -> retry-after (cooldown)
 }
 
 // NewOnDemandFetcher constructs the prod fetcher. The shared Limiter
@@ -93,13 +103,44 @@ func NewOnDemandFetcher(d OnDemandDeps) (OnDemandFetcher, error) {
 		d.Clock = func() time.Time { return time.Now().UTC() }
 	}
 	return &onDemandFetcher{
-		store:   d.Store,
-		repo:    d.Repo,
-		http:    d.HTTPClient,
-		limiter: d.Limiter,
-		logger:  d.Logger,
-		clock:   d.Clock,
+		store:    d.Store,
+		repo:     d.Repo,
+		http:     d.HTTPClient,
+		limiter:  d.Limiter,
+		logger:   d.Logger,
+		clock:    d.Clock,
+		negUntil: make(map[string]time.Time),
 	}, nil
+}
+
+// inCooldown reports whether hash is inside its failed-fetch cooldown.
+func (f *onDemandFetcher) inCooldown(hash string) bool {
+	f.negMu.Lock()
+	defer f.negMu.Unlock()
+	until, ok := f.negUntil[hash]
+	return ok && f.clock().Before(until)
+}
+
+// markFailed puts hash into cooldown for negativeCacheTTL and prunes
+// any already-expired entries so the map can't grow unbounded.
+func (f *onDemandFetcher) markFailed(hash string) {
+	now := f.clock()
+	f.negMu.Lock()
+	defer f.negMu.Unlock()
+	for h, until := range f.negUntil {
+		if !now.Before(until) {
+			delete(f.negUntil, h)
+		}
+	}
+	f.negUntil[hash] = now.Add(negativeCacheTTL)
+}
+
+// clearCooldown drops hash from the negative cache after a success so
+// it heals immediately (no waiting out the TTL).
+func (f *onDemandFetcher) clearCooldown(hash string) {
+	f.negMu.Lock()
+	defer f.negMu.Unlock()
+	delete(f.negUntil, hash)
 }
 
 // FetchSync is the synchronous fetch. Returns (hash, true) on success;
@@ -144,11 +185,23 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 		}, log)
 		log.DebugContext(ctx, "media.ondemand.stat_hit",
 			slog.Int("duration_ms", int(f.clock().Sub(start).Milliseconds())))
+		f.clearCooldown(hash)
 		return hash, true
 	} else if !errors.Is(err, mediastore.ErrNotFound) && !errors.Is(err, mediastore.ErrNotSupported) {
 		log.WarnContext(ctx, "media.ondemand.stat_error",
 			slog.String("error", err.Error()))
 		// Fall through — upstream fetch is the source of truth.
+	}
+
+	// Cooldown gate — placed AFTER the stat short-circuit so an
+	// already-stored (or async-Downloader-filled) asset always serves and
+	// heals immediately; the cooldown only bounds the expensive upstream
+	// path (limiter wait + TMDB GET + S3 Put) while a store/image is broken.
+	if f.inCooldown(hash) {
+		observability.IncMediaFetch("skipped", "cooldown")
+		log.DebugContext(ctx, "media.ondemand.skipped",
+			slog.String("reason", "cooldown"))
+		return "", false
 	}
 
 	// 2. Wait on the shared rate limiter. Past-deadline → bail.
@@ -162,6 +215,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 				slog.String("error", err.Error()))
 			observability.IncMediaFetch("failed", string(ErrorKindRateWait))
 		}
+		f.markFailed(hash)
 		return "", false
 	}
 
@@ -171,6 +225,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			log.WarnContext(ctx, "media.ondemand.timeout",
 				slog.String("stage", "http"))
+			f.markFailed(hash)
 			return "", false
 		}
 		log.WarnContext(ctx, "media.ondemand.failed",
@@ -178,6 +233,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 			slog.Int("http_status", HTTPStatus(err)),
 			slog.String("error", err.Error()))
 		observability.IncMediaFetch("failed", string(ClassifyFetchError(err)))
+		f.markFailed(hash)
 		return "", false
 	}
 
@@ -187,6 +243,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 			slog.String("error_kind", string(ErrorKindS3Write)),
 			slog.String("error", err.Error()))
 		observability.IncMediaFetch("failed", string(ErrorKindS3Write))
+		f.markFailed(hash)
 		return "", false
 	}
 
@@ -202,6 +259,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 		// Bytes are in store but row write failed; subsequent reads
 		// can recover via the media handler's lost-object path.
 		// Treat as a partial success.
+		f.markFailed(hash)
 		return "", false
 	}
 
@@ -211,6 +269,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 		slog.Int("duration_ms", int(f.clock().Sub(start).Milliseconds())),
 	)
 	observability.IncMediaFetch("ok", "")
+	f.clearCooldown(hash)
 	return hash, true
 }
 
