@@ -113,6 +113,15 @@ type EpisodeStatesRefresher interface {
 	RefreshEpisodeStates(ctx context.Context, instanceName shareddomain.InstanceName, sonarrSeriesID shareddomain.SonarrSeriesID) error
 }
 
+// EpisodeStatesCoverage reports how many live episode_states rows already
+// exist for a (instance, sonarr_series_id) pair. The all-seasons-complete
+// fast-path uses it to run a ONE-TIME episode_states heal only when coverage
+// is absent, so steady-state scans of complete series stay Sonarr-call-free.
+// Implemented by *catalogpersistence.EpisodeStatesRepository. Nil-OK.
+type EpisodeStatesCoverage interface {
+	CountBySeries(ctx context.Context, instanceName shareddomain.InstanceName, sonarrSeriesID shareddomain.SonarrSeriesID) (int, error)
+}
+
 // TMDBResolver resolves a Sonarr series that has a tvdb_id but no tmdb_id
 // to its TMDB id, then enqueues full enrichment. W15-13 scan piggyback.
 // Implemented by *enrichment.TVDBResolver. Nil-OK — skipped when unset.
@@ -156,6 +165,10 @@ type UseCase struct {
 	// episodeStatesRefresher — F-975 scan piggyback. Nil-OK: when unset
 	// the per-series episode_states refresh in processScan is skipped.
 	episodeStatesRefresher EpisodeStatesRefresher
+
+	// episodeStatesCoverage — #1031 all-complete heal guard. Nil-OK: when
+	// unset the fast-path never heals episode_states (no coverage probe).
+	episodeStatesCoverage EpisodeStatesCoverage
 
 	// tmdbResolver — W15-13 scan piggyback. Nil-OK: fillSeriesCache skips
 	// the tvdb→tmdb resolution when unset.
@@ -246,6 +259,14 @@ func (u *UseCase) WithPostScanCycle(fn func(ctx context.Context)) *UseCase {
 // the per-series episode_states refresh in processScan is skipped.
 func (u *UseCase) WithEpisodeStatesRefresher(r EpisodeStatesRefresher) *UseCase {
 	u.episodeStatesRefresher = r
+	return u
+}
+
+// WithEpisodeStatesCoverage wires the #1031 all-complete heal guard's
+// coverage probe (production: the catalog EpisodeStatesRepository). Nil-OK —
+// when unset the all-seasons-complete fast-path skips the episode_states heal.
+func (u *UseCase) WithEpisodeStatesCoverage(c EpisodeStatesCoverage) *UseCase {
+	u.episodeStatesCoverage = c
 	return u
 }
 
@@ -694,6 +715,13 @@ func (u *UseCase) processScan(ctx context.Context, inst Instance, rec ports.Scan
 				observability.IncScanSkipped(instName, prefilterReasonLabel(decision.ReasonAllComplete))
 				observability.SeriesEvaluated(instName, string(decision.OutcomeSkip))
 			}
+			// #1031: the all-complete fast-path skips syncEpisodes / the
+			// F-975 piggyback below, so a fully-on-disk series whose per-
+			// instance episode_states were never written renders every
+			// episode as "not monitored". Heal once — best-effort, and only
+			// when coverage is absent so steady-state complete-series scans
+			// stay Sonarr-call-free.
+			u.healEpisodeStatesForCompleteSeries(ctx, instName, s.ID)
 			continue
 		}
 
@@ -1324,6 +1352,36 @@ func (u *UseCase) refreshEpisodeStatesForSeries(ctx context.Context, instName sh
 			slog.String("error", err.Error()),
 		)
 	}
+}
+
+// healEpisodeStatesForCompleteSeries runs a ONE-TIME episode_states refresh
+// for an all-seasons-complete series whose per-instance episode_states are
+// absent (#1031). The all-complete fast-path skips syncEpisodes and the
+// F-975 piggyback, so such a series otherwise has zero episode_states rows
+// and the series-detail read renders every episode as "not monitored".
+//
+// The coverage probe keeps steady-state scans call-free: once any state row
+// exists the Sonarr fetch is skipped. For a complete series has_file /
+// monitored are stable, so a single heal is sufficient. No-op when either
+// port is unset. Best-effort — coverage-probe and refresh errors are
+// WARN-logged and never abort the scan.
+func (u *UseCase) healEpisodeStatesForCompleteSeries(ctx context.Context, instName shareddomain.InstanceName, seriesID shareddomain.SonarrSeriesID) {
+	if u.episodeStatesRefresher == nil || u.episodeStatesCoverage == nil {
+		return
+	}
+	count, err := u.episodeStatesCoverage.CountBySeries(ctx, instName, seriesID)
+	if err != nil {
+		u.logger.WarnContext(ctx, "episode_states_coverage_check_failed",
+			slog.String("instance", string(instName)),
+			slog.Int("series_id", int(seriesID)),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	if count > 0 {
+		return // already covered — keep steady-state complete-series scans call-free
+	}
+	u.refreshEpisodeStatesForSeries(ctx, instName, seriesID)
 }
 
 // resolveMissingTMDBIDForSeries runs the W15-13 scan piggyback for one

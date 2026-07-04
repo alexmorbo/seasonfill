@@ -196,6 +196,13 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if webhookBundle.Syncer != nil && scanUC != nil {
 		scanUC.WithEpisodeStatesRefresher(webhookBundle.Syncer)
 	}
+	// #1031: coverage probe for the all-seasons-complete heal guard. A
+	// fully-on-disk series skips syncEpisodes, so without a one-time heal
+	// its episode_states stay empty and every episode renders "not
+	// monitored". The guard fires the refresh only when coverage is absent.
+	if webhookBundle.EpisodeStatesRepo != nil && scanUC != nil {
+		scanUC.WithEpisodeStatesCoverage(webhookBundle.EpisodeStatesRepo)
+	}
 
 	instanceBundle, err := wiring.BuildInstance(persistence, webhookBundle, bus, log)
 	if err != nil {

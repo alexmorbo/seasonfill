@@ -1758,6 +1758,24 @@ func (f *fakeEpisodeStatesRefresher) RefreshEpisodeStates(_ context.Context, _ d
 
 var _ EpisodeStatesRefresher = (*fakeEpisodeStatesRefresher)(nil)
 
+// fakeEpisodeStatesCoverage is the #1031 heal-guard probe stub. count is the
+// coverage returned for every series; err (when set) simulates a probe failure.
+type fakeEpisodeStatesCoverage struct {
+	mu    sync.Mutex
+	count int
+	err   error
+	calls []domain.SonarrSeriesID
+}
+
+func (f *fakeEpisodeStatesCoverage) CountBySeries(_ context.Context, _ domain.InstanceName, id domain.SonarrSeriesID) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, id)
+	return f.count, f.err
+}
+
+var _ EpisodeStatesCoverage = (*fakeEpisodeStatesCoverage)(nil)
+
 // completeSeries builds a series whose single monitored season is fully
 // on-disk (Aired == EpisodeFileCount) so seriesAllSeasonsComplete short-
 // circuits it before any Sonarr per-series work — the F-975 piggyback must
@@ -1804,4 +1822,96 @@ func TestProcessScan_PiggybackError_DoesNotFailScan(t *testing.T) {
 	res, err := uc.RunInstance(context.Background(), "main", TriggerManual)
 	require.NoError(t, err)
 	assert.Equal(t, "completed", res.Status)
+}
+
+// newCompleteSeriesScanUC builds a scan UseCase over a single all-complete
+// series, wiring a decRepo the caller can inspect for the ReasonAllComplete
+// skip audit trail. Sonarr per-series calls (GetQualityProfile /
+// ListEpisodeFiles) must NOT fire on the fast-path — the fakeSonarr would
+// error/panic if they did.
+func newCompleteSeriesScanUC(t *testing.T, dec *fakeDecRepo) (*UseCase, *fakeSonarr) {
+	t.Helper()
+	sonarrFake := &fakeSonarr{name: "homelab", series: []series.Series{completeSeries(140, "Star City")}}
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	evalUC := evaluate.NewUseCase(sonarrFake, dec, lg)
+	uc := NewUseCase([]Instance{{
+		Config: config.SonarrInstance{
+			Name:   "homelab",
+			Limits: config.LimitsConfig{ScanMaxSeries: 100, MaxGrabsPerScan: 10},
+		},
+		Client: sonarrFake,
+	}}, evalUC, &fakeScanRepo{}, lg, true)
+	return uc, sonarrFake
+}
+
+// TestProcessScan_HealsEpisodeStates_ForCompleteSeriesMissingCoverage is the
+// #1031 fix: an all-complete series with ZERO episode_states rows must get a
+// one-time heal refresh, while the ReasonAllComplete skip audit trail stays
+// intact.
+func TestProcessScan_HealsEpisodeStates_ForCompleteSeriesMissingCoverage(t *testing.T) {
+	t.Parallel()
+	dec := &fakeDecRepo{}
+	uc, _ := newCompleteSeriesScanUC(t, dec)
+	ref := &fakeEpisodeStatesRefresher{}
+	cov := &fakeEpisodeStatesCoverage{count: 0} // no episode_states yet
+	uc.WithEpisodeStatesRefresher(ref).WithEpisodeStatesCoverage(cov)
+
+	res, err := uc.RunInstance(context.Background(), "homelab", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+
+	ref.mu.Lock()
+	assert.Contains(t, ref.calls, domain.SonarrSeriesID(140), "missing coverage must trigger a heal refresh")
+	ref.mu.Unlock()
+
+	require.Len(t, dec.d, 1, "all-complete skip decision must still be recorded")
+	assert.Equal(t, decision.ReasonAllComplete, dec.d[0].Reason)
+	assert.Equal(t, decision.OutcomeSkip, dec.d[0].Outcome)
+}
+
+// TestProcessScan_SkipsHeal_ForCompleteSeriesWithCoverage asserts the guard:
+// when episode_states coverage already exists the fast-path issues NO Sonarr
+// episode fetch (steady-state scans stay call-free), yet still records the
+// skip decision.
+func TestProcessScan_SkipsHeal_ForCompleteSeriesWithCoverage(t *testing.T) {
+	t.Parallel()
+	dec := &fakeDecRepo{}
+	uc, _ := newCompleteSeriesScanUC(t, dec)
+	ref := &fakeEpisodeStatesRefresher{}
+	cov := &fakeEpisodeStatesCoverage{count: 10} // full coverage present
+	uc.WithEpisodeStatesRefresher(ref).WithEpisodeStatesCoverage(cov)
+
+	res, err := uc.RunInstance(context.Background(), "homelab", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+
+	ref.mu.Lock()
+	assert.Empty(t, ref.calls, "present coverage must NOT trigger a heal refresh")
+	ref.mu.Unlock()
+
+	cov.mu.Lock()
+	assert.Contains(t, cov.calls, domain.SonarrSeriesID(140), "guard must probe coverage")
+	cov.mu.Unlock()
+
+	require.Len(t, dec.d, 1, "all-complete skip decision must still be recorded")
+	assert.Equal(t, decision.ReasonAllComplete, dec.d[0].Reason)
+}
+
+// TestProcessScan_HealCoverageProbeError_DoesNotFailScan asserts a coverage
+// probe failure is swallowed (best-effort): no heal, scan still completes.
+func TestProcessScan_HealCoverageProbeError_DoesNotFailScan(t *testing.T) {
+	t.Parallel()
+	dec := &fakeDecRepo{}
+	uc, _ := newCompleteSeriesScanUC(t, dec)
+	ref := &fakeEpisodeStatesRefresher{}
+	cov := &fakeEpisodeStatesCoverage{err: errors.New("db down")}
+	uc.WithEpisodeStatesRefresher(ref).WithEpisodeStatesCoverage(cov)
+
+	res, err := uc.RunInstance(context.Background(), "homelab", TriggerManual)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", res.Status)
+
+	ref.mu.Lock()
+	assert.Empty(t, ref.calls, "probe error must NOT trigger a heal refresh")
+	ref.mu.Unlock()
 }

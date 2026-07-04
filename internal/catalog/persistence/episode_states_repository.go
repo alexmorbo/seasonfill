@@ -127,6 +127,36 @@ func (r *EpisodeStatesRepository) SoftDeleteBySeries(
 	return int(res.RowsAffected), nil
 }
 
+// CountBySeries returns the number of live episode_states rows for the
+// (instance_name, sonarr_series_id) pair, scoped via the episodes →
+// series_cache join (episode_states has no native series_id; PK is
+// (instance_name, episode_id)). Used by the all-complete fast-path heal
+// guard (#1031) to decide whether a one-time episode_states refresh is
+// needed without re-fetching from Sonarr on every scan.
+func (r *EpisodeStatesRepository) CountBySeries(
+	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID,
+) (int, error) {
+	if instanceName == "" {
+		return 0, fmt.Errorf("count episode_states by series: instance_name must be non-empty")
+	}
+	var count int64
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Table("episode_states").
+		Where(`instance_name = ?
+		   AND deleted_at IS NULL
+		   AND episode_id IN (
+		       SELECT e.id FROM episodes e
+		       JOIN series_cache sc ON sc.series_id = e.series_id
+		       WHERE sc.instance_name = ? AND sc.sonarr_series_id = ?
+		   )`,
+			instanceName, instanceName, sonarrSeriesID).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count episode_states by series: %w", err)
+	}
+	return int(count), nil
+}
+
 func toEpisodeState(m database.EpisodeStateModel) series.EpisodeState {
 	return series.EpisodeState{
 		InstanceName:  m.InstanceName,
