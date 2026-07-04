@@ -80,10 +80,25 @@ type DiscoveryRuntimeBundle struct {
 	TopKinds *discopersistence.TopKindsReader
 }
 
-// realDiscoveryClock satisfies discoapp.Clock with time.Now().
+// realDiscoveryClock satisfies discoapp.Clock with time.Now() and a
+// timer-backed Sleep (cancellable via ctx).
 type realDiscoveryClock struct{}
 
 func (realDiscoveryClock) Now() time.Time { return time.Now() }
+
+func (realDiscoveryClock) Sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
 
 // DiscoveryRuntimeDeps is the input contract for BuildDiscoveryRuntime.
 // All fields required — nil causes a wiring error before NewWorker is

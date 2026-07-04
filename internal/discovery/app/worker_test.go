@@ -3,18 +3,21 @@ package app_test
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
 	"github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
+	"github.com/alexmorbo/seasonfill/internal/shared/clock"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -199,6 +202,9 @@ func (c *fakeTMDB) discoverCalls() int {
 	return c.discover
 }
 
+func (c *fakeTMDB) setErr(err error)               { c.mu.Lock(); c.err = err; c.mu.Unlock() }
+func (c *fakeTMDB) setResp(r *tmdb.TVListResponse) { c.mu.Lock(); c.resp = r; c.mu.Unlock() }
+
 type fakeTopKinds struct {
 	genres   []int
 	networks []int
@@ -216,6 +222,20 @@ func (f *fakeTopKinds) TopNetworks(_ context.Context, _ int) ([]int, error) {
 type fixedClock struct{ now time.Time }
 
 func (c *fixedClock) Now() time.Time { return c.now }
+
+func (c *fixedClock) Sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
 
 // --- fixtures ---
 
@@ -508,4 +528,115 @@ func TestRunForever_FirstTickImmediate_AndHonoursContext(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("RunForever did not honour ctx cancellation")
 	}
+}
+
+// --- W15-11 cold-start retry (virtual-clock driven) ---
+
+func newFakeClockWorker(repo *fakeRepo, langs *fakeLangs, stubs *fakeStubs, client *fakeTMDB, tops *fakeTopKinds, fake *clock.Fake) *app.Worker {
+	return app.NewWorker(app.WorkerDeps{
+		Repo: repo, Langs: langs, Stubs: stubs, TMDB: client, TopKinds: tops,
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Clock:   fake,
+		Limiter: rate.NewLimiter(rate.Inf, 1), // never blocks on wall clock
+	})
+}
+
+func TestRunForever_ColdStartRetry_BackoffLadder(t *testing.T) {
+	repo := newFakeRepo() // default IsStale=true
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{err: errors.New("tmdb down")} // every fetch errors → unhealthy
+	fake := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	w := newFakeClockWorker(repo, langs, newFakeStubs(), client, &fakeTopKinds{}, fake)
+
+	ctx := t.Context()
+	before := metrics.GetOrCreateCounter(`seasonfill_discovery_cold_start_retries_total`).Get()
+	go w.RunForever(ctx, time.Hour)
+
+	// clock.Fake waiter count is cumulative (a fired Sleep is NOT
+	// decremented), so the N-th park is reached at BlockUntilWaiters(N).
+	fake.BlockUntilWaiters(1) // tick#1 (immediate) failed → parked at 1m
+	require.Equal(t, 1, client.popularCalls())
+	fake.Advance(time.Minute)
+	fake.BlockUntilWaiters(2) // tick#2 failed → parked at 5m
+	require.Equal(t, 2, client.popularCalls())
+	fake.Advance(5 * time.Minute)
+	fake.BlockUntilWaiters(3) // tick#3 failed → parked at 15m
+	require.Equal(t, 3, client.popularCalls())
+	fake.Advance(15 * time.Minute)
+	fake.BlockUntilWaiters(4) // tick#4 failed → parked at interval(1h)
+	require.Equal(t, 4, client.popularCalls())
+	// a sub-interval advance must NOT wake it (ladder now holds at 1h)
+	fake.Advance(time.Minute)
+	require.Equal(t, 4, client.popularCalls())
+	require.Equal(t, before+4, metrics.GetOrCreateCounter(`seasonfill_discovery_cold_start_retries_total`).Get())
+}
+
+func TestRunForever_ColdStartRetry_ResetsOnSuccess(t *testing.T) {
+	repo := newFakeRepo()
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{err: errors.New("tmdb down")}
+	fake := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	w := newFakeClockWorker(repo, langs, newFakeStubs(), client, &fakeTopKinds{}, fake)
+
+	ctx := t.Context()
+	go w.RunForever(ctx, time.Hour)
+
+	fake.BlockUntilWaiters(1) // tick#1 failed → parked at 1m
+	require.Equal(t, 1, client.popularCalls())
+	client.setResp(makeResp(1))
+	client.setErr(nil) // TMDB recovers
+	fake.Advance(time.Minute)
+	fake.BlockUntilWaiters(2) // tick#2 healthy → parked at interval(1h)
+	require.Equal(t, 2, client.popularCalls())
+	// backoff reset → a 1m advance must NOT wake it
+	fake.Advance(time.Minute)
+	require.Equal(t, 2, client.popularCalls())
+	// crossing the full interval does (Sleep started at virtual t=1m,
+	// deadline 1m+1h; we've advanced +1m to t=2m, now +(1h-1m) → t=1h+1m)
+	fake.Advance(time.Hour - time.Minute)
+	fake.BlockUntilWaiters(3)
+	require.Equal(t, 3, client.popularCalls())
+}
+
+func TestRunForever_HealthyBoot_NoEarlyRetry(t *testing.T) {
+	repo := newFakeRepo()
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{resp: makeResp(1)} // succeeds from boot
+	fake := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	w := newFakeClockWorker(repo, langs, newFakeStubs(), client, &fakeTopKinds{}, fake)
+
+	ctx := t.Context()
+	before := metrics.GetOrCreateCounter(`seasonfill_discovery_cold_start_retries_total`).Get()
+	go w.RunForever(ctx, time.Hour)
+
+	fake.BlockUntilWaiters(1) // tick#1 healthy → parked at interval
+	require.Equal(t, 1, client.popularCalls())
+	fake.Advance(time.Minute) // 1m << 1h → no wake
+	require.Equal(t, 1, client.popularCalls(), "healthy boot must not retry early")
+	fake.Advance(time.Hour) // cross interval → tick#2
+	fake.BlockUntilWaiters(2)
+	require.Equal(t, 2, client.popularCalls())
+	require.Equal(t, before, metrics.GetOrCreateCounter(`seasonfill_discovery_cold_start_retries_total`).Get())
+}
+
+func TestRunForever_NothingStale_NoRetry(t *testing.T) {
+	repo := newFakeRepo()
+	// seed the three leaderboard keys as fresh (not stale)
+	repo.stale[keyFor(disco.KindTrendingDay, "", "en-US")] = false
+	repo.stale[keyFor(disco.KindTrendingWeek, "", "en-US")] = false
+	repo.stale[keyFor(disco.KindPopular, "", "en-US")] = false
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{err: errors.New("must not be called")}
+	fake := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	w := newFakeClockWorker(repo, langs, newFakeStubs(), client, &fakeTopKinds{}, fake)
+
+	ctx := t.Context()
+	before := metrics.GetOrCreateCounter(`seasonfill_discovery_cold_start_retries_total`).Get()
+	go w.RunForever(ctx, time.Hour)
+
+	fake.BlockUntilWaiters(1) // healthy (nothing stale) → parked at interval
+	require.Zero(t, client.popularCalls())
+	fake.Advance(time.Minute)
+	require.Zero(t, client.popularCalls(), "nothing stale is healthy — no early retry")
+	require.Equal(t, before, metrics.GetOrCreateCounter(`seasonfill_discovery_cold_start_retries_total`).Get())
 }

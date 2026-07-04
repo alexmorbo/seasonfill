@@ -56,6 +56,15 @@ const DefaultRefreshRPS = 5
 // inside ~4s post-boot.
 const DefaultRefreshBurst = 20
 
+// Cold-start retry ladder — a failed RunForever tick retries on this
+// escalating backoff instead of idling a full interval. Capped at the
+// normal interval; reset to the start on the first healthy tick.
+const (
+	coldStartBackoffMin = time.Minute
+	coldStartBackoffMid = 5 * time.Minute
+	coldStartBackoffMax = 15 * time.Minute
+)
+
 // TMDBClient is the narrow surface the worker reads through. The
 // production *tmdb.Client (story 504) satisfies this by signature
 // match; tests pass an in-memory fake.
@@ -82,10 +91,13 @@ type TopKindsProvider interface {
 }
 
 // Clock is the narrow time port the worker reads through so tests
-// can pin Now() deterministically. Production: realClock{} wraps
-// time.Now (provided in wiring/discovery.go).
+// can pin Now() deterministically and drive the cold-start retry loop
+// via a virtual clock. Production: realDiscoveryClock (wiring/discovery.go).
 type Clock interface {
 	Now() time.Time
+	// Sleep blocks for d or until ctx is cancelled, whichever wins.
+	// Returns ctx.Err() on cancel, nil otherwise; d<=0 returns nil.
+	Sleep(ctx context.Context, d time.Duration) error
 }
 
 // WorkerDeps groups the worker dependencies for constructor-arg
@@ -189,31 +201,83 @@ func NewWorker(deps WorkerDeps) *Worker {
 	}
 }
 
-// RunForever blocks until ctx is cancelled. First tick fires
-// immediately (PRD §5.1.1 cold-start contract); thereafter on a
-// 1h cadence (the production interval — RunForever itself is
-// interval-agnostic so the loop entry point in cmd/server/loops
-// owns the policy).
+// RunForever blocks until ctx is cancelled. The first tick fires
+// immediately (PRD §5.1.1 cold-start contract); a HEALTHY tick then
+// sleeps the full interval. A tick that fails to warm the catalog
+// (TMDB unreachable, DB error, active-languages lookup failure) is
+// retried on the coldStartBackoff ladder (1m→5m→15m, capped at
+// interval) so a bad first boot fills within minutes instead of idling
+// for up to an hour. The backoff resets on the next healthy tick.
 func (w *Worker) RunForever(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = time.Hour
 	}
-	// Cold-start: first tick blocking on entry. Errors are surfaced
-	// via per-refresh warn logs inside Tick — RunForever does NOT
-	// propagate Tick errors (cron-resilient).
-	_ = w.Tick(ctx)
-
-	t := time.NewTicker(interval)
-	defer t.Stop()
+	var backoff time.Duration
 	for {
-		select {
-		case <-ctx.Done():
+		res := w.tick(ctx)
+		if ctx.Err() != nil {
 			return
-		case <-t.C:
-			_ = w.Tick(ctx)
+		}
+		var delay time.Duration
+		if res.healthy() {
+			backoff = 0
+			delay = interval
+		} else {
+			backoff = nextColdStartBackoff(backoff, interval)
+			delay = backoff
+			observability.IncDiscoveryColdStartRetry()
+			w.log.WarnContext(ctx, "discovery cold-start tick unhealthy; retrying with backoff",
+				slog.String("domain", "discovery"),
+				slog.Int("refreshed", res.ok),
+				slog.Int("failed", res.failed),
+				slog.Duration("retry_in", delay))
+		}
+		if err := w.clock.Sleep(ctx, delay); err != nil {
+			return
 		}
 	}
 }
+
+// nextColdStartBackoff walks the 1m→5m→15m ladder, then holds at the
+// normal interval. prev==0 (a reset) restarts at 1m. The result is
+// always clamped to interval so tiny test intervals never exceed it.
+func nextColdStartBackoff(prev, interval time.Duration) time.Duration {
+	var next time.Duration
+	switch {
+	case prev < coldStartBackoffMin:
+		next = coldStartBackoffMin
+	case prev < coldStartBackoffMid:
+		next = coldStartBackoffMid
+	case prev < coldStartBackoffMax:
+		next = coldStartBackoffMax
+	default:
+		next = interval
+	}
+	if next > interval {
+		next = interval
+	}
+	return next
+}
+
+// tickResult is the outcome of one internal tick pass. RunForever reads
+// it to decide between the normal interval and a cold-start retry.
+type tickResult struct {
+	// err is the public Tick contract error — ctx.Err() or the
+	// active-languages lookup error. Per-(kind,lang) failures do NOT
+	// set err (cron-resilient); they increment failed instead.
+	err error
+	// ok counts successful ReplaceList refreshes this pass.
+	ok int
+	// failed counts (kind,lang) refreshes / lookups that errored.
+	failed int
+}
+
+// healthy reports whether the tick warmed the catalog without a
+// failure. Zero refreshes with zero failures (nothing was stale) is
+// healthy — the catalog is already warm. Any failure (TMDB
+// unreachable, DB error, active-languages lookup) is unhealthy and
+// triggers a cold-start retry.
+func (r tickResult) healthy() bool { return r.err == nil && r.failed == 0 }
 
 // Tick is one pass over the (lang × kind) matrix. Per (lang, kind),
 // the worker:
@@ -227,16 +291,23 @@ func (w *Worker) RunForever(ctx context.Context, interval time.Duration) {
 // next pair continues. Tick itself returns only ctx.Err() or the
 // active-languages lookup error; per-(kind,lang) failures are swallowed
 // (cron-resilient — RunForever ignores the return value).
-func (w *Worker) Tick(ctx context.Context) error {
+func (w *Worker) Tick(ctx context.Context) error { return w.tick(ctx).err }
+
+// tick is the internal one-pass worker that Tick and RunForever share.
+// It returns a tickResult so RunForever can distinguish a healthy pass
+// (sleep the full interval) from an unhealthy one (retry on the
+// cold-start backoff ladder). The public Tick wrapper exposes only the
+// contract error.
+func (w *Worker) tick(ctx context.Context) tickResult {
 	if err := ctx.Err(); err != nil {
-		return err
+		return tickResult{err: err}
 	}
 
 	langs, err := w.langs.ActiveLanguages(ctx)
 	if err != nil {
 		w.log.WarnContext(ctx, "discovery active languages query failed",
 			slog.String("error", err.Error()))
-		return err
+		return tickResult{err: err}
 	}
 	if len(langs) > MaxActiveLanguages {
 		w.log.WarnContext(ctx, "discovery active languages truncated",
@@ -244,6 +315,8 @@ func (w *Worker) Tick(ctx context.Context) error {
 			slog.Int("cap", MaxActiveLanguages))
 		langs = langs[:MaxActiveLanguages]
 	}
+
+	res := tickResult{}
 
 	// Leaderboard kinds — empty param.
 	leaderboards := []disco.Kind{
@@ -254,19 +327,22 @@ func (w *Worker) Tick(ctx context.Context) error {
 	for _, lang := range langs {
 		for _, kind := range leaderboards {
 			if ctx.Err() != nil {
-				return ctx.Err()
+				res.err = ctx.Err()
+				return res
 			}
-			w.maybeRefresh(ctx, kind, "", lang, langs)
+			w.maybeRefresh(ctx, kind, "", lang, langs, &res)
 		}
 		// Curated by_genre / by_network — top-10 TMDB ids each.
 		if ctx.Err() != nil {
-			return ctx.Err()
+			res.err = ctx.Err()
+			return res
 		}
-		w.maybeRefreshCurated(ctx, disco.KindByGenre, lang, langs)
+		w.maybeRefreshCurated(ctx, disco.KindByGenre, lang, langs, &res)
 		if ctx.Err() != nil {
-			return ctx.Err()
+			res.err = ctx.Err()
+			return res
 		}
-		w.maybeRefreshCurated(ctx, disco.KindByNetwork, lang, langs)
+		w.maybeRefreshCurated(ctx, disco.KindByNetwork, lang, langs, &res)
 	}
 
 	// Warming probe (hotfix): if Tick fired NO refresh because every list
@@ -285,7 +361,7 @@ func (w *Worker) Tick(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
+	return res
 }
 
 // maybeRefresh runs one (kind, param, lang) refresh if the list is
@@ -297,7 +373,7 @@ func (w *Worker) Tick(ctx context.Context) error {
 // ReplaceList branch can fan out RefreshSeriesText(force=false) per
 // (item, activeLang) pair via preWarmSeriesTexts. Nil / empty →
 // pre-warm becomes a no-op (matches Nil PreWarmer semantics).
-func (w *Worker) maybeRefresh(ctx context.Context, kind disco.Kind, param, lang string, activeLangs []string) {
+func (w *Worker) maybeRefresh(ctx context.Context, kind disco.Kind, param, lang string, activeLangs []string, res *tickResult) {
 	stale, err := w.repo.IsStale(ctx, kind, param, lang, ScheduleFor(kind))
 	if err != nil {
 		w.log.WarnContext(ctx, "discovery is_stale query failed",
@@ -305,6 +381,7 @@ func (w *Worker) maybeRefresh(ctx context.Context, kind disco.Kind, param, lang 
 			slog.String("param", param),
 			slog.String("language", lang),
 			slog.String("error", err.Error()))
+		res.failed++
 		return
 	}
 	if !stale {
@@ -312,15 +389,17 @@ func (w *Worker) maybeRefresh(ctx context.Context, kind disco.Kind, param, lang 
 	}
 	if err := w.refresh(ctx, kind, param, lang, activeLangs); err != nil {
 		// refresh already logged + bumped the error metric.
-		_ = err
+		res.failed++
+		return
 	}
+	res.ok++
 }
 
 // maybeRefreshCurated iterates the top-10 ids for kind ∈ {by_genre,
 // by_network} and calls maybeRefresh per id. Empty catalog → no work
 // (the cold-start chicken-and-egg cover; story 507 on-demand handler
 // covers the alternative).
-func (w *Worker) maybeRefreshCurated(ctx context.Context, kind disco.Kind, lang string, activeLangs []string) {
+func (w *Worker) maybeRefreshCurated(ctx context.Context, kind disco.Kind, lang string, activeLangs []string, res *tickResult) {
 	var (
 		ids []int
 		err error
@@ -337,13 +416,14 @@ func (w *Worker) maybeRefreshCurated(ctx context.Context, kind disco.Kind, lang 
 		w.log.WarnContext(ctx, "discovery top_kinds query failed",
 			slog.String("kind", string(kind)),
 			slog.String("error", err.Error()))
+		res.failed++
 		return
 	}
 	for _, id := range ids {
 		if ctx.Err() != nil {
 			return
 		}
-		w.maybeRefresh(ctx, kind, strconv.Itoa(id), lang, activeLangs)
+		w.maybeRefresh(ctx, kind, strconv.Itoa(id), lang, activeLangs, res)
 	}
 }
 

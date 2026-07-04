@@ -154,6 +154,10 @@ const (
 	// branch of Pattern B: hit (LRU), miss_sync (sync fetch ok),
 	// miss_warming (sync timeout → 202 + bg enqueue), error (TMDB 5xx).
 	MetricDiscoverHandlerOutcome = `seasonfill_discover_handler_outcome_total`
+	// W15-11 — process-wide counter, bumped each time RunForever
+	// reschedules a failed cold-start tick on the backoff ladder
+	// (1m→5m→15m). No labels.
+	MetricDiscoveryColdStartRetriesTotal = `seasonfill_discovery_cold_start_retries_total`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -499,6 +503,13 @@ func SetDiscoveryWarming(warming bool) {
 		return
 	}
 	g.Set(0)
+}
+
+// IncDiscoveryColdStartRetry ticks the global counter each time the
+// discovery worker reschedules a failed cold-start tick on the backoff
+// ladder (W15-11). No labels — one process-wide counter.
+func IncDiscoveryColdStartRetry() {
+	metrics.GetOrCreateCounter(`seasonfill_discovery_cold_start_retries_total`).Inc()
 }
 
 // IncDiscoverHandlerOutcome ticks the per-outcome counter. outcome ∈
