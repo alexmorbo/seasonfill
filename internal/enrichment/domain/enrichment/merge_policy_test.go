@@ -136,53 +136,103 @@ func TestMergeSeries(t *testing.T) {
 				assert.Equal(t, day1, *g.FirstAirDate)
 			},
 		},
-		// --- NextAirDate: Sonarr > TMDB ---
 		{
-			name:   "NextAirDate Sonarr overwrites",
-			rule:   "NextAirDate: Sonarr > TMDB",
+			name:   "LastAirDate Sonarr does NOT overwrite existing canon",
+			rule:   "LastAirDate: Sonarr fallback-only",
+			canon:  SeriesCanon{LastAirDate: new(day1)},
+			patch:  SeriesPatch{LastAirDate: new(day2)},
+			source: SourceSonarr,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Equal(t, day1, *g.LastAirDate)
+			},
+		},
+		{
+			name:   "LastAirDate Sonarr fills empty",
+			rule:   "LastAirDate: Sonarr fallback",
+			canon:  SeriesCanon{},
+			patch:  SeriesPatch{LastAirDate: new(day1)},
+			source: SourceSonarr,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Equal(t, day1, *g.LastAirDate)
+			},
+		},
+		// --- NextAirDate: TMDB > Sonarr (Sonarr fallback-only) ---
+		{
+			name:   "NextAirDate Sonarr does NOT overwrite existing canon",
+			rule:   "NextAirDate: Sonarr fallback-only",
 			canon:  SeriesCanon{NextAirDate: new(day1)},
 			patch:  SeriesPatch{NextAirDate: new(day2)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
-				assert.Equal(t, day2, *g.NextAirDate)
+				assert.Equal(t, day1, *g.NextAirDate)
 			},
 		},
 		{
-			name:   "NextAirDate TMDB fills empty",
-			rule:   "NextAirDate: TMDB fallback",
+			name:   "NextAirDate Sonarr fills empty",
+			rule:   "NextAirDate: Sonarr fallback",
 			canon:  SeriesCanon{},
 			patch:  SeriesPatch{NextAirDate: new(day1)},
-			source: SourceTMDBSeries,
+			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, day1, *g.NextAirDate)
 			},
 		},
-		// --- Year: Sonarr > TMDB ---
 		{
-			name:   "Year Sonarr overwrites",
-			rule:   "Year: Sonarr > TMDB",
+			name:   "NextAirDate TMDB overwrites existing canon",
+			rule:   "NextAirDate: TMDB > Sonarr",
+			canon:  SeriesCanon{NextAirDate: new(day1)},
+			patch:  SeriesPatch{NextAirDate: new(day2)},
+			source: SourceTMDBSeries,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Equal(t, day2, *g.NextAirDate)
+			},
+		},
+		// --- Year: TMDB > Sonarr (Sonarr fallback-only) ---
+		{
+			name:   "Year Sonarr does NOT overwrite existing canon",
+			rule:   "Year: Sonarr fallback-only",
 			canon:  SeriesCanon{Year: new(2020)},
 			patch:  SeriesPatch{Year: new(2021)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
-				assert.Equal(t, 2021, *g.Year)
+				assert.Equal(t, 2020, *g.Year)
 			},
 		},
 		{
-			name:   "Year TMDB fills empty",
-			rule:   "Year: TMDB fallback",
+			name:   "Year Sonarr fills empty",
+			rule:   "Year: Sonarr fallback",
 			canon:  SeriesCanon{},
 			patch:  SeriesPatch{Year: new(2020)},
-			source: SourceTMDBSeries,
+			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 2020, *g.Year)
 			},
 		},
-		// --- RuntimeMinutes: Sonarr > TMDB ---
 		{
-			name:   "RuntimeMinutes Sonarr overwrites",
-			rule:   "RuntimeMinutes: Sonarr > TMDB",
+			name:   "Year TMDB overwrites existing canon",
+			rule:   "Year: TMDB > Sonarr",
+			canon:  SeriesCanon{Year: new(2020)},
+			patch:  SeriesPatch{Year: new(2021)},
+			source: SourceTMDBSeries,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Equal(t, 2021, *g.Year)
+			},
+		},
+		// --- RuntimeMinutes: TMDB > Sonarr (Sonarr fallback-only) ---
+		{
+			name:   "RuntimeMinutes Sonarr does NOT overwrite existing canon",
+			rule:   "RuntimeMinutes: Sonarr fallback-only",
 			canon:  SeriesCanon{RuntimeMinutes: new(45)},
+			patch:  SeriesPatch{RuntimeMinutes: new(60)},
+			source: SourceSonarr,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Equal(t, 45, *g.RuntimeMinutes)
+			},
+		},
+		{
+			name:   "RuntimeMinutes Sonarr fills empty",
+			rule:   "RuntimeMinutes: Sonarr fallback",
+			canon:  SeriesCanon{},
 			patch:  SeriesPatch{RuntimeMinutes: new(60)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
@@ -190,9 +240,9 @@ func TestMergeSeries(t *testing.T) {
 			},
 		},
 		{
-			name:   "RuntimeMinutes TMDB fills empty",
-			rule:   "RuntimeMinutes: TMDB fallback",
-			canon:  SeriesCanon{},
+			name:   "RuntimeMinutes TMDB overwrites existing canon",
+			rule:   "RuntimeMinutes: TMDB > Sonarr",
+			canon:  SeriesCanon{RuntimeMinutes: new(45)},
 			patch:  SeriesPatch{RuntimeMinutes: new(60)},
 			source: SourceTMDBSeries,
 			assert: func(t *testing.T, g SeriesCanon) {

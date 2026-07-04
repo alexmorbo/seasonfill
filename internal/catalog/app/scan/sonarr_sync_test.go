@@ -463,3 +463,95 @@ func TestSyncSeriesFromSonarr_StatusOptionB(t *testing.T) {
 		assert.Equal(t, "continuing", *got)
 	})
 }
+
+// TestSyncSeriesFromSonarr_TMDBOwnedFieldsFallbackOnly generalizes the
+// Option-B invariant (locked for Status above) to the other TMDB-owned
+// descriptive fields — Year, RuntimeMinutes, LastAirDate. A Sonarr scan
+// must NEVER clobber a value a TMDB enrichment pass already wrote, but
+// MUST still fill an empty field for tmdb-less / not-yet-enriched rows.
+// The invariant is owned by enrichment.MergeSeries (SourceSonarr
+// fill-empty gates) AND the resolveOrCreateCanon bypass preserve-guards.
+func TestSyncSeriesFromSonarr_TMDBOwnedFieldsFallbackOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	fieldsOf := func(f *syncFixture, tmdbID int) (*int, *int, *time.Time) {
+		t.Helper()
+		var row struct {
+			Year           *int
+			RuntimeMinutes *int
+			LastAirDate    *time.Time
+		}
+		require.NoError(t, f.db.Table("series").
+			Select("year, runtime_minutes, last_air_date").
+			Where("tmdb_id = ?", tmdbID).
+			Scan(&row).Error)
+		return row.Year, row.RuntimeMinutes, row.LastAirDate
+	}
+
+	tmdbLastAir := time.Date(2023, 5, 1, 0, 0, 0, 0, time.UTC)
+	sonarrLastAir := time.Date(2024, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	t.Run("does not overwrite existing TMDB values", func(t *testing.T) {
+		t.Parallel()
+		f := newSyncFixture(t)
+		tmdbID := domain.TMDBID(8001)
+		tmdbYear, tmdbRuntime := 2019, 42
+		// Prior TMDB enrichment pass wrote the authoritative values.
+		_, err := f.deps.Series.Upsert(ctx, series.Canon{
+			TMDBID:         &tmdbID,
+			Year:           &tmdbYear,
+			RuntimeMinutes: &tmdbRuntime,
+			LastAirDate:    &tmdbLastAir,
+			Hydration:      series.HydrationFull,
+		})
+		require.NoError(t, err)
+
+		// 6h Sonarr scan arrives with different, coarser values.
+		la := sonarrLastAir
+		p := sonarr.SeriesPayload{
+			ID: 1, Title: "Airing Show", TMDBID: tmdbID, TVDBID: 100,
+			Year: 2024, Runtime: 55, Status: "continuing", Monitored: true,
+			TitleSlug: "airing-show", LastAired: &la, PreviousAiring: &la,
+		}
+		_, err = scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
+		require.NoError(t, err)
+
+		year, runtime, lastAir := fieldsOf(f, int(tmdbID))
+		require.NotNil(t, year)
+		require.NotNil(t, runtime)
+		require.NotNil(t, lastAir)
+		assert.Equal(t, 2019, *year, "Sonarr scan must not clobber TMDB-set year")
+		assert.Equal(t, 42, *runtime, "Sonarr scan must not clobber TMDB-set runtime")
+		assert.True(t, lastAir.Equal(tmdbLastAir), "Sonarr scan must not clobber TMDB-set last_air_date")
+	})
+
+	t.Run("fills empty values as fallback", func(t *testing.T) {
+		t.Parallel()
+		f := newSyncFixture(t)
+		tmdbID := domain.TMDBID(8002)
+		// Existing row with NO descriptive fields yet (never enriched).
+		_, err := f.deps.Series.Upsert(ctx, series.Canon{
+			TMDBID:    &tmdbID,
+			Hydration: series.HydrationStub,
+		})
+		require.NoError(t, err)
+
+		la := sonarrLastAir
+		p := sonarr.SeriesPayload{
+			ID: 2, Title: "Fresh Add", TMDBID: tmdbID, TVDBID: 200,
+			Year: 2024, Runtime: 55, Status: "continuing", Monitored: true,
+			TitleSlug: "fresh-add", LastAired: &la, PreviousAiring: &la,
+		}
+		_, err = scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
+		require.NoError(t, err)
+
+		year, runtime, lastAir := fieldsOf(f, int(tmdbID))
+		require.NotNil(t, year, "Sonarr year must fill an empty year")
+		require.NotNil(t, runtime, "Sonarr runtime must fill an empty runtime")
+		require.NotNil(t, lastAir, "Sonarr last_air must fill an empty last_air_date")
+		assert.Equal(t, 2024, *year)
+		assert.Equal(t, 55, *runtime)
+		assert.True(t, lastAir.Equal(sonarrLastAir))
+	})
+}

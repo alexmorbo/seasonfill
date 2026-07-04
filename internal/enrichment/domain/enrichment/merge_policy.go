@@ -89,12 +89,12 @@ type SeriesCanon struct {
 //
 //	Title          Sonarr > TMDB
 //	OriginalTitle  TMDB only
-//	Status         TMDB > Sonarr
-//	FirstAirDate   TMDB > Sonarr
-//	LastAirDate    TMDB > Sonarr
-//	NextAirDate    Sonarr > TMDB
-//	Year           Sonarr > TMDB
-//	RuntimeMinutes Sonarr > TMDB
+//	Status         TMDB > Sonarr (Sonarr fallback-only)
+//	FirstAirDate   TMDB > Sonarr (Sonarr fallback-only)
+//	LastAirDate    TMDB > Sonarr (Sonarr fallback-only)
+//	NextAirDate    TMDB > Sonarr (Sonarr fallback-only)
+//	Year           TMDB > Sonarr (Sonarr fallback-only)
+//	RuntimeMinutes TMDB > Sonarr (Sonarr fallback-only)
 //	Homepage       TMDB only
 //	Popularity     TMDB only
 //	InProduction   TMDB only
@@ -117,19 +117,8 @@ type SeriesCanon struct {
 func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCanon {
 	switch source {
 	case SourceSonarr:
-		// Sonarr-priority fields (overwrite if patch supplies).
-		if patch.Title != nil {
-			canon.Title = *patch.Title
-		}
-		if patch.Year != nil {
-			canon.Year = patch.Year
-		}
-		if patch.RuntimeMinutes != nil {
-			canon.RuntimeMinutes = patch.RuntimeMinutes
-		}
-		if patch.NextAirDate != nil {
-			canon.NextAirDate = patch.NextAirDate
-		}
+		// Identity/join keys — Sonarr carries the external ids the system
+		// uses to resolve the TMDB record, so it stays authoritative here.
 		if patch.TMDBID != nil {
 			canon.TMDBID = patch.TMDBID
 		}
@@ -139,7 +128,15 @@ func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCano
 		if patch.IMDBID != nil {
 			canon.IMDBID = patch.IMDBID
 		}
-		// Sonarr fallback for fields TMDB owns (fill empty only).
+		// Title seeds series_texts{en-US} via InsertBaseLangIfAbsent; the
+		// canon.title column itself is dead post-S-E3a. Kept Sonarr-priority
+		// for the in-memory value.
+		if patch.Title != nil {
+			canon.Title = *patch.Title
+		}
+		// Descriptive metadata is TMDB-owned (operator: TMDB is the sole
+		// source of truth). Sonarr fills each field ONLY when TMDB has none
+		// yet (fill-empty), mirroring Status/FirstAirDate/LastAirDate.
 		if patch.Status != nil && (canon.Status == nil || *canon.Status == "") {
 			canon.Status = patch.Status
 		}
@@ -148,6 +145,15 @@ func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCano
 		}
 		if patch.LastAirDate != nil && canon.LastAirDate == nil {
 			canon.LastAirDate = patch.LastAirDate
+		}
+		if patch.NextAirDate != nil && canon.NextAirDate == nil {
+			canon.NextAirDate = patch.NextAirDate
+		}
+		if patch.Year != nil && canon.Year == nil {
+			canon.Year = patch.Year
+		}
+		if patch.RuntimeMinutes != nil && canon.RuntimeMinutes == nil {
+			canon.RuntimeMinutes = patch.RuntimeMinutes
 		}
 		if patch.PosterAsset != nil && (canon.PosterAsset == nil || *canon.PosterAsset == "") {
 			canon.PosterAsset = patch.PosterAsset
@@ -169,6 +175,15 @@ func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCano
 		}
 		if patch.LastAirDate != nil {
 			canon.LastAirDate = patch.LastAirDate
+		}
+		if patch.NextAirDate != nil {
+			canon.NextAirDate = patch.NextAirDate
+		}
+		if patch.Year != nil {
+			canon.Year = patch.Year
+		}
+		if patch.RuntimeMinutes != nil {
+			canon.RuntimeMinutes = patch.RuntimeMinutes
 		}
 		if patch.Homepage != nil {
 			canon.Homepage = patch.Homepage
@@ -203,18 +218,11 @@ func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCano
 		if patch.TMDBVotes != nil {
 			canon.TMDBVotes = patch.TMDBVotes
 		}
-		// TMDB fallback for Sonarr-priority fields (fill empty).
+		// TMDB fallback for Sonarr-priority fields (fill empty). Title stays
+		// Sonarr-priority (seeds series_texts); the external ids are Sonarr's
+		// identity keys — TMDB only fills them when the canon has none.
 		if patch.Title != nil && canon.Title == "" {
 			canon.Title = *patch.Title
-		}
-		if patch.Year != nil && canon.Year == nil {
-			canon.Year = patch.Year
-		}
-		if patch.RuntimeMinutes != nil && canon.RuntimeMinutes == nil {
-			canon.RuntimeMinutes = patch.RuntimeMinutes
-		}
-		if patch.NextAirDate != nil && canon.NextAirDate == nil {
-			canon.NextAirDate = patch.NextAirDate
 		}
 		if patch.TMDBID != nil && canon.TMDBID == nil {
 			canon.TMDBID = patch.TMDBID

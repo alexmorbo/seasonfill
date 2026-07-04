@@ -299,6 +299,22 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 		if existing.Status != nil && *existing.Status != "" {
 			canon.Status = existing.Status
 		}
+		// Same guard for the other TMDB-owned descriptive fields (Wave 1.7 —
+		// generalizes the Status/Option-B rule): this redundant canon write
+		// bypasses enrichment.MergeSeries, and seriesUpsertAssignments writes
+		// year/runtime_minutes with plain excluded.X (last_air_date COALESCEs,
+		// so a non-nil Sonarr value would still win). Preserve the existing
+		// (TMDB-set) value and let the Sonarr value through only for a canon
+		// that has none yet (tmdb-less / not-yet-enriched rows).
+		if existing.Year != nil {
+			canon.Year = existing.Year
+		}
+		if existing.RuntimeMinutes != nil {
+			canon.RuntimeMinutes = existing.RuntimeMinutes
+		}
+		if existing.LastAirDate != nil {
+			canon.LastAirDate = existing.LastAirDate
+		}
 	} else if !errors.Is(err, ports.ErrNotFound) {
 		return 0, fmt.Errorf("find canon: %w", err)
 	}
