@@ -603,6 +603,60 @@ func TestSkeletonComposer_PerLangPoster_RepoError_NilArt(t *testing.T) {
 	require.True(t, dto.Hero.BackdropAsset.IsZero())
 }
 
+// W16-3 — network & production-company logos must be resolved through the
+// MediaResolver (content-hash), not passed through as raw TMDB paths. The
+// skeleton path uses plain Resolve (not ResolveSync), whose eager-hash branch
+// only fires under the unified-resolve contract, so the test enables it.
+func TestSkeletonComposer_NetworkAndCompanyLogos_Resolved(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := skBaseDeps(skBaseCanon())
+	deps.MediaResolver = skEagerResolver()
+	deps.MediaResolver.SetUnifiedResolve(true)
+	deps.Networks = &fakeSkNetworks{
+		ids:  []int64{7},
+		rows: []taxonomy.Network{{ID: 7, TMDBID: tmdbIDPtr(213), Name: "Netflix", LogoAsset: new("/net.png")}},
+	}
+	deps.Companies = &fakeSkCompanies{
+		ids:  []int64{9},
+		rows: []taxonomy.ProductionCompany{{ID: 9, Name: "AMC Studios", LogoAsset: new("/co.png")}},
+	}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Len(t, dto.Sidebar.Networks, 1)
+	require.Equal(t, skEagerHash("/net.png", "w185"), dto.Sidebar.Networks[0].LogoAsset,
+		"network logo must be the resolved content hash, not the raw /net.png path")
+	require.Len(t, dto.Sidebar.ProductionCompanies, 1)
+	require.Equal(t, skEagerHash("/co.png", "w185"), dto.Sidebar.ProductionCompanies[0].LogoAsset,
+		"company logo must be the resolved content hash, not the raw /co.png path")
+}
+
+// W16-3 negative — a nil LogoAsset must yield an empty string (no panic, no
+// bogus hash), for both networks and companies. With unified-resolve OFF the
+// resolver returns nil for a nil path, and strOrEmpty maps that to "".
+func TestSkeletonComposer_NetworkAndCompanyLogos_NilPath_Empty(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := skBaseDeps(skBaseCanon())
+	deps.MediaResolver = skEagerResolver()
+	deps.Networks = &fakeSkNetworks{
+		ids:  []int64{7},
+		rows: []taxonomy.Network{{ID: 7, TMDBID: tmdbIDPtr(213), Name: "Netflix", LogoAsset: nil}},
+	}
+	deps.Companies = &fakeSkCompanies{
+		ids:  []int64{9},
+		rows: []taxonomy.ProductionCompany{{ID: 9, Name: "AMC Studios", LogoAsset: nil}},
+	}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Len(t, dto.Sidebar.Networks, 1)
+	require.Empty(t, dto.Sidebar.Networks[0].LogoAsset)
+	require.Len(t, dto.Sidebar.ProductionCompanies, 1)
+	require.Empty(t, dto.Sidebar.ProductionCompanies[0].LogoAsset)
+}
+
 func TestSkeletonComposer_TrailerKey(t *testing.T) {
 	t.Parallel()
 	deps, _, _ := skBaseDeps(skBaseCanon())

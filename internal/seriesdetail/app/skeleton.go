@@ -372,7 +372,9 @@ func (sc *SkeletonComposer) buildSidebar(ctx context.Context, dto *SkeletonDTO, 
 		}
 		for _, n := range nets {
 			dto.Sidebar.Networks = append(dto.Sidebar.Networks, NetworkRef{
-				TmdbID: tmdbIntOf(n.TMDBID), Name: n.Name, LogoAsset: strOrEmpty(n.LogoAsset),
+				TmdbID:    tmdbIntOf(n.TMDBID),
+				Name:      n.Name,
+				LogoAsset: strOrEmpty(sc.d.MediaResolver.Resolve(ctx, n.LogoAsset, "w185", "network_logo_w185")),
 			})
 		}
 	}
@@ -382,7 +384,9 @@ func (sc *SkeletonComposer) buildSidebar(ctx context.Context, dto *SkeletonDTO, 
 		if cos, err := sc.d.Companies.ListByIDs(ctx, coIDs); err == nil {
 			for _, c := range cos {
 				dto.Sidebar.ProductionCompanies = append(dto.Sidebar.ProductionCompanies, CompanyRef{
-					TmdbID: tmdbIntOf(c.TMDBID), Name: c.Name, LogoAsset: strOrEmpty(c.LogoAsset),
+					TmdbID:    tmdbIntOf(c.TMDBID),
+					Name:      c.Name,
+					LogoAsset: strOrEmpty(sc.d.MediaResolver.Resolve(ctx, c.LogoAsset, "w185", "company_logo_w185")),
 				})
 			}
 		}
