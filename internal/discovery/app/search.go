@@ -156,7 +156,7 @@ func (uc *SearchUseCase) TMDBFallback(ctx context.Context, q, language string) (
 			v := r.BackdropPath
 			backdrop = &v
 		}
-		seriesID, serr := uc.stubs.EnsureStub(ctx, tmdbID, r.Name, poster, backdrop)
+		seriesID, serr := uc.stubs.EnsureStub(ctx, tmdbID, language, r.Name, r.OriginalName, r.OriginalLanguage, poster, backdrop)
 		if serr != nil {
 			uc.log.WarnContext(ctx, "discovery.search.stub_upsert_failed",
 				slog.Int64("tmdb_id", int64(tmdbID)),

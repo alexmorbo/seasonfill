@@ -120,7 +120,7 @@ func newFakeStubs() *fakeStubs {
 	return &fakeStubs{idForTMD: map[shareddomain.TMDBID]shareddomain.SeriesID{}}
 }
 
-func (s *fakeStubs) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, _ string, _, _ *string) (shareddomain.SeriesID, error) {
+func (s *fakeStubs) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, _, _, _, _ string, _, _ *string) (shareddomain.SeriesID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++

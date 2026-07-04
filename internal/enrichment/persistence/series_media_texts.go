@@ -191,6 +191,38 @@ func (r *SeriesMediaTextsRepository) Upsert(ctx context.Context, t series.Series
 	return nil
 }
 
+// InsertIfAbsent inserts a series_media_texts row ONLY when no row exists
+// for (series_id, language) — INSERT … ON CONFLICT DO NOTHING. Mirrors
+// SeriesTextsRepository.InsertBaseLangIfAbsent. W15-6: the discovery
+// stub-upsert seeds the per-language poster/backdrop the TMDB list
+// response already carried so cards render art before enrichment runs,
+// WITHOUT ever clobbering a later RefreshAllLangs poster (its resolved
+// hash) via a re-EnsureStub. Idempotent: re-running against an existing
+// row is a no-op (0 rows affected, nil error).
+func (r *SeriesMediaTextsRepository) InsertIfAbsent(ctx context.Context, t series.SeriesMediaText) error {
+	if t.SeriesID == 0 {
+		return fmt.Errorf("insert series_media_texts if absent: series_id must be non-zero")
+	}
+	if t.Language == "" {
+		return fmt.Errorf("insert series_media_texts if absent: language must be non-empty")
+	}
+	if t.UpdatedAt.IsZero() {
+		t.UpdatedAt = time.Now().UTC()
+	}
+	m := fromSeriesMediaText(t)
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "series_id"},
+			{Name: "language"},
+		},
+		DoNothing: true,
+	}).Create(&m).Error
+	if err != nil {
+		return fmt.Errorf("insert series_media_texts if absent: %w", err)
+	}
+	return nil
+}
+
 func toSeriesMediaText(m database.SeriesMediaTextModel) series.SeriesMediaText {
 	return series.SeriesMediaText{
 		SeriesID:      m.SeriesID,

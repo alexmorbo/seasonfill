@@ -392,7 +392,7 @@ func (w *Worker) refresh(ctx context.Context, kind disco.Kind, param, lang strin
 			break
 		}
 		for _, entry := range resp.Results {
-			it, ierr := w.materialiseItem(ctx, entry)
+			it, ierr := w.materialiseItem(ctx, lang, entry)
 			if ierr != nil {
 				// Stub-upsert failure for ONE entry must not poison the whole
 				// list — skip the row, surface a debug log, continue.
@@ -488,7 +488,7 @@ func (w *Worker) fetchPage(ctx context.Context, kind disco.Kind, param, lang str
 // the stub-upsert side effect (story 505 invariant): any TMDB id not
 // in the local series table gets a stub row, and the returned SeriesID
 // is the FK the repo.ReplaceList INSERT requires.
-func (w *Worker) materialiseItem(ctx context.Context, entry tmdb.TVListEntry) (disco.Item, error) {
+func (w *Worker) materialiseItem(ctx context.Context, lang string, entry tmdb.TVListEntry) (disco.Item, error) {
 	if entry.ID <= 0 || entry.Name == "" {
 		return disco.Item{}, errors.New("entry missing id or name")
 	}
@@ -502,7 +502,7 @@ func (w *Worker) materialiseItem(ctx context.Context, entry tmdb.TVListEntry) (d
 	if backdropCopy != "" {
 		backdrop = &backdropCopy
 	}
-	sid, err := w.stubs.EnsureStub(ctx, tmdbID, entry.Name, poster, backdrop)
+	sid, err := w.stubs.EnsureStub(ctx, tmdbID, lang, entry.Name, entry.OriginalName, entry.OriginalLanguage, poster, backdrop)
 	if err != nil {
 		return disco.Item{}, err
 	}

@@ -48,8 +48,17 @@ type DiscoveryListRepo interface {
 // internal/wiring/discovery.go wraps
 // internal/enrichment/persistence.SeriesRepository.UpsertStub — the
 // adapter lives in wiring so discovery never imports enrichment.
+//
+// lang is the CALL language the title arrived in (the caller's wire
+// language: `lang` for worker Trending/Popular, `language` for search,
+// tmdb.DefaultLanguage for the en-US-only Discover passthrough). The
+// adapter seeds series_texts{lang} + series_media_texts{lang}
+// only-if-absent (never poisoning en-US with a foreign-language name)
+// and stamps original_title/original_language onto the stub canon so the
+// W15-2 never-empty original_title fallback tier is alive for
+// discovery-materialised stubs.
 type StubUpserter interface {
-	EnsureStub(ctx context.Context, tmdbID shareddomain.TMDBID, title string, poster, backdrop *string) (shareddomain.SeriesID, error)
+	EnsureStub(ctx context.Context, tmdbID shareddomain.TMDBID, lang, title, originalTitle, originalLanguage string, poster, backdrop *string) (shareddomain.SeriesID, error)
 }
 
 // ActiveLanguagesProvider returns the set of preferred_language values

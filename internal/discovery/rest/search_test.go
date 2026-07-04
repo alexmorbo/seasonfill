@@ -62,7 +62,7 @@ type fakeStubs struct {
 	calls  atomic.Int64
 }
 
-func (f *fakeStubs) EnsureStub(_ context.Context, _ shareddomain.TMDBID, _ string, _, _ *string) (shareddomain.SeriesID, error) {
+func (f *fakeStubs) EnsureStub(_ context.Context, _ shareddomain.TMDBID, _, _, _, _ string, _, _ *string) (shareddomain.SeriesID, error) {
 	f.calls.Add(1)
 	if f.nextID.Load() == 0 {
 		f.nextID.Store(1000)

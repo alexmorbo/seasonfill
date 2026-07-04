@@ -50,7 +50,7 @@ type searchTestStubs struct {
 	calls  atomic.Int64
 }
 
-func (s *searchTestStubs) EnsureStub(ctx context.Context, tmdbID shareddomain.TMDBID, title string, _, _ *string) (shareddomain.SeriesID, error) {
+func (s *searchTestStubs) EnsureStub(ctx context.Context, tmdbID shareddomain.TMDBID, _, title, _, _ string, _, _ *string) (shareddomain.SeriesID, error) {
 	s.calls.Add(1)
 	// Insert directly with raw SQL so we don't depend on GORM model
 	// metadata (avoids the datatypes.JSON empty-default footgun). S-E3b

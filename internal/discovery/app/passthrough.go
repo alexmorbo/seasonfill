@@ -166,7 +166,12 @@ func (a *tmdbPassthroughAdapter) materialiseEntry(ctx context.Context, r tmdb.TV
 		v := r.BackdropPath
 		backdrop = &v
 	}
-	sid, err := a.stubs.EnsureStub(ctx, tmdbID, r.Name, poster, backdrop)
+	// Discover's wire language is always the tmdb.Client default (en-US):
+	// Fetch discards its `lang` arg and DiscoverTV runs on c.languageFor("").
+	// So the name in `r.Name` is en-US — seed the series_texts row under
+	// DefaultLanguage, NOT the discarded canonical cache-key lang (which
+	// would mislabel an en-US title as, say, ru-RU).
+	sid, err := a.stubs.EnsureStub(ctx, tmdbID, tmdb.DefaultLanguage, r.Name, r.OriginalName, r.OriginalLanguage, poster, backdrop)
 	if err != nil {
 		a.log.WarnContext(ctx, "discovery.discover.stub_upsert_failed",
 			slog.Int64("tmdb_id", int64(tmdbID)),

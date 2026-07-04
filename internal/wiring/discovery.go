@@ -64,7 +64,11 @@ func BuildDiscoveryPersistence(
 	return &DiscoveryPersistenceBundle{
 		ListRepo:     discopersistence.NewListRepository(db),
 		LangProvider: discopersistence.NewActiveLanguagesRepository(db),
-		Stubs:        &stubUpserterAdapter{seriesRepo: seriesRepo, seriesTexts: enrichpersistence.NewSeriesTextsRepository(db)},
+		Stubs: &stubUpserterAdapter{
+			seriesRepo:       seriesRepo,
+			seriesTexts:      enrichpersistence.NewSeriesTextsRepository(db),
+			seriesMediaTexts: enrichpersistence.NewSeriesMediaTextsRepository(db),
+		},
 	}, nil
 }
 
@@ -167,50 +171,81 @@ func BuildDiscoveryRuntime(deps DiscoveryRuntimeDeps) (*DiscoveryRuntimeBundle, 
 // existing row without downgrading a 'full' hydration to 'stub'
 // (see SeriesRepository.UpsertStub godoc for the merge invariants).
 type stubUpserterAdapter struct {
-	seriesRepo  *enrichpersistence.SeriesRepository
-	seriesTexts *enrichpersistence.SeriesTextsRepository
+	seriesRepo       *enrichpersistence.SeriesRepository
+	seriesTexts      *enrichpersistence.SeriesTextsRepository
+	seriesMediaTexts *enrichpersistence.SeriesMediaTextsRepository
 }
 
 func (a *stubUpserterAdapter) EnsureStub(
 	ctx context.Context,
 	tmdbID shareddomain.TMDBID,
-	title string,
+	lang, title, originalTitle, originalLanguage string,
 	poster, backdrop *string,
 ) (shareddomain.SeriesID, error) {
 	if title == "" {
 		return 0, fmt.Errorf("discovery stub upserter: title required")
 	}
+	if lang == "" {
+		lang = tmdb.DefaultLanguage
+	}
 	// Copy tmdbID into a local before taking its address so the pointer
 	// in series.Canon does not alias the caller's parameter slot — the
 	// adapter must own the lifetime of the value it writes through.
 	tmdbCopy := tmdbID
-	// S-E3a — canon no longer carries title/poster/backdrop. Persist the
-	// stub row (ids + hydration) then seed the base-lang title into
-	// series_texts{en-US} so downstream readers (person library credits,
-	// recommendations) have a title before enrichment fills the rest.
-	// Poster/backdrop arrive via the on-demand enrichment the discovery
-	// worker enqueues (RefreshMediaAssets → series_media_texts).
+	// Seed original_title/original_language on the canon stub so the
+	// W15-2 never-empty original_title fallback tier is alive for
+	// discovery-materialised stubs. UpsertStub COALESCEs existing-first
+	// so a re-EnsureStub never clobbers an enriched value.
 	canon := series.Canon{
-		TMDBID:    &tmdbCopy,
-		Hydration: series.HydrationStub,
+		TMDBID:           &tmdbCopy,
+		Hydration:        series.HydrationStub,
+		OriginalTitle:    nonEmptyPtr(originalTitle),
+		OriginalLanguage: nonEmptyPtr(originalLanguage),
 	}
 	seriesID, err := a.seriesRepo.UpsertStub(ctx, canon)
 	if err != nil {
 		return 0, err
 	}
+	// Seed series_texts{lang} (the CALL language, never poisoning en-US
+	// with a foreign-language name) only-if-absent so an enriched row is
+	// never clobbered. Readers in OTHER languages fall back through the
+	// original_title tier seeded above.
 	if a.seriesTexts != nil {
 		t := title
 		if terr := a.seriesTexts.InsertBaseLangIfAbsent(ctx, series.SeriesText{
 			SeriesID: seriesID,
-			Language: "en-US",
+			Language: lang,
 			Title:    &t,
 		}); terr != nil {
 			return 0, fmt.Errorf("discovery stub seed series_texts: %w", terr)
 		}
 	}
-	_ = poster
-	_ = backdrop
+	// Seed series_media_texts{lang} from the payload poster/backdrop the
+	// TMDB list response already carried (raw TMDB paths, the same format
+	// RefreshAllLangs stores in poster_asset/backdrop_asset). Only-if-
+	// absent: the per-lang RefreshAllLangs writer stays authoritative and
+	// overwrites this seed (with a resolved hash) later.
+	if a.seriesMediaTexts != nil && (poster != nil || backdrop != nil) {
+		if merr := a.seriesMediaTexts.InsertIfAbsent(ctx, series.SeriesMediaText{
+			SeriesID:      seriesID,
+			Language:      lang,
+			PosterAsset:   poster,
+			BackdropAsset: backdrop,
+		}); merr != nil {
+			return 0, fmt.Errorf("discovery stub seed series_media_texts: %w", merr)
+		}
+	}
 	return seriesID, nil
+}
+
+// nonEmptyPtr returns a pointer to s, or nil when s == "". Used so an
+// empty original_title/original_language from a TMDB list row seeds a
+// SQL NULL (COALESCE-preservable) rather than an empty string.
+func nonEmptyPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // libraryInstancesAdapter bridges catalog SeriesCacheRepository to the

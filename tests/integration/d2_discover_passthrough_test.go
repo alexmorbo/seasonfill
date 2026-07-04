@@ -31,7 +31,7 @@ type stubCounter struct {
 	n   atomic.Int64
 }
 
-func (s *stubCounter) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, _ string, _, _ *string) (shareddomain.SeriesID, error) {
+func (s *stubCounter) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, _, _, _, _ string, _, _ *string) (shareddomain.SeriesID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if v, ok := s.ids[tmdbID]; ok {

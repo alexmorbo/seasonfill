@@ -149,7 +149,7 @@ type stubBySeed struct {
 	seedIDs []shareddomain.SeriesID
 }
 
-func (s *stubBySeed) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, _ string, _, _ *string) (shareddomain.SeriesID, error) {
+func (s *stubBySeed) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, _, _, _, _ string, _, _ *string) (shareddomain.SeriesID, error) {
 	// Seed tmdbIDs are 1000..1000+len-1. Reverse into ids slice index.
 	idx := int(tmdbID) - 1000
 	if idx < 0 || idx >= len(s.seedIDs) {
