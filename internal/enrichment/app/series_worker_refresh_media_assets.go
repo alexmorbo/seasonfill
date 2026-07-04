@@ -11,57 +11,53 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 )
 
-// RefreshMediaAssets fetches /tv/{tmdb_id}?language={lang} (with
-// append_to_response=…,images already bundled in tvAppendToResponse) and
-// writes:
+// RefreshMediaAssets fetches /tv/{tmdb_id} ONCE via GetTVAllLangs (base-lang
+// root + union include_image_language, lang-agnostic — matching SectionMedia's
+// lang-agnostic probe semantics) and writes the per-language art side-tables:
 //
-//  1. series canon paths — series.poster_asset (from tv.PosterPath) +
-//     series.backdrop_asset (from tv.BackdropPath) via Series.Upsert.
-//     Existing COALESCE on both columns (seriesUpsertAssignments line
-//     792-793) preserves prior TMDB-enriched values when a concurrent
-//     Sonarr scan writes nil. A4's writer ALWAYS populates when TMDB
-//     returns non-empty — matches the defensive write-side guard shape
-//     shipped in Story 346.
+//  1. series_media_texts — one poster/backdrop row per supported user language.
+//     - BASE lang (locale.Default() = en-US): pickPosterForLang(tv.Images) with
+//     root fallback tv.PosterPath; pickBackdropForLang with root fallback
+//     tv.BackdropPath. This guarantees the en-US baseline row and closes the
+//     "no media row while SectionMedia is Fresh" silent hole.
+//     - NON-base langs (ru-RU): pickPosterForLangStrict / pickBackdropForLangStrict
+//     — EXACT short(lang) tier ONLY, no agnostic/en/root fallback. If TMDB
+//     carries no art in that exact language the row is SKIPPED (never poison a
+//     ru row with en art — the W15-2 any-lang reader + async per-lang path
+//     cover it later).
+//     - A row is written only when poster OR backdrop is non-nil — a row with no
+//     art is useless (applies to base and non-base alike).
 //
-//  2. per-season paths — seasons.poster_asset (from tv.Seasons[i].PosterPath)
-//     via Seasons.Upsert per season. Bare `excluded.poster_asset` in
-//     seasonsUpsertAssignments is intentional (TMDB-owned refresh-on-write
-//     convention, seasons_repository.go:158); A4 writer always populates
-//     when TMDB returns non-empty — Story 552 class NOT reintroduced
-//     because the writer never leaves the field unset AND the skip-if-empty
-//     filter drops nil-path rows outright.
+//  2. season_media_texts (base lang only) — one poster row per season whose
+//     tv.Seasons[i].PosterPath is non-empty. GetTVAllLangs pins the en-US root,
+//     so the root season poster IS the en-US image. Non-base season langs come
+//     from RefreshSeasonSlim (strict), not here.
 //
-//  3. MediaResolver.Resolve inline call per non-empty path — mints eager
-//     sha256 hash + writes media_assets pending row via EnsurePending
-//     (Story 347 unified-resolve contract). Composer's next cold
-//     /series/{id}?lang=X read has a stable hash handle immediately —
-//     closes operator smoke symptom #2 (grey placeholder → poster hash →
-//     media pipeline fills bytes).
+//  3. Canon preservation Upsert — copies the 6 bare-excluded canon columns
+//     (tvdb_id/imdb_id/next_air_date/year/runtime_minutes/in_production) from
+//     canon.Get so the narrow write does NOT blank previously-merged Sonarr
+//     values, plus per-season air_date/tmdb_season_id freshness. Canon no
+//     longer carries poster/backdrop columns (Variant A / S-E3b) — all art
+//     lives in the *_media_texts side-tables above.
 //
-//  4. series.enrichment_media_synced_at = now (MarkMediaSynced stamp).
+//  4. series.enrichment_media_synced_at = now (MarkMediaSynced) — the stamp is
+//     now backed by REAL per-lang art writes, not a no-op.
 //
-// Steps 1, 2, 4 inside ONE tx. Step 3 (MediaResolver.Resolve) called
-// OUTSIDE the tx — Resolve internally does its own DB write (EnsurePending
-// on media_assets via a different Gorm session); nesting inside A4's tx
-// would risk cross-table lock contention (media_assets has its own natural
-// key + ON CONFLICT DO NOTHING). Design rationale: the eager-hash call is
-// IDEMPOTENT (existing pending/stored row preserved by DO NOTHING), so if
-// step 3 fires but a later hypothetical step fails, next A4 call re-resolves
-// cheaply. Loss surface: NONE (media_assets is content-addressed —
-// re-EnsurePending same hash+URL is a no-op).
+// Each written media-text row eager-resolves its hashes via MediaResolver
+// (poster w342/poster_w342, backdrop w1280/backdrop_w1280, season poster
+// w342/poster_w342) — the returned hash is stored on the row and, as a side
+// effect, EnsurePending pre-warms the media pipeline. The hashes are resolved
+// OUTSIDE the tx (mirrors RefreshSeriesAllLangs): Resolve does its own
+// media_assets write via a different Gorm session; nesting inside A4's tx would
+// risk cross-table lock contention. Idempotent (content-addressed ON CONFLICT
+// DO NOTHING), so a later tx failure costs only a cheap re-resolve next call.
 //
-// HARD RULE — ONE TMDB CALL: exactly 1 TMDB call (`GetTV(?language=lang)`);
-// lang is validated + logged for correlation. A4 writes the CANON media
-// columns (series.poster_asset/backdrop_asset, seasons.poster_asset) using
-// TMDB's canonical best-picks (tv.PosterPath / tv.BackdropPath /
-// tv.Seasons[i].PosterPath). Per-language poster ranking from
-// tv.Images.Posters[] IS implemented, but in the sibling per-lang writers
-// (series_media_texts 584a, season_media_texts S-C2), not here.
-// TODO(S-E3): these canon media writes are slated for removal once the
-// localizable canon columns are dropped — art will live only in the
-// *_media_texts side-tables.
+// HARD RULE — ONE TMDB CALL: exactly 1 TMDB call (GetTVAllLangs). The lang
+// param is retained ONLY for the probe VO + log correlation; the fetch is no
+// longer lang-specific.
 //
 // force semantics (PLAN §6.-1 F-R2-5):
 //   - force=true  → bypass Probe TTL gate. Always fetch + write. Used by
@@ -71,22 +67,21 @@ import (
 //     SectionMedia Stale=false → early return nil. Probe nil →
 //     fetch unconditionally (caller A5 EnsureFreshScope already gated).
 //
-// Tx shape: TMDB GetTV (out of tx) → tx{ Series.Upsert (canon paths +
-// 6 preservation copies from canon.Get) → for-each-season{ Seasons.Upsert
-// (canonSeason with poster_asset + Name/Overview/AirDate/TMDBSeasonID
-// populated from tv.Seasons[i]) } → Series.MarkMediaSynced } → commit →
-// (post-commit) MediaResolver.Resolve per non-empty path (best-effort,
-// returned hash pointer discarded; the side-effect is the media_assets
-// pending row).
+// Tx shape: TMDB GetTVAllLangs (out of tx) → build per-lang media-text rows +
+// eager Resolve (out of tx) → tx{ Series.Upsert (6 preservation copies) →
+// for-each-season Seasons.Upsert (air_date/tmdb_season_id) → N×series_media_texts
+// Upsert → M×season_media_texts Upsert → Series.MarkMediaSynced } → commit.
 //
-// canon.TMDBID nil → no-op (Sonarr-only series cannot be TMDB-enriched).
-// Mirrors handleInternal's no_tmdb_id_skip branch + A2/A3a/A3b patterns.
+// Ports nil-OK: SeriesMediaTexts / SeasonMediaTexts / MediaResolver nil → skip
+// that write (constructor treats them nil-OK). canon.TMDBID nil → no-op
+// (Sonarr-only series cannot be TMDB-enriched). Mirrors handleInternal's
+// no_tmdb_id_skip branch + A2/A3a/A3b patterns.
 //
 // No enrichment_errors journaling — narrow methods caller-orchestrated
 // (A5/ChangesSyncer handle retry); Handle/HandleForced dispatcher-driven
 // path retains the error-row write.
 //
-// UNIVERSAL NARROW-WRITER AUDIT (per A3a lesson) — Path 1 Series.Upsert
+// UNIVERSAL NARROW-WRITER AUDIT (per A3a lesson) — the Series.Upsert
 // contains 6 columns that are bare `excluded.X` in seriesUpsertAssignments
 // (tvdb_id/imdb_id/next_air_date/year/runtime_minutes/in_production —
 // Sonarr's authoritative fields per PRD §5.4 that MUST NOT be COALESCE-
@@ -155,16 +150,16 @@ func (w *SeriesWorker) RefreshMediaAssets(
 		}
 	}
 
-	// 4. TMDB call — ONE call, reuses existing GetTV (append_to_response
-	//    includes 'images' via tvAppendToResponse const — see tmdb/tv.go:16).
-	//    A4 writes canon columns from tv.PosterPath / tv.BackdropPath /
-	//    tv.Seasons[i].PosterPath (TMDB's canonical picks). Per-lang art
-	//    from tv.Images.Posters[] is handled by the *_media_texts writers.
-	//    TODO(S-E3): drop these canon media writes with the canon columns.
+	// 4. TMDB call — ONE call, GetTVAllLangs (union include_image_language,
+	//    lang-agnostic — matches SectionMedia's lang-agnostic probe). The lang
+	//    param above is retained ONLY for the probe VO + log correlation; the
+	//    fetch is no longer lang-specific. Per-lang art is picked from
+	//    tv.Images below (base: full priority + root fallback; non-base: strict
+	//    exact-lang, skip-if-absent to avoid poisoning).
 	tmdbID := int64(*canon.TMDBID)
-	tv, err := w.deps.TMDB.GetTV(ctx, tmdbID, lang)
+	tv, err := w.deps.TMDB.GetTVAllLangs(ctx, tmdbID)
 	if err != nil {
-		return fmt.Errorf("refresh_media_assets: GetTV(%d, lang=%s): %w", tmdbID, lang, err)
+		return fmt.Errorf("refresh_media_assets: GetTVAllLangs(%d): %w", tmdbID, err)
 	}
 	if tv == nil {
 		log.WarnContext(ctx, "enrichment.series.refresh_media_assets.empty_response")
@@ -253,19 +248,87 @@ func (w *SeriesWorker) RefreshMediaAssets(
 	}
 
 	now := w.deps.Clock()
+
+	// 7. Build per-language series_media_texts rows OUTSIDE the tx. Eager
+	//    MediaResolver.Resolve mints the poster/backdrop hashes (side effect:
+	//    EnsurePending pre-warms the media pipeline); nesting that inside the
+	//    tx risks cross-table lock contention (RefreshSeriesAllLangs pattern).
+	//    BASE lang: full priority pick + root fallback → guaranteed en-US row.
+	//    NON-base: strict exact-lang pick, no fallback → skip-if-absent (never
+	//    poison). A row is produced only when poster OR backdrop is non-nil —
+	//    a row with no art is useless (base and non-base alike).
+	seriesMediaWrites := make([]series.SeriesMediaText, 0, len(locale.SupportedUserLanguages))
+	if w.deps.SeriesMediaTexts != nil {
+		base := locale.Default()
+		for _, l := range locale.SupportedUserLanguages {
+			var posterPath, backdropPath *string
+			if l == base {
+				posterPath = pickPosterForLang(tv.Images, l)
+				if posterPath == nil {
+					posterPath = nonEmptyStringPtr(tv.PosterPath)
+				}
+				backdropPath = pickBackdropForLang(tv.Images, l)
+				if backdropPath == nil {
+					backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+				}
+			} else {
+				posterPath = pickPosterForLangStrict(tv.Images, l)
+				backdropPath = pickBackdropForLangStrict(tv.Images, l)
+			}
+			if posterPath == nil && backdropPath == nil {
+				continue
+			}
+			var posterHash, backdropHash *string
+			if w.deps.MediaResolver != nil {
+				if posterPath != nil {
+					posterHash = w.deps.MediaResolver.Resolve(ctx, posterPath, "w342", "poster_w342")
+				}
+				if backdropPath != nil {
+					backdropHash = w.deps.MediaResolver.Resolve(ctx, backdropPath, "w1280", "backdrop_w1280")
+				}
+			}
+			seriesMediaWrites = append(seriesMediaWrites, series.SeriesMediaText{
+				SeriesID:      seriesID,
+				Language:      l,
+				PosterAsset:   posterPath,
+				PosterHash:    posterHash,
+				BackdropAsset: backdropPath,
+				BackdropHash:  backdropHash,
+				EnrichedAt:    &now,
+			})
+		}
+	}
+
+	// 8. Build base-lang season_media_texts rows OUTSIDE the tx. GetTVAllLangs
+	//    pins en-US root, so each non-empty tv.Seasons[i].PosterPath IS the
+	//    en-US season poster. Non-base season langs come from RefreshSeasonSlim.
+	seasonMediaWrites := make([]series.SeasonMediaText, 0, len(seasonPayloads))
+	if w.deps.SeasonMediaTexts != nil {
+		for _, sp := range seasonPayloads {
+			var posterHash *string
+			if w.deps.MediaResolver != nil {
+				posterHash = w.deps.MediaResolver.Resolve(ctx, sp.raw, "w342", "poster_w342")
+			}
+			seasonMediaWrites = append(seasonMediaWrites, series.SeasonMediaText{
+				SeriesID:     seriesID,
+				SeasonNumber: sp.season.SeasonNumber,
+				Language:     locale.Default(),
+				PosterAsset:  sp.raw,
+				PosterHash:   posterHash,
+				EnrichedAt:   &now,
+			})
+		}
+	}
+
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		// 7a. Series canon upsert — narrow shape, COALESCE preserves prior
-		//     media columns; explicit preservation copies protect the 6
-		//     bare-excluded columns.
+		// 9a. Series canon preservation upsert — narrow shape; the explicit
+		//     preservation copies protect the 6 bare-excluded columns.
 		if _, err := w.deps.Series.Upsert(txCtx, canonPayload); err != nil {
 			return fmt.Errorf("upsert series canon (media narrow): %w", err)
 		}
 
-		// 7b. Per-season upserts — poster_asset always populated (skip-if-
-		//     empty filter above guarantees this); Name/Overview/AirDate/
-		//     TMDBSeasonID also populated to avoid Story 552 blanking
-		//     regression on bare-excluded seasons.{name, overview,
-		//     air_date, tmdb_season_id}.
+		// 9b. Per-season canon upserts — air_date/tmdb_season_id freshness
+		//     (skip-if-empty-poster filter applied above).
 		for _, sp := range seasonPayloads {
 			if _, err := w.deps.Seasons.Upsert(txCtx, sp.season); err != nil {
 				return fmt.Errorf("upsert season %d (media narrow): %w",
@@ -273,9 +336,23 @@ func (w *SeriesWorker) RefreshMediaAssets(
 			}
 		}
 
-		// 7c. Stamp series.enrichment_media_synced_at — defensive against
-		//     subsequent Sonarr Upsert thanks to seriesUpsertAssignments
-		//     COALESCE (line 818, already shipped A2).
+		// 9c. Per-language series art — the actual localized poster/backdrop.
+		for _, row := range seriesMediaWrites {
+			if err := w.deps.SeriesMediaTexts.Upsert(txCtx, row); err != nil {
+				return fmt.Errorf("upsert series_media_texts (lang=%s): %w", row.Language, err)
+			}
+		}
+
+		// 9d. Base-lang season art.
+		for _, row := range seasonMediaWrites {
+			if err := w.deps.SeasonMediaTexts.Upsert(txCtx, row); err != nil {
+				return fmt.Errorf("upsert season_media_texts (season=%d): %w", row.SeasonNumber, err)
+			}
+		}
+
+		// 9e. Stamp series.enrichment_media_synced_at — now backed by real
+		//     art writes. Defensive against subsequent Sonarr Upsert thanks to
+		//     seriesUpsertAssignments COALESCE (already shipped A2).
 		if err := w.deps.Series.MarkMediaSynced(txCtx, seriesID, now); err != nil {
 			return fmt.Errorf("mark series media synced: %w", err)
 		}
@@ -285,47 +362,12 @@ func (w *SeriesWorker) RefreshMediaAssets(
 		return fmt.Errorf("refresh_media_assets: tx: %w", err)
 	}
 
-	// 8. MediaResolver eager-hash side effect (POST-TX, best-effort).
-	//    Each Resolve call triggers:
-	//      - HashForSourceURL lookup — miss on cold
-	//      - Under Story 347 unified-resolve: EnsurePending(eagerHash, URL, kind)
-	//        writes a media_assets pending row (idempotent — ON CONFLICT DO NOTHING)
-	//      - Returns *string sha256-hex hash pointer
-	//    A4 discards the returned hash pointer — the SIDE EFFECT (pending
-	//    row written) is what closes operator symptom #2.
-	//
-	//    nil MediaResolver → skip (nil-OK per SeriesWorkerDeps.MediaResolver
-	//    doc). Called OUTSIDE the tx above deliberately — media_assets is a
-	//    different natural key (hash primary) with its own ON CONFLICT
-	//    DO NOTHING; nesting inside A4's tx would risk cross-table lock
-	//    contention. Idempotent — subsequent A4 calls re-mint hashes
-	//    without side effect (existing pending/stored rows preserved).
-	if w.deps.MediaResolver != nil {
-		// Series poster: both grid + hero variants mirror
-		// composePrewarmAssets kinds (series_worker_prewarm.go).
-		if tv.PosterPath != "" {
-			p := tv.PosterPath
-			_ = w.deps.MediaResolver.Resolve(ctx, &p, "w342", "poster_w342")
-			_ = w.deps.MediaResolver.Resolve(ctx, &p, "w780", "poster_w780")
-		}
-		if tv.BackdropPath != "" {
-			b := tv.BackdropPath
-			_ = w.deps.MediaResolver.Resolve(ctx, &b, "w1280", "backdrop_w1280")
-		}
-		for _, sp := range seasonPayloads {
-			// Season poster: w154 matches composePrewarmAssets kind
-			// + composer.go read shape Resolve(rawPath, "w154",
-			// "season_poster_w154").
-			if sp.raw != nil && *sp.raw != "" {
-				_ = w.deps.MediaResolver.Resolve(ctx, sp.raw, "w154", "season_poster_w154")
-			}
-		}
-	}
-
 	durMs := int(w.deps.Clock().Sub(start).Milliseconds())
 	log.InfoContext(ctx, "enrichment.series.refresh_media_assets.ok",
 		slog.Bool("poster_present", tv.PosterPath != ""),
 		slog.Bool("backdrop_present", tv.BackdropPath != ""),
+		slog.Int("series_media_rows", len(seriesMediaWrites)),
+		slog.Int("season_media_rows", len(seasonMediaWrites)),
 		slog.Int("seasons_with_posters", len(seasonPayloads)),
 		slog.Int("duration_ms", durMs),
 	)

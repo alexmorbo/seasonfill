@@ -62,25 +62,57 @@ func mediaTVPayload(parentTMDB int64, posterPath, backdropPath string, seasons [
 	}
 }
 
+// fakeSeasonMediaTextsRepo records every season_media_texts Upsert for A4
+// assertions. Mirrors fakeSeriesMediaTextsRepo (series_worker_refresh_text_test.go).
+type fakeSeasonMediaTextsRepo struct {
+	rec  *callRecord
+	rows []series.SeasonMediaText
+}
+
+func (f *fakeSeasonMediaTextsRepo) Upsert(_ context.Context, t series.SeasonMediaText) error {
+	if f.rec != nil {
+		f.rec.add("SeasonMediaTexts.Upsert")
+	}
+	f.rows = append(f.rows, t)
+	return nil
+}
+
+// mediaCaptures bundles the two per-lang media-text capture fakes so tests can
+// assert on the rows A4 wrote.
+type mediaCaptures struct {
+	seriesMedia *fakeSeriesMediaTextsRepo
+	seasonMedia *fakeSeasonMediaTextsRepo
+}
+
 // newMediaFixture wires a workerFixture pre-seeded for A4. canonTMDBID nil
-// → Sonarr-only canon row (no TMDB fetch); attaches MediaResolver + Probe
-// via a NewSeriesWorker re-construction so the constructor validation still
-// runs against the augmented deps.
-func newMediaFixture(t *testing.T, canonTMDBID *domain.TMDBID, probe freshener.Probe, resolver MediaResolver, tv *tmdb.TVResponse) *workerFixture {
+// → Sonarr-only canon row (no TMDB fetch); attaches MediaResolver + Probe +
+// the series/season media-text capture fakes via a NewSeriesWorker
+// re-construction so the constructor validation still runs against the
+// augmented deps.
+func newMediaFixture(t *testing.T, canonTMDBID *domain.TMDBID, probe freshener.Probe, resolver MediaResolver, tv *tmdb.TVResponse) (*workerFixture, *mediaCaptures) {
 	t.Helper()
 	f := newWorkerFixture(t, tv, map[int]*tmdb.SeasonResponse{})
+	caps := &mediaCaptures{
+		seriesMedia: &fakeSeriesMediaTextsRepo{rec: f.rec},
+		seasonMedia: &fakeSeasonMediaTextsRepo{rec: f.rec},
+	}
 	deps := f.worker.deps
 	deps.Probe = probe
 	deps.MediaResolver = resolver
+	deps.SeriesMediaTexts = caps.seriesMedia
+	deps.SeasonMediaTexts = caps.seasonMedia
 	w, err := NewSeriesWorker(deps)
 	require.NoError(t, err)
 	f.worker = w
 	f.seedCanon(1, canonTMDBID)
-	return f
+	return f, caps
 }
 
 // helper: canonical happy-path TV payload — one series-level poster+backdrop
 // + 3 seasons (season 2 has empty poster to exercise the skip-empty filter).
+// Images is nil, so the base en-US series_media_texts row falls back to the
+// root poster/backdrop and the non-base ru-RU strict pick finds nothing → the
+// ru row is skipped (anti-poison).
 func canonicalMediaTV(parentTMDB int64) *tmdb.TVResponse {
 	return mediaTVPayload(parentTMDB, "/p.jpg", "/b.jpg", []tmdb.TVSeasonStub{
 		{ID: 5001, SeasonNumber: 1, Name: "S1", Overview: "ov1", AirDate: "2020-01-01", PosterPath: "/s1.jpg"},
@@ -89,12 +121,42 @@ func canonicalMediaTV(parentTMDB int64) *tmdb.TVResponse {
 	})
 }
 
+// mediaTVWithImages builds a canonical payload but attaches an images[] block
+// carrying a per-language poster set (en + ru) so the strict non-base picker
+// has ru art to write.
+func mediaTVWithImages(parentTMDB int64) *tmdb.TVResponse {
+	tv := canonicalMediaTV(parentTMDB)
+	en := "en"
+	ru := "ru"
+	tv.Images = &tmdb.TVImages{
+		Posters: []tmdb.TVImage{
+			{FilePath: "/en_poster.jpg", ISO6391: &en, VoteAverage: 8.0, VoteCount: 40},
+			{FilePath: "/ru_poster.jpg", ISO6391: &ru, VoteAverage: 7.0, VoteCount: 20},
+		},
+		Backdrops: []tmdb.TVImage{
+			{FilePath: "/ru_bd.jpg", ISO6391: &ru, VoteAverage: 6.0, VoteCount: 10},
+		},
+	}
+	return tv
+}
+
+// countKind counts resolver calls of a given kind.
+func countKind(calls []mediaResolveCall, kind string) int {
+	n := 0
+	for _, c := range calls {
+		if c.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
 // ---- behavior tests ------------------------------------------------
 
 func TestSeriesWorker_RefreshMediaAssets_InvalidLang_Error(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
-	f := newMediaFixture(t, &tmdbID, nil, &fakeMediaResolver{}, canonicalMediaTV(42))
+	f, _ := newMediaFixture(t, &tmdbID, nil, &fakeMediaResolver{}, canonicalMediaTV(42))
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "not-a-lang", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid lang")
@@ -104,7 +166,7 @@ func TestSeriesWorker_RefreshMediaAssets_InvalidLang_Error(t *testing.T) {
 
 func TestSeriesWorker_RefreshMediaAssets_NoTMDBID_Skip(t *testing.T) {
 	t.Parallel()
-	f := newMediaFixture(t, nil, nil, &fakeMediaResolver{}, canonicalMediaTV(42))
+	f, _ := newMediaFixture(t, nil, nil, &fakeMediaResolver{}, canonicalMediaTV(42))
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", false)
 	require.NoError(t, err)
 	assert.Zero(t, f.tmdb.getTVHit, "TMDB MUST NOT be called when canon.TMDBID is nil")
@@ -113,7 +175,7 @@ func TestSeriesWorker_RefreshMediaAssets_NoTMDBID_Skip(t *testing.T) {
 
 func TestSeriesWorker_RefreshMediaAssets_SeriesMissing_Skip(t *testing.T) {
 	t.Parallel()
-	f := newMediaFixture(t, nil, nil, &fakeMediaResolver{}, canonicalMediaTV(42))
+	f, _ := newMediaFixture(t, nil, nil, &fakeMediaResolver{}, canonicalMediaTV(42))
 	delete(f.series.rows, 1)
 	f.worker.deps.Series = &seriesNotFoundRepo{inner: f.series}
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", false)
@@ -129,13 +191,15 @@ func TestSeriesWorker_RefreshMediaAssets_TTLGate_Skip(t *testing.T) {
 		{Section: freshener.SectionMedia, Stale: false, Reason: "fresh"},
 	}}
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, probe, resolver, canonicalMediaTV(42))
+	f, caps := newMediaFixture(t, &tmdbID, probe, resolver, canonicalMediaTV(42))
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, probe.calls, "Probe MUST be consulted")
 	assert.Zero(t, f.tmdb.getTVHit, "Probe fresh + force=false → skip TMDB")
 	assert.False(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"))
 	assert.Empty(t, resolver.calls, "no resolver calls when TTL gates the fetch")
+	assert.Empty(t, caps.seriesMedia.rows, "no media rows when gated")
+	assert.Empty(t, caps.seasonMedia.rows)
 }
 
 func TestSeriesWorker_RefreshMediaAssets_ForceTrue_ProbeFresh_Bypass(t *testing.T) {
@@ -145,7 +209,7 @@ func TestSeriesWorker_RefreshMediaAssets_ForceTrue_ProbeFresh_Bypass(t *testing.
 		{Section: freshener.SectionMedia, Stale: false, Reason: "fresh"},
 	}}
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, probe, resolver, canonicalMediaTV(42))
+	f, _ := newMediaFixture(t, &tmdbID, probe, resolver, canonicalMediaTV(42))
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true)
 	require.NoError(t, err)
 	assert.Zero(t, probe.calls, "force=true MUST NOT consult Probe")
@@ -157,31 +221,38 @@ func TestSeriesWorker_RefreshMediaAssets_NoProbe_HappyPath(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, nil, resolver, canonicalMediaTV(42))
+	f, _ := newMediaFixture(t, &tmdbID, nil, resolver, canonicalMediaTV(42))
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.tmdb.getTVHit, "Probe nil → unconditional fetch")
 	assert.True(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"))
 }
 
+// HappyPath — canonicalMediaTV has Images=nil, PosterPath=/p.jpg,
+// BackdropPath=/b.jpg, seasons /s1.jpg + /s3.jpg (season 2 empty → filtered).
+//   - base en-US series_media_texts row: poster /p.jpg (root fallback) +
+//     backdrop /b.jpg → resolver poster_w342 + backdrop_w1280.
+//   - ru-RU strict: Images nil → poster+backdrop nil → row SKIPPED (anti-poison).
+//   - season_media_texts en-US: season 1 /s1.jpg + season 3 /s3.jpg → 2× poster_w342.
+//
+// So resolver calls = 4 (series poster + series backdrop + 2 season posters),
+// series_media rows = 1 (en-US), season_media rows = 2. Code order is
+// series-row(s) first, then seasons — assert exact ordering.
 func TestSeriesWorker_RefreshMediaAssets_HappyPath(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, nil, resolver, canonicalMediaTV(42))
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, canonicalMediaTV(42))
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true)
 	require.NoError(t, err)
-	assert.Equal(t, 1, f.tmdb.getTVHit, "exactly 1 GetTV call")
+	assert.Equal(t, 1, f.tmdb.getTVHit, "exactly 1 GetTVAllLangs call")
 
-	// Series canon upsert fired once. S-E3a — canon no longer carries
-	// poster/backdrop; series art flows to series_media_texts + the media
-	// pipeline via MediaResolver (asserted below). The narrow writer only
-	// stamps enrichment_media_synced_at here.
+	// Series canon preservation upsert fired once + stamp landed.
 	require.Equal(t, 1, f.series.upsertN, "exactly 1 Series.Upsert call")
 	persisted := f.series.rows[1]
 	require.NotNil(t, persisted.EnrichmentMediaSyncedAt)
 
-	// Seasons: 2 upserts (season 2 dropped by skip-empty filter).
+	// Seasons: 2 canon upserts (season 2 dropped by skip-empty filter).
 	seasonUpsertCount := 0
 	for _, c := range f.rec.list() {
 		if c == "Seasons.Upsert" {
@@ -193,56 +264,96 @@ func TestSeriesWorker_RefreshMediaAssets_HappyPath(t *testing.T) {
 	require.Contains(t, f.seasons.rows, 3)
 	require.NotContains(t, f.seasons.rows, 2, "season 2 empty PosterPath → row skipped entirely")
 
-	// S-E3a — canon season no longer carries Name/Overview/PosterAsset; the
-	// narrow writer keeps only air_date + tmdb_season_id fresh (per-season art
-	// flows to season_media_texts + the media pipeline, asserted via the
-	// resolver below).
 	s1 := f.seasons.rows[1]
 	require.NotNil(t, s1.AirDate)
 	require.NotNil(t, s1.TMDBSeasonID)
 	assert.Equal(t, 5001, *s1.TMDBSeasonID)
 
-	// MediaResolver calls: 2 poster sizes + 1 backdrop + 2 season posters = 5.
-	// S-E3a — this is now the ONLY path A4 pushes series/season poster art into
-	// the media pipeline (canon media columns dropped).
-	require.Len(t, resolver.calls, 5)
+	// series_media_texts: exactly one en-US row (ru-RU skipped, no strict art).
+	require.Len(t, caps.seriesMedia.rows, 1, "base en-US row written; ru-RU skipped (anti-poison)")
+	smt := caps.seriesMedia.rows[0]
+	assert.Equal(t, "en-US", smt.Language)
+	require.NotNil(t, smt.PosterAsset)
+	assert.Equal(t, "/p.jpg", *smt.PosterAsset, "base poster from root fallback")
+	require.NotNil(t, smt.BackdropAsset)
+	assert.Equal(t, "/b.jpg", *smt.BackdropAsset, "base backdrop from root fallback")
+	require.NotNil(t, smt.EnrichedAt)
+
+	// season_media_texts: 2 en-US rows (season 1 + 3).
+	require.Len(t, caps.seasonMedia.rows, 2)
+	byNum := map[int]series.SeasonMediaText{}
+	for _, r := range caps.seasonMedia.rows {
+		byNum[r.SeasonNumber] = r
+	}
+	require.Contains(t, byNum, 1)
+	require.Contains(t, byNum, 3)
+	assert.Equal(t, "en-US", byNum[1].Language)
+	require.NotNil(t, byNum[1].PosterAsset)
+	assert.Equal(t, "/s1.jpg", *byNum[1].PosterAsset)
+
+	// MediaResolver calls: series poster + series backdrop + 2 season posters = 4.
+	require.Len(t, resolver.calls, 4)
 	assert.Equal(t, "poster_w342", resolver.calls[0].Kind)
 	require.NotNil(t, resolver.calls[0].Path)
 	assert.Equal(t, "/p.jpg", *resolver.calls[0].Path)
-	assert.Equal(t, "poster_w780", resolver.calls[1].Kind)
-	assert.Equal(t, "backdrop_w1280", resolver.calls[2].Kind)
+	assert.Equal(t, "backdrop_w1280", resolver.calls[1].Kind)
+	require.NotNil(t, resolver.calls[1].Path)
+	assert.Equal(t, "/b.jpg", *resolver.calls[1].Path)
+	assert.Equal(t, "poster_w342", resolver.calls[2].Kind)
 	require.NotNil(t, resolver.calls[2].Path)
-	assert.Equal(t, "/b.jpg", *resolver.calls[2].Path)
-	assert.Equal(t, "season_poster_w154", resolver.calls[3].Kind)
+	assert.Equal(t, "/s1.jpg", *resolver.calls[2].Path)
+	assert.Equal(t, "poster_w342", resolver.calls[3].Kind)
 	require.NotNil(t, resolver.calls[3].Path)
-	assert.Equal(t, "/s1.jpg", *resolver.calls[3].Path)
-	assert.Equal(t, "season_poster_w154", resolver.calls[4].Kind)
+	assert.Equal(t, "/s3.jpg", *resolver.calls[3].Path)
 }
 
-// Story 552 mirror class — writer MUST always populate PosterAsset for every
-// season in the payload; the skip-if-empty filter is the only reason a nil
-// value would ever reach seasons_repository.
+// A non-base language with a strict poster in images[] gets its OWN
+// series_media_texts row (no poison, real ru art). Base en-US picks the en
+// poster; ru-RU picks the ru poster + ru backdrop.
+func TestSeriesWorker_RefreshMediaAssets_RuStrictImages_RuRowWritten(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	resolver := &fakeMediaResolver{}
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, mediaTVWithImages(42))
+	require.NoError(t, f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true))
+
+	require.Len(t, caps.seriesMedia.rows, 2, "en-US + ru-RU rows both written")
+	byLang := map[string]series.SeriesMediaText{}
+	for _, r := range caps.seriesMedia.rows {
+		byLang[r.Language] = r
+	}
+	require.Contains(t, byLang, "en-US")
+	require.Contains(t, byLang, "ru-RU")
+
+	require.NotNil(t, byLang["en-US"].PosterAsset)
+	assert.Equal(t, "/en_poster.jpg", *byLang["en-US"].PosterAsset, "base picks en poster")
+	require.NotNil(t, byLang["ru-RU"].PosterAsset)
+	assert.Equal(t, "/ru_poster.jpg", *byLang["ru-RU"].PosterAsset, "ru strict picks ru poster")
+	require.NotNil(t, byLang["ru-RU"].BackdropAsset)
+	assert.Equal(t, "/ru_bd.jpg", *byLang["ru-RU"].BackdropAsset, "ru strict picks ru backdrop")
+}
+
+// Story 552 mirror class — season_media_texts rows must always carry a
+// non-empty poster; the skip-if-empty filter guarantees no blank path reaches
+// the writer. Season poster kind is now poster_w342 (was season_poster_w154).
 func TestSeriesWorker_RefreshMediaAssets_SeasonsPosterAlwaysPopulated(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	tv := canonicalMediaTV(42)
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, nil, resolver, tv)
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, tv)
 	require.NoError(t, f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true))
-	// S-E3a — season poster no longer lands on canon; the skip-if-empty filter
-	// guarantees every season poster reaching the media pipeline is non-empty
-	// (Story 552 mirror class: never resolve a blank path).
-	seasonPosterCalls := 0
-	for _, c := range resolver.calls {
-		if c.Kind != "season_poster_w154" {
-			continue
-		}
-		seasonPosterCalls++
-		require.NotNilf(t, c.Path, "season poster resolve with nil path — Story 552 regression!")
-		assert.NotEmptyf(t, *c.Path, "season poster resolve with empty path — Story 552 regression!")
+
+	require.Len(t, caps.seasonMedia.rows, 2, "season 2 empty PosterPath must be skipped")
+	for _, r := range caps.seasonMedia.rows {
+		require.NotNilf(t, r.PosterAsset, "season media row with nil poster — Story 552 regression!")
+		assert.NotEmptyf(t, *r.PosterAsset, "season media row with empty poster — Story 552 regression!")
+		assert.Equal(t, "en-US", r.Language)
 	}
-	assert.Equal(t, 2, seasonPosterCalls, "season 2 empty PosterPath must be skipped")
 	require.NotContains(t, f.seasons.rows, 2, "empty-poster season must not reach seasons_repo")
+	// Season-poster resolves are w342 now (2 season posters) + series poster w342.
+	assert.Equal(t, 3, countKind(resolver.calls, "poster_w342"),
+		"1 series poster + 2 season posters, all w342")
 }
 
 // Universal narrow-writer audit — proves the 6 RISK fields (tvdb_id,
@@ -259,7 +370,7 @@ func TestSeriesWorker_RefreshMediaAssets_PreservesCanonFields(t *testing.T) {
 	runtime := 47
 	tv := canonicalMediaTV(42)
 
-	f := newMediaFixture(t, &tmdbID, nil, &fakeMediaResolver{}, tv)
+	f, _ := newMediaFixture(t, &tmdbID, nil, &fakeMediaResolver{}, tv)
 	// Enrich the seeded canon with the 6 RISK fields; A4's writer must
 	// copy each one into canonPayload so bare excluded doesn't blank.
 	c := f.series.rows[1]
@@ -293,13 +404,14 @@ func TestSeriesWorker_RefreshMediaAssets_TMDBError_NoStamp(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, nil, resolver, canonicalMediaTV(42))
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, canonicalMediaTV(42))
 	f.tmdb.tvErr = errors.New("tmdb 500")
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true)
 	require.Error(t, err)
 	assert.Equal(t, 1, f.tmdb.getTVHit)
 	assert.False(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"), "stamp MUST NOT fire on TMDB error")
-	assert.Empty(t, resolver.calls, "resolver MUST NOT be called on TMDB error")
+	assert.Empty(t, resolver.calls, "resolver MUST NOT be called on TMDB error (returns before build)")
+	assert.Empty(t, caps.seriesMedia.rows)
 	assert.Nil(t, f.series.rows[1].EnrichmentMediaSyncedAt)
 }
 
@@ -345,7 +457,7 @@ func TestSeriesWorker_RefreshMediaAssets_SeriesUpsertError_NoStamp(t *testing.T)
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, nil, resolver, canonicalMediaTV(42))
+	f, _ := newMediaFixture(t, &tmdbID, nil, resolver, canonicalMediaTV(42))
 	f.worker.deps.Series = &erroringSeriesRepo{
 		inner: f.series,
 		err:   errors.New("series upsert boom"),
@@ -353,30 +465,45 @@ func TestSeriesWorker_RefreshMediaAssets_SeriesUpsertError_NoStamp(t *testing.T)
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true)
 	require.Error(t, err)
 	assert.False(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"), "stamp MUST NEVER be written without successful canon upsert")
-	assert.Empty(t, resolver.calls, "resolver called only post-tx-commit — must be zero on rollback")
+	// Resolver now runs during the OUTSIDE-tx build step (mirrors
+	// RefreshSeriesAllLangs), so it HAS fired before the rollback — the stamp
+	// guard, not the resolver count, is the rollback invariant here.
+	assert.NotEmpty(t, resolver.calls, "resolver runs pre-tx during media-row build")
+	assert.Nil(t, f.series.rows[1].EnrichmentMediaSyncedAt)
 }
 
 func TestSeriesWorker_RefreshMediaAssets_NilMediaResolver_HappyPath(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
-	f := newMediaFixture(t, &tmdbID, nil, nil, canonicalMediaTV(42))
+	f, caps := newMediaFixture(t, &tmdbID, nil, nil, canonicalMediaTV(42))
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true)
 	require.NoError(t, err, "nil MediaResolver MUST be tolerated")
 	assert.True(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"), "writes still fire without resolver")
 	require.NotNil(t, f.series.rows[1].EnrichmentMediaSyncedAt)
+	// Rows still written (raw paths), just without hashes.
+	require.Len(t, caps.seriesMedia.rows, 1)
+	assert.Nil(t, caps.seriesMedia.rows[0].PosterHash, "no resolver → no hash, raw path only")
+	require.NotNil(t, caps.seriesMedia.rows[0].PosterAsset)
+	require.Len(t, caps.seasonMedia.rows, 2)
 }
 
-func TestSeriesWorker_RefreshMediaAssets_EmptyPaths_NoResolverCalls(t *testing.T) {
+// EmptyPaths — payload with no poster/backdrop/images and no seasons: the base
+// row would have poster nil AND backdrop nil → skip (a row with no art is
+// useless). So zero media rows + zero resolver calls, but the stamp still fires
+// (a no-work-needed sync).
+func TestSeriesWorker_RefreshMediaAssets_EmptyPaths_NoRows(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	tv := mediaTVPayload(42, "", "", nil)
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, nil, resolver, tv)
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, tv)
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true)
 	require.NoError(t, err)
 	assert.True(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"),
 		"stamp MUST fire on empty TMDB media response (no-work-needed sync)")
 	assert.Empty(t, resolver.calls, "no non-empty paths → zero resolver calls")
+	assert.Empty(t, caps.seriesMedia.rows, "base row with poster+backdrop both nil → skipped")
+	assert.Empty(t, caps.seasonMedia.rows)
 }
 
 func TestSeriesWorker_RefreshMediaAssets_ProbeError_FailOpen(t *testing.T) {
@@ -384,7 +511,7 @@ func TestSeriesWorker_RefreshMediaAssets_ProbeError_FailOpen(t *testing.T) {
 	tmdbID := domain.TMDBID(42)
 	probe := &fakeProbe{err: errors.New("probe boom")}
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, probe, resolver, canonicalMediaTV(42))
+	f, _ := newMediaFixture(t, &tmdbID, probe, resolver, canonicalMediaTV(42))
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", false)
 	require.NoError(t, err, "probe error → fail-open")
 	assert.Equal(t, 1, probe.calls)
@@ -392,17 +519,18 @@ func TestSeriesWorker_RefreshMediaAssets_ProbeError_FailOpen(t *testing.T) {
 	assert.True(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"))
 }
 
-// TestSeriesWorker_RefreshMediaAssets_NilTMDBResponse_Skip — GetTV returns
-// (nil, nil) → worker WARN + no tx, no stamp, no resolver.
+// TestSeriesWorker_RefreshMediaAssets_NilTMDBResponse_Skip — GetTVAllLangs
+// returns (nil, nil) → worker WARN + no tx, no stamp, no resolver.
 func TestSeriesWorker_RefreshMediaAssets_NilTMDBResponse_Skip(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	resolver := &fakeMediaResolver{}
-	f := newMediaFixture(t, &tmdbID, nil, resolver, nil)
-	// fakeTMDB.tv nil → GetTV returns (nil, nil) per current stub shape.
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, nil)
+	// fakeTMDB.tv nil → GetTVAllLangs returns (nil, nil) per current stub shape.
 	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true)
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.tmdb.getTVHit)
 	assert.False(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"), "no stamp on nil response")
 	assert.Empty(t, resolver.calls)
+	assert.Empty(t, caps.seriesMedia.rows)
 }

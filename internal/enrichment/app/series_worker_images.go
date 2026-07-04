@@ -157,3 +157,24 @@ func pickSeasonPosterStrict(imgs *tmdb.SeasonImages, lang string) *string {
 	}
 	return pickByLangPriority(imgs.Posters, []langMatcher{matchISO(shortLang(lang))})
 }
+
+// pickPosterForLangStrict: EXACT short(lang) tier ONLY (no agnostic/en/root).
+// Series analogue of pickSeasonPosterStrict. Used for NON-base languages in the
+// A4 series_media_texts writer so the base tier is never poisoned by en art: a
+// non-base row is written only when TMDB actually carries a poster tagged in
+// that EXACT language. Empty short(lang) → nil.
+func pickPosterForLangStrict(imgs *tmdb.TVImages, lang string) *string {
+	if imgs == nil || len(imgs.Posters) == 0 || shortLang(lang) == "" {
+		return nil
+	}
+	return pickByLangPriority(imgs.Posters, []langMatcher{matchISO(shortLang(lang))})
+}
+
+// pickBackdropForLangStrict: EXACT short(lang) tier ONLY (no agnostic/en/root).
+// Non-base backdrop counterpart to pickPosterForLangStrict.
+func pickBackdropForLangStrict(imgs *tmdb.TVImages, lang string) *string {
+	if imgs == nil || len(imgs.Backdrops) == 0 || shortLang(lang) == "" {
+		return nil
+	}
+	return pickByLangPriority(imgs.Backdrops, []langMatcher{matchISO(shortLang(lang))})
+}
