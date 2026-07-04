@@ -37,10 +37,12 @@ import (
 type RefreshCandidate struct {
 	SeriesID int64
 	Tier     enrichdomain.RefreshTier
-	// MissingPoster is true when the picker selected this row via the
-	// W17-1 HOT poster-guard branch (library series with no
-	// series_media_texts.poster_asset). Drives the observability signal
-	// for the one-shot backfill drain.
+	// MissingPoster is true only when the picker selected this row
+	// EXCLUSIVELY via the W17-1 HOT poster-guard branch — a TTL-fresh
+	// library series with no series_media_texts.poster_asset. A
+	// poster-less row that was already due via the normal TTL/staleness
+	// gate is a normal HOT pick and carries MissingPoster=false. Drives
+	// the observability signal for the one-shot backfill drain.
 	MissingPoster bool
 }
 

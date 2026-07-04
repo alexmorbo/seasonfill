@@ -177,8 +177,9 @@ func TestSeriesRepository_PickRefreshCandidates_MissingPosterGuard(t *testing.T)
 			ctx := context.Background()
 
 			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
-			oneHourAgo := now.Add(-1 * time.Hour)   // TTL-fresh (< 7d) BUT > 15m guard
-			fiveMinAgo := now.Add(-5 * time.Minute) // inside the 15m race guard
+			oneHourAgo := now.Add(-1 * time.Hour)        // TTL-fresh (< 7d) BUT > 15m guard
+			fiveMinAgo := now.Add(-5 * time.Minute)      // inside the 15m race guard
+			eightDaysAgo := now.Add(-8 * 24 * time.Hour) // TTL-EXPIRED (> hot 7d)
 
 			seedLib := func(title string, tmdbID int64, syncedAt *time.Time, sonarrID domain.SonarrSeriesID) domain.SeriesID {
 				t.Helper()
@@ -200,8 +201,14 @@ func TestSeriesRepository_PickRefreshCandidates_MissingPosterGuard(t *testing.T)
 			seedSeriesMediaTextRow(t, db, idQ, "en-US", "/posters/q.jpg")
 			// R — stamped 5m ago (inside race guard), NO poster → NOT picked.
 			idR := seedLib("R-race-no-poster", 3003, &fiveMinAgo, 3003)
-			// N — NULL sync, NO poster → PICKED (NULL-sync path) + missing_poster.
+			// N — NULL sync, NO poster → PICKED (NULL-sync path). This is a
+			// normal HOT pick (the NULL-sync staleness gate would select it
+			// regardless of poster), so it is NOT attributed missing_poster.
 			idN := seedLib("N-null-sync", 3004, nil, 3004)
+			// T — stamped 8d ago (TTL-EXPIRED), NO poster → PICKED via the
+			// normal HOT staleness gate, NOT the poster guard, so missing_poster
+			// is FALSE even though it also lacks a poster.
+			idT := seedLib("T-stale-no-poster", 3006, &eightDaysAgo, 3006)
 
 			// S — tmdb-less library series, NO poster → NOT picked (guard is
 			// scoped to tmdb-enrichable rows; prevents the tmdb-less hot-loop).
@@ -222,11 +229,23 @@ func TestSeriesRepository_PickRefreshCandidates_MissingPosterGuard(t *testing.T)
 				picked[r.SeriesID] = r
 			}
 
-			// P and N picked; both flagged missing_poster.
+			// P picked and flagged missing_poster (poster-guard-EXCLUSIVE:
+			// TTL-fresh, non-NULL sync, no poster).
 			require.Contains(t, picked, idP, "TTL-fresh poster-less series must be picked by the guard")
 			assert.True(t, picked[idP].MissingPoster, "P must carry the missing_poster reason")
+
+			// N picked (NULL-sync) but NOT attributed missing_poster — the
+			// NULL-sync staleness gate is what selected it, not the poster guard.
 			require.Contains(t, picked, idN, "NULL-sync series must still be picked")
-			assert.True(t, picked[idN].MissingPoster, "N has no poster → missing_poster true")
+			assert.False(t, picked[idN].MissingPoster,
+				"NULL-sync is a normal HOT pick → missing_poster false")
+
+			// T picked (TTL-expired) but NOT attributed missing_poster — it
+			// would be selected by the normal HOT staleness gate anyway, so the
+			// poster guard is not the exclusive reason.
+			require.Contains(t, picked, idT, "TTL-expired series must be picked by the staleness gate")
+			assert.False(t, picked[idT].MissingPoster,
+				"TTL-expired poster-less series is a normal HOT pick → missing_poster false")
 
 			// Q (has poster), R (race guard), S (tmdb-less) excluded.
 			assert.NotContains(t, picked, idQ, "series with a poster asset must not be picked")

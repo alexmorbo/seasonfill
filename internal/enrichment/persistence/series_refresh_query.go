@@ -12,9 +12,13 @@ import (
 // RefreshCandidate is one row of the Story 534 tiered picker. Tier
 // labels the source bucket (hot/normal/cold); SyncedAt is nullable
 // (NULL = never enriched, sorted first within the tier). MissingPoster
-// is true when the HOT-branch poster guard selected the row because it
-// has no series_media_texts.poster_asset (W17-1 backfill signal); it is
-// always false for NORMAL/COLD (the poster branch is HOT-only).
+// is true ONLY when the row qualified EXCLUSIVELY via the HOT poster
+// guard: it lacks a series_media_texts.poster_asset AND its normal
+// TTL/staleness predicate was NOT already satisfied (TTL-fresh, non-NULL
+// sync). A poster-less row that would also be picked by the normal HOT
+// staleness gate (TTL expired or NULL sync) is a NORMAL pick and carries
+// MissingPoster=false. Always false for NORMAL/COLD (poster branch is
+// HOT-only).
 type RefreshCandidate struct {
 	SeriesID      domain.SeriesID
 	Tier          enrichment.RefreshTier
@@ -39,7 +43,11 @@ type RefreshCandidate struct {
 //
 // W17-1 — the HOT branch additionally selects a library series whose
 // TMDB sync is otherwise fresh but which has NO series_media_texts row
-// with poster_asset IS NOT NULL. This heals the 49 library series that
+// with poster_asset IS NOT NULL. The missing_poster CASE is attributed
+// EXCLUSIVELY to these poster-guard-only picks: it repeats the hotCutoff
+// comparison so a row already stale enough to be a normal HOT pick (or
+// NULL-sync) is NOT double-counted as a poster pick. This heals the 49
+// library series that
 // were enriched by a cold-start sweep predating the poster-seed code
 // (they are tmdb-stamped so the TTL gate skips them) and acts as a
 // permanent guard against any future poster-less series. A 15-minute
@@ -81,6 +89,8 @@ SELECT * FROM (
          CASE WHEN NOT EXISTS (
                 SELECT 1 FROM series_media_texts smt
                  WHERE smt.series_id = s.id AND smt.poster_asset IS NOT NULL)
+              AND s.enrichment_tmdb_synced_at IS NOT NULL
+              AND s.enrichment_tmdb_synced_at >= ?
               THEN 1 ELSE 0 END AS missing_poster
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
@@ -147,7 +157,7 @@ LIMIT ?
 	var rows []row
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Raw(sqlTmpl,
-			hotCutoff, posterGuardCutoff, errSrc,
+			hotCutoff, hotCutoff, posterGuardCutoff, errSrc,
 			normalCutoff, errSrc,
 			coldCutoff, errSrc,
 			nullSentinel, limit,
