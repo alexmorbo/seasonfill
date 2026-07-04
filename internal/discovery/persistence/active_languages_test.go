@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
@@ -19,7 +20,7 @@ func uniqueUsername(prefix string) string {
 	return prefix + "-" + uuid.NewString()[:8]
 }
 
-func TestActiveLanguages_EmptyUsersReturnsEnUSOnly(t *testing.T) {
+func TestActiveLanguages_EmptyUsersReturnsAllSupported(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -29,8 +30,8 @@ func TestActiveLanguages_EmptyUsersReturnsEnUSOnly(t *testing.T) {
 
 			got, err := repo.ActiveLanguages(context.Background())
 			require.NoError(t, err)
-			assert.Equal(t, []string{"en-US"}, got,
-				"empty users → fallback en-US only")
+			assert.ElementsMatch(t, locale.SupportedUserLanguages, got,
+				"empty users → supported-language floor {en-US, ru-RU}")
 		})
 	}
 }
@@ -59,9 +60,11 @@ func TestActiveLanguages_DistinctUserLanguagesAreReturned(t *testing.T) {
 
 			got, err := repo.ActiveLanguages(ctx)
 			require.NoError(t, err)
+			// ja-JP exotic pref + ru-RU/en-US (which coincide with the
+			// supported floor) → 3 distinct langs, deduped.
 			assert.ElementsMatch(t,
 				[]string{"en-US", "ja-JP", "ru-RU"}, got,
-				"3 distinct user prefs + en-US fallback de-duped")
+				"3 distinct user prefs deduped against supported floor")
 		})
 	}
 }
@@ -97,8 +100,38 @@ func TestActiveLanguages_NullPreferredLanguageExcluded(t *testing.T) {
 
 			got, err := repo.ActiveLanguages(ctx)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"en-US"}, got,
-				"NULL + empty preferred_language excluded; en-US fallback remains")
+			assert.ElementsMatch(t, locale.SupportedUserLanguages, got,
+				"NULL + empty preferred_language excluded; supported floor remains")
+		})
+	}
+}
+
+func TestActiveLanguages_SupportedFloorIncludedForExoticPrefOnly(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewActiveLanguagesRepository(db)
+			ctx := context.Background()
+
+			// A single user whose ONLY pref is exotic (ja-JP) — no
+			// ru-RU/en-US user exists. The supported floor must still be
+			// warmed, and the exotic pref is additive on top.
+			jaJP := "ja-JP"
+			m := database.UserModel{
+				Username:          uniqueUsername("exotic"),
+				Role:              "admin",
+				AvatarMode:        "auto",
+				PreferredLanguage: &jaJP,
+			}
+			require.NoError(t, db.Create(&m).Error)
+
+			got, err := repo.ActiveLanguages(ctx)
+			require.NoError(t, err)
+			assert.ElementsMatch(t,
+				[]string{"en-US", "ja-JP", "ru-RU"}, got,
+				"supported floor {en-US, ru-RU} always warmed; exotic ja-JP additive")
 		})
 	}
 }
