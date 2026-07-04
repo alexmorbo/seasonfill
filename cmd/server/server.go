@@ -466,6 +466,13 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		seriesDetailBundle.SeriesFreshenerHolder.Set(enrichBundle.SeriesWorker)
 	}
 
+	// W15-13 — tvdb→tmdb scan-piggyback resolver into the scan use case.
+	// Resolves Sonarr series that shipped a tvdb_id but no tmdb_id, stamps
+	// canon.tmdb_id, and enqueues full enrichment. Nil-OK.
+	if enrichBundle != nil && enrichBundle.TVDBResolver != nil && scanUC != nil {
+		scanUC.WithTMDBResolver(enrichBundle.TVDBResolver)
+	}
+
 	// Story 316 — enqueuer + on-demand fetcher onto the MediaResolver.
 	if enrichBundle != nil && seriesDetailMediaResolver != nil {
 		var mediaEnq media.Enqueuer

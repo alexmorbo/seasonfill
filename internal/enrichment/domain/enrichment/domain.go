@@ -18,14 +18,21 @@ const (
 	SourceTMDBSeason Source = "tmdb_season"
 	SourceTMDBPerson Source = "tmdb_person"
 	SourceOMDb       Source = "omdb"
+	// SourceTVDBResolve journals the tvdb_id→tmdb_id resolver's terminal
+	// not-found (W15-13). Isolated cooldown ledger: the retry-sweep
+	// (ListDueForRetry) only sweeps tmdb_series/tmdb_person, and Degraded()
+	// iterates a fixed canonicalOrder that excludes it, so a tvdb_resolve
+	// row never surfaces as a degraded[] source or gets auto-retried.
+	SourceTVDBResolve Source = "tvdb_resolve"
 )
 
-// IsValid reports whether s is one of the four known sources. Empty
+// IsValid reports whether s is one of the known sources. Empty
 // strings are explicitly NOT valid — callers MUST supply a typed
 // value before persisting.
 func (s Source) IsValid() bool {
 	return s == SourceTMDBSeries || s == SourceTMDBSeason ||
-		s == SourceTMDBPerson || s == SourceOMDb
+		s == SourceTMDBPerson || s == SourceOMDb ||
+		s == SourceTVDBResolve
 }
 
 // EntityType is the typed discriminator on enrichment_errors.entity_type

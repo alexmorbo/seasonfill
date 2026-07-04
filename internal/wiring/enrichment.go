@@ -189,6 +189,12 @@ type EnrichmentBundle struct {
 	// flips the loop off. server.go's LATE BIND ZONE owns the
 	// lifecycle.Go("refresh-scheduler", ...) goroutine.
 	RefreshScheduler *appenrich.RefreshScheduler
+	// TVDBResolver (W15-13) — scan-piggyback tvdb→tmdb resolver, built
+	// here where the concrete SeriesRepository + EnrichmentErrors ledger
+	// + dispatcher + TMDB holder are all in scope. server.go's LATE BIND
+	// ZONE wires it into scan.UseCase via WithTMDBResolver. nil when any
+	// dependency is unavailable (resolver skips the piggyback).
+	TVDBResolver *appenrich.TVDBResolver
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
@@ -729,6 +735,24 @@ func BuildEnrichment(
 		refreshScheduler = rs
 	}
 
+	// W15-13: scan-piggyback tvdb→tmdb resolver. Built here where the
+	// concrete SeriesRepository (satisfies TVDBResolverSeriesRepo), the
+	// EnrichmentErrors cooldown ledger, the dispatcher, and the TMDB
+	// holder are all in scope. server.go wires it into scan.UseCase.
+	// nil when any dependency is unavailable.
+	var tvdbResolver *appenrich.TVDBResolver
+	if seriesResolveRepo, ok := repos.Series.(appenrich.TVDBResolverSeriesRepo); ok &&
+		repos.EnrichmentErrors != nil && dispatcher != nil && tmdbHolder != nil {
+		tvdbResolver = appenrich.NewTVDBResolver(
+			seriesResolveRepo,
+			tmdbHolder,
+			repos.EnrichmentErrors,
+			dispatcher,
+			nil, 0, // default clock + cooldown
+			enrichmentLog,
+		)
+	}
+
 	return &EnrichmentBundle{
 		Dispatcher:        dispatcher,
 		Nightly:           nightly,
@@ -762,6 +786,8 @@ func BuildEnrichment(
 		// repos.RefreshPicker is absent (defensive — production always
 		// supplies it).
 		RefreshScheduler: refreshScheduler,
+		// W15-13: scan-piggyback tvdb→tmdb resolver (nil-OK).
+		TVDBResolver: tvdbResolver,
 	}, nil
 }
 

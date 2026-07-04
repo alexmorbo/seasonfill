@@ -113,6 +113,14 @@ type EpisodeStatesRefresher interface {
 	RefreshEpisodeStates(ctx context.Context, instanceName shareddomain.InstanceName, sonarrSeriesID shareddomain.SonarrSeriesID) error
 }
 
+// TMDBResolver resolves a Sonarr series that has a tvdb_id but no tmdb_id
+// to its TMDB id, then enqueues full enrichment. W15-13 scan piggyback.
+// Implemented by *enrichment.TVDBResolver. Nil-OK — skipped when unset.
+// Best-effort: errors are WARN-logged and never abort the scan.
+type TMDBResolver interface {
+	ResolveMissingTMDBID(ctx context.Context, tvdbID shareddomain.TVDBID) error
+}
+
 type UseCase struct {
 	instances   atomic.Pointer[[]Instance]
 	evaluator   *evaluate.UseCase
@@ -148,6 +156,10 @@ type UseCase struct {
 	// episodeStatesRefresher — F-975 scan piggyback. Nil-OK: when unset
 	// the per-series episode_states refresh in processScan is skipped.
 	episodeStatesRefresher EpisodeStatesRefresher
+
+	// tmdbResolver — W15-13 scan piggyback. Nil-OK: fillSeriesCache skips
+	// the tvdb→tmdb resolution when unset.
+	tmdbResolver TMDBResolver
 }
 
 func NewUseCase(
@@ -234,6 +246,13 @@ func (u *UseCase) WithPostScanCycle(fn func(ctx context.Context)) *UseCase {
 // the per-series episode_states refresh in processScan is skipped.
 func (u *UseCase) WithEpisodeStatesRefresher(r EpisodeStatesRefresher) *UseCase {
 	u.episodeStatesRefresher = r
+	return u
+}
+
+// WithTMDBResolver wires the W15-13 tvdb→tmdb scan-piggyback resolver.
+// Returns the receiver for chaining. Nil-OK.
+func (u *UseCase) WithTMDBResolver(r TMDBResolver) *UseCase {
+	u.tmdbResolver = r
 	return u
 }
 
@@ -1307,6 +1326,25 @@ func (u *UseCase) refreshEpisodeStatesForSeries(ctx context.Context, instName sh
 	}
 }
 
+// resolveMissingTMDBIDForSeries runs the W15-13 scan piggyback for one
+// cache entry. Nil resolver = no-op; also skips entries that already have
+// a tmdb_id or lack a tvdb_id. Errors are WARN-logged and swallowed — a
+// resolver miss self-heals on the next scan and must never abort it.
+func (u *UseCase) resolveMissingTMDBIDForSeries(ctx context.Context, e series.CacheEntry) {
+	if u.tmdbResolver == nil {
+		return
+	}
+	if e.TMDBID != nil || e.TVDBID == nil {
+		return
+	}
+	if err := u.tmdbResolver.ResolveMissingTMDBID(ctx, *e.TVDBID); err != nil {
+		u.logger.WarnContext(ctx, "tvdb_resolve_piggyback_failed",
+			slog.Int("tvdb_id", int(*e.TVDBID)),
+			slog.String("error", err.Error()),
+		)
+	}
+}
+
 func (u *UseCase) flushSeriesScannedIfDue(ctx context.Context, id uuid.UUID, pending int) int {
 	if pending < scanProgressFlushEvery {
 		return pending
@@ -1350,6 +1388,7 @@ func (u *UseCase) fillSeriesCache(ctx context.Context, inst Instance, seriesList
 						slog.String("error", uerr.Error()),
 					)
 				}
+				u.resolveMissingTMDBIDForSeries(ctx, e) // W15-13 best-effort
 			}
 		}
 	}
