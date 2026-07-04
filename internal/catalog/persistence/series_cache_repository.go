@@ -302,10 +302,17 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 		// Same guard for the other TMDB-owned descriptive fields (Wave 1.7 —
 		// generalizes the Status/Option-B rule): this redundant canon write
 		// bypasses enrichment.MergeSeries, and seriesUpsertAssignments writes
-		// year/runtime_minutes with plain excluded.X (last_air_date COALESCEs,
-		// so a non-nil Sonarr value would still win). Preserve the existing
-		// (TMDB-set) value and let the Sonarr value through only for a canon
-		// that has none yet (tmdb-less / not-yet-enriched rows).
+		// year/runtime_minutes/next_air_date/in_production with plain
+		// excluded.X (last_air_date COALESCEs, so a non-nil Sonarr value would
+		// still win). Preserve the existing (TMDB-set) value and let the
+		// Sonarr value through only for a canon that has none yet (tmdb-less /
+		// not-yet-enriched rows). InProduction and NextAirDate are TMDB-owned
+		// too: without the guard every 6h scan resets in_production to false
+		// (closing the hero year range on an ongoing show) and blanks
+		// next_air_date to NULL. InProduction is a plain bool with no nil
+		// sentinel, so mirror the existing row unconditionally here — a
+		// brand-new / not-found canon legitimately stays false until an
+		// enrichment pass sets it.
 		if existing.Year != nil {
 			canon.Year = existing.Year
 		}
@@ -315,6 +322,10 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 		if existing.LastAirDate != nil {
 			canon.LastAirDate = existing.LastAirDate
 		}
+		if existing.NextAirDate != nil {
+			canon.NextAirDate = existing.NextAirDate
+		}
+		canon.InProduction = existing.InProduction
 	} else if !errors.Is(err, ports.ErrNotFound) {
 		return 0, fmt.Errorf("find canon: %w", err)
 	}

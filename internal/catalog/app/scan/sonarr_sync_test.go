@@ -555,3 +555,78 @@ func TestSyncSeriesFromSonarr_TMDBOwnedFieldsFallbackOnly(t *testing.T) {
 		assert.True(t, lastAir.Equal(sonarrLastAir))
 	})
 }
+
+// TestSyncSeriesFromSonarr_InProductionNextAirDateFallbackOnly extends the
+// TMDB-owned fallback-only invariant to in_production and next_air_date.
+// The resolveOrCreateCanon bypass previously hardcoded in_production=false
+// and left next_air_date nil on every 6h scan, silently clobbering the
+// TMDB-set values (an ongoing show flipped to closed, blanking the hero
+// year range; next_air_date reset to NULL). A Sonarr scan must NEVER
+// overwrite these, but a brand-new / not-yet-enriched row legitimately
+// keeps in_production=false and next_air_date NULL until enrichment runs.
+func TestSyncSeriesFromSonarr_InProductionNextAirDateFallbackOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	fieldsOf := func(f *syncFixture, tmdbID int) (bool, *time.Time) {
+		t.Helper()
+		var row struct {
+			InProduction bool
+			NextAirDate  *time.Time
+		}
+		require.NoError(t, f.db.Table("series").
+			Select("in_production, next_air_date").
+			Where("tmdb_id = ?", tmdbID).
+			Scan(&row).Error)
+		return row.InProduction, row.NextAirDate
+	}
+
+	tmdbNextAir := time.Date(2025, 3, 10, 0, 0, 0, 0, time.UTC)
+
+	t.Run("does not overwrite existing TMDB values", func(t *testing.T) {
+		t.Parallel()
+		f := newSyncFixture(t)
+		tmdbID := domain.TMDBID(7001)
+		// Prior TMDB enrichment pass marked the show ongoing with a next air.
+		_, err := f.deps.Series.Upsert(ctx, series.Canon{
+			TMDBID:       &tmdbID,
+			InProduction: true,
+			NextAirDate:  &tmdbNextAir,
+			Hydration:    series.HydrationFull,
+		})
+		require.NoError(t, err)
+
+		// 6h Sonarr scan arrives — the bypass would default in_production=false
+		// and carry a nil next_air_date.
+		p := sonarr.SeriesPayload{
+			ID: 1, Title: "Airing Show", TMDBID: tmdbID, TVDBID: 100,
+			Year: 2024, Status: "continuing", Monitored: true, TitleSlug: "airing-show",
+		}
+		_, err = scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
+		require.NoError(t, err)
+
+		inProd, nextAir := fieldsOf(f, int(tmdbID))
+		assert.True(t, inProd, "Sonarr scan must not clobber TMDB-set in_production")
+		require.NotNil(t, nextAir, "Sonarr scan must not blank TMDB-set next_air_date")
+		assert.True(t, nextAir.Equal(tmdbNextAir), "Sonarr scan must not clobber TMDB-set next_air_date")
+	})
+
+	t.Run("leaves defaults for a fresh not-yet-enriched row", func(t *testing.T) {
+		t.Parallel()
+		f := newSyncFixture(t)
+		tmdbID := domain.TMDBID(7002)
+
+		// No prior canon — the scan creates it via resolveOrCreateCanon's
+		// not-found path.
+		p := sonarr.SeriesPayload{
+			ID: 2, Title: "Fresh Add", TMDBID: tmdbID, TVDBID: 200,
+			Year: 2024, Status: "continuing", Monitored: true, TitleSlug: "fresh-add",
+		}
+		_, err := scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
+		require.NoError(t, err)
+
+		inProd, nextAir := fieldsOf(f, int(tmdbID))
+		assert.False(t, inProd, "a not-yet-enriched row stays in_production=false")
+		assert.Nil(t, nextAir, "a not-yet-enriched row keeps next_air_date NULL")
+	})
+}
