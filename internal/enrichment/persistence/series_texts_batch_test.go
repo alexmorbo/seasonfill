@@ -171,6 +171,42 @@ func TestSeriesTexts_ListByIDsWithFallback_DualBackend(t *testing.T) {
 				require.NotNil(t, got.Title)
 				assert.Equal(t, "v2", *got.Title, "title still rolls forward")
 			})
+
+			// W15-2 — the never-empty ladder's third (any-lang) tier: a
+			// series carrying ONLY a foreign row, requested under en-US
+			// with no en-US row, now resolves via the any-lang pass
+			// instead of dropping out of the map.
+			t.Run("any_lang_tier_full_ladder", func(t *testing.T) {
+				ids, repo := seedSeries(t, 4)
+				// ids[0] — en-US row (requested lang) → tier 1
+				// ids[1] — only ru-RU (foreign) row   → tier 3 any-lang
+				// ids[2] — only fr-FR row             → tier 3 any-lang
+				// ids[3] — zero rows                  → key absent
+				require.NoError(t, repo.Upsert(ctx, series.SeriesText{SeriesID: ids[0], Language: "en-US", Title: new("en-title")}))
+				require.NoError(t, repo.Upsert(ctx, series.SeriesText{SeriesID: ids[1], Language: "ru-RU", Title: new("ру-title")}))
+				require.NoError(t, repo.Upsert(ctx, series.SeriesText{SeriesID: ids[2], Language: "fr-FR", Title: new("fr-title")}))
+
+				out, err := repo.ListByIDsWithFallback(ctx, ids, "en-US")
+				require.NoError(t, err)
+				require.Len(t, out, 3, "ids 0,1,2 surface via the ladder; id 3 has no row at all")
+				assert.Equal(t, "en-US", out[ids[0]].Language)
+				assert.Equal(t, "ru-RU", out[ids[1]].Language, "any-lang tier: only-foreign row resolves under en-US")
+				assert.Equal(t, "fr-FR", out[ids[2]].Language)
+				_, ok := out[ids[3]]
+				assert.False(t, ok, "zero text rows → key absent (caller applies original_title terminal tier)")
+			})
+
+			// W15-2 — the any-lang pick is deterministic: with two foreign
+			// rows and no requested/en-US row, ORDER BY language ASC wins.
+			t.Run("any_lang_tier_deterministic_lowest_language", func(t *testing.T) {
+				ids, repo := seedSeries(t, 1)
+				require.NoError(t, repo.Upsert(ctx, series.SeriesText{SeriesID: ids[0], Language: "fr-FR", Title: new("fr")}))
+				require.NoError(t, repo.Upsert(ctx, series.SeriesText{SeriesID: ids[0], Language: "de-DE", Title: new("de")}))
+				out, err := repo.ListByIDsWithFallback(ctx, ids, "en-US")
+				require.NoError(t, err)
+				require.Len(t, out, 1)
+				assert.Equal(t, "de-DE", out[ids[0]].Language, "language ASC → de-DE before fr-FR")
+			})
 		})
 	}
 }

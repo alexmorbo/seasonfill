@@ -81,9 +81,9 @@ func (r *SearchRepository) LocalSearch(ctx context.Context, q, language string, 
 	// series_media_texts) with the requested-language → en-US fallback.
 	const sql = `
 SELECT s.id, s.tmdb_id,
-       (SELECT st.title FROM series_texts st WHERE st.series_id = s.id
+       COALESCE((SELECT st.title FROM series_texts st WHERE st.series_id = s.id
          ORDER BY CASE WHEN st.language = ? THEN 2 WHEN st.language = 'en-US' THEN 1 ELSE 0 END DESC,
-                  st.language ASC LIMIT 1) AS title,
+                  st.language ASC LIMIT 1), s.original_title) AS title,
        s.year,
        (SELECT smt.poster_asset FROM series_media_texts smt WHERE smt.series_id = s.id
          ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,

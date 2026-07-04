@@ -178,6 +178,39 @@ func TestEpisodeTexts_ListByEpisodeIDsWithFallback_DualBackend(t *testing.T) {
 				require.NotNil(t, got.Title)
 				assert.Equal(t, "v2", *got.Title, "title still rolls forward")
 			})
+
+			// W15-2 — the never-empty ladder's third (any-lang) tier: an
+			// episode carrying ONLY a foreign row, requested under en-US
+			// with no en-US row, now resolves via the any-lang pass.
+			t.Run("any_lang_tier_full_ladder", func(t *testing.T) {
+				_, ids, repo := seedEpisodes(t, 4)
+				// ids[0] — en-US row (requested lang) → tier 1
+				// ids[1] — only ru-RU (foreign) row   → tier 3 any-lang
+				// ids[2] — only fr-FR row             → tier 3 any-lang
+				// ids[3] — zero rows                  → key absent
+				require.NoError(t, repo.Upsert(ctx, series.EpisodeText{EpisodeID: ids[0], Language: "en-US", Title: new("en-title")}))
+				require.NoError(t, repo.Upsert(ctx, series.EpisodeText{EpisodeID: ids[1], Language: "ru-RU", Title: new("ру-title")}))
+				require.NoError(t, repo.Upsert(ctx, series.EpisodeText{EpisodeID: ids[2], Language: "fr-FR", Title: new("fr-title")}))
+
+				out, err := repo.ListByEpisodeIDsWithFallback(ctx, ids, "en-US")
+				require.NoError(t, err)
+				require.Len(t, out, 3, "ids 0,1,2 surface via the ladder; id 3 has no row at all")
+				assert.Equal(t, "en-US", out[ids[0]].Language)
+				assert.Equal(t, "ru-RU", out[ids[1]].Language, "any-lang tier: only-foreign episode row resolves under en-US")
+				assert.Equal(t, "fr-FR", out[ids[2]].Language)
+				_, ok := out[ids[3]]
+				assert.False(t, ok, "zero text rows → key absent")
+			})
+
+			t.Run("any_lang_tier_deterministic_lowest_language", func(t *testing.T) {
+				_, ids, repo := seedEpisodes(t, 1)
+				require.NoError(t, repo.Upsert(ctx, series.EpisodeText{EpisodeID: ids[0], Language: "fr-FR", Title: new("fr")}))
+				require.NoError(t, repo.Upsert(ctx, series.EpisodeText{EpisodeID: ids[0], Language: "de-DE", Title: new("de")}))
+				out, err := repo.ListByEpisodeIDsWithFallback(ctx, ids, "en-US")
+				require.NoError(t, err)
+				require.Len(t, out, 1)
+				assert.Equal(t, "de-DE", out[ids[0]].Language, "language ASC → de-DE before fr-FR")
+			})
 		})
 	}
 }

@@ -304,19 +304,32 @@ func TestSkeletonComposer_HappyPath(t *testing.T) {
 	require.Equal(t, ModeSync, sf.gotMode)
 }
 
-// S-E2 — series_texts miss/error → blank hero title (canon series.title
-// is no longer a fallback tier; the FE renders a placeholder). S-E1
-// guarantees an en-US row in prod, so this zero-title path is the
-// degraded case only.
-func TestSkeletonComposer_MissingSeriesTexts_BlankTitleNotCanon(t *testing.T) {
+// W15-2 — series_texts miss/error, but canon.OriginalTitle set → hero
+// title falls back to original_title (the terminal never-empty tier).
+// This replaces the old S-E2 "blank not canon" behaviour: original_title
+// was deliberately retained in canon (Variant A) precisely to serve here.
+func TestSkeletonComposer_MissingSeriesTexts_FallsBackToOriginalTitle(t *testing.T) {
 	t.Parallel()
-	deps, _, _ := skBaseDeps(skBaseCanon()) // SeriesTexts errors by default
+	deps, _, _ := skBaseDeps(skBaseCanon()) // SeriesTexts errors by default; OriginalTitle = "Star City"
 	sc := NewSkeletonComposer(deps)
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
 	require.NoError(t, err)
-	require.True(t, dto.Hero.Title.IsZero(), "series_texts miss → blank title, NEVER canon")
-	require.NotEqual(t, "Star City", dto.Hero.Title.Value())
+	require.Equal(t, "Star City", dto.Hero.Title.Value(), "series_texts miss → original_title terminal tier")
 	require.True(t, dto.Hero.Tagline.IsZero()) // no tagline row → null
+}
+
+// W15-2 — the genuine "we know nothing" case: series_texts miss AND
+// canon.OriginalTitle nil → zero VO title (FE placeholder), no panic.
+func TestSkeletonComposer_MissingSeriesTexts_NilOriginalTitle_ZeroTitle(t *testing.T) {
+	t.Parallel()
+	canon := skBaseCanon()
+	canon.OriginalTitle = nil
+	deps, _, _ := skBaseDeps(canon) // SeriesTexts errors by default
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.True(t, dto.Hero.Title.IsZero(), "no text row AND no original_title → zero title, no panic")
+	require.True(t, dto.Hero.Tagline.IsZero())
 }
 
 // S-E2 — hero title resolves ONLY from series_texts, never canon, even

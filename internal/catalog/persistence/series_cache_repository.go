@@ -689,15 +689,22 @@ func normalizeSupportedLang(lang string) string {
 // no longer a fallback tier (dark-launch Variant A; S-E1 guarantees an
 // en-US row per series).
 //
+// W15-2: the whole subquery is wrapped in COALESCE(..., s.original_title)
+// so a series with zero series_texts rows still resolves to its retained
+// canon original_title (the terminal never-empty tier) instead of NULL.
+// A NULL result now means genuinely "no text row AND no original_title" —
+// the true FE-placeholder case. `s.original_title` is a plain column
+// reference, never user input, so it adds no injection surface.
+//
 // `lang` MUST come from normalizeSupportedLang — it is inlined as a
 // literal, NOT bound, because (1) GORM silently drops clause.Expr Vars
 // inside .Order(), and (2) the value is provably one of {en-US, ru-RU},
 // so there is no injection surface. `s` is the series alias from
 // seriesCacheJoin.
 func resolvedTitleExpr(lang string) string {
-	return "(SELECT st.title FROM series_texts st WHERE st.series_id = s.id " +
+	return "COALESCE((SELECT st.title FROM series_texts st WHERE st.series_id = s.id " +
 		"ORDER BY CASE WHEN st.language = '" + lang + "' THEN 2 " +
-		"WHEN st.language = 'en-US' THEN 1 ELSE 0 END DESC, st.language ASC LIMIT 1)"
+		"WHEN st.language = 'en-US' THEN 1 ELSE 0 END DESC, st.language ASC LIMIT 1), s.original_title)"
 }
 
 // resolvedPosterExpr mirrors resolvedTitleExpr for the per-language poster raw

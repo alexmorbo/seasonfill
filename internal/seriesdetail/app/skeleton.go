@@ -223,11 +223,14 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 }
 
 func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, canon series.Canon, seriesID domain.SeriesID, langStr string, langTag values.LanguageTag) error {
-	// S-E2 — title/tagline resolved ONLY from series_texts (requested
-	// lang → en-US via GetWithFallback). Canon series.title is no longer
-	// a fallback tier (dark-launch Variant A; S-E1 guarantees an en-US
-	// row). A total miss leaves the Title a zero VO → JSON null, which the
-	// FE renders as a placeholder.
+	// S-E2 — title/tagline resolved from series_texts (requested lang →
+	// en-US → any-lang via GetWithFallback). Canon series.title is no
+	// longer a fallback tier (dark-launch Variant A; S-E1 guarantees an
+	// en-US row). W15-2 — when series_texts yields nothing, original_title
+	// is the terminal title tier before the zero VO: it was deliberately
+	// retained in canon (Variant A) precisely to serve here. A total miss
+	// (no text row AND no original_title) leaves the Title a zero VO → JSON
+	// null, which the FE renders as a placeholder.
 	var display string
 	text, terr := sc.d.SeriesTexts.GetWithFallback(ctx, seriesID, langStr)
 	if terr == nil {
@@ -237,6 +240,9 @@ func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, can
 		if text.Tagline != nil {
 			dto.Hero.Tagline = buildTagline(*text.Tagline, langTag)
 		}
+	}
+	if display == "" && canon.OriginalTitle != nil && *canon.OriginalTitle != "" {
+		display = *canon.OriginalTitle
 	}
 	dto.Hero.Title = buildTitle(display, langTag)
 	if canon.OriginalTitle != nil && *canon.OriginalTitle != "" {

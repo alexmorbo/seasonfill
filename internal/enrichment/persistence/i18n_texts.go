@@ -105,27 +105,30 @@ func (r *SeriesTextsRepository) GetWithFallback(ctx context.Context, seriesID do
 }
 
 // ListByIDsWithFallback returns one SeriesText per requested series_id,
-// applying the §5.6 two-tier fallback (requested language first, en-US
-// second) in a single round-trip. Story 565 (B-recs-lang) — used by
-// Composer.GetRecommendations to localise recommendation card titles
-// without N+1 SELECTs against series_texts.
+// applying the §5.6 never-empty ladder (requested language → en-US →
+// any-available-language) in at most three round-trips. Story 565
+// (B-recs-lang) — used by Composer.GetRecommendations to localise
+// recommendation card titles without N+1 SELECTs against series_texts.
 //
 // Semantics (mirrors EpisodeTextsRepository.ListByEpisodeIDsWithFallback):
 //   - Empty seriesIDs slice → empty map, nil error (no SQL issued).
 //   - Series with a row in `lang`             → entry uses that row.
 //   - Series with no `lang` row but en-US     → entry uses en-US row.
-//   - Series with neither row                 → key absent from map
-//     (caller keeps canon.Title).
+//   - Series with neither, but SOME localized row → entry uses the
+//     lowest-language row (ORDER BY language ASC — deterministic).
+//   - Series with zero text rows              → key absent from map
+//     (caller applies its own terminal fallback, e.g. original_title).
 //
-// The §5.6 third tier ("first available row by language ASC") is NOT
-// applied — same posture as ListByEpisodeIDsWithFallback. The recs
-// carousel treats a missing entry the same way: keep the canon title
-// (which is what the FE renders today anyway).
+// W15-2: the third any-lang tier is now applied so a series that carries
+// only a foreign-language row still surfaces a title rather than falling
+// through to an empty render. The pass runs unconditionally after the
+// en-US pass (even when lang == en-US) because a series may hold only a
+// non-en-US row.
 //
-// SQL: at most two index-driven SELECTs against series_texts on the
-// (series_id, language) PK — one for the requested language, one for
-// the en-US fallback restricted to the ids the first query did not
-// satisfy. Single SELECT when lang == en-US.
+// SQL: up to three index-driven SELECTs against series_texts on the
+// (series_id, language) PK — the requested language, the en-US fallback
+// restricted to unsatisfied ids, and an any-language sweep restricted to
+// ids still missing. All values bound via `?`.
 func (r *SeriesTextsRepository) ListByIDsWithFallback(
 	ctx context.Context,
 	seriesIDs []domain.SeriesID,
@@ -175,6 +178,30 @@ func (r *SeriesTextsRepository) ListByIDsWithFallback(
 				return nil, fmt.Errorf("list series_texts en-US fallback: %w", err)
 			}
 			for _, m := range fallback {
+				out[m.SeriesID] = toSeriesText(m)
+			}
+		}
+	}
+
+	// Third pass (§5.6 any-lang tier): ids still absent after the en-US
+	// pass get the lowest-language row available. ORDER BY language ASC
+	// makes the pick deterministic and the first row seen per id wins.
+	stillMissing := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := out[domain.SeriesID(id)]; !ok {
+			stillMissing = append(stillMissing, id)
+		}
+	}
+	if len(stillMissing) > 0 {
+		var anyLang []database.SeriesTextModel
+		if err := dbFromContext(ctx, r.db).WithContext(ctx).
+			Where("series_id IN ?", stillMissing).
+			Order("language ASC").
+			Find(&anyLang).Error; err != nil {
+			return nil, fmt.Errorf("list series_texts any-lang fallback: %w", err)
+		}
+		for _, m := range anyLang {
+			if _, ok := out[m.SeriesID]; !ok {
 				out[m.SeriesID] = toSeriesText(m)
 			}
 		}
@@ -353,30 +380,32 @@ func (r *EpisodeTextsRepository) GetWithFallback(ctx context.Context, episodeID 
 }
 
 // ListByEpisodeIDsWithFallback returns one EpisodeText per requested
-// episode_id, applying the §5.6 two-tier fallback (requested language
-// first, en-US second) in a single round-trip. Story 550 (E-1 Z1) —
-// replaces the per-episode GetWithFallback loop in the seriesdetail
-// composer (composer.go branch b + GetCanonicalSeasons).
+// episode_id, applying the §5.6 never-empty ladder (requested language →
+// en-US → any-available-language) in at most three round-trips. Story 550
+// (E-1 Z1) — replaces the per-episode GetWithFallback loop in the
+// seriesdetail composer (composer.go branch b + GetCanonicalSeasons).
 //
 // Semantics:
 //   - Empty episodeIDs slice → empty map, nil error (no SQL issued).
 //   - Episode with a row in `lang`            → entry uses that row.
 //   - Episode with no `lang` row but en-US    → entry uses en-US row.
-//   - Episode with neither row                → key absent from map
+//   - Episode with neither, but SOME localized row → entry uses the
+//     lowest-language row (ORDER BY language ASC — deterministic).
+//   - Episode with zero text rows             → key absent from map
 //     (caller mirrors the existing ErrNotFound branch by leaving
 //     EpisodeDetail.Text nil).
 //
-// The third §5.6 tier ("first available row by language ASC") is NOT
-// applied on this batch path — see story-550 design notes. The composer
-// treats "no row" the same way today; degrading further would require a
-// per-row LATERAL/window subquery that does not survive sqlite parity.
+// W15-2: the third any-lang tier is now applied so an episode carrying
+// only a foreign-language row still surfaces a title. The pass runs
+// unconditionally after the en-US pass (even when lang == en-US) because
+// an episode may hold only a non-en-US row.
 //
-// SQL: at most two index-driven SELECTs against episode_texts on the
-// (episode_id, language) PK — one for the requested language, one for
-// the en-US fallback restricted to the ids the first query did not
-// satisfy. Single SELECT when lang == en-US. Merge happens in Go to
-// avoid a COALESCE projection that sqlite cannot scan back into
-// *time.Time (no datetime affinity through COALESCE).
+// SQL: up to three index-driven SELECTs against episode_texts on the
+// (episode_id, language) PK — the requested language, the en-US fallback
+// restricted to unsatisfied ids, and an any-language sweep restricted to
+// ids still missing. Merge happens in Go to avoid a COALESCE projection
+// that sqlite cannot scan back into *time.Time (no datetime affinity
+// through COALESCE).
 func (r *EpisodeTextsRepository) ListByEpisodeIDsWithFallback(
 	ctx context.Context,
 	episodeIDs []domain.EpisodeID,
@@ -431,6 +460,30 @@ func (r *EpisodeTextsRepository) ListByEpisodeIDsWithFallback(
 				return nil, fmt.Errorf("list episode_texts en-US fallback: %w", err)
 			}
 			for _, m := range fallback {
+				out[m.EpisodeID] = toEpisodeText(m)
+			}
+		}
+	}
+
+	// Third pass (§5.6 any-lang tier): episodes still absent after the
+	// en-US pass get the lowest-language row available. ORDER BY language
+	// ASC makes the pick deterministic; the first row seen per id wins.
+	stillMissing := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := out[domain.EpisodeID(id)]; !ok {
+			stillMissing = append(stillMissing, id)
+		}
+	}
+	if len(stillMissing) > 0 {
+		var anyLang []database.EpisodeTextModel
+		if err := dbFromContext(ctx, r.db).WithContext(ctx).
+			Where("episode_id IN ?", stillMissing).
+			Order("language ASC").
+			Find(&anyLang).Error; err != nil {
+			return nil, fmt.Errorf("list episode_texts any-lang fallback: %w", err)
+		}
+		for _, m := range anyLang {
+			if _, ok := out[m.EpisodeID]; !ok {
 				out[m.EpisodeID] = toEpisodeText(m)
 			}
 		}

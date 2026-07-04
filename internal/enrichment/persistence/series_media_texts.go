@@ -63,8 +63,8 @@ func (r *SeriesMediaTextsRepository) GetWithFallback(ctx context.Context, series
 }
 
 // ListByIDsWithFallback returns one SeriesMediaText per requested
-// series_id, applying the two-tier fallback (requested language first,
-// en-US second) in at most two round-trips. Mirrors
+// series_id, applying the never-empty poster ladder (requested language →
+// en-US → any-available-language) in at most three round-trips. Mirrors
 // SeriesTextsRepository.ListByIDsWithFallback exactly — used by the
 // recommendations read path (584b) and the grid localizer (584b) to
 // localize posters without N+1 SELECTs.
@@ -73,8 +73,15 @@ func (r *SeriesMediaTextsRepository) GetWithFallback(ctx context.Context, series
 //   - Empty seriesIDs slice → empty map, nil error (no SQL).
 //   - Series with a row in `lang`          → entry uses that row.
 //   - Series with no `lang` row but en-US  → entry uses en-US row.
-//   - Series with neither row              → key absent (caller keeps canon).
-//   - lang == "" normalises to en-US (single pass).
+//   - Series with neither, but SOME row    → entry uses the lowest-
+//     language row (ORDER BY language ASC — deterministic).
+//   - Series with zero rows                → key absent (caller keeps canon).
+//   - lang == "" normalises to en-US.
+//
+// W15-2: posters have no original_title analogue, so the any-lang tier is
+// the terminal never-empty guarantee. The pass runs unconditionally after
+// the en-US pass (even when lang == en-US) because a series may hold only
+// a non-en-US poster row.
 func (r *SeriesMediaTextsRepository) ListByIDsWithFallback(
 	ctx context.Context,
 	seriesIDs []domain.SeriesID,
@@ -117,6 +124,30 @@ func (r *SeriesMediaTextsRepository) ListByIDsWithFallback(
 				return nil, fmt.Errorf("list series_media_texts en-US fallback: %w", err)
 			}
 			for _, m := range fallback {
+				out[m.SeriesID] = toSeriesMediaText(m)
+			}
+		}
+	}
+
+	// Third pass (any-lang tier): ids still absent get the lowest-language
+	// row available. ORDER BY language ASC makes the pick deterministic;
+	// the first row seen per id wins.
+	stillMissing := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := out[domain.SeriesID(id)]; !ok {
+			stillMissing = append(stillMissing, id)
+		}
+	}
+	if len(stillMissing) > 0 {
+		var anyLang []database.SeriesMediaTextModel
+		if err := dbFromContext(ctx, r.db).WithContext(ctx).
+			Where("series_id IN ?", stillMissing).
+			Order("language ASC").
+			Find(&anyLang).Error; err != nil {
+			return nil, fmt.Errorf("list series_media_texts any-lang fallback: %w", err)
+		}
+		for _, m := range anyLang {
+			if _, ok := out[m.SeriesID]; !ok {
 				out[m.SeriesID] = toSeriesMediaText(m)
 			}
 		}

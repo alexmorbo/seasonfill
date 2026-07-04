@@ -52,6 +52,42 @@ func itemsFor(ids []shareddomain.SeriesID) []disco.Item {
 	return out
 }
 
+// W15-2 — the discovery title projection wraps the series_texts subquery
+// in COALESCE(..., s.original_title). A ranked series with ZERO
+// series_texts rows must therefore surface its canon original_title as the
+// display title instead of an empty string (never-empty terminal tier).
+func TestListRepository_GetRanked_TitleFallsBackToOriginalTitle_W15_2(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			title := "Disco Original Fallback"
+			m := database.SeriesModel{
+				OriginalTitle:   &title,
+				Hydration:       "stub",
+				InProduction:    false,
+				OriginCountries: datatypes.JSON("[]"),
+			}
+			require.NoError(t, db.Create(&m).Error)
+
+			lang := "en-US-" + uuid.NewString()[:6]
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", lang,
+				itemsFor([]shareddomain.SeriesID{m.ID})))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", lang, 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			assert.Equal(t, "Disco Original Fallback", page.Items[0].Title,
+				"zero series_texts rows → discovery title COALESCEs to series.original_title")
+		})
+	}
+}
+
 func TestListRepository_ReplaceAndGetRanked_RoundTripsPositions(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {

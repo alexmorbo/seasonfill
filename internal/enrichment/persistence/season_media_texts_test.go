@@ -151,6 +151,38 @@ func TestSeasonMediaTextsRepository_D0(t *testing.T) {
 				require.Len(t, out, 1)
 				assert.Equal(t, "en-US", out[1].Language)
 			})
+
+			// W15-2 — season poster is name-free, so the any-lang tier is
+			// safe: a season carrying ONLY a foreign poster row, requested
+			// under en-US with no en-US row, now resolves via the any-lang
+			// pass — keyed by season_number.
+			t.Run("any_lang_tier_foreign_only_poster", func(t *testing.T) {
+				sid, repo := seed(t)
+				// season 1 — only ru-RU poster (foreign) → tier 3 any-lang
+				// season 2 — en-US poster (requested)    → tier 1
+				// season 3 — zero rows                   → key absent
+				require.NoError(t, repo.Upsert(ctx, series.SeasonMediaText{SeriesID: sid, SeasonNumber: 1, Language: "ru-RU", PosterAsset: new("/s1-ru.jpg")}))
+				require.NoError(t, repo.Upsert(ctx, series.SeasonMediaText{SeriesID: sid, SeasonNumber: 2, Language: "en-US", PosterAsset: new("/s2-en.jpg")}))
+				out, err := repo.ListBySeriesWithFallback(ctx, sid, "en-US")
+				require.NoError(t, err)
+				require.Len(t, out, 2, "seasons 1,2 surface via the ladder; season 3 has no row")
+				assert.Equal(t, "ru-RU", out[1].Language, "any-lang tier: only-foreign season poster resolves under en-US")
+				require.NotNil(t, out[1].PosterAsset)
+				assert.Equal(t, "/s1-ru.jpg", *out[1].PosterAsset)
+				assert.Equal(t, "en-US", out[2].Language)
+				_, ok := out[3]
+				assert.False(t, ok, "season with no poster row → key absent (caller keeps canon)")
+			})
+
+			t.Run("any_lang_tier_deterministic_lowest_language", func(t *testing.T) {
+				sid, repo := seed(t)
+				require.NoError(t, repo.Upsert(ctx, series.SeasonMediaText{SeriesID: sid, SeasonNumber: 1, Language: "fr-FR", PosterAsset: new("/fr.jpg")}))
+				require.NoError(t, repo.Upsert(ctx, series.SeasonMediaText{SeriesID: sid, SeasonNumber: 1, Language: "de-DE", PosterAsset: new("/de.jpg")}))
+				out, err := repo.ListBySeriesWithFallback(ctx, sid, "en-US")
+				require.NoError(t, err)
+				require.Len(t, out, 1)
+				assert.Equal(t, "de-DE", out[1].Language, "language ASC → de-DE before fr-FR")
+			})
 		})
 	}
 }

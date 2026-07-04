@@ -232,6 +232,42 @@ func TestSeriesMediaTextsRepository_D0(t *testing.T) {
 				require.Len(t, out, 1)
 				assert.Equal(t, "en-US", out[sid].Language)
 			})
+
+			// W15-2 — posters have no original_title analogue, so the
+			// any-lang tier is the terminal never-empty guarantee: a series
+			// carrying ONLY a foreign poster row, requested under en-US with
+			// no en-US row, now resolves via the any-lang pass.
+			t.Run("any_lang_tier_full_ladder", func(t *testing.T) {
+				ids, repo := seedN(t, 4)
+				// ids[0] — en-US poster (requested lang) → tier 1
+				// ids[1] — only ru-RU poster (foreign)   → tier 3 any-lang
+				// ids[2] — only fr-FR poster             → tier 3 any-lang
+				// ids[3] — zero rows                     → key absent
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{SeriesID: ids[0], Language: "en-US", PosterAsset: new("/0-en.jpg")}))
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{SeriesID: ids[1], Language: "ru-RU", PosterAsset: new("/1-ru.jpg")}))
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{SeriesID: ids[2], Language: "fr-FR", PosterAsset: new("/2-fr.jpg")}))
+
+				out, err := repo.ListByIDsWithFallback(ctx, ids, "en-US")
+				require.NoError(t, err)
+				require.Len(t, out, 3, "ids 0,1,2 surface via the ladder; id 3 has no row")
+				assert.Equal(t, "en-US", out[ids[0]].Language)
+				assert.Equal(t, "ru-RU", out[ids[1]].Language, "any-lang tier: only-foreign poster resolves under en-US")
+				require.NotNil(t, out[ids[1]].PosterAsset)
+				assert.Equal(t, "/1-ru.jpg", *out[ids[1]].PosterAsset)
+				assert.Equal(t, "fr-FR", out[ids[2]].Language)
+				_, ok := out[ids[3]]
+				assert.False(t, ok, "zero rows → key absent (caller keeps canon)")
+			})
+
+			t.Run("any_lang_tier_deterministic_lowest_language", func(t *testing.T) {
+				ids, repo := seedN(t, 1)
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{SeriesID: ids[0], Language: "fr-FR", PosterAsset: new("/fr.jpg")}))
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{SeriesID: ids[0], Language: "de-DE", PosterAsset: new("/de.jpg")}))
+				out, err := repo.ListByIDsWithFallback(ctx, ids, "en-US")
+				require.NoError(t, err)
+				require.Len(t, out, 1)
+				assert.Equal(t, "de-DE", out[ids[0]].Language, "language ASC → de-DE before fr-FR")
+			})
 		})
 	}
 }

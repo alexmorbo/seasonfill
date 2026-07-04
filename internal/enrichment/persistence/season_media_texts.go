@@ -52,12 +52,17 @@ func (r *SeasonMediaTextsRepository) Get(
 }
 
 // ListBySeriesWithFallback returns one SeasonMediaText per season_number for the
-// given series, applying the §5.6 two-tier fallback (requested language first,
-// en-US second) in at most two round-trips, keyed by season_number. This is the
-// read shape GetSeason / SeasonsComposer consume: they iterate canon seasons and
-// look up each season_number, falling back to canon seasons.poster_asset (the
-// third, non-persistence tier) when a key is absent. Mirrors
-// SeasonTextsRepository.ListBySeriesWithFallback exactly.
+// given series, applying the never-empty poster ladder (requested language →
+// en-US → any-available-language) in at most three round-trips, keyed by
+// season_number. This is the read shape GetSeason / SeasonsComposer consume:
+// they iterate canon seasons and look up each season_number, falling back to
+// canon seasons.poster_asset (the terminal non-persistence tier) when a key is
+// absent.
+//
+// W15-2: this table is poster-only (no name column), so the any-lang tier is
+// safe — no foreign-language season NAME can leak through it. The pass runs
+// unconditionally after the en-US pass (even when lang == en-US) because a
+// season may hold only a non-en-US poster row.
 func (r *SeasonMediaTextsRepository) ListBySeriesWithFallback(
 	ctx context.Context,
 	seriesID domain.SeriesID,
@@ -90,6 +95,23 @@ func (r *SeasonMediaTextsRepository) ListBySeriesWithFallback(
 			if _, ok := out[m.SeasonNumber]; !ok {
 				out[m.SeasonNumber] = toSeasonMediaText(m)
 			}
+		}
+	}
+
+	// Third pass (any-lang tier), keyed by season_number: a season still
+	// absent after the en-US pass takes its lowest-language poster row.
+	// ORDER BY language ASC makes the pick deterministic; the first row
+	// seen per season_number wins.
+	var anyLang []database.SeasonMediaTextModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("series_id = ?", seriesID).
+		Order("language ASC").
+		Find(&anyLang).Error; err != nil {
+		return nil, fmt.Errorf("list season_media_texts any-lang fallback: %w", err)
+	}
+	for _, m := range anyLang {
+		if _, ok := out[m.SeasonNumber]; !ok {
+			out[m.SeasonNumber] = toSeasonMediaText(m)
 		}
 	}
 

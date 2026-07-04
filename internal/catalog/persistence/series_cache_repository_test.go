@@ -671,6 +671,44 @@ func TestSeriesCacheRepository_ListByFilter_TitleAsc(t *testing.T) {
 	}
 }
 
+// W15-2 — resolvedTitleExpr wraps the series_texts subquery in
+// COALESCE(..., s.original_title). A cache row with ZERO series_texts
+// rows must therefore surface the canon original_title as its display
+// title instead of an empty string (the never-empty terminal tier).
+func TestSeriesCacheRepository_ListByFilter_TitleFallsBackToOriginalTitle_W15_2(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			// No WithSeriesTexts → Upsert seeds no series_texts row.
+			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			ctx := context.Background()
+
+			entry := sampleEntry("main", 1)
+			entry.Title = "Sonarr Only"
+			require.NoError(t, repo.Upsert(ctx, entry))
+
+			sid := canonIDForCache(t, db, "main", 1)
+			require.NoError(t, db.Model(&database.SeriesModel{}).
+				Where("id = ?", sid).
+				Update("original_title", "Original Fallback Title").Error)
+			// Belt-and-suspenders: guarantee no series_texts row exists.
+			require.NoError(t, db.Where("series_id = ?", sid).
+				Delete(&database.SeriesTextModel{}).Error)
+
+			items, _, _, _, err := repo.ListByFilter(ctx, "main",
+				ports.SeriesCacheFilter{State: ports.SeriesCacheStateAll},
+				ports.SeriesCacheSortUpdatedDesc,
+				ports.Pagination{Limit: 10})
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+			assert.Equal(t, "Original Fallback Title", items[0].Title,
+				"zero series_texts rows → title COALESCEs to series.original_title")
+		})
+	}
+}
+
 func TestSeriesCacheRepository_ListByFilter_Search_AllLanguages_569(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {

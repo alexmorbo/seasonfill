@@ -192,6 +192,22 @@ func TestSeasonTextsRepository_D0(t *testing.T) {
 				require.Len(t, out, 1)
 				assert.Equal(t, "en-US", out[1].Language)
 			})
+
+			// W15-2 CONTRACT — season NAME is deliberately EXCLUDED from the
+			// any-lang tier. A season with ONLY a foreign (fr-FR) row,
+			// requested en-US with no en-US row, must yield an ABSENT key so
+			// the composer uses the FE numbered label ("Season N") rather
+			// than leaking a foreign-language season name. This guards the
+			// exclusion decision: unlike the sibling text/poster batch reads,
+			// season_texts stays strictly two-tier.
+			t.Run("name_excluded_from_any_lang_tier_key_absent", func(t *testing.T) {
+				sid, repo := seed(t)
+				require.NoError(t, repo.Upsert(ctx, series.SeasonText{SeriesID: sid, SeasonNumber: 1, Language: "fr-FR", Name: new("Saison 1")}))
+				out, err := repo.ListBySeriesWithFallback(ctx, sid, "en-US")
+				require.NoError(t, err)
+				_, ok := out[1]
+				assert.False(t, ok, "foreign-only season name must NOT leak via any-lang — key absent, caller uses numbered label")
+			})
 		})
 	}
 }

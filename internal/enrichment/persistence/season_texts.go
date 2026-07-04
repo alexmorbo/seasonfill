@@ -59,16 +59,25 @@ func (r *SeasonTextsRepository) Get(
 // back to canon seasons.name (the third, non-persistence tier) when a
 // key is absent.
 //
-// Semantics (mirrors SeriesTextsRepository.ListByIDsWithFallback):
+// Semantics:
 //   - Season with a row in `lang`            → entry uses that row.
 //   - Season with no `lang` row but en-US    → entry uses en-US row.
-//   - Season with neither row                → key absent (caller uses canon).
+//   - Season with neither row                → key absent (caller uses the
+//     FE numbered label "Season N").
 //   - lang == "" normalises to en-US (single pass).
 //   - Empty series (no rows) → empty map, nil error.
 //
-// The §5.6 third tier ("first available row by language ASC") is NOT applied
-// here — same posture as the sibling batch reads; the composer's canon
-// fallback covers the "no localized row at all" case.
+// W15-2 CONTRACT — season NAME is DELIBERATELY EXCLUDED from the any-lang
+// tier. This reader stays two-tier (requested → en-US) and gets NO third
+// any-language pass, unlike its sibling batch text/poster readers. A
+// missing key means the composer falls back to the FE numbered label
+// ("Season N"), which is preferable to surfacing a foreign-language season
+// name (e.g. a Russian season title under an English request). season_texts
+// carries name + overview in one row; rather than split the row to give
+// overview an any-lang tier while withholding it from name, the whole row
+// stays 2-tier so no foreign name can leak. Season POSTER lives in the
+// separate season_media_texts table (poster only, no name) and DOES get the
+// full any-lang tier safely.
 func (r *SeasonTextsRepository) ListBySeriesWithFallback(
 	ctx context.Context,
 	seriesID domain.SeriesID,
