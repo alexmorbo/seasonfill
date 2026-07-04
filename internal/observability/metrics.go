@@ -158,6 +158,17 @@ const (
 	// reschedules a failed cold-start tick on the backoff ladder
 	// (1m→5m→15m). No labels.
 	MetricDiscoveryColdStartRetriesTotal = `seasonfill_discovery_cold_start_retries_total`
+
+	// W16-4 — media pre-warm / on-demand fetch outcome counter. Bumped once
+	// per terminal fetch outcome across BOTH the async Downloader and the
+	// synchronous OnDemandFetcher. Labels:
+	//   - result:     closed set {ok, failed}
+	//   - error_kind: "" on ok; on failed one of the closed media.ErrorKind
+	//                 enum values (s3_write_error, http_5xx, db_update_error, …).
+	// Bounded cardinality (result×error_kind only) — NEVER add url/hash. The
+	// s3_write_error slice is the SeaweedFS-capacity-exhaustion signal that
+	// previously surfaced only as a buried WARN.
+	MetricMediaFetchTotal = `seasonfill_media_fetch_total`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -296,6 +307,13 @@ func ObserveParseReleaseDuration(instance domain.InstanceName, seconds float64) 
 // the synthetic Decision row's category.
 func IncScanSkipped(instance domain.InstanceName, reason string) {
 	metrics.GetOrCreateCounter(`seasonfill_scan_skipped_seasons_total{instance="` + string(instance) + `",reason="` + reason + `"}`).Inc()
+}
+
+// IncMediaFetch bumps the per-outcome media fetch counter (W16-4).
+// result ∈ {"ok","failed"}; errorKind is "" on ok, else a closed
+// media.ErrorKind enum value. Closed label set — do not pass url/hash.
+func IncMediaFetch(result, errorKind string) {
+	metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="` + result + `",error_kind="` + errorKind + `"}`).Inc()
 }
 
 func WritePrometheus(w io.Writer) {

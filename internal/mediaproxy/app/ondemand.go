@@ -30,6 +30,7 @@ import (
 
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -159,6 +160,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 			log.WarnContext(ctx, "media.ondemand.failed",
 				slog.String("error_kind", "rate_wait_error"),
 				slog.String("error", err.Error()))
+			observability.IncMediaFetch("failed", string(ErrorKindRateWait))
 		}
 		return "", false
 	}
@@ -175,14 +177,16 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 			slog.String("error_kind", string(ClassifyFetchError(err))),
 			slog.Int("http_status", HTTPStatus(err)),
 			slog.String("error", err.Error()))
+		observability.IncMediaFetch("failed", string(ClassifyFetchError(err)))
 		return "", false
 	}
 
 	// 4. Put bytes to store.
 	if err := f.store.Put(ctx, key, bytes.NewReader(body), int64(len(body)), contentType); err != nil {
-		log.WarnContext(ctx, "media.ondemand.failed",
+		log.ErrorContext(ctx, "media.ondemand.failed",
 			slog.String("error_kind", string(ErrorKindS3Write)),
 			slog.String("error", err.Error()))
+		observability.IncMediaFetch("failed", string(ErrorKindS3Write))
 		return "", false
 	}
 
@@ -206,6 +210,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 		slog.String("content_type", contentType),
 		slog.Int("duration_ms", int(f.clock().Sub(start).Milliseconds())),
 	)
+	observability.IncMediaFetch("ok", "")
 	return hash, true
 }
 
@@ -241,6 +246,7 @@ func (f *onDemandFetcher) upsert(ctx context.Context, a media.Asset, log *slog.L
 		log.WarnContext(ctx, "media.ondemand.failed",
 			slog.String("error_kind", string(ErrorKindDBWrite)),
 			slog.String("error", err.Error()))
+		observability.IncMediaFetch("failed", string(ErrorKindDBWrite))
 		return err
 	}
 	return nil

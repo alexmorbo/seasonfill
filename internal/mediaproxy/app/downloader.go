@@ -14,6 +14,7 @@ import (
 
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -254,6 +255,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 			slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
 			slog.String("error", lastErr.Error()),
 		)
+		observability.IncMediaFetch("failed", string(kind))
 		return
 	}
 
@@ -265,7 +267,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 			Kind:        j.Kind,
 			Status:      media.StatusFailed,
 		}, jlog)
-		jlog.WarnContext(ctx, "media.fetch.failed",
+		jlog.ErrorContext(ctx, "media.fetch.failed",
 			slog.String("source_url", j.UpstreamURL),
 			slog.String("hash", j.Hash),
 			slog.String("kind", j.Kind),
@@ -274,6 +276,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 			slog.Int("size_bytes", len(body)),
 			slog.String("error", err.Error()),
 		)
+		observability.IncMediaFetch("failed", string(ErrorKindS3Write))
 		return
 	}
 
@@ -303,6 +306,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 		slog.String("content_type", contentType),
 		slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
 	)
+	observability.IncMediaFetch("ok", "")
 }
 
 // downloadWithRetry does one or two HTTP GETs against url and
@@ -378,6 +382,7 @@ func (d *Downloader) upsertRow(ctx context.Context, a media.Asset, log *slog.Log
 			slog.String("error_kind", string(ErrorKindDBWrite)),
 			slog.Int("http_status", 0),
 			slog.String("error", err.Error()))
+		observability.IncMediaFetch("failed", string(ErrorKindDBWrite))
 		return err
 	}
 	return nil

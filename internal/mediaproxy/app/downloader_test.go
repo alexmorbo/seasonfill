@@ -15,11 +15,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
 	"github.com/stretchr/testify/require"
 
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
 )
+
+// findLogLine returns the first newline-split line of out that contains
+// every needle. Fails the test if no line matches — used by the W16-4
+// level-assertion tests to pin a specific media.fetch.* JSON record.
+func findLogLine(t *testing.T, out string, needles ...string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(out, "\n") {
+		ok := true
+		for _, n := range needles {
+			if !strings.Contains(line, n) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return line
+		}
+	}
+	t.Fatalf("no log line contains all of %v\nGot:\n%s", needles, out)
+	return ""
+}
 
 // fakeRepo is a thread-safe in-memory AssetRepo.
 type fakeRepo struct {
@@ -317,6 +339,7 @@ func TestDownloader_LogsFetchOk_OnSuccess(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	before := metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="ok",error_kind=""}`).Get()
 	dl.Start(ctx)
 	eq.Enqueue(ctx, []EnqueueRequest{{UpstreamURL: ts.URL + "/poster.jpg", Kind: "poster_w342", Extension: "jpg"}})
 	waitForLog(t, buf, `"msg":"media.fetch.ok"`, 3*time.Second)
@@ -328,6 +351,9 @@ func TestDownloader_LogsFetchOk_OnSuccess(t *testing.T) {
 	require.Contains(t, out, `"content_type":"image/jpeg"`)
 	require.Contains(t, out, `"kind":"poster_w342"`)
 	require.Contains(t, out, `"size_bytes":3`)
+	// W16-4: strict delta — the global VM registry is shared across
+	// -parallel tests, so assert after > before (never an absolute).
+	require.Greater(t, metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="ok",error_kind=""}`).Get(), before)
 }
 
 func TestDownloader_LogsFetchFailed_OnHTTP500(t *testing.T) {
@@ -345,6 +371,7 @@ func TestDownloader_LogsFetchFailed_OnHTTP500(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	before := metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="failed",error_kind="http_5xx"}`).Get()
 	dl.Start(ctx)
 	eq.Enqueue(ctx, []EnqueueRequest{{UpstreamURL: ts.URL + "/poster.jpg", Kind: "poster_w342", Extension: "jpg"}})
 	waitForLog(t, buf, `"msg":"media.fetch.failed"`, 5*time.Second)
@@ -354,6 +381,10 @@ func TestDownloader_LogsFetchFailed_OnHTTP500(t *testing.T) {
 	require.Contains(t, out, `"msg":"media.fetch.failed"`)
 	require.Contains(t, out, `"error_kind":"http_5xx"`)
 	require.Contains(t, out, `"http_status":500`)
+	// W16-4: transient (http_5xx) stays WARN — only s3_write_error escalates.
+	line := findLogLine(t, out, `"msg":"media.fetch.failed"`, `"error_kind":"http_5xx"`)
+	require.Contains(t, line, `"level":"WARN"`)
+	require.Greater(t, metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="failed",error_kind="http_5xx"}`).Get(), before)
 }
 
 func TestDownloader_LogsFetchFailed_OnHTTP404(t *testing.T) {
@@ -406,6 +437,7 @@ func TestDownloader_LogsFetchFailed_OnStorePutFailure(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	before := metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="failed",error_kind="s3_write_error"}`).Get()
 	dl.Start(ctx)
 	eq.Enqueue(ctx, []EnqueueRequest{{UpstreamURL: ts.URL + "/poster.jpg", Kind: "poster_w342", Extension: "jpg"}})
 	waitForLog(t, buf, `"error_kind":"s3_write_error"`, 3*time.Second)
@@ -414,6 +446,10 @@ func TestDownloader_LogsFetchFailed_OnStorePutFailure(t *testing.T) {
 	out := buf.String()
 	require.Contains(t, out, `"msg":"media.fetch.failed"`)
 	require.Contains(t, out, `"error_kind":"s3_write_error"`)
+	// W16-4: s3_write_error is the SeaweedFS-capacity signal → ERROR level.
+	line := findLogLine(t, out, `"msg":"media.fetch.failed"`, `"error_kind":"s3_write_error"`)
+	require.Contains(t, line, `"level":"ERROR"`)
+	require.Greater(t, metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="failed",error_kind="s3_write_error"}`).Get(), before)
 }
 
 // Story 346 — when CDNRateLimitRPS is left at zero the downloader picks
