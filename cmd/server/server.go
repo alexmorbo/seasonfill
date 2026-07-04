@@ -252,6 +252,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		log,
 	).Run(rootCtx)
 
+	// W17 — library poster coverage collector (5min cadence) publishing
+	// seasonfill_library_poster_{coverage,covered,total}.
+	bgWG.Add(1)
+	go loops.NewLibraryPosterCoverageLoop(
+		catalogpersistence.NewLibraryPosterCoverageRepository(db),
+		observability.LibraryPosterCoverageMetricsAdapter{},
+		loops.DefaultLibraryPosterCoverageInterval,
+		&bgWG,
+		log,
+	).Run(rootCtx)
+
 	extSvcBundle, err := wiring.BuildExtSvc(persistence, bootCfg, bus, log)
 	if err != nil {
 		return nil, err
