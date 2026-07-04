@@ -146,16 +146,18 @@ func pickSeasonPosterForLang(imgs *tmdb.SeasonImages, lang string) *string {
 	return pickByLangPriority(imgs.Posters, langPriority(shortLang(lang)))
 }
 
-// pickSeasonPosterStrict: per-language tier ONLY (matchISO(short(lang)) — no
-// agnostic, no "en", no root fallback). Used for NON-call languages so the en-US
-// season-poster tier is never poisoned by call-lang or English art: a non-call
-// row is written only when TMDB actually carries a poster tagged in that EXACT
-// language. Empty short(lang) → nil.
+// pickSeasonPosterStrict: exact short(lang) tier → language-agnostic (nil-iso)
+// fallback. Used for NON-call languages. The exact-iso tier is preferred, then
+// falls back to textless/language-agnostic art (nil iso), which cannot poison a
+// language tier. Still NO "en"-tagged tier (English-text art must not cross-
+// poison a non-en call language) and NO root fallback. A non-call row is written
+// when TMDB carries either an exact-language poster OR a language-agnostic one.
+// Empty short(lang) → nil.
 func pickSeasonPosterStrict(imgs *tmdb.SeasonImages, lang string) *string {
 	if imgs == nil || len(imgs.Posters) == 0 || shortLang(lang) == "" {
 		return nil
 	}
-	return pickByLangPriority(imgs.Posters, []langMatcher{matchISO(shortLang(lang))})
+	return pickByLangPriority(imgs.Posters, []langMatcher{matchISO(shortLang(lang)), matchNil})
 }
 
 // pickPosterForLangStrict: EXACT short(lang) tier ONLY (no agnostic/en/root).
