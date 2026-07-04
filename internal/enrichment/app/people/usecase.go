@@ -187,7 +187,7 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 		SyncedAt: person.EnrichmentSyncedAt,
 	}
 
-	credits, cErr := uc.d.PersonCredits.ListByPerson(ctx, person.ID)
+	credits, cErr := uc.d.PersonCredits.ListByPersonWithTextFallback(ctx, person.ID, lang)
 	if cErr != nil {
 		uc.d.Logger.WarnContext(ctx, "person_credits_list_failed",
 			slog.Int("tmdb_person_id", int(tmdbID)),
@@ -221,6 +221,14 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 
 	sortLibraryCredits(libCredits, sk)
 
+	// #1032 — other_credits with a canon row (CategoryCanon: enriched series
+	// with no live series_cache) get their display title + poster raw path
+	// from series_texts / series_media_texts, mirroring library credits. This
+	// makes the poster resolve to the real content hash (not the sentinel) and
+	// localizes the title. Canon-less credits (movies / never-enriched series)
+	// keep their raw person_credits values.
+	uc.stageCanonOtherCreditTexts(ctx, otherCredits, lang)
+
 	out.LibraryCredits = libCredits
 	out.OtherCredits = otherCredits
 
@@ -240,7 +248,14 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 	// Story 317 — OtherCredits posters. Movies + canon-less TV stubs. Same
 	// resolver, w185 (the frontend's grid is denser → smaller variant). The
 	// async miss-enqueue makes the bytes available on subsequent loads.
+	// #1032 — canon-backed other credits stage their poster raw path from
+	// series_media_texts (same source as the series page) and resolve at the
+	// w342 variant so the emitted hash matches what the series page returns.
 	for i := range out.OtherCredits {
+		if out.OtherCredits[i].Canon.ID != 0 {
+			out.OtherCredits[i].Credit.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.OtherCredits[i].Credit.PosterAsset, "w342", "poster_w342")
+			continue
+		}
 		out.OtherCredits[i].Credit.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.OtherCredits[i].Credit.PosterAsset, "w185", "poster_w185")
 	}
 
@@ -434,6 +449,67 @@ func (uc *UseCase) stageLibraryCreditTexts(ctx context.Context, libs []LibraryCr
 			if mt, ok := mediaTexts[id]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
 				p := *mt.PosterAsset
 				libs[i].PosterAsset = &p
+			}
+		}
+	}
+}
+
+// stageCanonOtherCreditTexts localizes the display title (series_texts) and
+// poster raw path (series_media_texts) for other-credits that carry a canon
+// row (CategoryCanon — enriched series with no live series_cache). Mirrors
+// stageLibraryCreditTexts: one batched fetch each keyed by canon id, lang →
+// en-US fallback. Credits with NO canon row (CategoryTMDB — movies /
+// never-enriched series) are left untouched so they keep the raw
+// person_credits.title + poster_path (external TMDB link). nil-OK ports; a
+// repo miss/error leaves the raw credit values and never fails the page.
+func (uc *UseCase) stageCanonOtherCreditTexts(ctx context.Context, others []OtherCredit, lang string) {
+	ids := make([]domain.SeriesID, 0, len(others))
+	for i := range others {
+		if others[i].Canon.ID != 0 {
+			ids = append(ids, others[i].Canon.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	var texts map[domain.SeriesID]series.SeriesText
+	if uc.d.SeriesTexts != nil {
+		t, err := uc.d.SeriesTexts.ListByIDsWithFallback(ctx, ids, lang)
+		if err != nil {
+			uc.d.Logger.WarnContext(ctx, "person_other_texts_failed",
+				slog.String("lang", lang),
+				slog.String("error", err.Error()))
+		} else {
+			texts = t
+		}
+	}
+	var mediaTexts map[domain.SeriesID]series.SeriesMediaText
+	if uc.d.SeriesMediaTexts != nil {
+		m, err := uc.d.SeriesMediaTexts.ListByIDsWithFallback(ctx, ids, lang)
+		if err != nil {
+			uc.d.Logger.WarnContext(ctx, "person_other_media_texts_failed",
+				slog.String("lang", lang),
+				slog.String("error", err.Error()))
+		} else {
+			mediaTexts = m
+		}
+	}
+
+	for i := range others {
+		id := others[i].Canon.ID
+		if id == 0 {
+			continue
+		}
+		if texts != nil {
+			if t, ok := texts[id]; ok && t.Title != nil && *t.Title != "" {
+				others[i].Credit.Title = *t.Title
+			}
+		}
+		if mediaTexts != nil {
+			if mt, ok := mediaTexts[id]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
+				p := *mt.PosterAsset
+				others[i].Credit.PosterAsset = &p
 			}
 		}
 	}

@@ -35,8 +35,12 @@ type PeopleReader interface {
 // given person, ordered by (year DESC, title ASC) — the
 // repository's default ordering. The composer walks these rows
 // to classify into library_credits vs other_credits.
+//
+// character_name is resolved per language (requested → en-US → base
+// person_credits.character_name) via person_credits_texts, so the person
+// page localizes cast role labels the same way the series/cast page does.
 type PersonCreditsReader interface {
-	ListByPerson(ctx context.Context, personID int64) ([]dompeople.PersonCredit, error)
+	ListByPersonWithTextFallback(ctx context.Context, personID int64, lang string) ([]dompeople.PersonCredit, error)
 }
 
 // SeriesByTMDBLookup resolves a TMDB media id to the canon

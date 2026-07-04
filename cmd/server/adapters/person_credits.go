@@ -56,9 +56,11 @@ func NewPersonCreditsReaderAdapter(r *persistence.PersonCreditsRepository) Perso
 // Assert interface satisfaction at compile time.
 var _ people.PersonCreditsReader = PersonCreditsReaderAdapter{}
 
-// ListByPerson implements people.PersonCreditsReader.
-func (a PersonCreditsReaderAdapter) ListByPerson(ctx context.Context, personID int64) ([]dompeople.PersonCredit, error) {
-	rows, err := a.R.ListByPerson(ctx, personID)
+// ListByPersonWithTextFallback implements people.PersonCreditsReader,
+// resolving character_name per language (requested → en-US → base) via
+// person_credits_texts.
+func (a PersonCreditsReaderAdapter) ListByPersonWithTextFallback(ctx context.Context, personID int64, lang string) ([]dompeople.PersonCredit, error) {
+	rows, err := a.R.ListByPersonWithTextFallback(ctx, personID, lang)
 	if err != nil {
 		return nil, err
 	}

@@ -78,6 +78,45 @@ func (r *PersonCreditsRepository) ListByPerson(ctx context.Context, personID int
 	return models, nil
 }
 
+// ListByPersonWithTextFallback returns every credit row for personID with
+// character_name resolved per S-G: requested language → en-US → base
+// person_credits.character_name. Mirrors ListByMediaWithTextFallback (two
+// LEFT JOINs on person_credits_texts + COALESCE, one round-trip) but is
+// scoped by person_id and preserves ListByPerson's (year DESC, title ASC)
+// ordering so the person-page filmography order is unchanged. lang=="" defaults
+// to en-US, collapsing both joins onto the base tier.
+func (r *PersonCreditsRepository) ListByPersonWithTextFallback(
+	ctx context.Context,
+	personID int64,
+	lang string,
+) ([]PersonCredit, error) {
+	if lang == "" {
+		lang = fallbackLanguage
+	}
+	const q = `
+SELECT
+  pc.id, pc.person_id, pc.tmdb_credit_id, pc.media_type, pc.tmdb_media_id,
+  pc.title, pc.original_title, pc.year,
+  COALESCE(t_req.character_name, t_base.character_name, pc.character_name) AS character_name,
+  pc.kind, pc.department, pc.job, pc.poster_path, pc.vote_average,
+  pc.tmdb_votes, pc.episode_count, pc.created_at, pc.updated_at
+FROM person_credits pc
+LEFT JOIN person_credits_texts t_req
+  ON t_req.person_credit_id = pc.id AND t_req.language = ?
+LEFT JOIN person_credits_texts t_base
+  ON t_base.person_credit_id = pc.id AND t_base.language = ?
+WHERE pc.person_id = ?
+ORDER BY pc.year DESC, pc.title ASC`
+	var models []database.PersonCreditModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Raw(q, lang, fallbackLanguage, personID).
+		Scan(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("list person_credits by person (i18n): %w", err)
+	}
+	return models, nil
+}
+
 // ListByMedia returns every credit row for the given media
 // (media_type, tmdb_media_id) — the reverse lookup that powers
 // "who from my library appears in this TMDB title?". Hits the

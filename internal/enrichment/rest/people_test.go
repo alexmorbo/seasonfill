@@ -60,7 +60,7 @@ type peopleHandlerFakeCredits struct {
 	rows []dompeople.PersonCredit
 }
 
-func (f peopleHandlerFakeCredits) ListByPerson(_ context.Context, _ int64) ([]dompeople.PersonCredit, error) {
+func (f peopleHandlerFakeCredits) ListByPersonWithTextFallback(_ context.Context, _ int64, _ string) ([]dompeople.PersonCredit, error) {
 	return f.rows, nil
 }
 

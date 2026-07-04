@@ -16,6 +16,7 @@ import (
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -57,7 +58,7 @@ type fakePersonCredits struct {
 	err  error
 }
 
-func (f *fakePersonCredits) ListByPerson(_ context.Context, _ int64) ([]dompeople.PersonCredit, error) {
+func (f *fakePersonCredits) ListByPersonWithTextFallback(_ context.Context, _ int64, _ string) ([]dompeople.PersonCredit, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -122,6 +123,43 @@ func (f fakePeopleSeriesTexts) ListByIDsWithFallback(_ context.Context, ids []do
 		}
 	}
 	return out, nil
+}
+
+// fakePeopleSeriesMediaTexts implements SeriesMediaTextsBatch. Resolves the
+// per-lang poster raw path by canon series.id (the map already holds the
+// resolved row, so lang is ignored — the repo applies the two-tier fallback
+// in prod).
+type fakePeopleSeriesMediaTexts struct {
+	rows map[domain.SeriesID]series.SeriesMediaText
+}
+
+func (f fakePeopleSeriesMediaTexts) ListByIDsWithFallback(_ context.Context, ids []domain.SeriesID, _ string) (map[domain.SeriesID]series.SeriesMediaText, error) {
+	out := make(map[domain.SeriesID]series.SeriesMediaText, len(ids))
+	for _, id := range ids {
+		if t, ok := f.rows[id]; ok {
+			out[id] = t
+		}
+	}
+	return out, nil
+}
+
+// fakeMediaResolver mirrors the production MediaResolver contract just enough
+// for the person page: an empty/nil raw path yields the sentinel missing hash
+// (what the frontend renders as a placeholder), a non-empty raw path yields a
+// deterministic content-addressed hash keyed by (size, path).
+type fakeMediaResolver struct{}
+
+func (fakeMediaResolver) Resolve(_ context.Context, rawPath *string, size, _ string) *string {
+	if rawPath == nil || *rawPath == "" {
+		h := appmedia.SentinelMissingHash
+		return &h
+	}
+	h := "hash:" + size + ":" + *rawPath
+	return &h
+}
+
+func (r fakeMediaResolver) ResolveSync(ctx context.Context, rawPath *string, size, kind string) *string {
+	return r.Resolve(ctx, rawPath, size, kind)
 }
 
 // --- helpers ---
@@ -676,4 +714,103 @@ func TestUseCase_NoCanonLeavesOtherCreditCanonZero(t *testing.T) {
 	for _, oc := range out.OtherCredits {
 		assert.Zero(t, oc.Canon.ID, "credit %q must have zero Canon", oc.Credit.Title)
 	}
+}
+
+// #1032 — a CategoryCanon other-credit (canon row exists but no live
+// series_cache) must stage its poster raw path from series_media_texts and
+// its display title from series_texts, so the poster resolves to the real
+// content hash (NOT the sentinel) and the title is localized. A canon-less
+// credit (movie) must keep its raw person_credits.poster_path + title.
+func TestUseCase_CanonOtherCredit_ResolvesRealPosterAndLocalizedTitle(t *testing.T) {
+	t.Parallel()
+	deps := happyFixture(t)
+	// Wipe series_cache so LoU + GoT drop to CategoryCanon (canon, no cache);
+	// Narcos (no canon) + movie (media_type) stay CategoryTMDB.
+	deps.SeriesCache = &fakeSeriesCache{rows: map[domain.SeriesID][]series.CacheEntry{}}
+	// Give the movie credit a raw poster_path to prove the canon-less path
+	// keeps it verbatim.
+	pc := deps.PersonCredits.(*fakePersonCredits)
+	for i := range pc.rows {
+		if pc.rows[i].Title == "Strange Way of Life" {
+			pc.rows[i].PosterAsset = new("/movie-raw.jpg")
+		}
+	}
+	// ru-RU title + poster for the LoU canon (id 42) via the i18n side-tables.
+	deps.SeriesTexts = fakePeopleSeriesTexts{rows: map[domain.SeriesID]series.SeriesText{
+		42: {SeriesID: 42, Language: "ru-RU", Title: new("Одни из нас")},
+	}}
+	deps.SeriesMediaTexts = fakePeopleSeriesMediaTexts{rows: map[domain.SeriesID]series.SeriesMediaText{
+		42: {SeriesID: 42, Language: "ru-RU", PosterAsset: new("/silo-ru.jpg")},
+	}}
+	deps.MediaResolver = fakeMediaResolver{}
+
+	uc := NewUseCase(deps)
+	out, err := uc.Get(context.Background(), 4495, "ru-RU", "")
+	require.NoError(t, err)
+	require.Len(t, out.OtherCredits, 4)
+
+	byMedia := map[int64]OtherCredit{}
+	for _, oc := range out.OtherCredits {
+		byMedia[oc.Credit.TMDBMediaID] = oc
+	}
+
+	// LoU: canon-backed → localized title + real poster hash (w342), NOT sentinel.
+	lou := byMedia[100]
+	require.Equal(t, domain.SeriesID(42), lou.Canon.ID)
+	assert.Equal(t, "Одни из нас", lou.Credit.Title, "title localized from series_texts")
+	require.NotNil(t, lou.Credit.PosterAsset)
+	assert.Equal(t, "hash:w342:/silo-ru.jpg", *lou.Credit.PosterAsset,
+		"poster staged from series_media_texts and resolved at the series-page w342 variant")
+	assert.NotEqual(t, appmedia.SentinelMissingHash, *lou.Credit.PosterAsset,
+		"canon-backed poster must NOT be the sentinel missing hash")
+
+	// GoT: canon-backed but no series_media_texts row → raw poster_path is
+	// empty, so it resolves to the sentinel (no poster available), while the
+	// credit still routes internally via Canon.ID.
+	got := byMedia[200]
+	require.Equal(t, domain.SeriesID(43), got.Canon.ID)
+	require.NotNil(t, got.Credit.PosterAsset)
+	assert.Equal(t, appmedia.SentinelMissingHash, *got.Credit.PosterAsset)
+
+	// Movie: canon-less → keeps its raw poster_path, resolved at w185. Title
+	// unchanged.
+	movie := byMedia[400]
+	assert.Zero(t, movie.Canon.ID)
+	assert.Equal(t, "Strange Way of Life", movie.Credit.Title, "canon-less title untouched")
+	require.NotNil(t, movie.Credit.PosterAsset)
+	assert.Equal(t, "hash:w185:/movie-raw.jpg", *movie.Credit.PosterAsset,
+		"canon-less credit keeps raw person_credits.poster_path")
+}
+
+// #1032 — library credits must be unaffected by the other-credit staging
+// change: the LoU library card keeps its localized title + poster from the
+// series_texts / series_media_texts side-tables (regression guard).
+func TestUseCase_LibraryCredit_PosterAndTitleUnchanged(t *testing.T) {
+	t.Parallel()
+	deps := happyFixture(t)
+	deps.SeriesTexts = fakePeopleSeriesTexts{rows: map[domain.SeriesID]series.SeriesText{
+		42: {SeriesID: 42, Language: "ru-RU", Title: new("Одни из нас")},
+	}}
+	deps.SeriesMediaTexts = fakePeopleSeriesMediaTexts{rows: map[domain.SeriesID]series.SeriesMediaText{
+		42: {SeriesID: 42, Language: "ru-RU", PosterAsset: new("/silo-ru.jpg")},
+	}}
+	deps.MediaResolver = fakeMediaResolver{}
+
+	uc := NewUseCase(deps)
+	out, err := uc.Get(context.Background(), 4495, "ru-RU", "title")
+	require.NoError(t, err)
+	require.Len(t, out.LibraryCredits, 2)
+
+	var lou *LibraryCredit
+	for i := range out.LibraryCredits {
+		if out.LibraryCredits[i].Canon.ID == 42 {
+			lou = &out.LibraryCredits[i]
+			break
+		}
+	}
+	require.NotNil(t, lou)
+	assert.Equal(t, "Одни из нас", lou.Title)
+	require.NotNil(t, lou.PosterAsset)
+	assert.Equal(t, "hash:w342:/silo-ru.jpg", *lou.PosterAsset,
+		"library credit poster still resolves from series_media_texts at w342")
 }
