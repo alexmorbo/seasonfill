@@ -119,7 +119,6 @@ func (w *PersonWorker) Handle(ctx context.Context, personID int64) error {
 		ttl := enrichment.TTL(enrichment.SourceTMDBPerson, enrichment.KindPerson)
 		if ttl > 0 && w.deps.Clock().Sub(*person.EnrichmentSyncedAt) < ttl {
 			log.DebugContext(ctx, "enrichment.person.handle.fresh_skip",
-				slog.String("domain", "enrichment"),
 				slog.Time("synced_at", *person.EnrichmentSyncedAt),
 			)
 			return nil
@@ -162,7 +161,6 @@ func (w *PersonWorker) Handle(ctx context.Context, personID int64) error {
 	w.journalOK(ctx, personID, now)
 
 	log.InfoContext(ctx, "enrichment.person.handle.ok",
-		slog.String("domain", "enrichment"),
 		slog.Int64("tmdb_person_id", tmdbPersonID),
 		slog.Int("tmdb_credit_count", len(credits)),
 		slog.Int("duration_ms", dur),
@@ -359,7 +357,6 @@ func (w *PersonWorker) handleTMDBError(ctx context.Context, personID int64, op s
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
-		slog.String("domain", "enrichment"),
 		slog.String("entity_type", string(enrichment.EntityTypePerson)),
 		slog.Int64("entity_id", personID),
 		slog.String("source", string(enrichment.SourceTMDBPerson)),
@@ -417,14 +414,12 @@ func (w *PersonWorker) recordPersonError(
 func (w *PersonWorker) journalOK(ctx context.Context, personID int64, now time.Time) {
 	if err := w.deps.People.MarkSynced(ctx, personID, now); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.person.handle.mark_synced_failed",
-			slog.String("domain", "enrichment"),
 			slog.Int64("entity_id", personID),
 			slog.String("error", err.Error()))
 	}
 	if err := w.deps.EnrichmentErrors.ClearOnSuccess(ctx,
 		enrichment.EntityTypePerson, personID, enrichment.SourceTMDBPerson); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.person.handle.clear_error_failed",
-			slog.String("domain", "enrichment"),
 			slog.Int64("entity_id", personID),
 			slog.String("error", err.Error()))
 	}
@@ -434,7 +429,6 @@ func (w *PersonWorker) journalNotFound(ctx context.Context, personID int64, msg 
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
-		slog.String("domain", "enrichment"),
 		slog.String("entity_type", string(enrichment.EntityTypePerson)),
 		slog.Int64("entity_id", personID),
 		slog.String("source", string(enrichment.SourceTMDBPerson)),

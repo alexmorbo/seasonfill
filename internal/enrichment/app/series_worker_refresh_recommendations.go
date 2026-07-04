@@ -78,7 +78,6 @@ func (w *SeriesWorker) RefreshRecommendations(
 ) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
-		slog.String("domain", "enrichment"),
 		slog.String("op", "refresh_recommendations"),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("language", lang),

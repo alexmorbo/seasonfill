@@ -63,7 +63,6 @@ func (w *SeriesWorker) RefreshSeasonSlim(
 ) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
-		slog.String("domain", "enrichment"),
 		slog.String("op", "refresh_season_slim"),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.Int("season_number", seasonNumber),

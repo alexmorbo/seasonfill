@@ -101,7 +101,6 @@ func NewOMDbWorker(deps OMDbWorkerDeps) (*OMDbWorker, error) {
 func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
-		slog.String("domain", "omdb"),
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceOMDb)),
@@ -224,7 +223,6 @@ func (w *OMDbWorker) handleClientError(ctx context.Context, seriesID domain.Seri
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
-		slog.String("domain", "omdb"),
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceOMDb)),
@@ -293,14 +291,12 @@ func (w *OMDbWorker) recordOMDbError(
 func (w *OMDbWorker) journalOK(ctx context.Context, seriesID domain.SeriesID, now time.Time) {
 	if err := w.deps.Series.MarkOMDBSynced(ctx, seriesID, now); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.omdb.handle.mark_synced_failed",
-			slog.String("domain", "omdb"),
 			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}
 	if err := w.deps.EnrichmentErrors.ClearOnSuccess(ctx,
 		enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceOMDb); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.omdb.handle.clear_error_failed",
-			slog.String("domain", "omdb"),
 			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}
@@ -310,7 +306,6 @@ func (w *OMDbWorker) journalNotFound(ctx context.Context, seriesID domain.Series
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
-		slog.String("domain", "omdb"),
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceOMDb)),

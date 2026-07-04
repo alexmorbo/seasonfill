@@ -50,7 +50,6 @@ func (w *SeriesWorker) RefreshCast(
 ) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
-		slog.String("domain", "enrichment"),
 		slog.String("op", "refresh_cast"),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("language", lang),

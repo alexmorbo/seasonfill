@@ -85,7 +85,7 @@ func (r *TVDBResolver) ResolveMissingTMDBID(ctx context.Context, tvdbID domain.T
 	if r == nil || r.series == nil || r.tmdb == nil {
 		return nil
 	}
-	log := r.log.With(slog.String("domain", "enrichment"),
+	log := r.log.With(
 		slog.String("op", "tvdb_resolve"), slog.Int("tvdb_id", int(tvdbID)))
 
 	tv := tvdbID

@@ -248,9 +248,7 @@ func (w *SeriesWorker) HandleForcedLang(ctx context.Context, seriesID domain.Ser
 	if canon.TMDBID == nil {
 		// Same Story 510 rationale as handleInternal — Sonarr-only series
 		// with no tmdb_id can never be enriched via TMDB; log Debug + return.
-		log.DebugContext(ctx, "enrichment.series.handle_lang.no_tmdb_id_skip",
-			slog.String("domain", "enrichment"),
-		)
+		log.DebugContext(ctx, "enrichment.series.handle_lang.no_tmdb_id_skip")
 		return nil
 	}
 
@@ -276,7 +274,6 @@ func (w *SeriesWorker) HandleForcedLang(ctx context.Context, seriesID domain.Ser
 
 	durMs := int(w.deps.Clock().Sub(start).Milliseconds())
 	log.InfoContext(ctx, "enrichment.series.handle_lang.staged_ok",
-		slog.String("domain", "enrichment"),
 		slog.String("language", lang),
 		slog.Int("duration_ms", durMs),
 		slog.String("note", "stage1_2_committed_episodes_pending_dispatcher"),
@@ -351,7 +348,6 @@ func (w *SeriesWorker) refreshOneLanguageStaged(
 	}
 
 	log.InfoContext(ctx, "enrichment.series.handle_lang.language_ok",
-		slog.String("domain", "enrichment"),
 		slog.Int("seasons_fetched", 0),
 		slog.Int("persons_enqueued", len(enqueueRows)),
 	)
@@ -396,9 +392,7 @@ func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.Serie
 		// tmdb_id IS NOT NULL), so the only path reaching this branch in
 		// steady state is operator-driven manual refresh — log at Debug
 		// for diagnosis, return silently.
-		log.DebugContext(ctx, "enrichment.series.handle.no_tmdb_id_skip",
-			slog.String("domain", "enrichment"),
-		)
+		log.DebugContext(ctx, "enrichment.series.handle.no_tmdb_id_skip")
 		return nil
 	}
 
@@ -413,7 +407,6 @@ func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.Serie
 		ttl := enrichment.TTL(enrichment.SourceTMDBSeries, classifyKind(canon))
 		if ttl > 0 && w.deps.Clock().Sub(*canon.EnrichmentTMDBSyncedAt) < ttl {
 			log.DebugContext(ctx, "enrichment.series.handle.fresh_skip",
-				slog.String("domain", "enrichment"),
 				slog.Time("synced_at", *canon.EnrichmentTMDBSyncedAt),
 			)
 			return nil
@@ -466,7 +459,6 @@ func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.Serie
 	if len(failedLangs) == 0 {
 		w.journalOK(ctx, seriesID, now, durMs)
 		log.InfoContext(ctx, "enrichment.series.handle.ok",
-			slog.String("domain", "enrichment"),
 			slog.Any("languages", succeededLangs),
 			slog.Int("duration_ms", durMs),
 		)
@@ -477,7 +469,6 @@ func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.Serie
 	// log per-language detail. Reuse handleTMDBError for the backoff +
 	// recordEnrichmentError plumbing; the first error wins.
 	log.WarnContext(ctx, "enrichment.series.handle.partial_or_failed",
-		slog.String("domain", "enrichment"),
 		slog.Any("succeeded_languages", succeededLangs),
 		slog.Any("failed_languages", failedLangs),
 		slog.Int("duration_ms", durMs),
@@ -563,7 +554,6 @@ func (w *SeriesWorker) refreshOneLanguage(
 	}
 
 	log.InfoContext(ctx, "enrichment.series.handle.language_ok",
-		slog.String("domain", "enrichment"),
 		slog.Int("seasons_fetched", len(seasonResponses)),
 		slog.Int("persons_enqueued", len(enqueueRows)),
 	)
@@ -1443,7 +1433,6 @@ func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID domain.Seri
 	now := w.deps.Clock()
 	durMs := int(now.Sub(start).Milliseconds())
 	log := w.deps.Logger.With(
-		slog.String("domain", "enrichment"),
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceTMDBSeries)),
@@ -1511,14 +1500,12 @@ func (w *SeriesWorker) recordEnrichmentError(
 func (w *SeriesWorker) journalOK(ctx context.Context, seriesID domain.SeriesID, now time.Time, durMs int) {
 	if err := w.deps.Series.MarkTMDBSynced(ctx, seriesID, now); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.series.handle.mark_synced_failed",
-			slog.String("domain", "enrichment"),
 			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}
 	if err := w.deps.EnrichmentErrors.ClearOnSuccess(ctx,
 		enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceTMDBSeries); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.series.handle.clear_error_failed",
-			slog.String("domain", "enrichment"),
 			slog.Int64("entity_id", int64(seriesID)),
 			slog.String("error", err.Error()))
 	}

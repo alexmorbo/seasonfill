@@ -1,8 +1,11 @@
 package persistence
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
@@ -240,6 +244,47 @@ func TestTVDBResolver_Collision_EnqueuesExistingWithoutStamping(t *testing.T) {
 			require.Len(t, enq, 1)
 			assert.Equal(t, appenrich.EntitySeries, enq[0].kind)
 			assert.Equal(t, int64(idB), enq[0].id, "existing owner enqueued")
+		})
+	}
+}
+
+func TestTVDBResolver_NotFound_DomainKeyEmittedExactlyOnce(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			seriesRepo := NewSeriesRepository(db)
+			errsRepo := NewEnrichmentErrorsRepository(db)
+			ctx := context.Background()
+
+			id, err := seriesRepo.Upsert(ctx, series.Canon{
+				Hydration: series.HydrationStub,
+				TVDBID:    ptrTVDBID(424242),
+			})
+			require.NoError(t, err)
+			require.NotZero(t, id)
+
+			finder := &fakeTVDBFinder{
+				resp: &tmdb.FindResponse{TVResults: nil}, // genuine not-found → cooldown log
+			}
+			disp := &fakeDispatcher{}
+
+			var buf bytes.Buffer
+			scoped := sharedports.DomainLogger(
+				slog.New(slog.NewJSONHandler(&buf, nil)), "enrichment")
+			r := appenrich.NewTVDBResolver(seriesRepo, finder, errsRepo, disp, nil, 0, scoped)
+
+			require.NoError(t, r.ResolveMissingTMDBID(ctx, domain.TVDBID(424242)))
+
+			out := buf.String()
+			t.Logf("captured slog output (W16-8 proof artifact): %s", out)
+			require.Contains(t, out, "tvdb_resolve.not_found_cooldown",
+				"expected the cooldown log line to be emitted")
+			assert.Contains(t, out, `"domain":"enrichment"`,
+				"domain-scoped logger must still stamp domain=enrichment")
+			assert.Equal(t, 1, strings.Count(out, `"domain":`),
+				"domain key must appear EXACTLY once per record (no duplicate attr); got: %s", out)
 		})
 	}
 }

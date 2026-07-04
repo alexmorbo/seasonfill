@@ -51,7 +51,6 @@ func (w *SeriesWorker) RefreshSeriesAllLangs(
 ) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
-		slog.String("domain", "enrichment"),
 		slog.String("op", "refresh_series_all_langs"),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.Bool("force", force),
