@@ -44,10 +44,16 @@ func (s *stubTexts) GetWithFallback(_ context.Context, _ domain.SeriesID, _ stri
 
 type stubEpisodeTexts struct {
 	covered, total int
+	bySeason       map[int]struct{ covered, total int }
 	err            error
 }
 
-func (s *stubEpisodeTexts) CoverageBySeries(_ context.Context, _ domain.SeriesID, _ string) (int, int, error) {
+func (s *stubEpisodeTexts) CoverageBySeriesSeason(_ context.Context, _ domain.SeriesID, seasonNumber int, _ string) (int, int, error) {
+	if s.bySeason != nil {
+		if c, ok := s.bySeason[seasonNumber]; ok {
+			return c.covered, c.total, s.err
+		}
+	}
 	return s.covered, s.total, s.err
 }
 
@@ -512,6 +518,44 @@ func TestProbe_SeasonEpisodesLang_EnUS_HighCoverage_Fresh(t *testing.T) {
 	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "en-US"), []int{8})
 	require.NoError(t, err)
 	assertVerdict(t, verdicts, freshener.SeasonSection(8), false, "fresh")
+}
+
+// W16-7: coverage is now per-season. A fully localized season 1 must be
+// fresh even while season 2 is empty — the old series-wide query kept
+// re-flagging season 1 until the whole series crossed the threshold.
+func TestProbe_PerSeasonCoverage_Season1Fresh_Season2Stale(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	canon := catalogseries.Canon{
+		Hydration:               catalogseries.HydrationFull,
+		Status:                  &status,
+		EnrichmentTMDBSyncedAt:  &fresh,
+		EnrichmentTextSyncedAt:  &fresh,
+		EnrichmentCastSyncedAt:  &fresh,
+		EnrichmentRecsSyncedAt:  &fresh,
+		EnrichmentMediaSyncedAt: &fresh,
+	}
+	seasons := &stubSeasons{
+		syncedByNumber: map[int]*time.Time{1: &fresh, 2: &fresh},
+	}
+	probe := mustProbe(t, freshener.DBProbeConfig{
+		Series:      &stubSeries{canon: canon},
+		SeriesTexts: &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+		Seasons:     seasons,
+		EpisodeTextsCoverage: &stubEpisodeTexts{
+			bySeason: map[int]struct{ covered, total int }{
+				1: {covered: 100, total: 100}, // fully localized
+				2: {covered: 0, total: 100},   // empty
+			},
+		},
+		Now: func() time.Time { return now },
+	})
+	verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), []int{1, 2})
+	require.NoError(t, err)
+	assertVerdict(t, verdicts, freshener.SeasonSection(1), false, "fresh")
+	assertVerdict(t, verdicts, freshener.SeasonSection(2), true, "missing_episodes_lang")
 }
 
 func TestProbe_NoSeasonNumbers_EmitsFixedOnly(t *testing.T) {

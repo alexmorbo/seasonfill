@@ -41,7 +41,7 @@ type SeriesTextsReader interface {
 // episodes have a row in episode_texts for this lang?". Story 548
 // catches partial coverage (Season 8 ru-RU enriched while 1-7 stay en).
 type EpisodeTextsCoverageReader interface {
-	CoverageBySeries(ctx context.Context, seriesID domain.SeriesID, language string) (covered, total int, err error)
+	CoverageBySeriesSeason(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, language string) (covered, total int, err error)
 }
 
 // SeriesTextsCoverageReader — narrow port answering "what fraction of
@@ -274,8 +274,11 @@ func (p *DBProbe) IsStale(
 		// episode (sonarr_sync), so coverage is ~100% and this rarely
 		// fires; when it does it's a genuine gap that re-localizes under
 		// Season TTL + singleflight (tmdb-less → no_tmdb_id_skip no-op).
+		// W16-7: coverage is now scoped to this season `n` (was series-wide)
+		// — RefreshSeasonSlim writes one season, so a series-wide fraction
+		// kept re-flagging a fully-localized season on every open.
 		if p.cfg.EpisodeTextsCoverage != nil && !lang.IsZero() {
-			if covered, total, cerr := p.cfg.EpisodeTextsCoverage.CoverageBySeries(ctx, seriesID, lang.Value()); cerr == nil &&
+			if covered, total, cerr := p.cfg.EpisodeTextsCoverage.CoverageBySeriesSeason(ctx, seriesID, n, lang.Value()); cerr == nil &&
 				total > 0 && covered*100 < total*p.cfg.EpisodeCoverageMinPct {
 				v.Stale = true
 				v.Reason = "missing_episodes_lang"

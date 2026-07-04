@@ -523,6 +523,35 @@ func (r *EpisodeTextsRepository) CoverageBySeries(ctx context.Context, seriesID 
 	return int(coveredCnt), int(totalCnt), nil
 }
 
+// CoverageBySeriesSeason mirrors CoverageBySeries but scopes the
+// numerator and denominator to a single season_number — the freshener
+// probe makes a per-season verdict, and RefreshSeasonSlim writes one
+// season, so a series-wide fraction kept re-flagging localized seasons.
+//
+// Returns (0, 0, nil) when the season has no episodes — caller skips the
+// coverage check in that case (no divide-by-zero).
+func (r *EpisodeTextsRepository) CoverageBySeriesSeason(ctx context.Context, seriesID domain.SeriesID, seasonNumber int, language string) (covered, total int, err error) {
+	var totalCnt int64
+	if e := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.EpisodeModel{}).
+		Where("series_id = ? AND season_number = ?", seriesID, seasonNumber).
+		Count(&totalCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count episodes: %w", e)
+	}
+	if totalCnt == 0 {
+		return 0, 0, nil
+	}
+	var coveredCnt int64
+	if e := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("episode_texts AS et").
+		Joins("JOIN episodes e ON e.id = et.episode_id").
+		Where("e.series_id = ? AND e.season_number = ? AND et.language = ?", seriesID, seasonNumber, language).
+		Count(&coveredCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count episode_texts: %w", e)
+	}
+	return int(coveredCnt), int(totalCnt), nil
+}
+
 func (r *EpisodeTextsRepository) Upsert(ctx context.Context, t series.EpisodeText) error {
 	if t.EpisodeID == 0 {
 		return fmt.Errorf("upsert episode_texts: episode_id must be non-zero")

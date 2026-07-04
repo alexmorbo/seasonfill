@@ -267,3 +267,70 @@ func TestEpisodeTextsRepository_FallbackSmoke(t *testing.T) {
 		})
 	}
 }
+
+// TestEpisodeTextsRepository_CoverageBySeriesSeason proves W16-7: the
+// per-season coverage query scopes numerator AND denominator to one
+// season, so a fully localized season 1 reads 100% even while season 2
+// is empty — whereas the old series-wide CoverageBySeries reads 50% and
+// would keep re-flagging season 1 stale at the 80% threshold.
+func TestEpisodeTextsRepository_CoverageBySeriesSeason(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Foundation"))
+			require.NoError(t, err)
+
+			epRepo := NewEpisodesRepository(db)
+			txtRepo := NewEpisodeTextsRepository(db)
+
+			// Season 1: 3 episodes, all with a ru-RU episode_texts row.
+			for ep := 1; ep <= 3; ep++ {
+				epIDRaw, uErr := epRepo.Upsert(ctx, series.CanonEpisode{
+					SeriesID: seriesID, SeasonNumber: 1, EpisodeNumber: ep,
+				})
+				require.NoError(t, uErr)
+				require.NoError(t, txtRepo.Upsert(ctx, series.EpisodeText{
+					EpisodeID: domain.EpisodeID(epIDRaw), Language: "ru-RU",
+					Title: new(fmt.Sprintf("s1e%d ru", ep)),
+				}))
+			}
+			// Season 2: 3 episodes, NO ru-RU rows.
+			for ep := 1; ep <= 3; ep++ {
+				_, uErr := epRepo.Upsert(ctx, series.CanonEpisode{
+					SeriesID: seriesID, SeasonNumber: 2, EpisodeNumber: ep,
+				})
+				require.NoError(t, uErr)
+			}
+
+			// Per-season: season 1 fully covered, season 2 empty.
+			cov1, tot1, err := txtRepo.CoverageBySeriesSeason(ctx, seriesID, 1, "ru-RU")
+			require.NoError(t, err)
+			assert.Equal(t, 3, cov1)
+			assert.Equal(t, 3, tot1, "season-1 denominator is scoped to season 1, not 6")
+
+			cov2, tot2, err := txtRepo.CoverageBySeriesSeason(ctx, seriesID, 2, "ru-RU")
+			require.NoError(t, err)
+			assert.Equal(t, 0, cov2)
+			assert.Equal(t, 3, tot2)
+
+			// Old series-wide verdict: 3/6 = 50% < 80% would mark season 1
+			// stale; the new season-1 query is 100% and does not.
+			covAll, totAll, err := txtRepo.CoverageBySeries(ctx, seriesID, "ru-RU")
+			require.NoError(t, err)
+			assert.Equal(t, 3, covAll)
+			assert.Equal(t, 6, totAll)
+			assert.True(t, covAll*100 < totAll*80, "series-wide would flag season 1 stale")
+			assert.False(t, cov1*100 < tot1*80, "season-scoped season 1 is fresh")
+
+			// NEGATIVE: a season with zero episodes → (0, 0, nil), no
+			// divide-by-zero.
+			covNone, totNone, err := txtRepo.CoverageBySeriesSeason(ctx, seriesID, 99, "ru-RU")
+			require.NoError(t, err)
+			assert.Equal(t, 0, covNone)
+			assert.Equal(t, 0, totNone)
+		})
+	}
+}
