@@ -398,3 +398,68 @@ func TestSyncSeriesFromSonarr_SeasonStats_PartialPack(t *testing.T) {
 	assert.Equal(t, 8, got[0].AiredEpisodeCount)
 	assert.Equal(t, 10, got[0].TotalEpisodeCount)
 }
+
+// TestSyncSeriesFromSonarr_StatusOptionB locks the Option B writer
+// policy end-to-end at the scan seam: a Sonarr scan must NEVER clobber a
+// status a TMDB enrichment pass already wrote (rich vocabulary), but
+// MUST still fill an empty status as a fallback for tmdb-less / not-yet-
+// enriched rows. The invariant is owned by enrichment.MergeSeries
+// (SourceSonarr fill-empty gate) + the series Upsert COALESCE; this test
+// guards against a future change to sonarr_sync that bypasses either.
+func TestSyncSeriesFromSonarr_StatusOptionB(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	statusOf := func(f *syncFixture, tmdbID int) *string {
+		t.Helper()
+		var row struct{ Status *string }
+		require.NoError(t, f.db.Table("series").
+			Select("status").
+			Where("tmdb_id = ?", tmdbID).
+			Scan(&row).Error)
+		return row.Status
+	}
+
+	t.Run("does not overwrite existing TMDB status", func(t *testing.T) {
+		t.Parallel()
+		f := newSyncFixture(t)
+		tmdbID := domain.TMDBID(9001)
+		rich := "Returning Series"
+		// Simulate a prior TMDB enrichment pass that wrote the rich status.
+		_, err := f.deps.Series.Upsert(ctx, series.Canon{
+			TMDBID:    &tmdbID,
+			Status:    &rich,
+			Hydration: series.HydrationFull,
+		})
+		require.NoError(t, err)
+
+		// 6h Sonarr scan arrives with the coarse lowercase status.
+		p := sonarr.SeriesPayload{ID: 1, Title: "Airing Show", TMDBID: tmdbID, TVDBID: 100, Year: 2024, Status: "continuing", Monitored: true, TitleSlug: "airing-show"}
+		_, err = scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
+		require.NoError(t, err)
+
+		got := statusOf(f, int(tmdbID))
+		require.NotNil(t, got)
+		assert.Equal(t, "Returning Series", *got, "Sonarr scan must not clobber TMDB-set status")
+	})
+
+	t.Run("fills empty status as fallback", func(t *testing.T) {
+		t.Parallel()
+		f := newSyncFixture(t)
+		tmdbID := domain.TMDBID(9002)
+		// Existing row with NO status yet (never enriched by TMDB).
+		_, err := f.deps.Series.Upsert(ctx, series.Canon{
+			TMDBID:    &tmdbID,
+			Hydration: series.HydrationStub,
+		})
+		require.NoError(t, err)
+
+		p := sonarr.SeriesPayload{ID: 2, Title: "Fresh Add", TMDBID: tmdbID, TVDBID: 200, Year: 2024, Status: "continuing", Monitored: true, TitleSlug: "fresh-add"}
+		_, err = scan.SyncSeriesFromSonarr(ctx, f.deps, "homelab", scan.SonarrPayloadBundle{Series: p})
+		require.NoError(t, err)
+
+		got := statusOf(f, int(tmdbID))
+		require.NotNil(t, got, "Sonarr status must fill an empty status")
+		assert.Equal(t, "continuing", *got)
+	})
+}

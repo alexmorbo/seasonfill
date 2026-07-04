@@ -51,9 +51,16 @@ func TestTTLVerdict(t *testing.T) {
 func TestIsReturning(t *testing.T) {
 	t.Parallel()
 	statusPtr := func(s string) *string { return &s }
+	// nil + TMDB "ended" vocabulary → not returning.
 	assert.False(t, isReturning(nil))
 	assert.False(t, isReturning(statusPtr("Ended")))
 	assert.False(t, isReturning(statusPtr("Canceled")))
+	// TMDB "returning" vocabulary.
 	assert.True(t, isReturning(statusPtr("Returning Series")))
 	assert.True(t, isReturning(statusPtr("In Production")))
+	// Sonarr coarse vocabulary — "continuing" is the airing equivalent;
+	// "ended"/"deleted" correctly stay false.
+	assert.True(t, isReturning(statusPtr("continuing")))
+	assert.False(t, isReturning(statusPtr("ended")))
+	assert.False(t, isReturning(statusPtr("deleted")))
 }

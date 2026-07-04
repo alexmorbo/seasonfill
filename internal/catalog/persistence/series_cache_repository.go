@@ -287,6 +287,18 @@ func (r *SeriesCacheRepository) resolveOrCreateCanon(ctx context.Context, e seri
 	if err == nil {
 		canon.ID = existing.ID
 		canon.CreatedAt = existing.CreatedAt
+		// Option B (Wave 1.7 RC-3): the cache entry carries Sonarr's coarse
+		// status vocabulary ("continuing"/"ended"/"deleted"). This redundant
+		// canon write bypasses enrichment.MergeSeries, so without a guard the
+		// Upsert's COALESCE(excluded.status, series.status) lets Sonarr's value
+		// win and clobber a status a TMDB enrichment pass already wrote (rich
+		// vocabulary: "Returning Series"/"Canceled"/…). Sonarr status is a
+		// fallback only — preserve the existing canon status when set; fall
+		// back to the Sonarr value only for a canon with no status yet
+		// (tmdb-less / not-yet-enriched rows).
+		if existing.Status != nil && *existing.Status != "" {
+			canon.Status = existing.Status
+		}
 	} else if !errors.Is(err, ports.ErrNotFound) {
 		return 0, fmt.Errorf("find canon: %w", err)
 	}

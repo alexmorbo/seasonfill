@@ -593,9 +593,13 @@ func (w *SeriesWorker) enqueuePersons(ctx context.Context, rows []personEnqueueR
 }
 
 // classifyKind picks the TTL bucket from the canon's Status /
-// InProduction fields. "Continuing" / "Returning Series" / in
-// production → KindSeriesContinuing; otherwise → KindSeriesEnded.
-// (PRD §5.5 TTL matrix.)
+// InProduction fields. Accepts BOTH vocabularies that can land in
+// series.status: TMDB's canonical case ("Returning Series",
+// "In Production", "Pilot", "Planned") AND Sonarr's coarse lowercase
+// ("continuing"), which sonarr_sync writes as a fallback for tmdb-less
+// rows. Any of these → KindSeriesContinuing; everything else
+// (including Sonarr's "ended"/"deleted" and TMDB's "Ended"/"Canceled")
+// → KindSeriesEnded. (PRD §5.5 TTL matrix.)
 func classifyKind(c series.Canon) enrichment.Kind {
 	if c.InProduction {
 		return enrichment.KindSeriesContinuing
@@ -604,7 +608,7 @@ func classifyKind(c series.Canon) enrichment.Kind {
 		return enrichment.KindSeriesEnded
 	}
 	switch *c.Status {
-	case "Returning Series", "In Production", "Pilot", "Planned":
+	case "Returning Series", "In Production", "Pilot", "Planned", "continuing":
 		return enrichment.KindSeriesContinuing
 	}
 	return enrichment.KindSeriesEnded

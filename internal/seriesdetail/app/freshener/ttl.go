@@ -57,14 +57,18 @@ var SectionTTLs = map[Section]TTLPolicy{
 var SeasonTTL = TTLPolicy{Floor: 24 * time.Hour, Ceiling: 7 * 24 * time.Hour, StatusAware: true}
 
 // isReturning reports whether the canon series status warrants
-// status-aware early refresh. Matches the strings TMDB emits
-// (canonical case).
+// status-aware early refresh. Accepts BOTH vocabularies that can land
+// in series.status: TMDB's canonical case ("Returning Series",
+// "In Production") AND Sonarr's coarse lowercase ("continuing"), which
+// sonarr_sync writes as a fallback for tmdb-less rows. Sonarr's
+// "ended"/"deleted" correctly fall through to false, matching TMDB's
+// "Ended"/"Canceled".
 func isReturning(status *string) bool {
 	if status == nil {
 		return false
 	}
 	switch *status {
-	case "Returning Series", "In Production":
+	case "Returning Series", "In Production", "continuing":
 		return true
 	default:
 		return false
