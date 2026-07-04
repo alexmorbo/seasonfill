@@ -186,3 +186,19 @@ func TestFromEnv_MediaUnifiedResolve_GarbageFallsBackToDefault(t *testing.T) {
 	assert.True(t, cfg.Enrichment.MediaUnifiedResolve,
 		"unparseable env must fall back to default-on")
 }
+
+func TestFromEnv_WebhookBaseURL_Set(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_WEBHOOK_BASE_URL", "  https://sf.example/  ")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, "https://sf.example", cfg.HTTP.WebhookBaseURL,
+		"whitespace and trailing slash must be normalized away")
+}
+
+func TestFromEnv_WebhookBaseURL_UnsetEmpty(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, "", cfg.HTTP.WebhookBaseURL)
+}

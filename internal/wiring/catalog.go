@@ -536,8 +536,13 @@ func BuildWebhook(
 
 	webhookStatusCache := webhookinstall.NewStatusCache()
 	webhookReconciler := webhookinstall.New(webhookinstall.Deps{
-		Lookup:    adapters.NewWebhookReconcileLookup(sonarrBundle.InstanceReg),
-		PublicURL: webhookinstall.PublicURLFromContext,
+		Lookup: adapters.NewWebhookReconcileLookup(sonarrBundle.InstanceReg),
+		// Per-request X-Forwarded public URL wins; fall back to the
+		// configured SEASONFILL_WEBHOOK_BASE_URL so the context-less
+		// background/pod-restart reconcile can still resolve a base URL.
+		// The per-instance override is applied on top by
+		// snap.WebhookBaseURL inside the reconciler.
+		PublicURL: webhookinstall.PublicURLWithFallback(cfg.HTTP.WebhookBaseURL),
 		Cache:     webhookStatusCache,
 		APIKey:    cfg.HTTP.Auth.APIKey,
 		Logger:    webhookLog,

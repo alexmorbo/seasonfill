@@ -199,6 +199,12 @@ type HTTPConfig struct {
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
 	Auth            Auth // Populated at runtime from DB auth settings
+
+	// WebhookBaseURL is the configured fallback public base URL used by
+	// the webhook reconciler when the per-request X-Forwarded-* context
+	// value is empty (background 5-min reconcile, pod-restart lazy
+	// reconcile). From SEASONFILL_WEBHOOK_BASE_URL. Empty when unset.
+	WebhookBaseURL string
 }
 
 type DatabaseConfig struct {
@@ -275,6 +281,7 @@ func FromEnv() (*Bootstrap, error) {
 			WriteTimeout:    30 * time.Second,
 			IdleTimeout:     60 * time.Second,
 			ShutdownTimeout: 10 * time.Second,
+			WebhookBaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("SEASONFILL_WEBHOOK_BASE_URL")), "/"),
 		},
 		Database: DatabaseConfig{
 			Driver: getenv("SEASONFILL_DATABASE_DRIVER", "sqlite"),
