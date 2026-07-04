@@ -133,3 +133,34 @@ func TestCompaniesRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 		})
 	}
 }
+
+// TestCompaniesRepository_Set_DedupesDuplicateIDs covers TMDB returning
+// duplicate company ids. Without dedup the batch insert violates the
+// unique (series_id, company_id) constraint and enrichment hot-loops.
+func TestCompaniesRepository_Set_DedupesDuplicateIDs(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewCompaniesRepository(db)
+			ctx := context.Background()
+
+			seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Duplo"))
+			require.NoError(t, err)
+			c10, err := repo.Upsert(ctx, sampleCompany("Company Ten", 10010))
+			require.NoError(t, err)
+			c20, err := repo.Upsert(ctx, sampleCompany("Company Twenty", 20020))
+			require.NoError(t, err)
+			c30, err := repo.Upsert(ctx, sampleCompany("Company Thirty", 30030))
+			require.NoError(t, err)
+
+			require.NoError(t, repo.Set(ctx, seriesID, []int64{c10, c20, c10, c30, c20}))
+			rows, err := repo.ListBySeries(ctx, seriesID)
+			require.NoError(t, err)
+			assert.Equal(t, []int64{c10, c20, c30}, rows,
+				"duplicates dropped, first-occurrence order and positions preserved")
+		})
+	}
+}

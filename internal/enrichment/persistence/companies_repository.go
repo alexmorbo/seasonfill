@@ -136,6 +136,7 @@ func (r *CompaniesRepository) Set(ctx context.Context, seriesID domain.SeriesID,
 		if len(companyIDs) == 0 {
 			return nil
 		}
+		companyIDs = dedupInt64Preserve(companyIDs)
 		rows := make([]database.SeriesCompanyModel, 0, len(companyIDs))
 		for i, cid := range companyIDs {
 			pos := i

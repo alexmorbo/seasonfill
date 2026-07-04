@@ -148,3 +148,34 @@ func TestNetworksRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 		})
 	}
 }
+
+// TestNetworksRepository_Set_DedupesDuplicateIDs covers TMDB returning
+// duplicate network ids. Without dedup the batch insert violates the
+// unique (series_id, network_id) constraint and enrichment hot-loops.
+func TestNetworksRepository_Set_DedupesDuplicateIDs(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewNetworksRepository(db)
+			ctx := context.Background()
+
+			seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Netdup"))
+			require.NoError(t, err)
+			n10, err := repo.Upsert(ctx, sampleNetwork("Net Ten", 10010))
+			require.NoError(t, err)
+			n20, err := repo.Upsert(ctx, sampleNetwork("Net Twenty", 20020))
+			require.NoError(t, err)
+			n30, err := repo.Upsert(ctx, sampleNetwork("Net Thirty", 30030))
+			require.NoError(t, err)
+
+			require.NoError(t, repo.Set(ctx, seriesID, []int64{n10, n20, n10, n30, n20}))
+			rows, err := repo.ListBySeries(ctx, seriesID)
+			require.NoError(t, err)
+			assert.Equal(t, []int64{n10, n20, n30}, rows,
+				"duplicates dropped, first-occurrence order and positions preserved")
+		})
+	}
+}

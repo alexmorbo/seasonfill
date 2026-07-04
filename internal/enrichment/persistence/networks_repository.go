@@ -176,6 +176,7 @@ func (r *NetworksRepository) Set(ctx context.Context, seriesID domain.SeriesID, 
 		if len(networkIDs) == 0 {
 			return nil
 		}
+		networkIDs = dedupInt64Preserve(networkIDs)
 		rows := make([]database.SeriesNetworkModel, 0, len(networkIDs))
 		for i, nid := range networkIDs {
 			pos := i
