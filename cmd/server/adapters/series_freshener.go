@@ -343,6 +343,7 @@ func (h *SeriesFreshenerHolder) dispatchSync(
 			slog.String("failed_sections", failedSectionsList(errs)),
 			slog.Int64("duration_ms", dur),
 		)
+		h.carryOverAsync(inner, seriesID, lang, errs, force)
 		h.cfg.AsyncEnricher.EnqueueIfStale(seriesID, catalogseries.HydrationStub)
 		return seriesdetail.FreshenResult{Refreshed: true, Degraded: true}, joinSectionErrors(errs)
 	default:
@@ -363,6 +364,7 @@ func (h *SeriesFreshenerHolder) dispatchSync(
 			slog.String("failed_sections", failedSectionsList(errs)),
 			slog.Int64("duration_ms", dur),
 		)
+		h.carryOverAsync(inner, seriesID, lang, errs, force)
 		h.cfg.AsyncEnricher.EnqueueIfStale(seriesID, catalogseries.HydrationStub)
 		return seriesdetail.FreshenResult{Degraded: true}, joinSectionErrors(errs)
 	}
@@ -380,28 +382,7 @@ func (h *SeriesFreshenerHolder) dispatchAsync(
 	start time.Time,
 ) seriesdetail.FreshenResult {
 	for _, item := range plan {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), asyncFollowupTimeout)
-			defer cancel()
-			if err := h.runOne(ctx, inner, seriesID, lang, item, force); err != nil {
-				observability.IncSeriesdetailFreshen("followup_error")
-				h.cfg.Logger.WarnContext(ctx, "freshen.async_section",
-					slog.Int64("series_id", int64(seriesID)),
-					slog.String("lang", lang),
-					slog.String("section", string(item.section)),
-					slog.String("result", "error"),
-					slog.String("error", err.Error()),
-				)
-				return
-			}
-			observability.IncSeriesdetailFreshen("followup_ok")
-			h.cfg.Logger.InfoContext(ctx, "freshen.async_section",
-				slog.Int64("series_id", int64(seriesID)),
-				slog.String("lang", lang),
-				slog.String("section", string(item.section)),
-				slog.String("result", "ok"),
-			)
-		}()
+		h.spawnAsyncSection(inner, seriesID, lang, item, force)
 	}
 	observability.IncSeriesdetailFreshen("refreshed")
 	h.cfg.Logger.InfoContext(context.Background(), "freshen.run",
@@ -412,6 +393,69 @@ func (h *SeriesFreshenerHolder) dispatchAsync(
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 	)
 	return seriesdetail.FreshenResult{Refreshed: true}
+}
+
+// spawnAsyncSection fires ONE section on a detached ctx under
+// asyncFollowupTimeout. Shared by dispatchAsync (initial async dispatch) and
+// carryOverAsync (sync-budget carry-over). Fire-and-forget.
+func (h *SeriesFreshenerHolder) spawnAsyncSection(
+	inner SeriesWorkerHandle,
+	seriesID domain.SeriesID,
+	lang string,
+	item dispatchItem,
+	force bool,
+) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), asyncFollowupTimeout)
+		defer cancel()
+		if err := h.runOne(ctx, inner, seriesID, lang, item, force); err != nil {
+			observability.IncSeriesdetailFreshen("followup_error")
+			h.cfg.Logger.WarnContext(ctx, "freshen.async_section",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang),
+				slog.String("section", string(item.section)),
+				slog.String("result", "error"),
+				slog.String("error", err.Error()),
+			)
+			return
+		}
+		observability.IncSeriesdetailFreshen("followup_ok")
+		h.cfg.Logger.InfoContext(ctx, "freshen.async_section",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.String("lang", lang),
+			slog.String("section", string(item.section)),
+			slog.String("result", "ok"),
+		)
+	}()
+}
+
+// carryOverAsync re-dispatches the sections that failed/timed-out under the
+// sync budget onto the freshener's own 180s async path. This is the REAL
+// "ModeSync-past-budget catch-up": the exact un-fetched sections are re-run
+// via RefreshSeasonSlim/RefreshSeriesAllLangs/etc under asyncFollowupTimeout,
+// NOT subject to the OnDemandEnricher 30s series-level throttle. Fire-and-forget.
+func (h *SeriesFreshenerHolder) carryOverAsync(
+	inner SeriesWorkerHandle,
+	seriesID domain.SeriesID,
+	lang string,
+	errs []sectionError,
+	force bool,
+) {
+	if len(errs) == 0 {
+		return
+	}
+	for _, e := range errs {
+		h.spawnAsyncSection(inner, seriesID, lang, dispatchItem{
+			section: e.section,
+			reason:  "sync_budget_carryover",
+		}, force)
+	}
+	h.cfg.Logger.InfoContext(context.Background(), "freshen.carryover",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.String("lang", lang),
+		slog.Int("sections_carried", len(errs)),
+		slog.String("sections", failedSectionsList(errs)),
+	)
 }
 
 // runOne dispatches a single narrow method through singleflight per

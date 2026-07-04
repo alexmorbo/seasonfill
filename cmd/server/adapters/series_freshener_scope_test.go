@@ -278,11 +278,18 @@ func TestEnsureFreshScope_PartialFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "cast blew up")
 	assert.True(t, res.Refreshed)
 	assert.True(t, res.Degraded, "partial success surfaces Degraded=true")
-	assert.Equal(t, int64(1), w.refreshSeriesTextCalls.Load())
-	assert.Equal(t, int64(1), w.refreshCastCalls.Load())
-	assert.Equal(t, int64(1), w.refreshMediaAssetsCalls.Load())
+	assert.Equal(t, int64(1), w.refreshSeriesTextCalls.Load(),
+		"succeeded section dispatched sync only (no carry-over)")
+	assert.Equal(t, int64(1), w.refreshMediaAssetsCalls.Load(),
+		"succeeded section dispatched sync only (no carry-over)")
 	assert.Equal(t, 1, enr.Calls(),
 		"partial failure enqueues belt-and-suspenders async")
+	// W15-10: the FAILED cast section carries over to the async path — sync
+	// invocation (1) plus the carry-over re-dispatch (2). Async, so poll.
+	require.Eventually(t, func() bool {
+		return w.refreshCastCalls.Load() >= 2
+	}, 3*time.Second, 10*time.Millisecond,
+		"failed section MUST carry over to async (sync + carry-over = 2 calls)")
 }
 
 func TestEnsureFreshScope_SyncTimeout(t *testing.T) {
@@ -707,4 +714,177 @@ func TestEnsureFreshScope_ZeroSeriesID_Skipped(t *testing.T) {
 	probe.mu.Lock()
 	defer probe.mu.Unlock()
 	assert.Equal(t, 0, probe.calls, "probe MUST NOT be called for zero seriesID")
+}
+
+// ── W15-10 sync-budget carry-over ────────────────────────────────────────
+
+// carryoverWorker satisfies SeriesWorkerHandle with a single instrumented
+// target method (RefreshSeriesAllLangs, the SectionOverview route). A shared
+// atomic counter lets the carry-over tests branch behaviour on the 1st vs the
+// Nth call:
+//   - blockFirst: the FIRST call blocks on ctx.Done() and returns ctx.Err()
+//     (proves a sync-budget timeout is re-dispatched to async, where the 2nd
+//     call returns nil); subsequent calls return nil.
+//   - err: every call returns this error (proves a plain section error also
+//     carries over).
+//
+// All other narrow methods are unused no-ops.
+type carryoverWorker struct {
+	overviewCalls atomic.Int64
+	blockFirst    bool
+	err           error
+}
+
+func (w *carryoverWorker) Handle(_ context.Context, _ domain.SeriesID) error { return nil }
+func (w *carryoverWorker) HandleForced(_ context.Context, _ domain.SeriesID) error {
+	return nil
+}
+
+func (w *carryoverWorker) HandleForcedLang(_ context.Context, _ domain.SeriesID, _ string) error {
+	return nil
+}
+
+func (w *carryoverWorker) RefreshSeriesAllLangs(ctx context.Context, _ domain.SeriesID, _ bool) error {
+	n := w.overviewCalls.Add(1)
+	if w.blockFirst && n == 1 {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return w.err
+}
+
+func (w *carryoverWorker) RefreshSeriesText(_ context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return nil
+}
+
+func (w *carryoverWorker) RefreshCast(_ context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return nil
+}
+
+func (w *carryoverWorker) RefreshSeasonSlim(_ context.Context, _ domain.SeriesID, _ int, _ string, _ bool) error {
+	return nil
+}
+
+func (w *carryoverWorker) RefreshRecommendations(_ context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return nil
+}
+
+func (w *carryoverWorker) RefreshMediaAssets(_ context.Context, _ domain.SeriesID, _ string, _ bool) error {
+	return nil
+}
+
+// TestEnsureFreshScope_SyncTimeout_CarriesOverToAsync — the FIRST (sync)
+// dispatch blocks past the SyncTimeout budget and returns ctx.Err(); W15-10
+// re-dispatches that exact section onto the async path, where the 2nd call
+// returns nil. Proves timed-out sections are NOT dropped.
+func TestEnsureFreshScope_SyncTimeout_CarriesOverToAsync(t *testing.T) {
+	t.Parallel()
+	probe := &scopeProbe{
+		verdicts: map[freshener.Section]bool{freshener.SectionOverview: true},
+		reason:   "missing_lang",
+	}
+	enr := &fakeAsyncEnricher{}
+	w := &carryoverWorker{blockFirst: true}
+	h := newScopeHolder(t, probe, enr, 50*time.Millisecond, w)
+	defer h.Close()
+
+	res, err := h.EnsureFreshScope(context.Background(), 42, "ru-RU",
+		[]freshener.Section{freshener.SectionOverview},
+		nil, false, seriesdetail.ModeSync,
+	)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, context.DeadlineExceeded),
+		"sync-budget timeout surfaces DeadlineExceeded")
+	assert.True(t, res.Degraded)
+	assert.False(t, res.Refreshed)
+	assert.Equal(t, 1, enr.Calls(), "belt-and-suspenders EnqueueIfStale kept")
+
+	require.Eventually(t, func() bool {
+		return w.overviewCalls.Load() >= 2
+	}, 3*time.Second, 10*time.Millisecond,
+		"timed-out section MUST be re-dispatched to async (carry-over)")
+}
+
+// TestEnsureFreshScope_SectionError_CarriesOverToAsync — a plain section error
+// (no blocking) also carries over: once synchronously, once on the async path.
+func TestEnsureFreshScope_SectionError_CarriesOverToAsync(t *testing.T) {
+	t.Parallel()
+	probe := &scopeProbe{
+		verdicts: map[freshener.Section]bool{freshener.SectionOverview: true},
+		reason:   "missing_lang",
+	}
+	enr := &fakeAsyncEnricher{}
+	w := &carryoverWorker{err: errors.New("boom")}
+	h := newScopeHolder(t, probe, enr, time.Second, w)
+	defer h.Close()
+
+	res, err := h.EnsureFreshScope(context.Background(), 42, "ru-RU",
+		[]freshener.Section{freshener.SectionOverview},
+		nil, false, seriesdetail.ModeSync,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boom")
+	assert.True(t, res.Degraded)
+	assert.Equal(t, 1, enr.Calls(),
+		"belt-and-suspenders EnqueueIfStale kept alongside carry-over")
+
+	require.Eventually(t, func() bool {
+		return w.overviewCalls.Load() >= 2
+	}, 3*time.Second, 10*time.Millisecond,
+		"errored section MUST be re-dispatched to async (once sync, once carry-over)")
+}
+
+// TestEnsureFreshScope_HappyPath_NoCarryOver — a fully-successful sync dispatch
+// must NOT carry over and must NOT enqueue. Key regression guard against a
+// double-dispatch.
+func TestEnsureFreshScope_HappyPath_NoCarryOver(t *testing.T) {
+	t.Parallel()
+	probe := &scopeProbe{
+		verdicts: map[freshener.Section]bool{freshener.SectionOverview: true},
+		reason:   "missing_lang",
+	}
+	enr := &fakeAsyncEnricher{}
+	w := &carryoverWorker{}
+	h := newScopeHolder(t, probe, enr, time.Second, w)
+	defer h.Close()
+
+	res, err := h.EnsureFreshScope(context.Background(), 42, "ru-RU",
+		[]freshener.Section{freshener.SectionOverview},
+		nil, false, seriesdetail.ModeSync,
+	)
+	require.NoError(t, err)
+	assert.True(t, res.Refreshed)
+	assert.False(t, res.Degraded)
+	assert.Equal(t, int64(1), w.overviewCalls.Load(), "happy path dispatches sync only")
+	assert.Equal(t, 0, enr.Calls(), "happy path MUST NOT enqueue async")
+
+	require.Never(t, func() bool {
+		return w.overviewCalls.Load() > 1
+	}, 200*time.Millisecond, 20*time.Millisecond,
+		"happy path MUST NOT double-dispatch via carry-over")
+}
+
+// TestEnsureFreshScope_SectionError_DegradesNotPanic — all requested sections
+// fail; the caller receives a degraded result + surfaced error (no panic), and
+// the composer can proceed degraded.
+func TestEnsureFreshScope_SectionError_DegradesNotPanic(t *testing.T) {
+	t.Parallel()
+	probe := &scopeProbe{
+		verdicts: map[freshener.Section]bool{freshener.SectionOverview: true},
+		reason:   "missing_lang",
+	}
+	enr := &fakeAsyncEnricher{}
+	w := &carryoverWorker{err: errors.New("boom")}
+	h := newScopeHolder(t, probe, enr, time.Second, w)
+	defer h.Close()
+
+	res, err := h.EnsureFreshScope(context.Background(), 42, "ru-RU",
+		[]freshener.Section{freshener.SectionOverview},
+		nil, false, seriesdetail.ModeSync,
+	)
+	require.Error(t, err)
+	assert.True(t, res.Degraded, "all-failed → Degraded=true")
+	assert.False(t, res.Refreshed, "all-failed → Refreshed=false")
+	assert.Contains(t, err.Error(), "section=overview",
+		"combined error annotates the failing section, no panic")
 }

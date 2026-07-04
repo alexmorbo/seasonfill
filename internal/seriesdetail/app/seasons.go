@@ -127,10 +127,12 @@ func (sc *SeasonsComposer) Compose(ctx context.Context, seriesID domain.SeriesID
 	// S-C phase 2 — season:N fan-out. Phase 1 (SectionSkeleton, above) syncs the
 	// canon + season rows on a cold open; now that we know every season number,
 	// drive the freshener for each in ModeSync so season_texts (all langs) land
-	// before we read them below. What fits the SyncTimeout budget is written
-	// synchronously; the rest the freshener catches up async (standard
-	// ModeSync-past-budget behaviour). TTL (episodes_synced_at/SeasonTTL) gates
-	// repeats and AdaptivePause protects the TMDB rate limit for wide series.
+	// before we read them below. Sections that fit the SyncTimeout budget commit
+	// synchronously; sections that time out or error are re-dispatched by the
+	// freshener onto its own 180s async path (carry-over, W15-10) — they are NOT
+	// dropped, so a cold wide series finishes warming in the background after a
+	// SINGLE visit. TTL (episodes_synced_at/SeasonTTL) gates repeats and
+	// AdaptivePause protects the TMDB rate limit for wide series.
 	// nil-OK dep; errors are degraded (Degraded flag), never fatal.
 	if sc.d.Freshener != nil && len(seasons) > 0 {
 		seasonSections := make([]freshener.Section, 0, len(seasons))

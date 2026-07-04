@@ -337,8 +337,12 @@ func TestSeriesFreshenerHolder_TimeoutPath_DegradedAndAsyncFallback(t *testing.T
 	assert.True(t, res.Degraded)
 	assert.False(t, res.Refreshed)
 	// Story 563 A5: shim dispatches 5 sections; all block → all time out.
-	assert.Equal(t, int64(5), w.calls.Load(),
-		"5 sections dispatched, all block until timeout")
+	// W15-10: the 5 timed-out sections then carry over to the async path →
+	// 10 total invocations (5 sync + 5 carry-over). Carry-over is async, poll.
+	require.Eventually(t, func() bool {
+		return w.calls.Load() >= 10
+	}, 3*time.Second, 10*time.Millisecond,
+		"5 sections time out sync, then carry over to async (5 + 5 = 10)")
 	assert.Equal(t, 1, enr.Calls(), "timeout must enqueue async fallback exactly once")
 }
 
@@ -355,8 +359,12 @@ func TestSeriesFreshenerHolder_ErrorPath_DegradedAndAsyncFallback(t *testing.T) 
 	assert.True(t, res.Degraded)
 	assert.False(t, res.Refreshed)
 	// Story 563 A5: shim dispatches 5 sections; all return boom → all fail.
-	assert.Equal(t, int64(5), w.calls.Load(),
-		"5 sections dispatched, all return error")
+	// W15-10: the 5 failed sections then carry over to the async path → 10
+	// total invocations (5 sync + 5 carry-over). Carry-over is async, poll.
+	require.Eventually(t, func() bool {
+		return w.calls.Load() >= 10
+	}, 3*time.Second, 10*time.Millisecond,
+		"5 sections error sync, then carry over to async (5 + 5 = 10)")
 	assert.Equal(t, 1, enr.Calls())
 }
 
