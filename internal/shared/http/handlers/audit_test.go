@@ -41,6 +41,7 @@ type auditFixture struct {
 	decs        *grabpersistence.DecisionRepository
 	grabs       *grabpersistence.GrabRepository
 	seriesCache *catalogpersistence.SeriesCacheRepository
+	seriesTexts *enrichpersistence.SeriesTextsRepository // W15-8
 	router      *gin.Engine
 }
 
@@ -62,12 +63,16 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	decs := grabpersistence.NewDecisionRepository(db)
 	grabs := grabpersistence.NewGrabRepository(db)
 	seriesCache := catalogpersistence.NewSeriesCacheRepository(db, enrichpersistence.NewSeriesRepository(db))
+	seriesTexts := enrichpersistence.NewSeriesTextsRepository(db)
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	// Note: WithSeriesCache is wired here so the per-test slug
 	// fixture works. Tests that don't seed series_cache still see
 	// title_slug omitted from the wire (omitempty + empty slug
-	// from the lookup map miss).
-	h := NewAuditHandler(scans, decs, grabs, lg).WithSeriesCache(seriesCache)
+	// from the lookup map miss). WithLocalizer is a no-op unless a
+	// test issues ?lang= (blank lang short-circuits) — W15-8.
+	h := NewAuditHandler(scans, decs, grabs, lg).
+		WithSeriesCache(seriesCache).
+		WithLocalizer(seriesTexts)
 
 	r := gin.New()
 	// F-2c-1: typed-error middleware so handler c.Error(err) reaches
@@ -85,7 +90,7 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	api.GET("/decisions/:id", h.GetDecision)
 	api.GET("/grabs", h.ListGrabs)
 
-	return &auditFixture{db: db, scans: scans, decs: decs, grabs: grabs, seriesCache: seriesCache, router: r}
+	return &auditFixture{db: db, scans: scans, decs: decs, grabs: grabs, seriesCache: seriesCache, seriesTexts: seriesTexts, router: r}
 }
 
 // withMediaPending swaps the AuditHandler in the fixture's router
@@ -101,7 +106,8 @@ func (f *auditFixture) withMediaPending(t *testing.T) *enrichpersistence.MediaAs
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	h := NewAuditHandler(f.scans, f.decs, f.grabs, lg).
 		WithSeriesCache(f.seriesCache).
-		WithMediaPending(mediaRepo)
+		WithMediaPending(mediaRepo).
+		WithLocalizer(f.seriesTexts)
 	r := gin.New()
 	r.Use(middleware.ErrorResponseMiddleware(lg))
 	api := r.Group("/api/v1")
@@ -1032,4 +1038,166 @@ func TestAudit_ListGrabs_EnsuresPendingMediaAssets(t *testing.T) {
 	require.Equal(t, expectedHash, asset.Hash, "media_assets row must exist for the eager hash from the grab series_cache lookup")
 	assert.Equal(t, "poster_w342", asset.Kind)
 	assert.Equal(t, media.StatusPending, asset.Status)
+}
+
+// --- W15-8: ?lang= title localization -------------------------------------
+
+// seedSeriesCacheRow Upserts a resolvable series_cache row for
+// (instance, sonarrID) — the Upsert resolves-or-creates the canon `series`
+// row so a series_texts row can be attached via seedSeriesText. W15-8.
+func seedSeriesCacheRow(t *testing.T, f *auditFixture, instance string, sonarrID int, title, slug string) {
+	t.Helper()
+	require.NoError(t, f.seriesCache.Upsert(context.Background(), series.CacheEntry{
+		InstanceName:   domain.InstanceName(instance),
+		SonarrSeriesID: domain.SonarrSeriesID(sonarrID),
+		Title:          title,
+		TitleSlug:      slug,
+		Monitored:      true,
+	}))
+}
+
+// seedSeriesText resolves the canon series.id for (instance, sonarrID) from
+// series_cache and Upserts a series_texts row in `lang` carrying `title`.
+// Requires seedSeriesCacheRow to have run for the tuple first. W15-8.
+func seedSeriesText(t *testing.T, f *auditFixture, instance string, sonarrID int, lang, title string) {
+	t.Helper()
+	var sc database.SeriesCacheModel
+	require.NoError(t, f.db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "series_cache row must resolve a canon series_id")
+	ttl := title
+	require.NoError(t, f.seriesTexts.Upsert(context.Background(), series.SeriesText{
+		SeriesID: *sc.SeriesID,
+		Language: lang,
+		Title:    &ttl,
+	}))
+}
+
+func decodeDecisionObj(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	return body
+}
+
+// A decision whose series carries ru-RU + en-US series_texts rows returns the
+// requested-language title; ?lang= chooses the row. seedDecision stamps the
+// snapshot title "Hijack", so a non-"Hijack" result proves the override fired.
+func TestAuditHandler_ListDecisions_LocalizesTitle(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	scan := f.seedScan(t, "main", "completed", base)
+	f.seedDecision(t, scan.ID, "main", 140, 1, decision.OutcomeSkip, base)
+	seedSeriesCacheRow(t, f, "main", 140, "Rick and Morty", "rick-and-morty")
+	seedSeriesText(t, f, "main", 140, "en-US", "Rick and Morty")
+	seedSeriesText(t, f, "main", 140, "ru-RU", "Рик и Морти")
+
+	// ru-RU
+	w := f.do(t, http.MethodGet, "/api/v1/decisions?lang=ru-RU")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Рик и Морти", body.Items[0]["series_title"])
+
+	// en-US (localized row still overrides the snapshot)
+	w = f.do(t, http.MethodGet, "/api/v1/decisions?lang=en-US")
+	require.Equal(t, http.StatusOK, w.Code)
+	body = decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Rick and Morty", body.Items[0]["series_title"])
+}
+
+// No ?lang= → snapshot title unchanged (pre-W15-8 behavior preserved), even
+// though series_texts rows exist.
+func TestAuditHandler_ListDecisions_NoLangKeepsSnapshot(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	scan := f.seedScan(t, "main", "completed", base)
+	f.seedDecision(t, scan.ID, "main", 140, 1, decision.OutcomeSkip, base)
+	seedSeriesCacheRow(t, f, "main", 140, "Rick and Morty", "rick-and-morty")
+	seedSeriesText(t, f, "main", 140, "ru-RU", "Рик и Морти")
+
+	w := f.do(t, http.MethodGet, "/api/v1/decisions")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Hijack", body.Items[0]["series_title"])
+}
+
+// Terminal fallback: a decision on a series with NO series_cache row (removed
+// from the library) keeps the snapshot title — never empty — even with ?lang=.
+func TestAuditHandler_ListDecisions_TerminalFallbackNoCacheRow(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	scan := f.seedScan(t, "main", "completed", base)
+	f.seedDecision(t, scan.ID, "main", 200, 1, decision.OutcomeSkip, base)
+	// No series_cache / series_texts for series 200.
+
+	w := f.do(t, http.MethodGet, "/api/v1/decisions?lang=ru-RU")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Hijack", body.Items[0]["series_title"])
+}
+
+// A series_cache row exists (canon id resolves) but NO series_texts row →
+// snapshot kept (graceful; no panic).
+func TestAuditHandler_ListDecisions_CacheRowButNoText(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	scan := f.seedScan(t, "main", "completed", base)
+	f.seedDecision(t, scan.ID, "main", 140, 1, decision.OutcomeSkip, base)
+	seedSeriesCacheRow(t, f, "main", 140, "Rick and Morty", "rick-and-morty")
+	// No series_texts rows.
+
+	w := f.do(t, http.MethodGet, "/api/v1/decisions?lang=ru-RU")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Hijack", body.Items[0]["series_title"])
+}
+
+// GetDecision (single path) localizes, and terminal-falls-back.
+func TestAuditHandler_GetDecision_LocalizesTitle(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	scan := f.seedScan(t, "main", "completed", base)
+	d := f.seedDecision(t, scan.ID, "main", 140, 1, decision.OutcomeSkip, base)
+	seedSeriesCacheRow(t, f, "main", 140, "Rick and Morty", "rick-and-morty")
+	seedSeriesText(t, f, "main", 140, "ru-RU", "Рик и Морти")
+
+	// localized
+	w := f.do(t, http.MethodGet, "/api/v1/decisions/"+d.ID.String()+"?lang=ru-RU")
+	require.Equal(t, http.StatusOK, w.Code)
+	obj := decodeDecisionObj(t, w)
+	assert.Equal(t, "Рик и Морти", obj["series_title"])
+
+	// no lang → snapshot
+	w = f.do(t, http.MethodGet, "/api/v1/decisions/"+d.ID.String())
+	require.Equal(t, http.StatusOK, w.Code)
+	obj = decodeDecisionObj(t, w)
+	assert.Equal(t, "Hijack", obj["series_title"])
+}
+
+// ListGrabs localizes (mirrors decisions), snapshot kept when no text.
+func TestAuditHandler_ListGrabs_LocalizesTitle(t *testing.T) {
+	f := newAuditFixture(t, false)
+	base := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	f.seedGrab(t, "main", 140, 1, grab.StatusImported, base)
+	seedSeriesCacheRow(t, f, "main", 140, "Rick and Morty", "rick-and-morty")
+	seedSeriesText(t, f, "main", 140, "ru-RU", "Рик и Морти")
+
+	w := f.do(t, http.MethodGet, "/api/v1/grabs?lang=ru-RU")
+	require.Equal(t, http.StatusOK, w.Code)
+	body := decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Рик и Морти", body.Items[0]["series_title"])
+
+	// terminal fallback: no ?lang → snapshot
+	w = f.do(t, http.MethodGet, "/api/v1/grabs")
+	require.Equal(t, http.StatusOK, w.Code)
+	body = decodeList(t, w)
+	require.Len(t, body.Items, 1)
+	assert.Equal(t, "Hijack", body.Items[0]["series_title"])
 }

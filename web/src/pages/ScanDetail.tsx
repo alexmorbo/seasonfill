@@ -18,7 +18,7 @@ import { ScanDecisionsCard } from '@/components/scans/ScanDecisionsCard';
 import { ScanLinkedGrabsCard } from '@/components/scans/ScanLinkedGrabsCard';
 
 export function ScanDetail() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   useSetPageTitle(t('scanDetail.titleShort'));
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -34,7 +34,7 @@ export function ScanDetail() {
   const decisions = useDecisions({
     ...(id && { scan_run_id: id }),
     ...(outcome !== 'all' && { decision: outcome }),
-  }, { fastPoll });
+  }, { fastPoll }, i18n.resolvedLanguage ?? '');
   const grabs = useGrabs(id ? { scan_run_id: id } : {}, { fastPoll });
 
   // Invalidate decisions + grabs once on transition into terminal so the

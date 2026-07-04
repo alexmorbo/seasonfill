@@ -15,6 +15,7 @@ export interface UseDecisionsSeasonOptions {
   readonly seasonNumber: number | null;
   readonly window: DecisionsWindow;
   readonly enabled?: boolean;
+  readonly lang?: string; // W15-8 — BCP-47 tag; '' omits ?lang=
 }
 
 export interface DecisionsSeasonResult {
@@ -28,6 +29,7 @@ function buildQuery(
   seriesId: number,
   season: number,
   window: DecisionsWindow,
+  lang = '',
 ): string {
   const sp = new URLSearchParams();
   if (instance) sp.set('instance', instance);
@@ -37,6 +39,7 @@ function buildQuery(
   if (from) sp.set('from', from);
   if (to) sp.set('to', to);
   sp.set('limit', '100');
+  if (lang) sp.set('lang', lang);
   return `/decisions?${sp.toString()}`;
 }
 
@@ -45,16 +48,17 @@ export const decisionsSeasonKey = (
   seriesId: number | null,
   seasonNumber: number | null,
   window: DecisionsWindow,
-) => ['decisions', 'season', instance, seriesId, seasonNumber, window] as const;
+  lang = '',
+) => ['decisions', 'season', instance, seriesId, seasonNumber, window, lang] as const;
 
 export function useDecisionsSeason({
-  seriesId, seasonNumber, window, enabled = true,
+  seriesId, seasonNumber, window, enabled = true, lang = '',
 }: UseDecisionsSeasonOptions): UseQueryResult<DecisionsSeasonResult, ApiError> {
   const { filter: instance } = useInstanceFilter();
   const gated = enabled && seriesId !== null && seasonNumber !== null;
   return useQuery<DecisionList, ApiError, DecisionsSeasonResult>({
-    queryKey: decisionsSeasonKey(instance, seriesId, seasonNumber, window),
-    queryFn: () => api<DecisionList>(buildQuery(instance, seriesId!, seasonNumber!, window)),
+    queryKey: decisionsSeasonKey(instance, seriesId, seasonNumber, window, lang),
+    queryFn: () => api<DecisionList>(buildQuery(instance, seriesId!, seasonNumber!, window, lang)),
     enabled: gated,
     refetchInterval: gated ? 60_000 : false,
     staleTime: 30_000,

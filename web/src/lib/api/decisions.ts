@@ -46,6 +46,8 @@ export function buildListQuery(
   window: DecisionsWindow,
   cursor: string,
   limit: number,
+  // W15-8 — raw BCP-47 tag; empty string omits the param.
+  lang = '',
 ): string {
   const sp = new URLSearchParams();
   if (instance) sp.set('instance', instance);
@@ -54,20 +56,24 @@ export function buildListQuery(
   if (to) sp.set('to', to);
   if (cursor) sp.set('cursor', cursor);
   sp.set('limit', String(limit));
+  if (lang) sp.set('lang', lang);
   return `/decisions?${sp.toString()}`;
 }
 
 export const decisionsListKey = (
   instance: string | null,
   window: DecisionsWindow,
-) => ['decisions', 'list', instance, window] as const;
+  lang = '',
+) => ['decisions', 'list', instance, window, lang] as const;
 
 export function useDecisionsList(opts: {
   window: DecisionsWindow;
   limit?: number;
+  lang?: string;
 }): UseInfiniteQueryResult<{ pages: DecisionList[]; pageParams: string[] }, ApiError> {
   const { filter: instance } = useInstanceFilter();
   const limit = opts.limit ?? 200;
+  const lang = opts.lang ?? '';
   return useInfiniteQuery<
     DecisionList,
     ApiError,
@@ -75,9 +81,9 @@ export function useDecisionsList(opts: {
     readonly unknown[],
     string
   >({
-    queryKey: decisionsListKey(instance, opts.window),
+    queryKey: decisionsListKey(instance, opts.window, lang),
     queryFn: ({ pageParam }) =>
-      api<DecisionList>(buildListQuery(instance, opts.window, pageParam, limit)),
+      api<DecisionList>(buildListQuery(instance, opts.window, pageParam, limit, lang)),
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     refetchInterval: 60_000,
@@ -196,13 +202,15 @@ export const stuckKey = (
 export function useStuckSeasons(opts: {
   window: DecisionsWindow;
   threshold?: number;
+  lang?: string;
 }): UseQueryResult<readonly StuckSeason[], ApiError> {
   const { filter: instance } = useInstanceFilter();
   const limit = 200;
   const threshold = opts.threshold ?? 3;
+  const lang = opts.lang ?? '';
   return useQuery<DecisionList, ApiError, readonly StuckSeason[]>({
-    queryKey: ['decisions', 'list', instance, opts.window, 'stuck-derive', threshold] as const,
-    queryFn: () => api<DecisionList>(buildListQuery(instance, opts.window, '', limit)),
+    queryKey: ['decisions', 'list', instance, opts.window, 'stuck-derive', threshold, lang] as const,
+    queryFn: () => api<DecisionList>(buildListQuery(instance, opts.window, '', limit, lang)),
     refetchInterval: 60_000,
     staleTime: 30_000,
     refetchOnWindowFocus: false,

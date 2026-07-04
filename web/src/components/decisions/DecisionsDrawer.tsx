@@ -27,10 +27,10 @@ const WINDOW_LABEL_KEY: Record<DecisionsWindow, string> = {
 };
 
 export function DecisionsDrawer(props: DecisionsDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { open, seriesId, seriesTitle, seasonNumber, instance, window, onOpenChange } = props;
   const q = useDecisionsSeason({
-    seriesId, seasonNumber, window, enabled: open,
+    seriesId, seasonNumber, window, enabled: open, lang: i18n.resolvedLanguage ?? '',
   });
 
   const seasonLabel = seasonNumber !== null ? `S${String(seasonNumber).padStart(2, '0')}` : '';

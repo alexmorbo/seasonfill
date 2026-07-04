@@ -152,7 +152,8 @@ func NewServer(
 	globalGrabEpisodeFilesHandler := grabrest.NewGlobalGrabEpisodeFilesHandler(grabRepo, instanceReg, logger)
 	auditHandler := handlers.NewAuditHandler(scanRepo, decisionRepo, grabRepo, logger).
 		WithSeriesCache(seriesCacheRepo).
-		WithMediaPending(mediaPending)
+		WithMediaPending(mediaPending).
+		WithLocalizer(seriesTitleLocalizer)
 	webhookHandler := catalogrest.NewWebhookHandler(webhookUC, instanceReg, logger)
 	grabHandler := grabrest.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 

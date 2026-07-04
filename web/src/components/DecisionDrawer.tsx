@@ -28,18 +28,18 @@ export function DecisionDrawer({
   onOpenChange: (o: boolean) => void;
   rows?: readonly Decision[] | undefined;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // Deep-load: when `?drawer=<id>` opens a decision that sits past the
   // loaded /decisions list page, useDecision fetches by id directly
   // (N-4). We only fall back to the rows-cache lookup when the deep
   // fetch hasn't returned yet OR when no id is set. 404 on the deep
   // fetch surfaces as `deep.isError && deep.error.status === 404` →
   // "truly not found" empty state.
-  const deep = useDecision(id ?? null);
+  const deep = useDecision(id ?? null, i18n.resolvedLanguage ?? '');
   // We keep useDecisions() for backward compatibility with callers
   // that don't pass `rows`; consumers (ScanDetail, Decisions) DO pass
   // rows so this fetch is effectively a no-op cache-hit in production.
-  const q = useDecisions();
+  const q = useDecisions({}, {}, i18n.resolvedLanguage ?? '');
   const cached = useMemo(() => rows ?? flattenDecisions(q.data?.pages), [rows, q.data]);
   const d: Decision | null = useMemo(() => {
     if (!id) return null;

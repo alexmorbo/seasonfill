@@ -11,12 +11,14 @@ export type Decision = components['schemas']['dto.Decision'];
 export type DecisionList = components['schemas']['dto.DecisionList'];
 export type DecisionFilters = { decision?: string; scan_run_id?: string };
 
-function buildQuery(instance: string | null, f: DecisionFilters, cursor: string): string {
+function buildQuery(instance: string | null, f: DecisionFilters, cursor: string, lang = ''): string {
   const sp = new URLSearchParams();
   if (instance) sp.set('instance', instance);
   if (f.decision) sp.set('decision', f.decision);
   if (f.scan_run_id) sp.set('scan_run_id', f.scan_run_id);
   if (cursor) sp.set('cursor', cursor);
+  // W15-8 — raw BCP-47 tag forwarded so the BE localises series_title.
+  if (lang) sp.set('lang', lang);
   const qs = sp.toString();
   return qs ? `/decisions?${qs}` : '/decisions';
 }
@@ -27,7 +29,11 @@ export interface UseDecisionsOptions {
   readonly fastPoll?: boolean;
 }
 
-export function useDecisions(filters: DecisionFilters = {}, opts: UseDecisionsOptions = {}) {
+export function useDecisions(
+  filters: DecisionFilters = {},
+  opts: UseDecisionsOptions = {},
+  lang = '',
+) {
   const { filter: instance } = useInstanceFilter();
   return useInfiniteQuery<
     DecisionList,
@@ -36,8 +42,8 @@ export function useDecisions(filters: DecisionFilters = {}, opts: UseDecisionsOp
     readonly unknown[],
     string
   >({
-    queryKey: ['decisions', instance, filters] as const,
-    queryFn: ({ pageParam }) => api<DecisionList>(buildQuery(instance, filters, pageParam)),
+    queryKey: ['decisions', instance, filters, lang] as const,
+    queryFn: ({ pageParam }) => api<DecisionList>(buildQuery(instance, filters, pageParam, lang)),
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     refetchInterval: opts.fastPoll ? 2_000 : 30_000,
@@ -55,10 +61,14 @@ export function useDecisions(filters: DecisionFilters = {}, opts: UseDecisionsOp
 // `enabled` gates the request when id is null/empty; 404 → ApiError
 // surfaced via react-query's error state and used by the drawer to
 // distinguish "truly missing" from "still loading".
-export function useDecision(id: string | null | undefined): UseQueryResult<Decision, ApiError> {
+export function useDecision(
+  id: string | null | undefined,
+  lang = '',
+): UseQueryResult<Decision, ApiError> {
   return useQuery<Decision, ApiError>({
-    queryKey: ['decision', id ?? null] as const,
-    queryFn: () => api<Decision>(`/decisions/${id}`),
+    queryKey: ['decision', id ?? null, lang] as const,
+    queryFn: () =>
+      api<Decision>(`/decisions/${id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`),
     enabled: Boolean(id),
     staleTime: 60_000,
     refetchOnWindowFocus: false,

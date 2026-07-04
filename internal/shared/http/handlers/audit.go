@@ -4,11 +4,13 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
+	series "github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	appdecision "github.com/alexmorbo/seasonfill/internal/grab/app/decision"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
@@ -16,6 +18,22 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
+
+// SeriesTextLocalizer is the narrow slice of the enrichment
+// SeriesTextsRepository the audit handler needs to override the snapshot
+// SeriesTitle on decisions/grabs with the caller's requested language
+// (?lang=). Its method set is IDENTICAL to catalog/rest.SeriesTextLocalizer
+// and watchdog/rest.SeriesTextLocalizer, so the same wired value
+// (*enrichmentpersistence.SeriesTextsRepository) assigns cleanly across all
+// three. nil-OK: when unwired the audit endpoints render the snapshot
+// (English Sonarr) title unchanged. W15-8.
+type SeriesTextLocalizer interface {
+	ListByIDsWithFallback(
+		ctx context.Context,
+		seriesIDs []domain.SeriesID,
+		lang string,
+	) (map[domain.SeriesID]series.SeriesText, error)
+}
 
 // AuditHandler exposes the four read-only audit endpoints. Constructor
 // takes port interfaces so tests can substitute fakes (though in-package
@@ -28,6 +46,7 @@ type AuditHandler struct {
 	seriesCache    ports.SeriesCacheRepository
 	mediaPending   adminrest.CatalogMediaPendingWriter // story 352, nil-OK
 	mediaPrewarmer adminrest.CatalogMediaPrewarmer     // story 352, nil-OK
+	localizer      SeriesTextLocalizer                 // W15-8, nil-OK
 	logger         *slog.Logger
 }
 
@@ -70,6 +89,20 @@ func (h *AuditHandler) WithMediaPending(w adminrest.CatalogMediaPendingWriter) *
 // nil-OK — see story 352 MVP scope.
 func (h *AuditHandler) WithMediaPrewarmer(p adminrest.CatalogMediaPrewarmer) *AuditHandler {
 	h.mediaPrewarmer = p
+	return h
+}
+
+// WithLocalizer wires the optional series-title localizer so the decisions
+// + grabs endpoints override the snapshot SeriesTitle with the caller's
+// ?lang=. nil is a no-op: the snapshot (English Sonarr) title is rendered
+// unchanged — which is also the terminal fallback for rows whose series has
+// been removed from the library (no series_cache / no series_texts). Builder
+// pattern keeps the constructor signature stable across the existing
+// audit_test.go call sites. Mirrors WatchdogSeasonsHandler.WithLocalizer.
+//
+// W15-8.
+func (h *AuditHandler) WithLocalizer(l SeriesTextLocalizer) *AuditHandler {
+	h.localizer = l
 	return h
 }
 
@@ -325,6 +358,7 @@ func (h *AuditHandler) GetScan(c *gin.Context) {
 // @Tags        decisions
 // @Produce     json
 // @Param       id    path     string  true  "Decision UUID"
+// @Param       lang  query  string  false  "BCP-47 language for series_title (e.g. ru-RU); omit for snapshot"
 // @Success     200   {object}  dto.Decision
 // @Failure     400   {object}  dto.ErrorResponse
 // @Failure     404   {object}  dto.ErrorResponse
@@ -344,7 +378,9 @@ func (h *AuditHandler) GetDecision(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	c.JSON(http.StatusOK, toDecisionDTO(rec))
+	items := []dto.Decision{toDecisionDTO(rec)}
+	h.applyDecisionTitles(c.Request.Context(), c.Query("lang"), []decision.Decision{rec}, items)
+	c.JSON(http.StatusOK, items[0])
 }
 
 // ListDecisions handles GET /api/v1/decisions.
@@ -361,6 +397,7 @@ func (h *AuditHandler) GetDecision(c *gin.Context) {
 // @Param       decision       query  string  false  "Filter by outcome"  Enums(grab,skip,blocked_cooldown,already_optimal,expired,error)
 // @Param       from           query  string  false  "RFC3339 lower bound"
 // @Param       to             query  string  false  "RFC3339 upper bound"
+// @Param       lang           query  string  false  "BCP-47 language for series_title (e.g. ru-RU); omit for snapshot"
 // @Success     200  {object}  dto.DecisionList
 // @Failure     400  {object}  dto.ErrorResponse
 // @Failure     500  {object}  dto.ErrorResponse
@@ -421,6 +458,7 @@ func (h *AuditHandler) ListDecisions(c *gin.Context) {
 	for _, d := range recs {
 		out = append(out, toDecisionDTO(d))
 	}
+	h.applyDecisionTitles(c.Request.Context(), c.Query("lang"), recs, out)
 	writeListResponse(c, out, next)
 }
 
@@ -437,6 +475,7 @@ func (h *AuditHandler) ListDecisions(c *gin.Context) {
 // @Param       status         query  string  false  "Filter by status"  Enums(grabbed,imported,import_failed,grab_failed,expired)
 // @Param       from           query  string  false  "RFC3339 lower bound"
 // @Param       to             query  string  false  "RFC3339 upper bound"
+// @Param       lang           query  string  false  "BCP-47 language for series_title (e.g. ru-RU); omit for snapshot"
 // @Success     200  {object}  dto.GrabList
 // @Failure     400  {object}  dto.ErrorResponse
 // @Failure     500  {object}  dto.ErrorResponse
@@ -565,6 +604,7 @@ func (h *AuditHandler) ListGrabs(c *gin.Context) {
 		key := grabKey{instance: r.InstanceName, seriesID: r.SeriesID}
 		out = append(out, toGrabDTO(r, replays[r.ID], parent, intents[r.ID], slugs[key], hashes[key]))
 	}
+	h.applyGrabTitles(ctx, c.Query("lang"), recs, out)
 	writeListResponse(c, out, next)
 }
 
@@ -685,6 +725,157 @@ func (h *AuditHandler) collectGrabCacheFields(ctx context.Context, recs []grab.R
 			pendingEntries, adminrest.CatalogPosterKindW342, h.logger)
 	}
 	return slugs, hashes
+}
+
+// resolveCanonSeriesIDs builds a (instance, sonarr_series_id) → canon
+// series.id map from one ListActiveByInstance call per distinct instance in
+// `instances`. Mirrors collectGrabCacheFields' fanout bound (one repo hit per
+// instance; production audit calls are almost always single-instance). Entries
+// whose canon SeriesID is nil (legacy/broken row) are skipped so the caller
+// keeps the snapshot title. A repo error WARN-logs and degrades to a partial /
+// empty map for that instance. W15-8.
+func (h *AuditHandler) resolveCanonSeriesIDs(ctx context.Context, instances map[domain.InstanceName]struct{}) map[grabKey]domain.SeriesID {
+	out := make(map[grabKey]domain.SeriesID, len(instances))
+	if h.seriesCache == nil || len(instances) == 0 {
+		return out
+	}
+	for inst := range instances {
+		entries, err := h.seriesCache.ListActiveByInstance(ctx, inst)
+		if err != nil {
+			h.logger.WarnContext(ctx, "audit_localize_cache_lookup_failed",
+				slog.String("instance", string(inst)),
+				slog.String("error", err.Error()))
+			continue
+		}
+		for _, e := range entries {
+			if e.SeriesID == nil {
+				continue
+			}
+			out[grabKey{instance: inst, seriesID: e.SonarrSeriesID}] = *e.SeriesID
+		}
+	}
+	return out
+}
+
+// localizeTitleFromTexts extracts a non-blank localized title for canonID from
+// a series_texts batch result. series.SeriesText.Title is *string (nullable);
+// a nil or whitespace-only title yields ok=false so the caller keeps the
+// snapshot title. Package-local twin of watchdog rest.titleFromTexts. W15-8.
+func localizeTitleFromTexts(texts map[domain.SeriesID]series.SeriesText, canonID domain.SeriesID) (string, bool) {
+	t, ok := texts[canonID]
+	if !ok || t.Title == nil {
+		return "", false
+	}
+	title := strings.TrimSpace(*t.Title)
+	if title == "" {
+		return "", false
+	}
+	return title, true
+}
+
+// localizedTitlesByKey resolves a localized SeriesTitle for each distinct
+// (instance, sonarr_series_id) key in two batched hits: series_cache (canon-id
+// resolution) then series_texts (title lookup). Returns a map key→title
+// containing ONLY keys that resolve to a non-blank localized title. Every other
+// key (series removed from the library → no cache row / nil canon id, no
+// series_texts row, blank/NULL title, or a repo error) is absent, so the caller
+// keeps its snapshot title — the terminal fallback. No-op empty map when the
+// localizer is unwired or lang is blank, preserving the pre-W15-8 snapshot
+// behavior exactly. Shared by the decisions + grabs paths. W15-8.
+func (h *AuditHandler) localizedTitlesByKey(ctx context.Context, lang string, keys []grabKey) map[grabKey]string {
+	out := map[grabKey]string{}
+	if h.localizer == nil || strings.TrimSpace(lang) == "" || len(keys) == 0 {
+		return out
+	}
+	instances := make(map[domain.InstanceName]struct{}, 1)
+	for _, k := range keys {
+		if k.instance == "" {
+			continue
+		}
+		instances[k.instance] = struct{}{}
+	}
+	canonByKey := h.resolveCanonSeriesIDs(ctx, instances)
+	if len(canonByKey) == 0 {
+		return out
+	}
+	// Distinct canon ids to fetch, plus a canon→keys reverse index (a canon
+	// id may back more than one instance key).
+	ids := make([]domain.SeriesID, 0, len(keys))
+	seen := make(map[domain.SeriesID]struct{}, len(keys))
+	keysByCanon := make(map[domain.SeriesID][]grabKey, len(keys))
+	for _, k := range keys {
+		canonID, ok := canonByKey[k]
+		if !ok {
+			continue
+		}
+		keysByCanon[canonID] = append(keysByCanon[canonID], k)
+		if _, dup := seen[canonID]; dup {
+			continue
+		}
+		seen[canonID] = struct{}{}
+		ids = append(ids, canonID)
+	}
+	if len(ids) == 0 {
+		return out
+	}
+	texts, err := h.localizer.ListByIDsWithFallback(ctx, ids, lang)
+	if err != nil {
+		h.logger.WarnContext(ctx, "audit_localize_failed",
+			slog.String("lang", lang), slog.String("error", err.Error()))
+		return out
+	}
+	for canonID, ks := range keysByCanon {
+		title, ok := localizeTitleFromTexts(texts, canonID)
+		if !ok {
+			continue
+		}
+		for _, k := range ks {
+			out[k] = title
+		}
+	}
+	return out
+}
+
+// applyDecisionTitles overrides the snapshot SeriesTitle on each decision DTO
+// with the caller's ?lang=, index-aligned with recs. No-op when localization is
+// unwired / lang blank / no rows. W15-8.
+func (h *AuditHandler) applyDecisionTitles(ctx context.Context, lang string, recs []decision.Decision, items []dto.Decision) {
+	if len(recs) == 0 {
+		return
+	}
+	keys := make([]grabKey, len(recs))
+	for i, d := range recs {
+		keys[i] = grabKey{instance: d.InstanceName, seriesID: d.SeriesID}
+	}
+	titles := h.localizedTitlesByKey(ctx, lang, keys)
+	if len(titles) == 0 {
+		return
+	}
+	for i := range items {
+		if title, ok := titles[keys[i]]; ok {
+			items[i].SeriesTitle = title
+		}
+	}
+}
+
+// applyGrabTitles is the grabs twin of applyDecisionTitles. W15-8.
+func (h *AuditHandler) applyGrabTitles(ctx context.Context, lang string, recs []grab.Record, items []dto.Grab) {
+	if len(recs) == 0 {
+		return
+	}
+	keys := make([]grabKey, len(recs))
+	for i, r := range recs {
+		keys[i] = grabKey{instance: r.InstanceName, seriesID: r.SeriesID}
+	}
+	titles := h.localizedTitlesByKey(ctx, lang, keys)
+	if len(titles) == 0 {
+		return
+	}
+	for i := range items {
+		if title, ok := titles[keys[i]]; ok {
+			items[i].SeriesTitle = title
+		}
+	}
 }
 
 // grabParsedToDTO lifts a *grab.Parsed onto a *dto.GrabParsed. nil in →

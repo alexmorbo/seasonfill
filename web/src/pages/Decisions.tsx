@@ -52,7 +52,7 @@ function parseSort(raw: string | null): DecisionsSort {
 }
 
 export function Decisions() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   useSetPageTitle(t('decisions.title'));
   const [params, setParams] = useSearchParams();
   const { filter: ctxInstance, setFilter: setCtxInstance } = useInstanceFilter();
@@ -85,8 +85,9 @@ export function Decisions() {
   }, [setParams]);
 
   // Queries
-  const listQ  = useDecisionsList({ window });
-  const stuckQ = useStuckSeasons({ window });
+  const lang   = i18n.resolvedLanguage ?? '';
+  const listQ  = useDecisionsList({ window, lang });
+  const stuckQ = useStuckSeasons({ window, lang });
 
   const onOpenSeason = useCallback((s: StuckSeason) => {
     const next = new URLSearchParams(params);
