@@ -59,10 +59,11 @@ func (w *fakeRefreshWorker) HandleForced(ctx context.Context, id int64) error {
 }
 
 type recRefreshMetrics struct {
-	mu        sync.Mutex
-	inc       map[string]int // key="tier:result"
-	batchSize int
-	ticks     int
+	mu            sync.Mutex
+	inc           map[string]int // key="tier:result"
+	batchSize     int
+	ticks         int
+	missingPoster int
 }
 
 func newRecRefreshMetrics() *recRefreshMetrics { return &recRefreshMetrics{inc: map[string]int{}} }
@@ -83,6 +84,12 @@ func (r *recRefreshMetrics) ObserveTickDuration(time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ticks++
+}
+
+func (r *recRefreshMetrics) IncRefreshPickedMissingPoster() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.missingPoster++
 }
 
 func newRefreshSched(t *testing.T, picker RefreshPicker, worker SeriesForceRefresher, m RefreshMetrics) *RefreshScheduler {
@@ -120,6 +127,22 @@ func TestRefreshScheduler_TierOrderingPreserved(t *testing.T) {
 	assert.Equal(t, 1, m.inc["hot:ok"])
 	assert.Equal(t, 1, m.inc["normal:ok"])
 	assert.Equal(t, 1, m.inc["cold:ok"])
+}
+
+func TestRefreshScheduler_MissingPosterMetricTicksPerCandidate(t *testing.T) {
+	t.Parallel()
+	picker := &fakeRefreshPicker{rows: []RefreshCandidate{
+		{SeriesID: 11, Tier: enrichdomain.RefreshTierHot, MissingPoster: true},
+		{SeriesID: 22, Tier: enrichdomain.RefreshTierHot, MissingPoster: false},
+		{SeriesID: 33, Tier: enrichdomain.RefreshTierHot, MissingPoster: true},
+	}}
+	worker := &fakeRefreshWorker{errs: map[int64]error{}}
+	m := newRecRefreshMetrics()
+	s := newRefreshSched(t, picker, worker, m)
+
+	s.Tick(context.Background())
+
+	assert.Equal(t, 2, m.missingPoster, "one tick per missing-poster candidate")
 }
 
 func TestRefreshScheduler_PerSeriesErrorDoesNotAbortBatch(t *testing.T) {

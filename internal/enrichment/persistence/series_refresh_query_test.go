@@ -11,9 +11,25 @@ import (
 
 	discopersistence "github.com/alexmorbo/seasonfill/internal/discovery/persistence"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
+
+// seedSeriesMediaTextRow inserts one series_media_texts row with a
+// non-NULL poster_asset for (seriesID, language). Used by the W17-1
+// poster-guard tests to mark a library series as "already has art".
+func seedSeriesMediaTextRow(t *testing.T, db *gorm.DB, seriesID domain.SeriesID, language, posterAsset string) {
+	t.Helper()
+	p := posterAsset
+	row := database.SeriesMediaTextModel{
+		SeriesID:    seriesID,
+		Language:    language,
+		PosterAsset: &p,
+		UpdatedAt:   time.Now().UTC(),
+	}
+	require.NoError(t, db.Create(&row).Error)
+}
 
 // seedDiscoveryListsRow inserts one discovery_lists row pointing at
 // seriesID. Used by the refresh-picker tests to mark a series as
@@ -96,6 +112,10 @@ func TestSeriesRepository_PickRefreshCandidates_TierMembershipAndOrder(t *testin
 
 			idF := seedAndUpsert("F-hot-fresh", 1006, &fresh)
 			seedSeriesCacheRow(t, db, idF, "main", 1006, false)
+			// F carries a poster asset so the W17-1 missing-poster guard
+			// does NOT fire — its exclusion here is purely the TTL-fresh
+			// gate, which is what this case asserts.
+			seedSeriesMediaTextRow(t, db, idF, "en-US", "/posters/f.jpg")
 
 			// G — NULL tmdb_id (legacy Sonarr import).
 			g := sampleCanon("G-no-tmdb")
@@ -138,6 +158,80 @@ func TestSeriesRepository_PickRefreshCandidates_TierMembershipAndOrder(t *testin
 				assert.NotEqual(t, idG, r.SeriesID, "null-tmdb series G must be excluded")
 				assert.NotEqual(t, idH, r.SeriesID, "terminal-failure series H must be excluded")
 			}
+		})
+	}
+}
+
+// TestSeriesRepository_PickRefreshCandidates_MissingPosterGuard covers
+// the W17-1 HOT poster-guard branch: a tmdb-stamped library series that
+// is otherwise TTL-fresh is still picked when it has no
+// series_media_texts.poster_asset row, guarded by a 15-minute race
+// window and scoped to tmdb-enrichable library series only.
+func TestSeriesRepository_PickRefreshCandidates_MissingPosterGuard(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+			oneHourAgo := now.Add(-1 * time.Hour)   // TTL-fresh (< 7d) BUT > 15m guard
+			fiveMinAgo := now.Add(-5 * time.Minute) // inside the 15m race guard
+
+			seedLib := func(title string, tmdbID int64, syncedAt *time.Time, sonarrID domain.SonarrSeriesID) domain.SeriesID {
+				t.Helper()
+				c := sampleCanon(title)
+				c.TMDBID = ptrTMDBID(int(tmdbID))
+				c.TVDBID = ptrTVDBID(int(tmdbID + 100000))
+				c.IMDBID = nil
+				c.EnrichmentTMDBSyncedAt = syncedAt
+				id, err := repo.Upsert(ctx, c)
+				require.NoError(t, err)
+				seedSeriesCacheRow(t, db, id, "main", sonarrID, false)
+				return id
+			}
+
+			// P — stamped 1h ago (TTL-fresh), NO poster → PICKED via guard.
+			idP := seedLib("P-fresh-no-poster", 3001, &oneHourAgo, 3001)
+			// Q — stamped 1h ago (TTL-fresh), HAS poster → NOT picked.
+			idQ := seedLib("Q-fresh-with-poster", 3002, &oneHourAgo, 3002)
+			seedSeriesMediaTextRow(t, db, idQ, "en-US", "/posters/q.jpg")
+			// R — stamped 5m ago (inside race guard), NO poster → NOT picked.
+			idR := seedLib("R-race-no-poster", 3003, &fiveMinAgo, 3003)
+			// N — NULL sync, NO poster → PICKED (NULL-sync path) + missing_poster.
+			idN := seedLib("N-null-sync", 3004, nil, 3004)
+
+			// S — tmdb-less library series, NO poster → NOT picked (guard is
+			// scoped to tmdb-enrichable rows; prevents the tmdb-less hot-loop).
+			s := sampleCanon("S-no-tmdb")
+			s.TMDBID = nil
+			s.TVDBID = nil
+			s.IMDBID = nil
+			s.EnrichmentTMDBSyncedAt = &oneHourAgo
+			idS, err := repo.Upsert(ctx, s)
+			require.NoError(t, err)
+			seedSeriesCacheRow(t, db, idS, "main", 3005, false)
+
+			rows, err := repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 50)
+			require.NoError(t, err)
+
+			picked := make(map[domain.SeriesID]RefreshCandidate, len(rows))
+			for _, r := range rows {
+				picked[r.SeriesID] = r
+			}
+
+			// P and N picked; both flagged missing_poster.
+			require.Contains(t, picked, idP, "TTL-fresh poster-less series must be picked by the guard")
+			assert.True(t, picked[idP].MissingPoster, "P must carry the missing_poster reason")
+			require.Contains(t, picked, idN, "NULL-sync series must still be picked")
+			assert.True(t, picked[idN].MissingPoster, "N has no poster → missing_poster true")
+
+			// Q (has poster), R (race guard), S (tmdb-less) excluded.
+			assert.NotContains(t, picked, idQ, "series with a poster asset must not be picked")
+			assert.NotContains(t, picked, idR, "series stamped < 15m ago must not be picked (race guard)")
+			assert.NotContains(t, picked, idS, "tmdb-less series must not be picked by the poster branch")
 		})
 	}
 }

@@ -1315,8 +1315,9 @@ func (a refreshPickerAdapter) PickRefreshCandidates(
 	out := make([]appenrich.RefreshCandidate, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, appenrich.RefreshCandidate{
-			SeriesID: int64(r.SeriesID),
-			Tier:     r.Tier,
+			SeriesID:      int64(r.SeriesID),
+			Tier:          r.Tier,
+			MissingPoster: r.MissingPoster,
 		})
 	}
 	return out, nil

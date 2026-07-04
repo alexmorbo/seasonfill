@@ -37,6 +37,11 @@ import (
 type RefreshCandidate struct {
 	SeriesID int64
 	Tier     enrichdomain.RefreshTier
+	// MissingPoster is true when the picker selected this row via the
+	// W17-1 HOT poster-guard branch (library series with no
+	// series_media_texts.poster_asset). Drives the observability signal
+	// for the one-shot backfill drain.
+	MissingPoster bool
 }
 
 // RefreshPicker is the port the scheduler depends on. Production
@@ -57,6 +62,10 @@ type RefreshMetrics interface {
 	IncRefresh(tier enrichdomain.RefreshTier, result string)
 	ObserveBatchSize(n int)
 	ObserveTickDuration(d time.Duration)
+	// IncRefreshPickedMissingPoster ticks once per candidate the picker
+	// selected via the W17-1 poster-guard branch. Lets Grafana watch the
+	// backfill drain toward the tmdb-less floor.
+	IncRefreshPickedMissingPoster()
 }
 
 // noopRefreshMetrics is the zero-value default so an unconfigured
@@ -66,6 +75,7 @@ type noopRefreshMetrics struct{}
 func (noopRefreshMetrics) IncRefresh(enrichdomain.RefreshTier, string) {}
 func (noopRefreshMetrics) ObserveBatchSize(int)                        {}
 func (noopRefreshMetrics) ObserveTickDuration(time.Duration)           {}
+func (noopRefreshMetrics) IncRefreshPickedMissingPoster()              {}
 
 // RefreshSchedulerDeps is the construction surface. Required:
 // Picker, Worker. Logger defaults to ports.DomainLogger(slog.Default(),
@@ -154,8 +164,25 @@ func (s *RefreshScheduler) Tick(ctx context.Context) {
 		return
 	}
 
+	// W17-1 — surface the poster-backfill drain. Count the poster-guard
+	// picks, emit one metric tick + a per-series log line each, so the
+	// operator can watch the 49 stuck library series heal.
+	missingPoster := 0
+	for _, c := range candidates {
+		if !c.MissingPoster {
+			continue
+		}
+		missingPoster++
+		s.deps.Metrics.IncRefreshPickedMissingPoster()
+		s.deps.Logger.InfoContext(ctx, "enrichment.refresh.picked",
+			slog.Int64("series_id", c.SeriesID),
+			slog.String("reason", "missing_poster"),
+		)
+	}
+
 	s.deps.Logger.InfoContext(ctx, "enrichment.refresh.tick.start",
 		slog.Int("batch_size", len(candidates)),
+		slog.Int("missing_poster", missingPoster),
 	)
 
 	var (

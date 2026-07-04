@@ -41,3 +41,13 @@ func (m *EnrichmentRefreshMetrics) ObserveBatchSize(n int) {
 func (m *EnrichmentRefreshMetrics) ObserveTickDuration(d time.Duration) {
 	metrics.GetOrCreateHistogram(`seasonfill_enrichment_refresh_tick_seconds`).Update(d.Seconds())
 }
+
+// IncRefreshPickedMissingPoster ticks once per candidate the picker
+// selected via the W17-1 HOT poster-guard branch (library series with
+// no series_media_texts.poster_asset). No labels — one process-wide
+// counter. rate() over the backfill window reads "posters healed per
+// tick"; it flattens to ~0 once the 49 stuck series drain (the two
+// tmdb-less series never enter this branch).
+func (m *EnrichmentRefreshMetrics) IncRefreshPickedMissingPoster() {
+	metrics.GetOrCreateCounter(`seasonfill_enrichment_refresh_picked_missing_poster_total`).Inc()
+}
