@@ -186,12 +186,41 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 
 	var freshen FreshenResult
 	if sc.d.Freshener != nil {
+		// SectionSkeleton stays ModeSync — the ONLY section the HTTP
+		// response blocks on (SyncTimeout-bounded). The skeleton verdict
+		// alone drives the degraded[] projection below; the response budget
+		// is unchanged from the pre-W17-2 skeleton-only shape.
 		freshen, _ = sc.d.Freshener.EnsureFreshScope(
 			ctx, seriesID, langStr,
 			[]freshener.Section{freshener.SectionSkeleton},
 			nil,   // seasonNumbers — skeleton renders no season episodes
 			false, // force — TTL respected
 			ModeSync,
+		)
+		// W17-2 — bring the library detail-view freshen scope to parity with
+		// the canonical/tmdb_fallback route (tmdb_fallback_usecase.go). Prior
+		// to this, only SectionSkeleton was freshened on a library open, so a
+		// library series' Overview/Cast/Media were never fetched: A4 per-lang
+		// art (eager-hash), S-B all-langs text, and the
+		// enrichment_media/text/cast_synced_at stamps stayed absent forever
+		// (all 120 library series had enrichment_media_synced_at NULL). Dispatch
+		// the three heavy sections in ModeAsync (detached goroutines, 180s
+		// budget — the same async-carryover path a ModeSync timeout re-uses) so
+		// the response NEVER waits on the TMDB fetches. force=false keeps the
+		// Probe as the gate: a fresh section (TTL not elapsed / singleflight
+		// in-flight) dispatches nothing, so re-opening a warm page does not
+		// re-hit TMDB. Fire-and-forget: the async FreshenResult/error is
+		// intentionally discarded (the sync skeleton call owns degraded[]).
+		_, _ = sc.d.Freshener.EnsureFreshScope(
+			ctx, seriesID, langStr,
+			[]freshener.Section{
+				freshener.SectionOverview,
+				freshener.SectionCast,
+				freshener.SectionMedia,
+			},
+			nil,   // seasonNumbers — hero sections, no season episodes
+			false, // force — TTL respected (Probe gates re-runs)
+			ModeAsync,
 		)
 	}
 

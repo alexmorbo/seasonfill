@@ -185,19 +185,35 @@ func skEagerResolver() *media.Resolver {
 	return media.NewResolver(fakeSkMediaLookup{}, nil, nil, nil)
 }
 
-// spyFreshener records the EnsureFreshScope arguments so tests assert the
-// skeleton section contract.
+// freshenCall captures one EnsureFreshScope invocation so tests assert the
+// full per-open freshen contract (W17-2 makes Compose fire two calls: a
+// ModeSync SectionSkeleton probe + a ModeAsync Overview/Cast/Media widen).
+type freshenCall struct {
+	sections []freshener.Section
+	lang     string
+	force    bool
+	mode     EnsureFreshMode
+}
+
+// spyFreshener records every EnsureFreshScope invocation so tests assert the
+// skeleton section contract. The got* accessors mirror the FIRST call (the
+// ModeSync skeleton probe) so pre-W17-2 assertions keep passing unchanged.
 type spyFreshener struct {
+	calls  []freshenCall
+	result FreshenResult
+
 	gotSections []freshener.Section
 	gotLang     string
 	gotMode     EnsureFreshMode
-	result      FreshenResult
 }
 
-func (s *spyFreshener) EnsureFreshScope(_ context.Context, _ domain.SeriesID, lang string, sections []freshener.Section, _ []int, _ bool, mode EnsureFreshMode) (FreshenResult, error) {
-	s.gotSections = sections
-	s.gotLang = lang
-	s.gotMode = mode
+func (s *spyFreshener) EnsureFreshScope(_ context.Context, _ domain.SeriesID, lang string, sections []freshener.Section, _ []int, force bool, mode EnsureFreshMode) (FreshenResult, error) {
+	s.calls = append(s.calls, freshenCall{sections: sections, lang: lang, force: force, mode: mode})
+	if len(s.calls) == 1 {
+		s.gotSections = sections
+		s.gotLang = lang
+		s.gotMode = mode
+	}
 	return s.result, nil
 }
 
@@ -433,6 +449,85 @@ func TestSkeletonComposer_ServedLanguage(t *testing.T) {
 		require.Empty(t, dto.ServedLanguage, "empty-title fallback row must NOT set served_language")
 		require.NotContains(t, dto.Degraded, "missing_lang", "no spurious marker for unused empty-title row")
 	})
+}
+
+// W17-2 — a library detail open must widen the freshen scope to parity with
+// the tmdb_fallback route: SectionSkeleton stays the ONLY ModeSync (response-
+// blocking) section, while Overview/Cast/Media are dispatched ModeAsync so the
+// heavy TMDB fetches never block the response. This is what heals a stuck
+// library series (enrichment_media/text/cast_synced_at NULL) on first view.
+func TestSkeletonComposer_LibraryFreshenScope_WidensHeavySectionsAsync(t *testing.T) {
+	t.Parallel()
+	deps, sf, _ := skBaseDeps(skBaseCanon())
+	sc := NewSkeletonComposer(deps)
+	_, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Len(t, sf.calls, 2, "one ModeSync skeleton probe + one ModeAsync heavy-section widen")
+
+	// Call 0 — SectionSkeleton, ModeSync: the sole response-blocking section.
+	require.Equal(t, []freshener.Section{freshener.SectionSkeleton}, sf.calls[0].sections)
+	require.Equal(t, ModeSync, sf.calls[0].mode, "skeleton must stay ModeSync (budget-blocking)")
+	require.False(t, sf.calls[0].force)
+	require.Equal(t, "ru-RU", sf.calls[0].lang)
+
+	// Call 1 — Overview/Cast/Media, ModeAsync: heavy sections, non-blocking.
+	require.Equal(t, []freshener.Section{
+		freshener.SectionOverview,
+		freshener.SectionCast,
+		freshener.SectionMedia,
+	}, sf.calls[1].sections)
+	require.Equal(t, ModeAsync, sf.calls[1].mode, "heavy sections must be async — response must not wait on Media/Cast")
+	require.Equal(t, "ru-RU", sf.calls[1].lang, "async widen must carry the requested lang for per-lang art/text")
+}
+
+// W17-2 — the response budget stays flat: exactly ONE ModeSync freshen call
+// (SectionSkeleton). Media/Cast/Overview are never dispatched ModeSync, so the
+// detail endpoint never synchronously waits on those TMDB fetches.
+func TestSkeletonComposer_ResponseBudgetFlat_OnlySkeletonSync(t *testing.T) {
+	t.Parallel()
+	deps, sf, _ := skBaseDeps(skBaseCanon())
+	sc := NewSkeletonComposer(deps)
+	_, err := sc.Compose(context.Background(), 42, mustLangTag(t, "en-US"))
+	require.NoError(t, err)
+
+	syncCalls := 0
+	for _, c := range sf.calls {
+		if c.mode == ModeSync {
+			syncCalls++
+			require.Equal(t, []freshener.Section{freshener.SectionSkeleton}, c.sections,
+				"the only ModeSync section may be SectionSkeleton")
+		}
+	}
+	require.Equal(t, 1, syncCalls, "exactly one blocking (ModeSync) freshen call")
+}
+
+// W17-2 — re-run gating is delegated to the Probe: the composer passes
+// force=false on BOTH calls, so a fresh section (TTL not elapsed / singleflight
+// in-flight) dispatches no TMDB work on a subsequent open. The composer never
+// forces, so it can never re-run heavy work on a warm page.
+func TestSkeletonComposer_FreshenNeverForces_ProbeGatesReRuns(t *testing.T) {
+	t.Parallel()
+	deps, sf, _ := skBaseDeps(skBaseCanon())
+	sc := NewSkeletonComposer(deps)
+	_, err := sc.Compose(context.Background(), 42, mustLangTag(t, "en-US"))
+	require.NoError(t, err)
+
+	require.NotEmpty(t, sf.calls)
+	for i, c := range sf.calls {
+		require.Falsef(t, c.force, "freshen call %d must not force (Probe gates re-runs)", i)
+	}
+}
+
+// W17-2 — a nil Freshener (unwired) must not panic and must fire no calls.
+func TestSkeletonComposer_NilFreshener_NoWiden_NoPanic(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := skBaseDeps(skBaseCanon())
+	deps.Freshener = nil
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "en-US"))
+	require.NoError(t, err)
+	require.Equal(t, domain.SeriesID(42), dto.SeriesID)
 }
 
 func TestSkeletonComposer_CanonLoadError(t *testing.T) {
