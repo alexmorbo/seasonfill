@@ -10,6 +10,7 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -19,15 +20,19 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/enrichment/rest/seriesrefresh"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
 
 // SeriesRefresher is the narrow port the GlobalSeriesHandler needs for
-// the /regrab path. *seriesrefresh.UseCase already satisfies it; tests
-// inject a fake. Story 491 / N-1a.
+// the /regrab path. Refresh keys off a library (instance, sonarr_id);
+// RefreshByCanonical keys directly off the canonical series.id for
+// TMDB-only (non-library) series. *seriesrefresh.UseCase already
+// satisfies both; tests inject a fake. Story 491 / N-1a.
 type SeriesRefresher interface {
 	Refresh(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) (seriesrefresh.Result, error)
+	RefreshByCanonical(ctx context.Context, seriesID domain.SeriesID) (seriesrefresh.Result, error)
 }
 
 // GlobalSeriesHandler powers GET /api/v1/series/:id and POST
@@ -104,7 +109,9 @@ func (h *GlobalSeriesHandler) Get(c *gin.Context) {
 // @Description instance (lex-first instance that carries this series in
 // @Description series_cache), then enqueues series + cast + OMDb
 // @Description re-enrichment at PriorityHot. Returns 202 with the
-// @Description scan_run_id of the spawned refresh.
+// @Description scan_run_id of the spawned refresh. Non-library
+// @Description (TMDB-only) series are re-enriched directly by canonical
+// @Description id; 404 only when the id maps to no canonical series.
 // @Tags        series
 // @Produce     json
 // @Param       id    path      int     true   "Canonical series.id"
@@ -131,7 +138,28 @@ func (h *GlobalSeriesHandler) Regrab(c *gin.Context) {
 		return
 	}
 	if len(entries) == 0 {
-		c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not in any library"})
+		// TMDB-only (non-library) series: re-enrich by canonical id.
+		res, cerr := h.refresher.RefreshByCanonical(ctx, seriesID)
+		if cerr != nil {
+			if errors.Is(cerr, ports.ErrNotFound) {
+				c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series_not_found"})
+				return
+			}
+			_ = c.Error(cerr)
+			return
+		}
+		h.logger.InfoContext(ctx, "global_regrab_dispatched_canonical",
+			slog.Int64("series_id", int64(seriesID)),
+			slog.Bool("series_queued", res.SeriesQueued),
+			slog.Int("persons", res.Persons),
+			slog.Bool("omdb_queued", res.OMDbQueued),
+		)
+		c.JSON(http.StatusAccepted, dto.SeriesRefreshResponse{
+			SeriesID:     res.SeriesID,
+			SeriesQueued: res.SeriesQueued,
+			Persons:      res.Persons,
+			OMDbQueued:   res.OMDbQueued,
+		})
 		return
 	}
 	// Pick lexicographically-first instance — same preference rule as

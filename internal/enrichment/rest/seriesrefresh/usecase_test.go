@@ -181,6 +181,56 @@ func TestRefresh_TopCastFails_LogsAndContinues(t *testing.T) {
 	assert.True(t, res.SeriesQueued)
 }
 
+func TestRefreshByCanonical_HappyPath_SeriesPersonsOMDb(t *testing.T) {
+	t.Parallel()
+	cache := &refreshFakeCache{}
+	canon := &refreshFakeSeries{canon: CanonView{ID: 1271, IMDBID: ptrIMDBID("tt99")}}
+	cast := &refreshFakeCast{ids: []int64{1, 2}}
+	disp := &refreshFakeDispatcher{}
+
+	uc, err := New(Deps{SeriesCache: cache, Series: canon, SeriesPeople: cast, Dispatcher: disp})
+	require.NoError(t, err)
+
+	res, err := uc.RefreshByCanonical(context.Background(), 1271)
+	require.NoError(t, err)
+	assert.Equal(t, domain.SeriesID(1271), res.SeriesID)
+	assert.True(t, res.SeriesQueued)
+	assert.Equal(t, 2, res.Persons)
+	assert.True(t, res.OMDbQueued)
+	require.NotEmpty(t, disp.enqueued)
+	assert.Equal(t, enrichment.EntitySeries, disp.enqueued[0].kind)
+	assert.Equal(t, enrichment.PriorityHot, disp.enqueued[0].prio)
+}
+
+func TestRefreshByCanonical_CanonNotFound_ReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+	cache := &refreshFakeCache{}
+	canon := &refreshFakeSeries{err: ports.ErrNotFound}
+	disp := &refreshFakeDispatcher{}
+
+	uc, err := New(Deps{SeriesCache: cache, Series: canon, Dispatcher: disp})
+	require.NoError(t, err)
+
+	_, err = uc.RefreshByCanonical(context.Background(), 1271)
+	require.ErrorIs(t, err, ports.ErrNotFound)
+	assert.Empty(t, disp.enqueued)
+}
+
+func TestRefreshByCanonical_NoIMDB_SkipsOMDb(t *testing.T) {
+	t.Parallel()
+	cache := &refreshFakeCache{}
+	canon := &refreshFakeSeries{canon: CanonView{ID: 1271}}
+	cast := &refreshFakeCast{ids: []int64{1}}
+	disp := &refreshFakeDispatcher{}
+
+	uc, err := New(Deps{SeriesCache: cache, Series: canon, SeriesPeople: cast, Dispatcher: disp})
+	require.NoError(t, err)
+
+	res, err := uc.RefreshByCanonical(context.Background(), 1271)
+	require.NoError(t, err)
+	assert.False(t, res.OMDbQueued)
+}
+
 func TestNew_RequiredFields(t *testing.T) {
 	t.Parallel()
 	_, err := New(Deps{})

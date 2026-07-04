@@ -137,3 +137,47 @@ func (u *UseCase) Refresh(ctx context.Context, instanceName domain.InstanceName,
 	)
 	return res, nil
 }
+
+// RefreshByCanonical enqueues the same series + (optional) cast +
+// (optional) OMDb re-enrichment as Refresh, but keyed directly off the
+// canonical series.id — no cache-row resolution. Used by the global
+// /regrab path for TMDB-only (non-library) series. Resolves canon FIRST
+// so a truly-unknown id propagates ports.ErrNotFound (→ 404) before any
+// work is enqueued.
+func (u *UseCase) RefreshByCanonical(ctx context.Context, seriesID domain.SeriesID) (Result, error) {
+	canon, err := u.deps.Series.Get(ctx, seriesID)
+	if err != nil {
+		return Result{}, fmt.Errorf("seriesrefresh: resolve canon: %w", err)
+	}
+
+	res := Result{SeriesID: seriesID}
+
+	u.deps.Dispatcher.Enqueue(enrichment.EntitySeries, int64(seriesID), enrichment.PriorityHot)
+	res.SeriesQueued = true
+
+	if u.deps.SeriesPeople != nil {
+		const topN = 10
+		ids, perr := u.deps.SeriesPeople.TopCastPersonIDs(ctx, seriesID, topN)
+		if perr != nil {
+			u.log.WarnContext(ctx, "seriesrefresh.top_cast_failed",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("error", perr.Error()))
+		}
+		for _, pid := range ids {
+			u.deps.Dispatcher.Enqueue(enrichment.EntityPerson, pid, enrichment.PriorityHot)
+			res.Persons++
+		}
+	}
+
+	if canon.IMDBID != nil && *canon.IMDBID != "" {
+		u.deps.Dispatcher.Enqueue(enrichment.EntityOMDb, int64(seriesID), enrichment.PriorityHot)
+		res.OMDbQueued = true
+	}
+
+	u.log.InfoContext(ctx, "seriesrefresh.enqueued_canonical",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.Int("persons", res.Persons),
+		slog.Bool("omdb", res.OMDbQueued),
+	)
+	return res, nil
+}

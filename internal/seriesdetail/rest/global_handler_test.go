@@ -65,10 +65,13 @@ func (f *fakeSkeletonComposer) Compose(_ context.Context, _ domain.SeriesID, _ v
 }
 
 type fakeRefresher struct {
-	calledInstance domain.InstanceName
-	calledSonarrID domain.SonarrSeriesID
-	result         seriesrefresh.Result
-	err            error
+	calledInstance    domain.InstanceName
+	calledSonarrID    domain.SonarrSeriesID
+	result            seriesrefresh.Result
+	err               error
+	calledCanonicalID domain.SeriesID
+	canonicalResult   seriesrefresh.Result
+	canonicalErr      error
 }
 
 func (f *fakeRefresher) Refresh(_ context.Context, inst domain.InstanceName, sid domain.SonarrSeriesID) (seriesrefresh.Result, error) {
@@ -78,6 +81,14 @@ func (f *fakeRefresher) Refresh(_ context.Context, inst domain.InstanceName, sid
 		return seriesrefresh.Result{}, f.err
 	}
 	return f.result, nil
+}
+
+func (f *fakeRefresher) RefreshByCanonical(_ context.Context, sid domain.SeriesID) (seriesrefresh.Result, error) {
+	f.calledCanonicalID = sid
+	if f.canonicalErr != nil {
+		return seriesrefresh.Result{}, f.canonicalErr
+	}
+	return f.canonicalResult, nil
 }
 
 // --- helpers ---
@@ -238,10 +249,34 @@ func TestGlobalSeriesHandler_Regrab_DispatchesToPreferredInstance(t *testing.T) 
 	assert.Equal(t, domain.SeriesID(140), body.SeriesID)
 }
 
-func TestGlobalSeriesHandler_Regrab_NotInLibrary_404(t *testing.T) {
+func TestGlobalSeriesHandler_Regrab_TMDBOnly_DispatchesCanonical(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cache := &fakeGlobalCacheLookup{entries: nil}
-	h := buildGlobalHandler(t, cache, &fakeSkeletonComposer{}, &fakeRefresher{})
+	refresh := &fakeRefresher{canonicalResult: seriesrefresh.Result{
+		SeriesID: 1271, SeriesQueued: true, Persons: 5,
+	}}
+	h := buildGlobalHandler(t, cache, &fakeSkeletonComposer{}, refresh)
+	r := gin.New()
+	r.POST("/api/v1/series/:id/regrab", h.Regrab)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/series/1271/regrab", nil)
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	assert.Equal(t, domain.SeriesID(1271), refresh.calledCanonicalID)
+	var body dto.SeriesRefreshResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, domain.SeriesID(1271), body.SeriesID)
+	assert.Equal(t, 5, body.Persons)
+	assert.True(t, body.SeriesQueued)
+}
+
+func TestGlobalSeriesHandler_Regrab_UnknownID_404(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &fakeGlobalCacheLookup{entries: nil}
+	refresh := &fakeRefresher{canonicalErr: fmt.Errorf("resolve canon: %w", ports.ErrNotFound)}
+	h := buildGlobalHandler(t, cache, &fakeSkeletonComposer{}, refresh)
 	r := gin.New()
 	r.POST("/api/v1/series/:id/regrab", h.Regrab)
 
@@ -249,6 +284,7 @@ func TestGlobalSeriesHandler_Regrab_NotInLibrary_404(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/series/140/regrab", nil)
 	r.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "series_not_found")
 }
 
 func TestGlobalSeriesHandler_Regrab_InvalidID(t *testing.T) {
