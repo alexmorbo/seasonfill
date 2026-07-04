@@ -4,6 +4,7 @@ import { SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDiscover, type DiscoveryFilter } from '@/api/discovery';
 import { ApiError } from '@/lib/api';
+import { toBcp47 } from '@/lib/locale';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -27,11 +28,13 @@ export interface FilteredResultsProps {
 // deep links with stale page numbers.
 // Story 517 / N-3e adds warming banner + skeleton + 502 toast.
 export function FilteredResults({ filter, hasActiveFilter }: FilteredResultsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [page, setPage] = useState(1);
   // Local page wins over any URL `page`; resets when filter changes.
   const merged: DiscoveryFilter = { ...filter, page };
-  const q = useDiscover(merged, undefined, hasActiveFilter, degradedRefetchInterval);
+  const q = useDiscover(
+    merged, toBcp47(i18n.resolvedLanguage), hasActiveFilter, degradedRefetchInterval,
+  );
   const polling = useDegradedPolling(q.data);
   const toastedRef = useRef(false);
   useEffect(() => {

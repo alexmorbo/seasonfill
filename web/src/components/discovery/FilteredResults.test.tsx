@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
@@ -95,6 +95,21 @@ describe('<FilteredResults />', () => {
       const calls = mockApi.mock.calls.map((c) => String(c[0]));
       expect(calls.some((u) => u.includes('page=2'))).toBe(true);
     });
+  });
+
+  it('fetches with the active locale and refetches on locale switch', async () => {
+    mockApi.mockResolvedValue(sample);
+    renderResults({ filter: { with_genres: [18] }, hasActiveFilter: true });
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-filtered-grid')).toBeInTheDocument());
+    expect(mockApi).toHaveBeenCalledWith(expect.stringContaining('lang=en-US'));
+    try {
+      await act(async () => { await i18n.changeLanguage('ru-RU'); });
+      await waitFor(() =>
+        expect(mockApi).toHaveBeenCalledWith(expect.stringContaining('lang=ru-RU')));
+    } finally {
+      await act(async () => { await i18n.changeLanguage('en-US'); });
+    }
   });
 
   it('shows warming banner + skeleton on cold-start', async () => {

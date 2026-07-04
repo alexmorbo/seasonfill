@@ -4,6 +4,7 @@ import { Flame } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDiscoveryTrending } from '@/api/discovery';
 import { ApiError } from '@/lib/api';
+import { toBcp47 } from '@/lib/locale';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -35,8 +36,8 @@ function GridSkeleton() {
 // banner + cold-start skeleton + 502 toast (one toast per error edge so
 // the user doesn't get spammed while React Query keeps a stale error).
 export function TrendingGrid() {
-  const { t } = useTranslation();
-  const q = useDiscoveryTrending(undefined, degradedRefetchInterval);
+  const { t, i18n } = useTranslation();
+  const q = useDiscoveryTrending(toBcp47(i18n.resolvedLanguage), degradedRefetchInterval);
   const polling = useDegradedPolling(q.data);
   const toastedRef = useRef(false);
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { SearchX } from 'lucide-react';
 import { useDiscoverySearch } from '@/api/discovery';
+import { toBcp47 } from '@/lib/locale';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -17,10 +18,10 @@ export interface SearchResultsProps {
 // already disables the query when q.trim().length < 2, but we mirror
 // the guard here so the visible state (skeleton vs empty) matches.
 export function SearchResults({ q }: SearchResultsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const trimmed = q.trim();
   const eff = trimmed.length >= 2;
-  const query = useDiscoverySearch(trimmed, eff);
+  const query = useDiscoverySearch(trimmed, eff, toBcp47(i18n.resolvedLanguage));
 
   if (!eff) return null;
 

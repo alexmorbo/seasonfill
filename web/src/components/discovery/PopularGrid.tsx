@@ -4,6 +4,7 @@ import { TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDiscoveryPopular } from '@/api/discovery';
 import { ApiError } from '@/lib/api';
+import { toBcp47 } from '@/lib/locale';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -34,8 +35,8 @@ function GridSkeleton() {
 // Story 515 / N-3c: Popular tab. Story 517 / N-3e adds the warming
 // banner + skeleton + 502 toast in the same shape as TrendingGrid.
 export function PopularGrid() {
-  const { t } = useTranslation();
-  const q = useDiscoveryPopular(undefined, degradedRefetchInterval);
+  const { t, i18n } = useTranslation();
+  const q = useDiscoveryPopular(toBcp47(i18n.resolvedLanguage), degradedRefetchInterval);
   const polling = useDegradedPolling(q.data);
   const toastedRef = useRef(false);
   useEffect(() => {

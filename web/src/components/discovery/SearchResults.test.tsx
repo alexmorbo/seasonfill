@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
@@ -60,6 +60,21 @@ describe('<SearchResults />', () => {
     renderResults('fargo');
     await waitFor(() =>
       expect(screen.getByTestId('discovery-search-error')).toBeInTheDocument());
+  });
+
+  it('fetches with the active locale and refetches on locale switch', async () => {
+    mockApi.mockResolvedValue(sample);
+    renderResults('fargo');
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-search-grid')).toBeInTheDocument());
+    expect(mockApi).toHaveBeenCalledWith(expect.stringContaining('lang=en-US'));
+    try {
+      await act(async () => { await i18n.changeLanguage('ru-RU'); });
+      await waitFor(() =>
+        expect(mockApi).toHaveBeenCalledWith(expect.stringContaining('lang=ru-RU')));
+    } finally {
+      await act(async () => { await i18n.changeLanguage('en-US'); });
+    }
   });
 
   it('renders no_results empty state when items is empty', async () => {

@@ -4,6 +4,7 @@ import { Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDiscoveryByGenre } from '@/api/discovery';
 import { ApiError } from '@/lib/api';
+import { toBcp47 } from '@/lib/locale';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -22,8 +23,8 @@ export interface GenreResultsGridProps {
 // Story 515 / N-3c: results grid for a selected genre chip.
 // Story 517 / N-3e adds warming banner + skeleton + 502 toast.
 export function GenreResultsGrid({ genreId }: GenreResultsGridProps) {
-  const { t } = useTranslation();
-  const q = useDiscoveryByGenre(genreId, undefined, degradedRefetchInterval);
+  const { t, i18n } = useTranslation();
+  const q = useDiscoveryByGenre(genreId, toBcp47(i18n.resolvedLanguage), degradedRefetchInterval);
   const polling = useDegradedPolling(q.data);
   const toastedRef = useRef(false);
   useEffect(() => {
