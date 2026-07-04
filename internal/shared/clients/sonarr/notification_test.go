@@ -138,10 +138,19 @@ func TestClient_CreateNotification_Success(t *testing.T) {
 	assert.Contains(t, gotBody, `"implementation":"Webhook"`)
 	assert.Contains(t, gotBody, `"configContract":"WebhookSettings"`)
 	assert.Contains(t, gotBody, `"onGrab":true`)
+	assert.Contains(t, gotBody, `"onDownload":true`)
+	assert.Contains(t, gotBody, `"onDownloadFailure":true`)
+	assert.Contains(t, gotBody, `"onManualInteractionRequired":true`, "v4 import-failed trigger")
+	assert.Contains(t, gotBody, `"onEpisodeFileDelete":true`, "F-975 file-delete trigger")
 	assert.Contains(t, gotBody, `"onSeriesAdd":true`)
 	assert.Contains(t, gotBody, `"onSeriesDelete":true`)
 	assert.Contains(t, gotBody, `"key":"X-Api-Key"`)
 	assert.Contains(t, gotBody, `"value":"k"`)
+	// Unsupported events must NOT be requested.
+	assert.NotContains(t, gotBody, `"onRename"`)
+	assert.NotContains(t, gotBody, `"onUpgrade"`)
+	assert.NotContains(t, gotBody, `"onHealthIssue"`)
+	assert.NotContains(t, gotBody, `"onApplicationUpdate"`)
 }
 
 func TestClient_CreateNotification_409Conflict(t *testing.T) {
@@ -233,8 +242,12 @@ func TestClient_CreateNotification_FallbackOnUnknownSeriesTrigger(t *testing.T) 
 	assert.Equal(t, 7, n.ID)
 	require.Len(t, bodies, 2, "exactly two POSTs: original + fallback")
 	assert.Contains(t, bodies[0], `"onSeriesAdd":true`, "first attempt includes v4 flags")
+	assert.Contains(t, bodies[0], `"onEpisodeFileDelete":true`, "first attempt includes file-delete trigger")
+	assert.Contains(t, bodies[0], `"onManualInteractionRequired":true`, "first attempt includes v4 import-failed trigger")
 	assert.NotContains(t, bodies[1], `"onSeriesAdd":true`, "fallback omits onSeriesAdd (omitempty)")
 	assert.NotContains(t, bodies[1], `"onSeriesDelete":true`, "fallback omits onSeriesDelete (omitempty)")
+	assert.NotContains(t, bodies[1], `"onEpisodeFileDelete":true`, "fallback omits onEpisodeFileDelete (omitempty)")
+	assert.NotContains(t, bodies[1], `"onManualInteractionRequired":true`, "fallback omits onManualInteractionRequired (omitempty)")
 	assert.Contains(t, bodies[1], `"onGrab":true`, "fallback keeps Phase 10 triggers")
 	assert.Contains(t, bodies[1], `"onDownload":true`)
 	assert.Contains(t, bodies[1], `"onDownloadFailure":true`)
@@ -289,6 +302,51 @@ func TestClient_UpdateNotification_PUTsExpectedPath(t *testing.T) {
 	assert.Contains(t, gotBody, `"id":42`)
 	assert.Contains(t, gotBody, `"https://new.example/api/v1/webhook/sonarr/alpha`)
 	assert.Contains(t, gotBody, `"newkey"`)
+	// Update reconciles the FULL desired trigger set so a notification
+	// created by an older seasonfill (fewer triggers) is upgraded.
+	assert.Contains(t, gotBody, `"onGrab":true`)
+	assert.Contains(t, gotBody, `"onDownload":true`)
+	assert.Contains(t, gotBody, `"onDownloadFailure":true`)
+	assert.Contains(t, gotBody, `"onManualInteractionRequired":true`)
+	assert.Contains(t, gotBody, `"onEpisodeFileDelete":true`)
+	assert.Contains(t, gotBody, `"onSeriesAdd":true`)
+	assert.Contains(t, gotBody, `"onSeriesDelete":true`)
+}
+
+func TestClient_UpdateNotification_FallbackOnUnknownTrigger(t *testing.T) {
+	t.Parallel()
+	var bodies []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification/42", func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(buf))
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errors":[{"propertyName":"OnEpisodeFileDelete","errorMessage":"is not a recognized trigger"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":42,"implementation":"Webhook","onGrab":true,"onDownload":true}`))
+	})
+	c := newNotifTestClient(t, mux)
+	existing := Notification{
+		ID: 42, Name: "seasonfill", Implementation: "Webhook",
+		Fields: []NotificationField{{Name: "url", Value: "https://old.example/api/v1/webhook/sonarr/alpha"}},
+	}
+	n, err := c.UpdateNotification(context.Background(), existing, NotificationPayload{
+		Name: "seasonfill", URL: "https://new.example/api/v1/webhook/sonarr/alpha", APIKeyHeader: "k",
+	})
+	require.NoError(t, err, "400 naming a newer trigger must be retried without it")
+	assert.Equal(t, 42, n.ID)
+	require.Len(t, bodies, 2, "exactly two PUTs: original + fallback")
+	assert.Contains(t, bodies[0], `"onEpisodeFileDelete":true`, "first attempt includes v4 triggers")
+	assert.NotContains(t, bodies[1], `"onEpisodeFileDelete":true`, "fallback drops onEpisodeFileDelete")
+	assert.NotContains(t, bodies[1], `"onManualInteractionRequired":true`, "fallback drops onManualInteractionRequired")
+	assert.NotContains(t, bodies[1], `"onSeriesAdd":true`, "fallback drops onSeriesAdd")
+	assert.NotContains(t, bodies[1], `"onSeriesDelete":true`, "fallback drops onSeriesDelete")
+	assert.Contains(t, bodies[1], `"onGrab":true`, "fallback keeps Phase 10 core")
+	assert.Contains(t, bodies[1], `"onDownload":true`)
+	assert.Contains(t, bodies[1], `"onDownloadFailure":true`)
 }
 
 func TestClient_UpdateNotification_RejectsZeroID(t *testing.T) {

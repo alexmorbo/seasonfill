@@ -49,17 +49,25 @@ type DownloadClient struct {
 // so the create path can mirror them when building a new Webhook
 // notification — see CreateNotification.
 type notificationDTO struct {
-	ID                int                 `json:"id"`
-	Name              string              `json:"name"`
-	Implementation    string              `json:"implementation"`
-	ConfigContract    string              `json:"configContract,omitempty"`
-	OnGrab            bool                `json:"onGrab"`
-	OnDownload        bool                `json:"onDownload"`
-	OnDownloadFailure bool                `json:"onDownloadFailure"`
-	OnImportFailure   bool                `json:"onImportFailure,omitempty"`
-	OnSeriesAdd       bool                `json:"onSeriesAdd,omitempty"`
-	OnSeriesDelete    bool                `json:"onSeriesDelete,omitempty"`
-	Fields            []NotificationField `json:"fields"`
+	ID             int    `json:"id"`
+	Name           string `json:"name"`
+	Implementation string `json:"implementation"`
+	ConfigContract string `json:"configContract,omitempty"`
+	OnGrab         bool   `json:"onGrab"`
+	OnDownload     bool   `json:"onDownload"`
+	// OnDownloadFailure / OnImportFailure are legacy v3 aliases for the
+	// import-failed signal. Modern Sonarr (v4) exposes the trigger as
+	// OnManualInteractionRequired; the legacy keys are unknown to it and
+	// silently ignored (ASP.NET Core skips unmapped members), so we send
+	// all three to cover every Sonarr version. OnDownloadFailure is kept
+	// without omitempty so the version fallback still emits it for v3.
+	OnDownloadFailure           bool                `json:"onDownloadFailure"`
+	OnImportFailure             bool                `json:"onImportFailure,omitempty"`
+	OnManualInteractionRequired bool                `json:"onManualInteractionRequired,omitempty"`
+	OnEpisodeFileDelete         bool                `json:"onEpisodeFileDelete,omitempty"`
+	OnSeriesAdd                 bool                `json:"onSeriesAdd,omitempty"`
+	OnSeriesDelete              bool                `json:"onSeriesDelete,omitempty"`
+	Fields                      []NotificationField `json:"fields"`
 }
 
 // NotificationField is the field-array entry shape on
@@ -76,13 +84,15 @@ type NotificationField struct {
 // when building a new Webhook (defends against per-Sonarr-version
 // shape variance — see Concerns §2).
 type Notification struct {
-	ID                int
-	Name              string
-	Implementation    string
-	OnGrab            bool
-	OnDownload        bool
-	OnDownloadFailure bool
-	Fields            []NotificationField
+	ID                          int
+	Name                        string
+	Implementation              string
+	OnGrab                      bool
+	OnDownload                  bool
+	OnDownloadFailure           bool
+	OnManualInteractionRequired bool
+	OnEpisodeFileDelete         bool
+	Fields                      []NotificationField
 }
 
 // NotificationPayload carries only what callers must supply when
@@ -149,14 +159,24 @@ func (c *Client) ListNotifications(ctx context.Context) ([]Notification, error) 
 	}
 	out := make([]Notification, 0, len(dtos))
 	for _, d := range dtos {
-		out = append(out, Notification{
-			ID: d.ID, Name: d.Name, Implementation: d.Implementation,
-			OnGrab: d.OnGrab, OnDownload: d.OnDownload,
-			OnDownloadFailure: d.OnDownloadFailure || d.OnImportFailure,
-			Fields:            d.Fields,
-		})
+		out = append(out, notificationFromDTO(d))
 	}
 	return out, nil
+}
+
+// notificationFromDTO projects the wire DTO onto the trimmed typed
+// Notification. OnDownloadFailure folds the legacy v3 alias with the
+// v4 ManualInteractionRequired trigger so callers see a single
+// "import-failed enabled" signal regardless of Sonarr version.
+func notificationFromDTO(d notificationDTO) Notification {
+	return Notification{
+		ID: d.ID, Name: d.Name, Implementation: d.Implementation,
+		OnGrab: d.OnGrab, OnDownload: d.OnDownload,
+		OnDownloadFailure:           d.OnDownloadFailure || d.OnImportFailure || d.OnManualInteractionRequired,
+		OnManualInteractionRequired: d.OnManualInteractionRequired,
+		OnEpisodeFileDelete:         d.OnEpisodeFileDelete,
+		Fields:                      d.Fields,
+	}
 }
 
 // CreateNotification POSTs a Webhook notification to Sonarr and
@@ -164,46 +184,28 @@ func (c *Client) ListNotifications(ctx context.Context) ([]Notification, error) 
 // TemplateFields supplied by the caller; otherwise a minimal
 // known-good template is used.
 func (c *Client) CreateNotification(ctx context.Context, p NotificationPayload) (Notification, error) {
-	fields := buildNotificationFields(p)
 	body := notificationDTO{
-		Name:              p.Name,
-		Implementation:    "Webhook",
-		ConfigContract:    "WebhookSettings",
-		OnGrab:            true,
-		OnDownload:        true,
-		OnDownloadFailure: true,
-		OnSeriesAdd:       true,
-		OnSeriesDelete:    true,
-		Fields:            fields,
+		Name:           p.Name,
+		Implementation: "Webhook",
+		ConfigContract: "WebhookSettings",
+		Fields:         buildNotificationFields(p),
 	}
-	var resp notificationDTO
-	if err := c.post(ctx, "/api/v3/notification", body, &resp); err != nil {
-		if !isUnsupportedTriggerErr(err) {
-			return Notification{}, err
-		}
-		c.logger.WarnContext(ctx, "sonarr_notification_unsupported_series_triggers_fallback",
-			slog.String("instance", string(c.name)),
-			slog.String("error", err.Error()),
-		)
-		body.OnSeriesAdd = false
-		body.OnSeriesDelete = false
-		if err2 := c.post(ctx, "/api/v3/notification", body, &resp); err2 != nil {
-			return Notification{}, err2
-		}
+	setDesiredTriggers(&body)
+	resp, err := c.submitNotification(ctx, false, "/api/v3/notification", body)
+	if err != nil {
+		return Notification{}, err
 	}
-	return Notification{
-		ID: resp.ID, Name: resp.Name, Implementation: resp.Implementation,
-		OnGrab: resp.OnGrab, OnDownload: resp.OnDownload,
-		OnDownloadFailure: resp.OnDownloadFailure || resp.OnImportFailure,
-		Fields:            resp.Fields,
-	}, nil
+	return notificationFromDTO(resp), nil
 }
 
 // UpdateNotification PUTs an existing Webhook notification by ID,
 // rewriting `url` + `headers` while preserving any other field the
 // caller carried in `existing.Fields` (version-variance defence —
 // same rationale as CreateNotification mirroring an existing entry).
-// `existing.ID` is reused verbatim so Sonarr matches the row.
+// The full consumed-event trigger set is also re-applied so a
+// notification created by an older seasonfill (fewer triggers) is
+// upgraded in place on the next reconcile. `existing.ID` is reused
+// verbatim so Sonarr matches the row.
 func (c *Client) UpdateNotification(ctx context.Context, existing Notification, p NotificationPayload) (Notification, error) {
 	if existing.ID == 0 {
 		return Notification{}, fmt.Errorf("update notification: missing id")
@@ -213,26 +215,86 @@ func (c *Client) UpdateNotification(ctx context.Context, existing Notification, 
 		TemplateFields: existing.Fields,
 	}
 	body := notificationDTO{
-		ID:                existing.ID,
-		Name:              p.Name,
-		Implementation:    "Webhook",
-		ConfigContract:    "WebhookSettings",
-		OnGrab:            true,
-		OnDownload:        true,
-		OnDownloadFailure: true,
-		Fields:            buildNotificationFields(merged),
+		ID:             existing.ID,
+		Name:           p.Name,
+		Implementation: "Webhook",
+		ConfigContract: "WebhookSettings",
+		Fields:         buildNotificationFields(merged),
 	}
-	var resp notificationDTO
+	setDesiredTriggers(&body)
 	endpoint := "/api/v3/notification/" + strconv.Itoa(existing.ID)
-	if err := c.put(ctx, endpoint, body, &resp); err != nil {
+	resp, err := c.submitNotification(ctx, true, endpoint, body)
+	if err != nil {
 		return Notification{}, err
 	}
-	return Notification{
-		ID: resp.ID, Name: resp.Name, Implementation: resp.Implementation,
-		OnGrab: resp.OnGrab, OnDownload: resp.OnDownload,
-		OnDownloadFailure: resp.OnDownloadFailure || resp.OnImportFailure,
-		Fields:            resp.Fields,
-	}, nil
+	return notificationFromDTO(resp), nil
+}
+
+// setDesiredTriggers turns on exactly the Sonarr notification triggers
+// whose events seasonfill consumes (webhook.EventType.IsConsumed):
+//
+//	Grabbed             -> onGrab
+//	Imported            -> onDownload
+//	ImportFailed        -> onManualInteractionRequired (v4)
+//	                       + onDownloadFailure/onImportFailure (v3 legacy)
+//	EpisodeFileDelete   -> onEpisodeFileDelete
+//	SeriesAdd           -> onSeriesAdd
+//	SeriesDeleted       -> onSeriesDelete
+//
+// Unsupported events (Rename/FileUpgrade/ImportComplete/Health*/
+// AppUpdate) are deliberately NOT requested. This is the single source
+// of the desired trigger set — Create and Update both call it so they
+// cannot drift.
+func setDesiredTriggers(dto *notificationDTO) {
+	dto.OnGrab = true
+	dto.OnDownload = true
+	dto.OnManualInteractionRequired = true
+	dto.OnDownloadFailure = true
+	dto.OnImportFailure = true
+	dto.OnEpisodeFileDelete = true
+	dto.OnSeriesAdd = true
+	dto.OnSeriesDelete = true
+}
+
+// dropUnsupportedTriggers strips the triggers an older Sonarr may not
+// recognise, leaving the Phase 10 core (onGrab/onDownload/
+// onDownloadFailure). Used by the version-variance fallback after a
+// 400 whose body names one of the newer trigger fields. The dropped
+// fields carry omitempty so they vanish from the retried payload.
+func dropUnsupportedTriggers(dto *notificationDTO) {
+	dto.OnSeriesAdd = false
+	dto.OnSeriesDelete = false
+	dto.OnEpisodeFileDelete = false
+	dto.OnManualInteractionRequired = false
+}
+
+// submitNotification POSTs (isPut=false) or PUTs (isPut=true) the
+// notification body, retrying once without the newer trigger fields
+// when Sonarr rejects them (isUnsupportedTriggerErr). All other errors
+// propagate. Shared by Create and Update so the fallback logic lives in
+// one place.
+func (c *Client) submitNotification(ctx context.Context, isPut bool, endpoint string, body notificationDTO) (notificationDTO, error) {
+	send := func(b notificationDTO, resp *notificationDTO) error {
+		if isPut {
+			return c.put(ctx, endpoint, b, resp)
+		}
+		return c.post(ctx, endpoint, b, resp)
+	}
+	var resp notificationDTO
+	if err := send(body, &resp); err != nil {
+		if !isUnsupportedTriggerErr(err) {
+			return notificationDTO{}, err
+		}
+		c.logger.WarnContext(ctx, "sonarr_notification_unsupported_triggers_fallback",
+			slog.String("instance", string(c.name)),
+			slog.String("error", err.Error()),
+		)
+		dropUnsupportedTriggers(&body)
+		if err2 := send(body, &resp); err2 != nil {
+			return notificationDTO{}, err2
+		}
+	}
+	return resp, nil
 }
 
 // DeleteNotification removes the Sonarr webhook entry by ID. Used on
@@ -261,11 +323,13 @@ func WebhookFieldURL(fields []NotificationField) string {
 	return ""
 }
 
-// isUnsupportedTriggerErr returns true when Sonarr rejected the create
-// body specifically because the v4 SeriesAdd / SeriesDelete triggers
-// are unknown to it (older Sonarr). Rule: HTTP 400 with body containing
-// the trigger name (case-insensitive). All other failure modes —
-// network, auth, 5xx, other 4xx — return false so they propagate.
+// isUnsupportedTriggerErr returns true when Sonarr rejected the write
+// body specifically because one of the newer trigger fields
+// (SeriesAdd / SeriesDelete / EpisodeFileDelete /
+// ManualInteractionRequired) is unknown to it (older Sonarr). Rule:
+// HTTP 400 with body containing the trigger name (case-insensitive).
+// All other failure modes — network, auth, 5xx, other 4xx — return
+// false so they propagate.
 func isUnsupportedTriggerErr(err error) bool {
 	var se *StatusError
 	if !errors.As(err, &se) {
@@ -275,7 +339,10 @@ func isUnsupportedTriggerErr(err error) bool {
 		return false
 	}
 	body := strings.ToLower(se.Body)
-	return strings.Contains(body, "onseriesadd") || strings.Contains(body, "onseriesdelete")
+	return strings.Contains(body, "onseriesadd") ||
+		strings.Contains(body, "onseriesdelete") ||
+		strings.Contains(body, "onepisodefiledelete") ||
+		strings.Contains(body, "onmanualinteractionrequired")
 }
 
 // buildNotificationFields constructs the Sonarr notification.fields
