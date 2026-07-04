@@ -888,6 +888,8 @@ export type paths = {
                     readonly from?: string;
                     /** @description RFC3339 upper bound */
                     readonly to?: string;
+                    /** @description BCP-47 language for series_title (e.g. ru-RU); omit for snapshot */
+                    readonly lang?: string;
                 };
                 readonly header?: never;
                 readonly path?: never;
@@ -942,7 +944,10 @@ export type paths = {
         /** Get decision by ID */
         readonly get: {
             readonly parameters: {
-                readonly query?: never;
+                readonly query?: {
+                    /** @description BCP-47 language for series_title (e.g. ru-RU); omit for snapshot */
+                    readonly lang?: string;
+                };
                 readonly header?: never;
                 readonly path: {
                     /** @description Decision UUID */
@@ -1362,6 +1367,8 @@ export type paths = {
                     readonly from?: string;
                     /** @description RFC3339 upper bound */
                     readonly to?: string;
+                    /** @description BCP-47 language for series_title (e.g. ru-RU); omit for snapshot */
+                    readonly lang?: string;
                 };
                 readonly header?: never;
                 readonly path?: never;
@@ -3314,7 +3321,9 @@ export type paths = {
          *     instance (lex-first instance that carries this series in
          *     series_cache), then enqueues series + cast + OMDb
          *     re-enrichment at PriorityHot. Returns 202 with the
-         *     scan_run_id of the spawned refresh.
+         *     scan_run_id of the spawned refresh. Non-library
+         *     (TMDB-only) series are re-enriched directly by canonical
+         *     id; 404 only when the id maps to no canonical series.
          */
         readonly post: {
             readonly parameters: {

@@ -292,9 +292,15 @@ func NewServer(
 		// prefetch, CDN warmup, monitoring) don't fall through to the
 		// default Gin 404. The handler's c.Data writes the same headers
 		// for HEAD — Gin's writer suppresses the body automatically.
+		//
+		// W16-2: registered on the PUBLIC `api` group (NOT `guarded`) so
+		// unauthenticated <img> tags, incognito sessions, and CDN warmers
+		// get the bytes (200/304) instead of a 401. The URLs are opaque
+		// sha256 content-addressed image bytes (no PII, no enumeration),
+		// and the handler reads no auth/session context — safe to expose.
 		if mediaHandler != nil {
-			guarded.GET("/media/:hash", mediaHandler.Serve)
-			guarded.HEAD("/media/:hash", mediaHandler.Serve)
+			api.GET("/media/:hash", mediaHandler.Serve)
+			api.HEAD("/media/:hash", mediaHandler.Serve)
 		}
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)

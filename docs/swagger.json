@@ -4976,6 +4976,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "BCP-47 language for series_title (e.g. ru-RU); omit for snapshot",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -5032,6 +5040,14 @@
                         "in": "path",
                         "name": "id",
                         "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "BCP-47 language for series_title (e.g. ru-RU); omit for snapshot",
+                        "in": "query",
+                        "name": "lang",
                         "schema": {
                             "type": "string"
                         }
@@ -5519,6 +5535,14 @@
                         "description": "RFC3339 upper bound",
                         "in": "query",
                         "name": "to",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "BCP-47 language for series_title (e.g. ru-RU); omit for snapshot",
+                        "in": "query",
+                        "name": "lang",
                         "schema": {
                             "type": "string"
                         }
@@ -6517,14 +6541,6 @@
                         "description": "reserved (handler currently has no 404 paths)"
                     }
                 },
-                "security": [
-                    {
-                        "CookieAuth": []
-                    },
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
                 "summary": "Stream a stored media asset",
                 "tags": [
                     "media"
@@ -7659,7 +7675,7 @@
         },
         "/series/{id}/regrab": {
             "post": {
-                "description": "Resolves the canonical series.id to the preferred Sonarr\ninstance (lex-first instance that carries this series in\nseries_cache), then enqueues series + cast + OMDb\nre-enrichment at PriorityHot. Returns 202 with the\nscan_run_id of the spawned refresh.",
+                "description": "Resolves the canonical series.id to the preferred Sonarr\ninstance (lex-first instance that carries this series in\nseries_cache), then enqueues series + cast + OMDb\nre-enrichment at PriorityHot. Returns 202 with the\nscan_run_id of the spawned refresh. Non-library\n(TMDB-only) series are re-enriched directly by canonical\nid; 404 only when the id maps to no canonical series.",
                 "parameters": [
                     {
                         "description": "Canonical series.id",

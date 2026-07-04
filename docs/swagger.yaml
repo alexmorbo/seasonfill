@@ -3790,6 +3790,11 @@ paths:
         name: to
         schema:
           type: string
+      - description: BCP-47 language for series_title (e.g. ru-RU); omit for snapshot
+        in: query
+        name: lang
+        schema:
+          type: string
       responses:
         "200":
           content:
@@ -3822,6 +3827,11 @@ paths:
         in: path
         name: id
         required: true
+        schema:
+          type: string
+      - description: BCP-47 language for series_title (e.g. ru-RU); omit for snapshot
+        in: query
+        name: lang
         schema:
           type: string
       responses:
@@ -4116,6 +4126,11 @@ paths:
       - description: RFC3339 upper bound
         in: query
         name: to
+        schema:
+          type: string
+      - description: BCP-47 language for series_title (e.g. ru-RU); omit for snapshot
+        in: query
+        name: lang
         schema:
           type: string
       responses:
@@ -4719,9 +4734,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
           description: reserved (handler currently has no 404 paths)
-      security:
-      - CookieAuth: []
-      - ApiKeyAuth: []
       summary: Stream a stored media asset
       tags:
       - media
@@ -5424,7 +5436,9 @@ paths:
         instance (lex-first instance that carries this series in
         series_cache), then enqueues series + cast + OMDb
         re-enrichment at PriorityHot. Returns 202 with the
-        scan_run_id of the spawned refresh.
+        scan_run_id of the spawned refresh. Non-library
+        (TMDB-only) series are re-enriched directly by canonical
+        id; 404 only when the id maps to no canonical series.
       parameters:
       - description: Canonical series.id
         in: path

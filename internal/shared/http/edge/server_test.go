@@ -31,6 +31,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	grab "github.com/alexmorbo/seasonfill/internal/grab/domain"
 	"github.com/alexmorbo/seasonfill/internal/grab/domain/decision"
+	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -405,6 +406,117 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
 		lg)
+}
+
+// buildServerWithAuthAndMedia mirrors buildServerWithAuth but wires a
+// REAL (cheap) *mediaproxyrest.MediaHandler into the media-proxy slot.
+// Store/Repo are nil — the constructor fills HTTPClient/TTL defaults and
+// the handler short-circuits invalid hashes before any repo/store call,
+// so a nil-Repo handler is fine for the public-routing assertion below.
+func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
+	t.Helper()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sonarrClient := &noopSonarr{name: "main"}
+	evalUC := evaluate.NewUseCase(sonarrClient, noopDecRepo{}, lg)
+	scanUC := scan.NewUseCase(
+		[]scan.Instance{{Config: config.SonarrInstance{Name: "main"}, Client: sonarrClient}},
+		evalUC,
+		noopScanRepo{},
+		lg,
+		true,
+	)
+	checker := healthcheck.New(db, []ports.SonarrClient{sonarrClient})
+
+	hash, err := authapp.HashPassword("secret-pw")
+	require.NoError(t, err)
+	adminRepo := &stubAdminRepo{user: &admin.User{
+		ID: 1, Username: "admin", PasswordHash: hash,
+	}}
+
+	mediaHandler := mediaproxyrest.NewMediaHandler(mediaproxyrest.MediaHandlerDeps{Logger: lg})
+
+	return NewServer(config.HTTPConfig{
+		Bind:            "127.0.0.1:0",
+		ReadTimeout:     time.Second,
+		WriteTimeout:    time.Second,
+		IdleTimeout:     time.Second,
+		ShutdownTimeout: time.Second,
+		Auth: config.AuthConfig{
+			Enabled:      adminKey != "",
+			APIKey:       adminKey,
+			SessionTTL:   time.Hour,
+			WebUser:      "admin",
+			SecureCookie: false,
+		},
+	}, scanUC, okWebhookUC{}, checker,
+		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
+		adminRepo, nil, nil,
+		catalogrest.InstanceRegistry{Load: func() map[string]scan.Instance {
+			return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
+		}},
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
+		nil, nil, // seriesCacheRepo, counterRepo
+		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
+		mediaHandler, // mediaHandler (Story 214 F-1; W16-2 public route)
+		nil,          // mediaPending (Story 352, nil-OK)
+		nil, nil,     // seriesSeasonHandler (Story 215 G-1) + peopleHandler (Story 217 H-2)
+		nil, // peopleHandler (Story 217 H-2)
+		nil, // seriesRefreshHandler (Story 218 E-2)
+		nil, // seriesTorrentsHandler (Story 222 A-4)
+		nil, // timezoneHandler (Story 301)
+		nil, // meHandler (Story 485 N-7a)
+		nil, // sharedAuthRuntime (Story 485 N-7a)
+		nil, // globalSeriesHandler (Story 491 N-1a)
+		nil, // globalOverviewHandler (Story 529)
+		nil, // globalRecommendationsHandler (Story 530)
+		nil, // globalLibraryHandler (Story 577 E-1-B2)
+		nil, // seasonsHandler (Story 582 E-1 B3c)
+		nil, // discoveryHandler (Story 507 N-2f)
+		nil, // discoverHandler (Story 509 N-2h)
+		nil, // instanceMetadataHandler (Story 519 N-4b)
+		nil, // addToSonarrHandler (Story 520 N-4c)
+		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
+		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
+		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
+		lg)
+}
+
+// TestServer_MediaRoute_Public — W16-2. The content-addressed media
+// proxy intentionally moved from the auth-guarded group to the PUBLIC
+// `api` group so unauthenticated <img> tags / incognito sessions / CDN
+// warmers get the opaque image bytes (200/304) instead of a 401. This
+// asserts the route is wired at the SERVER level WITHOUT auth in the
+// chain: an invalid hash reaches the handler and returns 400 "invalid
+// hash" (a handler response) — a 401 here would mean the auth middleware
+// is still in front of it. Contract deliberately changed in W16-2.
+func TestServer_MediaRoute_Public(t *testing.T) {
+	t.Parallel()
+	const adminKey = "admin-secret"
+	srv := buildServerWithAuthAndMedia(t, adminKey)
+	handler := srv.server.Handler
+
+	// Unauthenticated GET — no X-Api-Key, no cookie. Invalid hash → the
+	// handler (not the auth middleware) answers with 400 "invalid hash".
+	getReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/api/v1/media/not-a-hash", nil)
+	getW := httptest.NewRecorder()
+	handler.ServeHTTP(getW, getReq)
+	assert.Equal(t, http.StatusBadRequest, getW.Code,
+		"unauthenticated media GET must reach the handler (400), not be 401'd by auth")
+	assert.NotContains(t, getW.Body.String(), "AUTH_REQUIRED",
+		"media route must not be auth-guarded")
+
+	// Unauthenticated HEAD shares the handler — must also NOT be 401.
+	headReq := httptest.NewRequestWithContext(t.Context(), http.MethodHead,
+		"/api/v1/media/not-a-hash", nil)
+	headW := httptest.NewRecorder()
+	handler.ServeHTTP(headW, headReq)
+	assert.NotEqual(t, http.StatusUnauthorized, headW.Code,
+		"unauthenticated media HEAD must not be 401")
 }
 
 func TestServer_WebhookRequiresAuth(t *testing.T) {

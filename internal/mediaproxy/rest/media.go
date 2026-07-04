@@ -226,8 +226,6 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 // @Success     304   "not modified"
 // @Failure     400   {object}  dto.ErrorResponse
 // @Failure     404   {object}  dto.ErrorResponse  "reserved (handler currently has no 404 paths)"
-// @Security    CookieAuth
-// @Security    ApiKeyAuth
 // @Router      /media/{hash} [get]
 func (h *MediaHandler) Serve(c *gin.Context) {
 	hash := c.Param("hash")
