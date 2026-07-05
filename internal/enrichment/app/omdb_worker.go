@@ -198,12 +198,12 @@ func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error
 	return nil
 }
 
-// applyOMDbToCanon patches ONLY the four OMDb-owned columns onto the
+// applyOMDbToCanon patches ONLY the six OMDb-owned columns onto the
 // existing canon row. Every other field on `base` carries through —
 // the merge policy (§5.4) guarantees OMDb never overrides Sonarr or
-// TMDB-owned fields. We pre-clear the four fields so a None response
-// (mapper returns Enrichment{}) translates to four NULL writes,
-// matching the "N/A" → NULL contract for in-place updates.
+// TMDB-owned fields. We pre-clear the fields so a None response
+// (mapper returns Enrichment{}) translates to NULL writes, matching
+// the "N/A" → NULL contract for in-place updates.
 func applyOMDbToCanon(base series.Canon, m omdb.Enrichment) series.Canon {
 	base.IMDBRating = m.IMDBRating
 	if m.IMDBVotes != nil {
@@ -214,6 +214,8 @@ func applyOMDbToCanon(base series.Canon, m omdb.Enrichment) series.Canon {
 	}
 	base.OMDBRated = m.OMDbRated
 	base.OMDBAwards = m.OMDbAwards
+	base.OMDBRTRating = m.OMDbRTRating
+	base.OMDBMetacritic = m.OMDbMetacritic
 	return base
 }
 

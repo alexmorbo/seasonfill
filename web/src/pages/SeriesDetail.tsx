@@ -26,6 +26,7 @@ import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
 import { RailCard } from '@/components/series-detail/RailCard';
 import { CastStrip } from '@/components/series-detail/CastStrip';
 import { AwardsBlock } from '@/components/series-detail/AwardsBlock';
+import { RatingsStrip } from '@/components/series-detail/RatingsStrip';
 import { RecentStrip } from '@/components/series-detail/RecentStrip';
 import { SeriesDetailSkeleton } from '@/components/series-detail/SeriesDetailSkeleton';
 import { StaleBadge } from '@/components/series-detail/StaleBadge';
@@ -278,6 +279,13 @@ export function SeriesDetail() {
                     awards={overviewData?.awards ?? undefined}
                     omdbDegraded={omdbDegraded}
                     {...(syncedAt ? { syncedAt } : {})}
+                  />
+                  {/* Story 1039 — minimal RT/Metacritic strip next to
+                      Awards. Full redesign into the hero deferred. */}
+                  <RatingsStrip
+                    rtRating={overviewData?.rt_rating ?? undefined}
+                    metacritic={overviewData?.metacritic ?? undefined}
+                    omdbDegraded={omdbDegraded}
                   />
                 </>
               }

@@ -351,7 +351,7 @@ func addCoreSeries(s *atlasschema.Schema, d Dialect) {
 	s.AddTables(series, seasons, episodes)
 }
 
-// buildSeriesTable assembles the canonical `series` table — 29 columns
+// buildSeriesTable assembles the canonical `series` table — 31 columns
 // + 6 indexes (4 plain b-tree + 2 partial).
 func buildSeriesTable(d Dialect) *atlasschema.Table {
 	id := pkColumn(d)
@@ -385,6 +385,8 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 	imdbVotes := atlasschema.NewNullIntColumn("imdb_votes", "integer")
 	omdbRated := atlasschema.NewNullStringColumn("omdb_rated", "text")
 	omdbAwards := atlasschema.NewNullStringColumn("omdb_awards", "text")
+	omdbRTRating := atlasschema.NewNullIntColumn("omdb_rt_rating", "integer")
+	omdbMetacritic := atlasschema.NewNullIntColumn("omdb_metacritic", "integer")
 	enrichmentTMDBSyncedAt := timestampColumn(d, "enrichment_tmdb_synced_at", false, false)
 	enrichmentOMDBSyncedAt := timestampColumn(d, "enrichment_omdb_synced_at", false, false)
 	enrichmentTextSyncedAt := timestampColumn(d, "enrichment_text_synced_at", false, false)
@@ -421,6 +423,8 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			imdbVotes,
 			omdbRated,
 			omdbAwards,
+			omdbRTRating,
+			omdbMetacritic,
 			enrichmentTMDBSyncedAt,
 			enrichmentOMDBSyncedAt,
 			enrichmentTextSyncedAt,

@@ -5204,7 +5204,17 @@ export type components = {
              * @example ru-RU
              */
             readonly language?: string;
+            /**
+             * @description Metacritic is the OMDb Metacritic score (0-100). nil when no
+             *     OMDb sync ran or OMDb has no Metacritic entry.
+             */
+            readonly metacritic?: number;
             readonly overview?: string;
+            /**
+             * @description RTRating is the OMDb Rotten Tomatoes percent (0-100). nil when
+             *     no OMDb sync ran or OMDb has no Rotten Tomatoes entry.
+             */
+            readonly rt_rating?: number;
         };
         readonly "dto.PasswordChangeRequest": {
             /** @example hunter22 */

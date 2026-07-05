@@ -191,6 +191,8 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 		v := *canon.OMDBAwards
 		out.Awards = &v
 	}
+	out.RTRating = canon.OMDBRTRating
+	out.Metacritic = canon.OMDBMetacritic
 	if u.d.Enricher != nil && canon.Hydration != series.HydrationFull {
 		u.d.Enricher.EnqueueIfStale(seriesID, canon.Hydration)
 	}
@@ -200,6 +202,8 @@ func (u *TMDBFallbackUseCase) GetOverview(ctx context.Context, seriesID domain.S
 		slog.String("lang", lang),
 		slog.Int("keyword_count", len(out.Keywords)),
 		slog.Bool("has_awards", out.Awards != nil),
+		slog.Bool("has_rt_rating", out.RTRating != nil),
+		slog.Bool("has_metacritic", out.Metacritic != nil),
 		slog.Bool("has_description", out.Description != ""),
 		slog.Int("degraded_count", len(out.Degraded)))
 	return out, nil

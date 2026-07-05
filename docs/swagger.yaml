@@ -1448,8 +1448,18 @@ components:
             Empty only when no row was found in any language (rare).
           example: ru-RU
           type: string
+        metacritic:
+          description: |-
+            Metacritic is the OMDb Metacritic score (0-100). nil when no
+            OMDb sync ran or OMDb has no Metacritic entry.
+          type: integer
         overview:
           type: string
+        rt_rating:
+          description: |-
+            RTRating is the OMDb Rotten Tomatoes percent (0-100). nil when
+            no OMDb sync ran or OMDb has no Rotten Tomatoes entry.
+          type: integer
       type: object
     dto.PasswordChangeRequest:
       properties:

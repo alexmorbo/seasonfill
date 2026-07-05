@@ -82,20 +82,23 @@ func TestD12_SchemaHasThreeCoreTables(t *testing.T) {
 	}
 }
 
-// TestD12_SeriesColumnCount asserts the canonical 33-column count per
+// TestD12_SeriesColumnCount asserts the canonical 35-column count per
 // PRD §4.1 + E-1-A1 per-section freshness stamps (4 new columns added
 // in migration 000022) minus the 3 localizable canon columns
 // (title / poster_asset / backdrop_asset) dropped in migration 000028;
-// original_title / original_language are retained. Drift indicates a
-// renamed/added column that should require a follow-up story revision.
+// original_title / original_language are retained. Migration 000031
+// (story 1039, OMDb multi-ratings) added 2 nullable columns
+// (omdb_rt_rating / omdb_metacritic), bumping the count 33 -> 35.
+// Drift indicates a renamed/added column that should require a
+// follow-up story revision.
 func TestD12_SeriesColumnCount(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			tbl := mustTable(t, schema.Schema(d), "series")
-			if len(tbl.Columns) != 33 {
-				t.Errorf("series column count = %d, want 33", len(tbl.Columns))
+			if len(tbl.Columns) != 35 {
+				t.Errorf("series column count = %d, want 35", len(tbl.Columns))
 			}
 		})
 	}

@@ -286,7 +286,7 @@ func (r *SeriesRepository) Upsert(ctx context.Context, c series.Canon) (domain.S
 // BackdropAsset, Status, FirstAirDate, LastAirDate, Homepage,
 // OriginalLanguage, OriginCountry, Popularity, InProduction,
 // RuntimeMinutes, TMDBRating, TMDBVotes, IMDBID, IMDBRating, IMDBVotes,
-// OMDBRated, OMDBAwards) against the existing row — the stub value is
+// OMDBRated, OMDBAwards, OMDBRTRating, OMDBMetacritic) against the existing row — the stub value is
 // applied ONLY when the existing value is NULL. Hydration is preserved
 // when the existing row is 'full' (a stub MUST NOT downgrade a full
 // row). Title, Year, OriginalTitle, TVDBID, NextAirDate, UpdatedAt are
@@ -347,6 +347,8 @@ func (r *SeriesRepository) UpsertStub(ctx context.Context, c series.Canon) (doma
 			"imdb_votes":        gorm.Expr("series.imdb_votes"),
 			"omdb_rated":        gorm.Expr("series.omdb_rated"),
 			"omdb_awards":       gorm.Expr("series.omdb_awards"),
+			"omdb_rt_rating":    gorm.Expr("series.omdb_rt_rating"),
+			"omdb_metacritic":   gorm.Expr("series.omdb_metacritic"),
 			"updated_at":        gorm.Expr("excluded.updated_at"),
 		}),
 	}
@@ -810,6 +812,8 @@ func seriesUpsertAssignments() map[string]any {
 		"imdb_votes":       gorm.Expr("COALESCE(excluded.imdb_votes, series.imdb_votes)"),
 		"omdb_rated":       gorm.Expr("COALESCE(excluded.omdb_rated, series.omdb_rated)"),
 		"omdb_awards":      gorm.Expr("COALESCE(excluded.omdb_awards, series.omdb_awards)"),
+		"omdb_rt_rating":   gorm.Expr("COALESCE(excluded.omdb_rt_rating, series.omdb_rt_rating)"),
+		"omdb_metacritic":  gorm.Expr("COALESCE(excluded.omdb_metacritic, series.omdb_metacritic)"),
 		// D-3 freshness columns — COALESCE so a Sonarr-driven canonOut
 		// (PRD §5.4) that carries nil does NOT blank a previously-set
 		// enrichment timestamp. Same protection as poster_asset /
@@ -859,6 +863,8 @@ func toCanon(m database.SeriesModel) series.Canon {
 		IMDBVotes:               m.IMDBVotes,
 		OMDBRated:               m.OMDBRated,
 		OMDBAwards:              m.OMDBAwards,
+		OMDBRTRating:            m.OMDBRTRating,
+		OMDBMetacritic:          m.OMDBMetacritic,
 		EnrichmentTMDBSyncedAt:  m.EnrichmentTMDBSyncedAt,
 		EnrichmentOMDBSyncedAt:  m.EnrichmentOMDBSyncedAt,
 		EnrichmentTextSyncedAt:  m.EnrichmentTextSyncedAt,
@@ -899,6 +905,8 @@ func fromCanon(c series.Canon) database.SeriesModel {
 		IMDBVotes:               c.IMDBVotes,
 		OMDBRated:               c.OMDBRated,
 		OMDBAwards:              c.OMDBAwards,
+		OMDBRTRating:            c.OMDBRTRating,
+		OMDBMetacritic:          c.OMDBMetacritic,
 		EnrichmentTMDBSyncedAt:  c.EnrichmentTMDBSyncedAt,
 		EnrichmentOMDBSyncedAt:  c.EnrichmentOMDBSyncedAt,
 		EnrichmentTextSyncedAt:  c.EnrichmentTextSyncedAt,

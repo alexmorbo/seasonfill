@@ -1982,6 +1982,7 @@ export const ru: Translations = {
     ratings: {
       tmdb: 'TMDB',
       imdb: 'IMDb',
+      metacritic: 'MC',
     },
     stale: {
       asOf: 'по состоянию на {{time}}',

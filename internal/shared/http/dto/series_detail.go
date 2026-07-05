@@ -254,6 +254,12 @@ type OverviewAside struct {
 	// Awards is the OMDb awards line ("Won 16 Emmys..."). nil when
 	// no OMDb sync ran or awards = "N/A".
 	Awards *string `json:"awards,omitempty"`
+	// RTRating is the OMDb Rotten Tomatoes percent (0-100). nil when
+	// no OMDb sync ran or OMDb has no Rotten Tomatoes entry.
+	RTRating *int `json:"rt_rating,omitempty"`
+	// Metacritic is the OMDb Metacritic score (0-100). nil when no
+	// OMDb sync ran or OMDb has no Metacritic entry.
+	Metacritic *int `json:"metacritic,omitempty"`
 }
 
 // SeriesOverviewResponse — wire shape of GET /api/v1/series/:id/overview

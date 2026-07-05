@@ -196,7 +196,7 @@ func newOMDbWorkerForTest(t *testing.T, mut func(*OMDbWorkerDeps)) (*OMDbWorker,
 
 // --- tests ----------------------------------------------------------
 
-func TestOMDbWorker_HappyPath_PatchesFourFieldsOnly(t *testing.T) {
+func TestOMDbWorker_HappyPath_PatchesSixFieldsOnly(t *testing.T) {
 	t.Parallel()
 	w, f := newOMDbWorkerForTest(t, nil)
 	// Pre-populate canon with non-OMDb fields that the worker must
@@ -207,6 +207,12 @@ func TestOMDbWorker_HappyPath_PatchesFourFieldsOnly(t *testing.T) {
 	f.series.canon.TMDBVotes = &tmdbVotes
 	status := "Ended"
 	f.series.canon.Status = &status
+	// Story 1039 — add the Ratings array to the default fixture response.
+	f.client.resp.Ratings = []omdb.Rating{
+		{Source: "Internet Movie Database", Value: "9.5/10"},
+		{Source: "Rotten Tomatoes", Value: "96%"},
+		{Source: "Metacritic", Value: "73/100"},
+	}
 
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Equal(t, 1, f.client.calls)
@@ -221,6 +227,10 @@ func TestOMDbWorker_HappyPath_PatchesFourFieldsOnly(t *testing.T) {
 	require.NotNil(t, upserted.OMDBRated)
 	assert.Equal(t, "TV-MA", *upserted.OMDBRated)
 	require.NotNil(t, upserted.OMDBAwards)
+	require.NotNil(t, upserted.OMDBRTRating)
+	assert.Equal(t, 96, *upserted.OMDBRTRating)
+	require.NotNil(t, upserted.OMDBMetacritic)
+	assert.Equal(t, 73, *upserted.OMDBMetacritic)
 	// Non-OMDb fields preserved.
 	require.NotNil(t, upserted.TMDBRating)
 	assert.InDelta(t, 8.0, *upserted.TMDBRating, 1e-9)
@@ -349,10 +359,14 @@ func TestOMDbWorker_NAValues_ResultsInNullColumns(t *testing.T) {
 	t.Parallel()
 	w, f := newOMDbWorkerForTest(t, nil)
 	f.client.resp = &omdb.Response{
-		IMDBRating:   "N/A",
-		IMDBVotes:    "N/A",
-		Rated:        "N/A",
-		Awards:       "N/A",
+		IMDBRating: "N/A",
+		IMDBVotes:  "N/A",
+		Rated:      "N/A",
+		Awards:     "N/A",
+		Ratings: []omdb.Rating{
+			{Source: "Rotten Tomatoes", Value: "N/A"},
+			{Source: "Metacritic", Value: "N/A"},
+		},
 		ResponseFlag: "True",
 	}
 	// Pre-populate canon to make sure the worker explicitly clears the
@@ -361,10 +375,14 @@ func TestOMDbWorker_NAValues_ResultsInNullColumns(t *testing.T) {
 	v := 1
 	rated := "PG"
 	awards := "Some"
+	rt := 50
+	mc := 50
 	f.series.canon.IMDBRating = &r
 	f.series.canon.IMDBVotes = &v
 	f.series.canon.OMDBRated = &rated
 	f.series.canon.OMDBAwards = &awards
+	f.series.canon.OMDBRTRating = &rt
+	f.series.canon.OMDBMetacritic = &mc
 
 	require.NoError(t, w.Handle(context.Background(), 42))
 	require.Len(t, f.series.upserts, 1)
@@ -373,13 +391,15 @@ func TestOMDbWorker_NAValues_ResultsInNullColumns(t *testing.T) {
 	assert.Nil(t, up.IMDBVotes)
 	assert.Nil(t, up.OMDBRated)
 	assert.Nil(t, up.OMDBAwards)
+	assert.Nil(t, up.OMDBRTRating)
+	assert.Nil(t, up.OMDBMetacritic)
 }
 
-// TestOMDbWorker_WritesOnlyFourColumns is the Critical Decision #3
+// TestOMDbWorker_WritesOnlySixColumns is the Critical Decision #3
 // in-memory diff test. With an empty mapper output (all-nil
-// Enrichment) the worker must touch ONLY the four OMDb-owned fields
+// Enrichment) the worker must touch ONLY the six OMDb-owned fields
 // on the canon row; every other field stays byte-equal.
-func TestOMDbWorker_WritesOnlyFourColumns(t *testing.T) {
+func TestOMDbWorker_WritesOnlySixColumns(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(99)
 	tvdbID := domain.TVDBID(100)
@@ -409,11 +429,13 @@ func TestOMDbWorker_WritesOnlyFourColumns(t *testing.T) {
 	// Empty Enrichment — mapper output for a response of all "N/A".
 	patched := applyOMDbToCanon(base, omdb.Enrichment{})
 
-	// Four OMDb-owned columns cleared to nil.
+	// Six OMDb-owned columns cleared to nil.
 	assert.Nil(t, patched.IMDBRating)
 	assert.Nil(t, patched.IMDBVotes)
 	assert.Nil(t, patched.OMDBRated)
 	assert.Nil(t, patched.OMDBAwards)
+	assert.Nil(t, patched.OMDBRTRating)
+	assert.Nil(t, patched.OMDBMetacritic)
 
 	// Every other field byte-equal — re-clear them on `base` for
 	// fair comparison, then diff.

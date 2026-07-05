@@ -75,12 +75,26 @@ type Response struct {
 	IMDBID       string `json:"imdbID"`
 	Type         string `json:"Type"`
 	TotalSeasons string `json:"totalSeasons"`
+	// Ratings — Story 1039. Multi-source score array (IMDb decimal,
+	// Rotten Tomatoes percent, Metacritic /100). Same request, zero
+	// extra traffic — previously decoded nowhere, silently dropped.
+	Ratings []Rating `json:"Ratings"`
 
 	// Response shape envelope. "True" on success; "False" on error
 	// with the Error field populated. The string form mirrors the
 	// upstream contract — we coerce to bool inside GetByIMDB.
 	ResponseFlag string `json:"Response"`
 	Error        string `json:"Error"`
+}
+
+// Rating is one entry of the OMDb `Ratings` array — one score per
+// upstream source ("Internet Movie Database", "Rotten Tomatoes",
+// "Metacritic"). Kept 1:1 with the upstream JSON shape; the mapper
+// picks Rotten Tomatoes / Metacritic out by Source name and ignores
+// the IMDb entry (the imdbRating scalar above is already decoded).
+type Rating struct {
+	Source string `json:"Source"`
+	Value  string `json:"Value"`
 }
 
 // Config bundles the constructor arguments. APIKey is required;
