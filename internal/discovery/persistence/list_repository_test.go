@@ -353,6 +353,75 @@ func TestListRepository_GetRanked_TVDBIDAndOriginalLanguage(t *testing.T) {
 	}
 }
 
+// TestListRepository_GetRanked_YearAndRating_Story1036 pins the ingest-
+// stored year + tmdb_rating round-trip. Row A is a stub (NULL canon
+// year/tmdb_rating) whose Item carries ingest-stored values → GetRanked
+// COALESCEs them off discovery_lists (the floor). Row B has richer canon
+// year/tmdb_rating → GetRanked prefers the canon values over the ingest
+// floor. Guarantees every list item surfaces a value.
+func TestListRepository_GetRanked_YearAndRating_Story1036(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			lang := "en-US-" + uuid.NewString()[:6]
+
+			// Row A — stub series, NULL canon year + tmdb_rating.
+			otA := "ingest-floor-" + uuid.NewString()[:6]
+			a := database.SeriesModel{
+				OriginalTitle:   &otA,
+				Hydration:       "stub",
+				InProduction:    false,
+				OriginCountries: datatypes.JSON("[]"),
+			}
+			require.NoError(t, db.Create(&a).Error)
+
+			// Row B — enriched canon year + tmdb_rating.
+			otB := "canon-rich-" + uuid.NewString()[:6]
+			canonYear := 2010
+			canonRating := 9.1
+			b := database.SeriesModel{
+				OriginalTitle:   &otB,
+				Hydration:       "full",
+				InProduction:    false,
+				OriginCountries: datatypes.JSON("[]"),
+				Year:            &canonYear,
+				TMDBRating:      &canonRating,
+			}
+			require.NoError(t, db.Create(&b).Error)
+
+			ingestYearA, ingestRatingA := 2021, 8.4
+			ingestYearB, ingestRatingB := 2000, 5.0
+			items := []disco.Item{
+				{SeriesID: a.ID, Year: &ingestYearA, TMDBRating: &ingestRatingA},
+				{SeriesID: b.ID, Year: &ingestYearB, TMDBRating: &ingestRatingB},
+			}
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", lang, items))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", lang, 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 2)
+
+			// Row A — canon NULL → ingest floor surfaces.
+			require.NotNil(t, page.Items[0].Year)
+			assert.Equal(t, 2021, *page.Items[0].Year)
+			require.NotNil(t, page.Items[0].TMDBRating)
+			assert.InDelta(t, 8.4, *page.Items[0].TMDBRating, 1e-9)
+
+			// Row B — richer canon wins over ingest floor.
+			require.NotNil(t, page.Items[1].Year)
+			assert.Equal(t, 2010, *page.Items[1].Year)
+			require.NotNil(t, page.Items[1].TMDBRating)
+			assert.InDelta(t, 9.1, *page.Items[1].TMDBRating, 1e-9)
+		})
+	}
+}
+
 func TestListRepository_ReplaceList_OrphanSeriesIDErrors(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {

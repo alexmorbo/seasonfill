@@ -524,10 +524,14 @@ func (h *DiscoveryHandler) readAndProject(
 }
 
 // projectItem maps the domain Item → wire DiscoverySeriesItem.
-// Genres / OriginalTitle / TMDBRating / IMDBRating / Status are
-// NOT populated by GetRanked today (the repo's JOIN omits those
-// series columns). They stay nil until N-2g extends the projection
-// — by which time the FE will already render the no-data branch.
+// Genres / OriginalTitle / IMDBRating / Status are NOT populated by
+// GetRanked today (the repo's JOIN omits those series columns). They
+// stay nil until N-2g extends the projection — by which time the FE
+// will already render the no-data branch.
+//
+// TMDBRating (story 1036) IS populated: GetRanked COALESCEs the canon
+// series.tmdb_rating over the ingest-stored discovery_lists.tmdb_rating
+// floor, so every item TMDB provides a vote_average for carries a rating.
 //
 // TVDBID + OriginalLanguage joined into the projection in story 523
 // (N-4 unblock) so the FE AddToSonarr modal can submit straight from
@@ -586,10 +590,11 @@ func projectItem(
 		ID:                 int64(it.SeriesID),
 		Title:              it.Title,
 		Year:               it.Year,
-		PosterHash:         posterPath,   // story 554 — same value, new wire name
-		PosterPath:         posterPath,   // legacy mirror
-		BackdropHash:       backdropPath, // story 554 — new wire name
-		BackdropPath:       backdropPath, // legacy mirror
+		TMDBRating:         it.TMDBRating, // story 1036 — ingest-stored TMDB vote_average
+		PosterHash:         posterPath,    // story 554 — same value, new wire name
+		PosterPath:         posterPath,    // legacy mirror
+		BackdropHash:       backdropPath,  // story 554 — new wire name
+		BackdropPath:       backdropPath,  // legacy mirror
 		OriginalLanguage:   it.OriginalLanguage,
 		InLibraryInstances: instances,
 	}

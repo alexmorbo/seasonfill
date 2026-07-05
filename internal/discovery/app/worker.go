@@ -595,12 +595,24 @@ func (w *Worker) materialiseItem(ctx context.Context, lang string, entry tmdb.TV
 		TMDBID:          &tmdbIDCopy,
 		Title:           entry.Name,
 		Year:            year,
+		TMDBRating:      nonZeroRating(entry.VoteAverage),
 		PosterPath:      poster,
 		BackdropPath:    backdrop,
 		OriginCountries: countries,
 		Genres:          nil, // handler resolves at projection time (story 507)
 		TMDBType:        nil, // TV list entries don't carry tmdb_type
 	}, nil
+}
+
+// nonZeroRating maps a TMDB vote_average to a *float64, returning nil for
+// the 0 sentinel TMDB ships for series with no votes yet so the discovery
+// cache stores NULL instead of a misleading 0.0 rating.
+func nonZeroRating(v float64) *float64 {
+	if v <= 0 {
+		return nil
+	}
+	r := v
+	return &r
 }
 
 // parseYear extracts YYYY from a TMDB first_air_date string ("YYYY-MM-DD"

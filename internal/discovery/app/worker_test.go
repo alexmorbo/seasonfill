@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/metrics"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
@@ -100,6 +101,12 @@ func (r *fakeRepo) replacedCount(kind disco.Kind, param, lang string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.replaced[keyFor(kind, param, lang)])
+}
+
+func (r *fakeRepo) replacedItems(kind disco.Kind, param, lang string) []disco.Item {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.replaced[keyFor(kind, param, lang)]
 }
 
 type fakeLangs struct {
@@ -273,6 +280,40 @@ func (w testWriter) Write(b []byte) (int, error) {
 }
 
 // --- tests ---
+
+// Story 1036 — a TMDB list entry carrying vote_average + first_air_date
+// must materialise onto the discovery Item's TMDBRating + Year so the
+// values reach discovery_lists via ReplaceList (and, downstream, the
+// /discovery/* response). Also asserts the vote_average 0 sentinel → nil.
+func TestTick_MaterialisesTMDBRatingAndYear_Story1036(t *testing.T) {
+	repo := newFakeRepo()
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{resp: &tmdb.TVListResponse{
+		Page:       1,
+		TotalPages: 1,
+		Results: []tmdb.TVListEntry{
+			{ID: 1, Name: "Rated Show", FirstAirDate: "2021-06-02", VoteAverage: 8.4},
+			{ID: 2, Name: "Unrated Show", FirstAirDate: "2019-01-01", VoteAverage: 0},
+		},
+	}}
+	stubs := newFakeStubs()
+	tops := &fakeTopKinds{}
+
+	w := newTestWorker(t, repo, langs, stubs, client, tops)
+	require.NoError(t, w.Tick(context.Background()))
+
+	items := repo.replacedItems(disco.KindTrendingDay, "", "en-US")
+	require.Len(t, items, 2)
+
+	require.NotNil(t, items[0].TMDBRating)
+	assert.InDelta(t, 8.4, *items[0].TMDBRating, 1e-9)
+	require.NotNil(t, items[0].Year)
+	assert.Equal(t, 2021, *items[0].Year)
+
+	assert.Nil(t, items[1].TMDBRating, "vote_average 0 sentinel must store NULL rating")
+	require.NotNil(t, items[1].Year)
+	assert.Equal(t, 2019, *items[1].Year)
+}
 
 func TestTick_EmptyLanguages_NoTMDBCalls(t *testing.T) {
 	repo := newFakeRepo()

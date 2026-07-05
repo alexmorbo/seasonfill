@@ -472,10 +472,10 @@ func TestD2_DiscoveryListsTable_BothDialects(t *testing.T) {
 			s := Schema(d)
 			tbl := mustTable(s, "discovery_lists")
 
-			if got, want := len(tbl.Columns), 6; got != want {
+			if got, want := len(tbl.Columns), 8; got != want {
 				t.Fatalf("discovery_lists columns = %d, want %d", got, want)
 			}
-			wantCols := []string{"kind", "param", "language", "series_id", "position", "refreshed_at"}
+			wantCols := []string{"kind", "param", "language", "series_id", "position", "refreshed_at", "year", "tmdb_rating"}
 			gotCols := make(map[string]bool, len(tbl.Columns))
 			for _, c := range tbl.Columns {
 				gotCols[c.Name] = true

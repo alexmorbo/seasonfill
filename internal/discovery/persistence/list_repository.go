@@ -28,6 +28,11 @@ type DiscoveryListsModel struct {
 	SeriesID    shareddomain.SeriesID `gorm:"primaryKey;column:series_id;not null"`
 	Position    int                   `gorm:"column:position;not null"`
 	RefreshedAt time.Time             `gorm:"column:refreshed_at;not null"`
+	// Year / TMDBRating (story 1036) — ingest-stored TMDB list facts
+	// (first_air_date year + vote_average). Nullable: a TMDB list entry
+	// may omit first_air_date or ship vote_average 0 (→ NULL).
+	Year       *int     `gorm:"column:year"`
+	TMDBRating *float64 `gorm:"column:tmdb_rating"`
 }
 
 // TableName pins the GORM mapping to discovery_lists (migration 000021).
@@ -39,10 +44,11 @@ func (DiscoveryListsModel) TableName() string { return "discovery_lists" }
 // DELETE+INSERT pair.
 //
 // COALESCE pattern audit (project_seasonfill_upsert_coalesce_pattern):
-// the table has 6 columns. Four (kind/param/language/series_id) form
-// the PK and are written verbatim. Two (position, refreshed_at) are
-// owned solely by the discovery worker — no other source emits writes
-// against them, so there is no second writer to COALESCE against. The
+// the table has 8 columns. Four (kind/param/language/series_id) form
+// the PK and are written verbatim. The rest (position, refreshed_at,
+// year, tmdb_rating) are owned solely by the discovery worker — no other
+// source emits writes against them, so there is no second writer to
+// COALESCE against. The
 // risk pattern from B-13 / Story 552 (multi-writer column blanking)
 // does not apply here. ReplaceList ships DELETE+INSERT instead of
 // UPSERT specifically so a partial item-set never half-clears the
@@ -104,7 +110,8 @@ func (r *ListRepository) GetRanked(
 		       COALESCE((SELECT st.title FROM series_texts st WHERE st.series_id = s.id
 		         ORDER BY CASE WHEN st.language = ? THEN 2 WHEN st.language = 'en-US' THEN 1 ELSE 0 END DESC,
 		                  st.language ASC LIMIT 1), s.original_title) AS title,
-		       s.year,
+		       COALESCE(s.year, d.year) AS year,
+		       COALESCE(s.tmdb_rating, d.tmdb_rating) AS tmdb_rating,
 		       (SELECT smt.poster_asset FROM series_media_texts smt WHERE smt.series_id = s.id
 		         ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
 		                  smt.language ASC LIMIT 1) AS poster_asset,
@@ -125,6 +132,7 @@ func (r *ListRepository) GetRanked(
 		TVDBID           *shareddomain.TVDBID  `gorm:"column:tvdb_id"`
 		Title            string                `gorm:"column:title"`
 		Year             *int                  `gorm:"column:year"`
+		TMDBRating       *float64              `gorm:"column:tmdb_rating"`
 		PosterAsset      *string               `gorm:"column:poster_asset"`
 		BackdropAsset    *string               `gorm:"column:backdrop_asset"`
 		OriginalLanguage *string               `gorm:"column:original_language"`
@@ -169,6 +177,7 @@ func (r *ListRepository) GetRanked(
 			TVDBID:           row.TVDBID,
 			Title:            row.Title,
 			Year:             row.Year,
+			TMDBRating:       row.TMDBRating,
 			PosterPath:       row.PosterAsset,
 			BackdropPath:     row.BackdropAsset,
 			OriginalLanguage: row.OriginalLanguage,
@@ -314,6 +323,8 @@ func (r *ListRepository) ReplaceList(
 				SeriesID:    it.SeriesID,
 				Position:    i + 1,
 				RefreshedAt: now,
+				Year:        it.Year,
+				TMDBRating:  it.TMDBRating,
 			})
 		}
 		// CreateInBatches keeps the per-INSERT parameter count under

@@ -5,15 +5,15 @@
 // Locks in the post-cutover schema invariants the operator depends on
 // before dropping+recreating the production database. The four guards:
 //
-//  1. All 29 migrations apply cleanly from an empty DB (no compound
+//  1. All 30 migrations apply cleanly from an empty DB (no compound
 //     failures, no partial-state crashes).
 //  2. Every name in d1AcceptanceTablesPostgres (55 entries) is present
 //     post-Up on both dialects — and no surprise extras snuck in.
 //  3. No legacy table names survive — admin_users, app_settings,
 //     sync_log, etc. were retired during D-3..D-7; this denylist
 //     trips if a stray .up.sql resurrects one.
-//  4. schema_migrations reports exactly 29 applied versions —
-//     matches the 29 .up.sql files under
+//  4. schema_migrations reports exactly 30 applied versions —
+//     matches the 30 .up.sql files under
 //     infrastructure/database/migrations/{postgres,sqlite}.
 //
 // Runs on the standard dual-backend rig (sqlite always, postgres
@@ -135,7 +135,7 @@ func TestD8_Closure_NoLegacyTables(t *testing.T) {
 // lower version pinned), plus the "previous run crashed mid-Up"
 // failure mode (dirty=true, blocks subsequent migrations).
 func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
-	const wantHead = 29
+	const wantHead = 30
 
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
 				"read head row from schema_migrations on %s", b.name)
 			assert.Equalf(t, wantHead, head,
 				"schema_migrations.version on %s = %d; want %d "+
-					"(matches the 29 .up.sql files committed in 000001..000029)",
+					"(matches the 30 .up.sql files committed in 000001..000030)",
 				b.name, head, wantHead)
 			assert.Falsef(t, dirty,
 				"schema_migrations.dirty=true on %s — a previous Up() crashed mid-migration; "+

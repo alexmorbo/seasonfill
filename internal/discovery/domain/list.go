@@ -79,12 +79,19 @@ func (k Kind) IsValid() bool {
 // §5.1.4 filter rides on. The `series.tmdb_type` column is NOT exposed
 // by SeriesModel in `internal/shared/db/models.go`; the repository
 // hydrates the field via raw SQL Scan.
+//
+// Year / TMDBRating (story 1036) are ingest-stored from the TMDB list
+// entry (first_air_date year + vote_average) so every materialised item
+// carries them regardless of whether the joined series row has been
+// enriched. The read path COALESCEs the canon series value over the
+// ingest-stored floor, so all list items surface a value.
 type Item struct {
 	SeriesID         shareddomain.SeriesID
 	TMDBID           *shareddomain.TMDBID
 	TVDBID           *shareddomain.TVDBID
 	Title            string
 	Year             *int
+	TMDBRating       *float64
 	PosterPath       *string
 	BackdropPath     *string
 	OriginalLanguage *string

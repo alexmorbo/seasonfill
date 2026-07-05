@@ -487,6 +487,54 @@ func TestTrending_ProjectsTVDBIDAndOriginalLanguage(t *testing.T) {
 	require.NotContains(t, body, `"original_language":null`)
 }
 
+// Story 1036 — projectItem must surface domain Item.TMDBRating + Year
+// on the wire so the unified FE card renders ★rating + year. A nil
+// rating (TMDB gave no vote) drops the key via omitempty.
+func TestTrending_ProjectsTMDBRatingAndYear_Story1036(t *testing.T) {
+	repo := newFakeRepo()
+	rating := 8.4
+	year := 2021
+	items := []disco.Item{
+		{
+			SeriesID:   shareddomain.SeriesID(1),
+			Title:      "Rated",
+			TMDBRating: &rating,
+			Year:       &year,
+		},
+		{
+			SeriesID: shareddomain.SeriesID(2),
+			Title:    "Unrated",
+		},
+	}
+	repo.setPage(disco.KindTrendingDay, "", "en-US", disco.Page{
+		Items: items, RefreshedAt: time.Now(), Total: len(items),
+	}, false, time.Now())
+
+	r := newTestHandler(t, repo, &fakeWarming{}, &fakeRefresh{})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET",
+		"/discovery/trending?scope=day&lang=en-US", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp discoveryrest.DiscoveryListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 2)
+
+	require.NotNil(t, resp.Items[0].TMDBRating, "populated rating must surface")
+	require.InDelta(t, 8.4, *resp.Items[0].TMDBRating, 1e-9)
+	require.NotNil(t, resp.Items[0].Year, "populated year must surface")
+	require.Equal(t, 2021, *resp.Items[0].Year)
+
+	require.Nil(t, resp.Items[1].TMDBRating, "nil rating → nil DTO field")
+	require.Nil(t, resp.Items[1].Year, "nil year → nil DTO field")
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"tmdb_rating":8.4`)
+	require.NotContains(t, body, `"tmdb_rating":null`)
+}
+
 func TestLongTail_InvalidID_400(t *testing.T) {
 	r := newTestHandler(t, newFakeRepo(), &fakeWarming{}, &fakeRefresh{})
 	for _, path := range []string{"/discovery/genre/abc", "/discovery/network/0", "/discovery/keyword/-1"} {

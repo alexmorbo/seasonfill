@@ -1292,7 +1292,7 @@ func buildSeriesRecommendationsTable(d Dialect, seriesTable *atlasschema.Table) 
 		AddChecks(selfRefCheck)
 }
 
-// buildDiscoveryListsTable returns discovery_lists — 6 cols, composite-4
+// buildDiscoveryListsTable returns discovery_lists — 8 cols, composite-4
 // PK (kind, param, language, series_id), 2 non-unique indexes, FK
 // series_id → series(id) CASCADE.
 //
@@ -1313,6 +1313,8 @@ func buildSeriesRecommendationsTable(d Dialect, seriesTable *atlasschema.Table) 
 //	series_id     BIGINT NOT NULL (PK part 4) FK→series.id CASCADE
 //	position      INTEGER NOT NULL — 1-based rank inside the list
 //	refreshed_at  TIMESTAMPTZ NOT NULL DEFAULT now() — last write of this row
+//	year          INTEGER NULL — ingest-stored TMDB first_air_date year (story 1036)
+//	tmdb_rating   DOUBLE PRECISION NULL — ingest-stored TMDB vote_average (story 1036)
 //
 // Indexes:
 //
@@ -1340,9 +1342,15 @@ func buildDiscoveryListsTable(d Dialect, seriesTable *atlasschema.Table) *atlass
 	seriesID := fkColumn(d, "series_id", false /* not nullable */)
 	position := atlasschema.NewIntColumn("position", "integer").SetNull(false)
 	refreshedAt := timestampColumn(d, "refreshed_at", true /* withDefault */, true /* notNull */)
+	// Story 1036 — ingest-stored TMDB list facts so every discovery item
+	// carries a year + rating regardless of whether the joined series row
+	// has been enriched. Nullable: TMDB list entries occasionally omit
+	// first_air_date (year → NULL) or ship vote_average 0 (rating → NULL).
+	year := atlasschema.NewNullIntColumn("year", "integer")
+	tmdbRating := atlasschema.NewNullFloatColumn("tmdb_rating", "double precision")
 
 	return atlasschema.NewTable("discovery_lists").
-		AddColumns(kind, param, language, seriesID, position, refreshedAt).
+		AddColumns(kind, param, language, seriesID, position, refreshedAt, year, tmdbRating).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(kind, param, language, seriesID)).
 		AddIndexes(
 			atlasschema.NewIndex("discovery_lists_lookup_idx").
