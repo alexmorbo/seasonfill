@@ -3815,6 +3815,81 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/series/resolve": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Resolve a TMDB id to a canonical series id (global)
+         * @description Returns the canonical series.id for a TMDB TV id so the
+         *     unified series card can route internally to /series/:id.
+         *     Existing canon rows return their id unchanged; an unknown
+         *     tmdb_id gets a minimal canon stub (hydration=stub) created
+         *     and its enrichment enqueued at PriorityHot so a subsequent
+         *     detail render lands on hydrated data. This app is
+         *     series-only — the caller sends only TV tmdb ids.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query: {
+                    /** @description TMDB TV id (positive integer) */
+                    readonly tmdb_id: number;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesResolveResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/settings/timezone": {
         readonly parameters: {
             readonly query?: never;
@@ -5728,6 +5803,10 @@ export type components = {
             readonly series_id?: number;
             /** @example true */
             readonly series_queued?: boolean;
+        };
+        readonly "dto.SeriesResolveResponse": {
+            /** @example 42 */
+            readonly series_id?: number;
         };
         readonly "dto.SeriesSeasonsResponse": {
             /**

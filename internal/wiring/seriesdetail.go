@@ -118,6 +118,11 @@ type SeriesDetailBundle struct {
 	// stateless repo handles as the fat composer + the B3a season_texts repo.
 	SeasonsComposer *seriesdetail.SeasonsComposer
 	SeasonsHandler  *seriesdetailrest.SeasonsHandler
+	// BE-3 (card-unification) — lazy resolve-or-create of a canon
+	// series.id from a TMDB id (GET /series/resolve). Lets the unified
+	// series card route every TV row (incl. person-page "other credits")
+	// to the internal /series/:id page.
+	ResolveHandler *seriesdetailrest.ResolveHandler
 	// Story 578 / E-1-B5 — per-section freshness reader for the edge ETag
 	// middleware. Reuses sdSeriesRepo + sdSeasonsRepo (stateless GORM
 	// wrappers already in scope).
@@ -503,6 +508,17 @@ func BuildSeriesDetail(
 	})
 	seasonsHandler := seriesdetailrest.NewSeasonsHandler(seasonsComposer, log)
 
+	// BE-3 (card-unification) — resolve-or-create by tmdb_id. Reuses
+	// sdSeriesRepo (GetByTMDBID + UpsertStub) and the same
+	// onDemandEnricherHolder the TMDBFallback path uses for the
+	// PriorityHot lift, so a freshly-created stub is enriched before the
+	// next detail render.
+	resolveUC, err := seriesdetail.NewResolveUseCase(sdSeriesRepo, onDemandEnricherHolder, composerLog)
+	if err != nil {
+		return nil, fmt.Errorf("resolve use case: %w", err)
+	}
+	resolveHandler := seriesdetailrest.NewResolveHandler(resolveUC, log)
+
 	return &SeriesDetailBundle{
 		MediaResolver:                mediaResolver,
 		Composer:                     composer,
@@ -530,5 +546,6 @@ func BuildSeriesDetail(
 		ETagFreshness:                sdETagFreshness,
 		SeasonsComposer:              seasonsComposer,
 		SeasonsHandler:               seasonsHandler,
+		ResolveHandler:               resolveHandler,
 	}, nil
 }

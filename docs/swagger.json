@@ -2909,6 +2909,15 @@
                 },
                 "type": "object"
             },
+            "dto.SeriesResolveResponse": {
+                "properties": {
+                    "series_id": {
+                        "example": 42,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "dto.SeriesSeasonsResponse": {
                 "properties": {
                     "degraded": {
@@ -7231,6 +7240,76 @@
                     }
                 ],
                 "summary": "Distinct networks for an instance's series-cache (global)",
+                "tags": [
+                    "series"
+                ]
+            }
+        },
+        "/series/resolve": {
+            "get": {
+                "description": "Returns the canonical series.id for a TMDB TV id so the\nunified series card can route internally to /series/:id.\nExisting canon rows return their id unchanged; an unknown\ntmdb_id gets a minimal canon stub (hydration=stub) created\nand its enrichment enqueued at PriorityHot so a subsequent\ndetail render lands on hydrated data. This app is\nseries-only — the caller sends only TV tmdb ids.",
+                "parameters": [
+                    {
+                        "description": "TMDB TV id (positive integer)",
+                        "in": "query",
+                        "name": "tmdb_id",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.SeriesResolveResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Resolve a TMDB id to a canonical series id (global)",
                 "tags": [
                     "series"
                 ]

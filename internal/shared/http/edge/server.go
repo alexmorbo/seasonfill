@@ -85,6 +85,7 @@ func NewServer(
 	globalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler, // story 530
 	globalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler, // story 577 E-1-B2
 	seasonsHandler *seriesdetailrest.SeasonsHandler, // story 582 E-1 B3c
+	resolveHandler *seriesdetailrest.ResolveHandler, // BE-3 card-unification
 	discoveryHandler *discoveryrest.DiscoveryHandler,
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
@@ -243,6 +244,15 @@ func NewServer(
 		// (gin radix tree handles static-before-param anyway, but
 		// declaration order matches reader expectations).
 		guarded.GET("/series/networks", globalCatalogHandler.Networks)
+		// BE-3 (card-unification) — resolve-or-create by tmdb_id. The
+		// literal `/series/resolve` is registered BEFORE `/series/:id`;
+		// gin's radix tree gives static segments precedence over the `:id`
+		// param at the same position (same coexistence as `/series/networks`
+		// above), so "resolve" is never captured as an :id. nil-OK: the
+		// route is omitted when the handler is absent (minimal/test wirings).
+		if resolveHandler != nil {
+			guarded.GET("/series/resolve", resolveHandler.Resolve)
+		}
 		guarded.GET("/series", globalCatalogHandler.List)
 		// Story 578 / E-1-B5 — weak-ETag / Cache-Control on the
 		// enrichment-backed canon-detail GETs. Built once, shared across

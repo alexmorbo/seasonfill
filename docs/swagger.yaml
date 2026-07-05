@@ -2358,6 +2358,12 @@ components:
           example: true
           type: boolean
       type: object
+    dto.SeriesResolveResponse:
+      properties:
+        series_id:
+          example: 42
+          type: integer
+      type: object
     dto.SeriesSeasonsResponse:
       properties:
         degraded:
@@ -5785,6 +5791,54 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Distinct networks for an instance's series-cache (global)
+      tags:
+      - series
+  /series/resolve:
+    get:
+      description: |-
+        Returns the canonical series.id for a TMDB TV id so the
+        unified series card can route internally to /series/:id.
+        Existing canon rows return their id unchanged; an unknown
+        tmdb_id gets a minimal canon stub (hydration=stub) created
+        and its enrichment enqueued at PriorityHot so a subsequent
+        detail render lands on hydrated data. This app is
+        series-only — the caller sends only TV tmdb ids.
+      parameters:
+      - description: TMDB TV id (positive integer)
+        in: query
+        name: tmdb_id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesResolveResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Resolve a TMDB id to a canonical series id (global)
       tags:
       - series
   /settings/timezone:
