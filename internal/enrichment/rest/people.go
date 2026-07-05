@@ -151,6 +151,7 @@ func mapLibraryCredit(lc apppeople.LibraryCredit) dto.LibraryCreditEntry {
 		TMDBID:        lc.Canon.TMDBID,
 		Title:         lc.Title,
 		Year:          lc.Canon.Year,
+		TMDBRating:    lc.Canon.TMDBRating,
 		CharacterName: lc.Credit.CharacterName,
 		EpisodeCount:  lc.Credit.EpisodeCount,
 		Kind:          string(lc.Credit.Kind),

@@ -188,6 +188,56 @@ func TestPeopleHandler_Get_200(t *testing.T) {
 	assert.Equal(t, "tv", body.OtherCredits[0].MediaType)
 }
 
+func TestPeopleHandler_Get_LibraryCreditTMDBRating(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tmdbPersonID := domain.TMDBID(4495)
+	person := dompeople.Person{ID: 1, TMDBID: &tmdbPersonID, Hydration: dompeople.HydrationFull, Name: "p"}
+	rating := 8.4
+	// Rated canon carries series.tmdb_rating; unrated canon leaves it nil.
+	ratedCanon := series.Canon{ID: 42, TMDBID: new(domain.TMDBID(100)), OriginalTitle: new("Rated Show"), Year: new(2023), TMDBRating: &rating}
+	unratedCanon := series.Canon{ID: 43, TMDBID: new(domain.TMDBID(200)), OriginalTitle: new("Unrated Show"), Year: new(2024)}
+	credits := []dompeople.PersonCredit{
+		{ID: 1, MediaType: "tv", TMDBMediaID: 100, Title: "Rated Show", Kind: dompeople.SeriesCreditCast},
+		{ID: 2, MediaType: "tv", TMDBMediaID: 200, Title: "Unrated Show", Kind: dompeople.SeriesCreditCast},
+	}
+	uc := apppeople.NewUseCase(apppeople.Deps{
+		People:        peopleHandlerFakePeople{person: person},
+		PersonCredits: peopleHandlerFakeCredits{rows: credits},
+		SeriesByTMDB: peopleHandlerFakeSeriesByTMDB{
+			rows: map[int]series.Canon{100: ratedCanon, 200: unratedCanon},
+		},
+		SeriesCache: peopleHandlerFakeSeriesCache{
+			rows: map[domain.SeriesID][]series.CacheEntry{
+				42: {{InstanceName: "alpha", SonarrSeriesID: 7777}},
+				43: {{InstanceName: "alpha", SonarrSeriesID: 8888}},
+			},
+		},
+		Logger: handlerTestLogger(),
+	})
+	h := buildHandler(uc)
+	r := gin.New()
+	r.GET("/api/v1/people/:tmdbId", h.Get)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/people/4495", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body dto.PersonDetailResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.LibraryCredits, 2)
+
+	byID := map[domain.SeriesID]dto.LibraryCreditEntry{}
+	for _, lc := range body.LibraryCredits {
+		byID[lc.SeriesID] = lc
+	}
+	rated := byID[42]
+	require.NotNil(t, rated.TMDBRating, "rated canon must carry tmdb_rating")
+	assert.InDelta(t, 8.4, *rated.TMDBRating, 0.001)
+	unrated := byID[43]
+	assert.Nil(t, unrated.TMDBRating, "canon with no TMDB enrichment omits tmdb_rating")
+}
+
 func TestPeopleHandler_Get_400_NonNumeric(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	uc := happyHandlerUseCase(t)

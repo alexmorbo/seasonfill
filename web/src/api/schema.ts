@@ -4950,6 +4950,15 @@ export type components = {
             readonly title?: string;
             /** @example 100 */
             readonly tmdb_id?: number;
+            /**
+             * @description TMDBRating is the canon TMDB vote_average (series.tmdb_rating),
+             *     carried from the resolved canon row. The unified series card
+             *     renders ★rating right of the year. Absent when the canon row has
+             *     no TMDB enrichment yet. Mirrors the shape SeriesCacheItem +
+             *     other_credits already emit (`tmdb_rating`).
+             * @example 8.4
+             */
+            readonly tmdb_rating?: number;
             /** @example 2023 */
             readonly year?: number;
         };

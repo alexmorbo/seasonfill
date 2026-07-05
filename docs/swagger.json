@@ -1462,6 +1462,11 @@
                         "example": 100,
                         "type": "integer"
                     },
+                    "tmdb_rating": {
+                        "description": "TMDBRating is the canon TMDB vote_average (series.tmdb_rating),\ncarried from the resolved canon row. The unified series card\nrenders ★rating right of the year. Absent when the canon row has\nno TMDB enrichment yet. Mirrors the shape SeriesCacheItem +\nother_credits already emit (`tmdb_rating`).",
+                        "example": 8.4,
+                        "type": "number"
+                    },
                     "year": {
                         "example": 2023,
                         "type": "integer"

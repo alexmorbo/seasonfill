@@ -68,10 +68,16 @@ type SyncInfo struct {
 // person_credits whose tmdb_media_id resolves to a canon `series`
 // row that has at least one live `series_cache` reference.
 type LibraryCreditEntry struct {
-	SeriesID      domain.SeriesID         `json:"series_id" example:"42"`
-	TMDBID        *domain.TMDBID          `json:"tmdb_id,omitempty" example:"100"`
-	Title         string                  `json:"title" example:"The Last of Us"`
-	Year          *int                    `json:"year,omitempty" example:"2023"`
+	SeriesID domain.SeriesID `json:"series_id" example:"42"`
+	TMDBID   *domain.TMDBID  `json:"tmdb_id,omitempty" example:"100"`
+	Title    string          `json:"title" example:"The Last of Us"`
+	Year     *int            `json:"year,omitempty" example:"2023"`
+	// TMDBRating is the canon TMDB vote_average (series.tmdb_rating),
+	// carried from the resolved canon row. The unified series card
+	// renders ★rating right of the year. Absent when the canon row has
+	// no TMDB enrichment yet. Mirrors the shape SeriesCacheItem +
+	// other_credits already emit (`tmdb_rating`).
+	TMDBRating    *float64                `json:"tmdb_rating,omitempty" example:"8.4"`
 	CharacterName *string                 `json:"character_name,omitempty"`
 	EpisodeCount  *int                    `json:"episode_count,omitempty" example:"9"`
 	Kind          string                  `json:"kind" example:"cast"`
