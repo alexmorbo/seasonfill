@@ -21,6 +21,12 @@ export interface SeriesCacheItem {
   // 349a uses it with mediaUrl() to call /api/v1/media/<hash>. Story 350
   // dropped the legacy poster_path companion.
   readonly poster_hash?: string;
+  // Canon TMDB vote_average / vote_count (series.tmdb_rating /
+  // series.tmdb_votes), surfaced on the cache row so the unified
+  // SeriesCard can render ★rating on the list. Absent when the canon
+  // row has no TMDB enrichment yet. Mirrors dto.SeriesCacheItem.
+  readonly tmdb_rating?: number;
+  readonly tmdb_votes?: number;
   readonly monitored: boolean;
   readonly missing_count: number;
   readonly last_grab_at?: string;
