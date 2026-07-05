@@ -44,23 +44,25 @@ describe('<OtherCreditsGrid />', () => {
 
   it('limits to top 10 by default and expands on "Show more"', () => {
     r(<OtherCreditsGrid credits={mixed} />);
-    expect(screen.getAllByTestId('person-other-card')).toHaveLength(10);
+    // TV credits render via the unified SeriesCard (testid "series-card").
+    expect(screen.getAllByTestId('series-card')).toHaveLength(10);
     fireEvent.click(screen.getByTestId('person-other-show-more'));
-    expect(screen.getAllByTestId('person-other-card')).toHaveLength(12);
+    expect(screen.getAllByTestId('series-card')).toHaveLength(12);
   });
 
-  it('opens external TMDB when no canon series_id is present (Story 537)', () => {
-    // slice(1, 2) skips the movie row (toggle OFF hides it) and grabs
-    // the first TV row whose tmdb_media_id is 1000. No series_id ⇒
-    // external link.
+  it('routes TV credits WITHOUT a canon series_id internally via resolve-nav (tmdbId)', () => {
+    // slice(1, 2) skips the movie row (toggle OFF hides it) and grabs the
+    // first TV row (tmdb_media_id 1000). No series_id ⇒ SeriesCard falls back
+    // to the lazy tmdb resolve-nav path, NOT an external escape.
     r(<OtherCreditsGrid credits={mixed.slice(1, 2)} />);
-    const card = screen.getByTestId('person-other-card');
-    expect(card.getAttribute('href')).toBe('https://www.themoviedb.org/tv/1000');
-    expect(card.getAttribute('target')).toBe('_blank');
-    expect(card.getAttribute('rel')).toContain('noreferrer');
+    const card = screen.getByTestId('series-card');
+    // Resolve-nav card is a role=button div carrying data-tmdb-id, no href.
+    expect(card.tagName.toLowerCase()).toBe('div');
+    expect(card.getAttribute('data-tmdb-id')).toBe('1000');
+    expect(card.getAttribute('href')).toBeNull();
   });
 
-  it('prefers internal /series/{series_id} when canon row exists (Story 537 / B-42e)', () => {
+  it('links TV credits internally to /series/{series_id} when the canon row exists', () => {
     const rows = [
       {
         tmdb_media_id: 1000,
@@ -72,13 +74,33 @@ describe('<OtherCreditsGrid />', () => {
       },
     ];
     r(<OtherCreditsGrid credits={rows} />);
-    const card = screen.getByTestId('person-other-card');
+    const card = screen.getByTestId('series-card');
     expect(card.getAttribute('href')).toBe('/series/777');
+    expect(card.getAttribute('data-series-id')).toBe('777');
     // Internal links are <Link>, NOT <a target="_blank">.
     expect(card.getAttribute('target')).toBeNull();
   });
 
-  it('keeps external TMDB for movies even when series_id somehow set (TV-only rule)', () => {
+  it('renders ★ rating from vote_average on TV credits', () => {
+    const rows = [
+      { tmdb_media_id: 1000, title: 'Rated Show', media_type: 'tv',
+        kind: 'cast', year: 2024, vote_average: 7.6, series_id: 5 },
+    ];
+    r(<OtherCreditsGrid credits={rows} />);
+    expect(screen.getByTestId('series-card-rating')).toHaveTextContent('7.6');
+  });
+
+  it('never renders a tmdbOnly badge on TV credits', () => {
+    const rows = [
+      { tmdb_media_id: 1000, title: 'Show', media_type: 'tv', kind: 'cast',
+        year: 2024, series_id: 5 },
+    ];
+    r(<OtherCreditsGrid credits={rows} />);
+    expect(screen.queryByTestId('series-card-badge')).toBeNull();
+    expect(screen.queryByText('TMDB')).toBeNull();
+  });
+
+  it('keeps movies as an EXTERNAL themoviedb.org anchor', () => {
     // Need at least one TV row so the section renders (filtered.length > 0).
     const rows = [
       {
@@ -94,19 +116,19 @@ describe('<OtherCreditsGrid />', () => {
         media_type: 'movie',
         kind: 'cast',
         year: 2024,
-        // series_id is meaningless for movies — current BE never sets it,
-        // but the FE rule defensively requires media_type === 'tv'.
-        series_id: 12345,
       },
     ];
     r(<OtherCreditsGrid credits={rows} />);
     // Movies hidden by default — toggle them on.
     fireEvent.click(screen.getByTestId('person-include-movies'));
-    // Movie card: find by data-media-type=movie.
-    const cards = screen.getAllByTestId('person-other-card');
-    const movieCard = cards.find((el) => el.getAttribute('data-media-type') === 'movie');
-    expect(movieCard).toBeTruthy();
-    expect(movieCard!.getAttribute('href')).toBe('https://www.themoviedb.org/movie/9999');
+    // Movie card is the thin external CreditCard (testid person-other-card).
+    const movieCard = screen.getByTestId('person-other-card');
+    expect(movieCard.getAttribute('data-media-type')).toBe('movie');
+    expect(movieCard.getAttribute('href')).toBe('https://www.themoviedb.org/movie/9999');
+    expect(movieCard.getAttribute('target')).toBe('_blank');
+    expect(movieCard.getAttribute('rel')).toContain('noreferrer');
+    // TV row rides the internal SeriesCard.
+    expect(screen.getByTestId('series-card')).toBeInTheDocument();
   });
 
   it('returns null when the filter empties the list (movies-only payload)', () => {
@@ -116,22 +138,19 @@ describe('<OtherCreditsGrid />', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('sort=votes_desc reorders rows by vote_count and renders the votes chip', async () => {
+  it('sort=votes_desc reorders rows by vote_count', () => {
     const rows = [
       { tmdb_media_id: 1, title: 'A', media_type: 'tv', kind: 'cast', vote_count: 100, year: 2024 },
       { tmdb_media_id: 2, title: 'B', media_type: 'tv', kind: 'cast', vote_count: 1000, year: 2023 },
     ];
     r(<OtherCreditsGrid credits={rows} />);
     // Default order — A first (BE order preserved).
-    expect(screen.getAllByTestId('person-other-card')[0]).toHaveTextContent('A');
+    expect(screen.getAllByTestId('series-card')[0]).toHaveTextContent('A');
     // Switch sort to votes_desc.
     fireEvent.click(screen.getByTestId('person-other-sort-trigger'));
     fireEvent.click(screen.getByTestId('person-other-sort-option-votes_desc'));
     // B has higher vote_count; should now be first.
-    expect(screen.getAllByTestId('person-other-card')[0]).toHaveTextContent('B');
-    // Votes chip rendered with k-shortened value.
-    const chips = screen.getAllByTestId('person-other-votes-chip');
-    expect(chips[0]).toHaveTextContent('1.0k');
+    expect(screen.getAllByTestId('series-card')[0]).toHaveTextContent('B');
   });
 
   it('renders department pill only for kind="crew" with department set', () => {

@@ -4,9 +4,10 @@ import { ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
+import { SeriesCard } from '@/components/series/SeriesCard';
 import type { OtherCreditEntry, OtherSort } from '@/api/person';
 import { OtherSortControl } from './OtherSortControl';
-import { CreditCard, type CreditLinkTarget } from './CreditCard';
+import { CreditCard } from './CreditCard';
 
 const INITIAL_LIMIT = 10;
 
@@ -20,23 +21,8 @@ function tmdbHref(c: OtherCreditEntry): string {
   return `https://www.themoviedb.org/${kind}/${c.tmdb_media_id ?? ''}`;
 }
 
-/**
- * otherLinkTarget — Story 537 (B-42e). Prefers the internal route
- * when the BE found a canon series row (series_id present), so
- * TMDB-only TV credits hit the SeriesDetail TMDB-fallback path
- * (Stories 491/532/535). Falls back to external TMDB for credits
- * with no canon row (movies always; TV without canon row very
- * rare in practice).
- */
-function otherLinkTarget(c: OtherCreditEntry): CreditLinkTarget {
-  if (
-    typeof c.series_id === 'number'
-    && c.series_id > 0
-    && c.media_type === 'tv'
-  ) {
-    return { kind: 'internal', to: `/series/${c.series_id}` };
-  }
-  return { kind: 'tmdb', href: tmdbHref(c) };
+function isMovie(c: OtherCreditEntry): boolean {
+  return c.media_type === 'movie';
 }
 
 function sortOtherCredits(
@@ -62,10 +48,41 @@ function sortOtherCredits(
   return copy;
 }
 
-function formatVotes(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
+// otherFooter carries the person-specific extras that have no analog on other
+// SeriesCard surfaces: the italic original_title subtitle (when it differs from
+// the localised title) and the crew department pill.
+function otherFooter(c: OtherCreditEntry) {
+  const originalTitleDiffers
+    = c.original_title != null
+      && c.original_title.trim().toLowerCase()
+        !== (c.title ?? '').trim().toLowerCase();
+  const showDeptPill
+    = c.kind === 'crew' && c.department != null && c.department !== '';
+  if (!originalTitleDiffers && !showDeptPill) return null;
+  return (
+    <>
+      {originalTitleDiffers && (
+        <div
+          data-testid="person-other-original-title"
+          className="text-[11px] italic text-tx-faint truncate"
+          title={c.original_title ?? ''}
+        >
+          {c.original_title}
+        </div>
+      )}
+      {showDeptPill && (
+        <div className="flex items-center gap-1.5 text-[11.5px] text-tx-muted">
+          <span
+            data-testid="person-other-dept-pill"
+            data-department={c.department}
+            className="shrink-0 text-[10px] uppercase tracking-wide bg-bg-surface-2 border border-border-subtle rounded px-1.5 py-0.5"
+          >
+            {c.department}
+          </span>
+        </div>
+      )}
+    </>
+  );
 }
 
 export function OtherCreditsGrid({ credits, className }: OtherCreditsGridProps) {
@@ -115,71 +132,47 @@ export function OtherCreditsGrid({ credits, className }: OtherCreditsGridProps) 
         {visible.map((c, idx) => {
           const role = c.role_label ?? c.character_name ?? '';
           const key = `${c.tmdb_media_id ?? 'x'}-${c.media_type ?? 'tv'}-${idx}`;
-          const originalTitleDiffers
-            = c.original_title != null
-              && c.original_title.trim().toLowerCase()
-                !== (c.title ?? '').trim().toLowerCase();
-          const showVotesChip = sort === 'votes_desc' && c.vote_count != null;
-          const showDeptPill
-            = c.kind === 'crew' && c.department != null && c.department !== '';
-          const link = otherLinkTarget(c);
-          const overlay = (
-            <>
-              {showVotesChip && (
-                <span
-                  data-testid="person-other-votes-chip"
-                  className="absolute top-2 right-2 inline-flex items-center text-[10.5px] font-semibold bg-bg-surface/90 text-tx-primary px-1.5 py-0.5 rounded border border-border-subtle"
-                >
-                  {formatVotes(c.vote_count as number)}
-                </span>
-              )}
-              {link.kind === 'tmdb' && (
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-2 right-2 inline-flex items-center gap-1 text-[10.5px] text-accent bg-bg-surface/90 px-1.5 py-0.5 rounded border border-accent/30">
-                  {t('person.other.openInTmdb')}
-                  <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                </span>
-              )}
-            </>
-          );
-          const subtitle = originalTitleDiffers ? (
-            <div
-              data-testid="person-other-original-title"
-              className="text-[11px] italic text-tx-faint truncate"
-              title={c.original_title ?? ''}
-            >
-              {c.original_title}
-            </div>
-          ) : null;
-          const footer = showDeptPill ? (
-            <div className="flex items-center gap-1.5 text-[11.5px] text-tx-muted">
-              <span
-                data-testid="person-other-dept-pill"
-                data-department={c.department}
-                className="shrink-0 text-[10px] uppercase tracking-wide bg-bg-surface-2 border border-border-subtle rounded px-1.5 py-0.5"
-              >
-                {c.department}
-              </span>
-            </div>
-          ) : null;
 
+          // Movies are not series — keep them EXTERNAL (SeriesCard is
+          // internal-only). Render a thin external-anchor card that links out
+          // to themoviedb.org, shown only when the "Include movies" toggle is on.
+          if (isMovie(c)) {
+            return (
+              <CreditCard
+                key={key}
+                testId="person-other-card"
+                title={c.title ?? ''}
+                year={c.year ?? undefined}
+                role={role || undefined}
+                posterAsset={c.poster_asset ?? undefined}
+                link={{ kind: 'tmdb', href: tmdbHref(c) }}
+                subtitle={otherFooter(c)}
+                overlay={
+                  <span className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-2 right-2 inline-flex items-center gap-1 text-[10.5px] text-accent bg-bg-surface/90 px-1.5 py-0.5 rounded border border-accent/30">
+                    {t('person.other.openInTmdb')}
+                    <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                  </span>
+                }
+                dataAttrs={{ 'media-type': 'movie' }}
+              />
+            );
+          }
+
+          // TV credits route INTERNALLY through the unified SeriesCard: direct
+          // when the BE resolved a canon series_id, else lazy-resolve via the
+          // tmdb_media_id (SeriesCard → useResolveSeriesNav → /series/resolve).
+          const hasSeriesId = typeof c.series_id === 'number' && c.series_id > 0;
           return (
-            <CreditCard
+            <SeriesCard
               key={key}
-              testId="person-other-card"
               title={c.title ?? ''}
               year={c.year ?? undefined}
-              role={role || undefined}
+              rating={c.vote_average ?? undefined}
               posterAsset={c.poster_asset ?? undefined}
-              badge="tmdbOnly"
-              link={link}
-              overlay={overlay}
-              subtitle={subtitle}
-              footer={footer}
-              dataAttrs={{
-                'media-type': c.media_type ?? 'tv',
-                'vote-count': c.vote_count ?? undefined,
-                'series-id': c.series_id ?? undefined,
-              }}
+              seriesId={hasSeriesId ? c.series_id : undefined}
+              tmdbId={hasSeriesId ? undefined : c.tmdb_media_id ?? undefined}
+              characterName={role || undefined}
+              footer={otherFooter(c)}
             />
           );
         })}

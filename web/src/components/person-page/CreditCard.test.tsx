@@ -50,34 +50,6 @@ describe('<CreditCard />', () => {
     expect(card.getAttribute('href')).toBeNull();
   });
 
-  it('renders the inLibrary badge', () => {
-    r(
-      <CreditCard
-        testId="x"
-        title="Show"
-        link={{ kind: 'none' }}
-        badge="inLibrary"
-      />,
-    );
-    const badge = screen.getByTestId('x-badge');
-    expect(badge.getAttribute('data-badge')).toBe('inLibrary');
-    // i18n key resolves — the visible text is one of EN/RU.
-    expect(['In library', 'В библиотеке']).toContain(badge.textContent);
-  });
-
-  it('renders the tmdbOnly badge', () => {
-    r(
-      <CreditCard
-        testId="x"
-        title="Show"
-        link={{ kind: 'none' }}
-        badge="tmdbOnly"
-      />,
-    );
-    const badge = screen.getByTestId('x-badge');
-    expect(badge.getAttribute('data-badge')).toBe('tmdbOnly');
-  });
-
   it('renders title + year + role + footer when all present', () => {
     r(
       <CreditCard

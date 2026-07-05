@@ -1,10 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/api/series';
-
-export type CreditBadge = 'inLibrary' | 'tmdbOnly';
 
 export type CreditLinkTarget =
   | { readonly kind: 'internal'; readonly to: string }
@@ -16,11 +12,10 @@ export interface CreditCardProps {
   readonly year?: number | undefined;
   readonly role?: string | undefined;
   readonly posterAsset?: string | null | undefined;
-  readonly badge?: CreditBadge | undefined;
   readonly link: CreditLinkTarget;
-  /** Optional footer slot — instance label for library, dept pill for crew TMDB. */
+  /** Optional footer slot below the role/subtitle. */
   readonly footer?: ReactNode | undefined;
-  /** Optional overlay slot rendered on top of the poster (votes chip, TMDB hover chevron). */
+  /** Optional overlay slot rendered on top of the poster (TMDB hover chevron). */
   readonly overlay?: ReactNode | undefined;
   /** Optional subtitle slot below role (e.g. original_title italic). */
   readonly subtitle?: ReactNode | undefined;
@@ -29,20 +24,17 @@ export interface CreditCardProps {
 }
 
 /**
- * CreditCard is the shared visual primitive consumed by both
- * LibraryCreditsGrid and OtherCreditsGrid. Story 537 (B-42e).
- *
- * It centralises the poster + title-year + role-chip + badge
- * layout so the two grids stay visually consistent after the
- * library/TMDB split, and so the link-kind branching
- * (internal vs external vs none) is implemented in ONE place.
+ * CreditCard is the thin external-link card used on the person page for MOVIE
+ * credits only. Movies are not series, so they cannot ride the internal
+ * SeriesCard routing — they link out to themoviedb.org. TV/library credits are
+ * rendered by the unified SeriesCard instead; the shared badge/role primitive
+ * this component once provided has been retired.
  */
 export function CreditCard({
   title,
   year,
   role,
   posterAsset,
-  badge,
   link,
   footer,
   overlay,
@@ -50,7 +42,6 @@ export function CreditCard({
   testId,
   dataAttrs,
 }: CreditCardProps) {
-  const { t } = useTranslation();
   const src = mediaUrl(posterAsset ?? undefined);
   const titleYear = year ? `${title} · ${year}` : title;
 
@@ -66,20 +57,6 @@ export function CreditCard({
             decoding="async"
             className="w-full h-full object-cover"
           />
-        )}
-        {badge && (
-          <span
-            data-testid={`${testId}-badge`}
-            data-badge={badge}
-            className={cn(
-              'absolute top-2 left-2 inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border backdrop-blur-sm uppercase tracking-wide',
-              badge === 'inLibrary'
-                ? 'bg-accent/15 text-accent border-accent/40'
-                : 'bg-bg-surface/85 text-tx-muted border-border-subtle',
-            )}
-          >
-            {t(`person.badges.${badge}`)}
-          </span>
         )}
         {overlay}
       </div>
