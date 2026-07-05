@@ -218,6 +218,48 @@ func TestMergeSeries(t *testing.T) {
 				assert.Equal(t, 2021, *g.Year)
 			},
 		},
+		{
+			name:   "Year TMDB derived from first_air_date when patch year nil",
+			rule:   "Year: derived from first_air_date",
+			canon:  SeriesCanon{},
+			patch:  SeriesPatch{FirstAirDate: new(day2)},
+			source: SourceTMDBSeries,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.NotNil(t, g.Year)
+				assert.Equal(t, day2.Year(), *g.Year)
+			},
+		},
+		{
+			name:   "Year TMDB stays nil when both year and first_air_date absent",
+			rule:   "Year: no derive without a date",
+			canon:  SeriesCanon{},
+			patch:  SeriesPatch{},
+			source: SourceTMDBSeries,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Nil(t, g.Year)
+			},
+		},
+		{
+			name:   "Year TMDB explicit patch year not clobbered by derive",
+			rule:   "Year: explicit wins over derive",
+			canon:  SeriesCanon{},
+			patch:  SeriesPatch{Year: new(1999), FirstAirDate: new(day2)},
+			source: SourceTMDBSeries,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Equal(t, 1999, *g.Year)
+			},
+		},
+		{
+			name:   "Year Sonarr derived from first_air_date fill-empty",
+			rule:   "Year: Sonarr derive from date",
+			canon:  SeriesCanon{},
+			patch:  SeriesPatch{FirstAirDate: new(day1)},
+			source: SourceSonarr,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.NotNil(t, g.Year)
+				assert.Equal(t, day1.Year(), *g.Year)
+			},
+		},
 		// --- RuntimeMinutes: TMDB > Sonarr (Sonarr fallback-only) ---
 		{
 			name:   "RuntimeMinutes Sonarr does NOT overwrite existing canon",

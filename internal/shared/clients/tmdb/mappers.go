@@ -36,8 +36,9 @@ const (
 
 // MapTVToCanon flattens a TVResponse into a series.Canon row.
 // Hydration is HydrationFull (the call fetched the full append).
-// Sonarr-owned fields stay nil (Year — see PRD §5.4: year is
-// Sonarr's source of truth even though TMDB has it). TVDB id IS
+// TMDB owns Year (operator: TMDB is the sole source of truth for
+// series metadata post-W17-5); the /tv payload has no explicit year
+// field, so Year is derived from first_air_date here. TVDB id IS
 // populated when present on external_ids (orphan-resolution path
 // reads it back).
 //
@@ -63,6 +64,10 @@ func MapTVToCanon(tv *TVResponse) series.Canon {
 		// dedicated text/media refresh workers.
 		TMDBRating: nonZeroFloatPtr(tv.VoteAverage),
 		TMDBVotes:  nonZeroIntPtr(tv.VoteCount),
+	}
+	if c.FirstAirDate != nil {
+		y := c.FirstAirDate.Year()
+		c.Year = &y
 	}
 	if len(tv.EpisodeRunTime) > 0 && tv.EpisodeRunTime[0] > 0 {
 		c.RuntimeMinutes = new(tv.EpisodeRunTime[0])

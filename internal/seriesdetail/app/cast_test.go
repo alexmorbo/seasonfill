@@ -487,6 +487,25 @@ func TestCastComposer_SeriesSummary_NilYears(t *testing.T) {
 	require.Equal(t, "unknown", d.Summary.Status)
 }
 
+// #1038 — FirstAiredYear falls back to first_air_date's year when canon.Year
+// is nil (heals TMDB-only rows whose year column was never derived).
+func TestCastComposer_SeriesSummary_FirstAiredYearFromFirstAirDate(t *testing.T) {
+	t.Parallel()
+	deps, _, canon, _, _, _, _ := castBaseDeps(t)
+	fad := time.Date(2022, 8, 21, 0, 0, 0, 0, time.UTC)
+	canon.rows[42] = series.Canon{
+		ID:            42,
+		OriginalTitle: new("House of the Dragon"),
+		TMDBID:        tmdbIDPtr(100),
+		FirstAirDate:  &fad,
+	}
+	c := NewCastComposer(deps)
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	require.NoError(t, err)
+	require.NotNil(t, d.Summary.FirstAiredYear)
+	require.Equal(t, 2022, *d.Summary.FirstAiredYear)
+}
+
 // --- story 312 ---
 
 type fakeMediaLookupCast struct {

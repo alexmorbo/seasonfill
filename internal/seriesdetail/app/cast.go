@@ -491,6 +491,11 @@ func buildSeriesSummary(c series.Canon, title string, posterRaw *string) SeriesS
 	if c.Year != nil {
 		ys := *c.Year
 		s.FirstAiredYear = &ys
+	} else if c.FirstAirDate != nil {
+		// Heal TMDB-only rows whose year column was never derived — display
+		// derive from first_air_date (writes nothing). Mirrors LastAiredYear.
+		ys := c.FirstAirDate.Year()
+		s.FirstAiredYear = &ys
 	}
 	if c.LastAirDate != nil {
 		ye := c.LastAirDate.Year()

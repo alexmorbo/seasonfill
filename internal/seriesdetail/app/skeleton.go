@@ -296,7 +296,7 @@ func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, can
 		dto.Hero.OriginalTitle = buildTitle(*canon.OriginalTitle, langTag)
 	}
 
-	dto.Hero.YearStart = yearOrZero(canon.Year)
+	dto.Hero.YearStart = yearStart(canon)
 	dto.Hero.YearEnd = yearEnd(canon)
 	dto.Hero.RuntimeMinutes = minutesOrZero(canon.RuntimeMinutes)
 
@@ -536,6 +536,18 @@ func yearOrZero(y *int) values.Year {
 		return values.Year{}
 	}
 	return yr
+}
+
+// yearStart returns the first-air year, falling back to first_air_date's year
+// when canon.Year is nil. Heals TMDB-only rows whose year column was never
+// derived (pure display derive — writes nothing). Mirrors yearEnd.
+func yearStart(canon series.Canon) values.Year {
+	y := canon.Year
+	if y == nil && canon.FirstAirDate != nil {
+		yy := canon.FirstAirDate.Year()
+		y = &yy
+	}
+	return yearOrZero(y)
 }
 
 // yearEnd returns the last-air year only when the show has ended; ongoing

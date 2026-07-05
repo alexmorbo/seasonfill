@@ -152,6 +152,13 @@ func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCano
 		if patch.Year != nil && canon.Year == nil {
 			canon.Year = patch.Year
 		}
+		// Derive year from first_air_date when still empty (a Sonarr entry
+		// carrying a date but no explicit year). Reads the FINAL date so it
+		// works whether the date arrived in this patch or was already set.
+		if canon.Year == nil && canon.FirstAirDate != nil {
+			y := canon.FirstAirDate.Year()
+			canon.Year = &y
+		}
 		if patch.RuntimeMinutes != nil && canon.RuntimeMinutes == nil {
 			canon.RuntimeMinutes = patch.RuntimeMinutes
 		}
@@ -181,6 +188,13 @@ func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCano
 		}
 		if patch.Year != nil {
 			canon.Year = patch.Year
+		}
+		// TMDB owns year, but its /tv payload does not carry an explicit year
+		// field — derive it from the FINAL first_air_date so every TMDB write
+		// path (Handle, HandleForced/tier-refresh) populates canon.Year.
+		if canon.Year == nil && canon.FirstAirDate != nil {
+			y := canon.FirstAirDate.Year()
+			canon.Year = &y
 		}
 		if patch.RuntimeMinutes != nil {
 			canon.RuntimeMinutes = patch.RuntimeMinutes

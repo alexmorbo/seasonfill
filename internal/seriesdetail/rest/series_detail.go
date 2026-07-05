@@ -110,11 +110,18 @@ func mapSeasons(d *seriesdetail.Detail) []dto.Season {
 func mapRecommendations(recs []seriesdetail.RecommendationDetail) []dto.Recommendation {
 	out := make([]dto.Recommendation, 0, len(recs))
 	for _, r := range recs {
+		// Display derive: heal TMDB-only rows whose year column was never
+		// derived by falling back to first_air_date's year (writes nothing).
+		year := r.Series.Year
+		if year == nil && r.Series.FirstAirDate != nil {
+			y := r.Series.FirstAirDate.Year()
+			year = &y
+		}
 		m := dto.Recommendation{
 			SeriesID:       r.Series.ID,
 			TMDBSeriesID:   r.Series.TMDBID,
 			Title:          r.Title,
-			Year:           r.Series.Year,
+			Year:           year,
 			PosterAsset:    r.PosterAsset,
 			TMDBRating:     r.Series.TMDBRating,
 			InLibrary:      r.InLibrary,

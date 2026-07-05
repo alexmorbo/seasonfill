@@ -320,6 +320,37 @@ func TestSkeletonComposer_HappyPath(t *testing.T) {
 	require.Equal(t, ModeSync, sf.gotMode)
 }
 
+// #1038 — TMDB-only rows whose year column was never derived: YearStart
+// falls back to first_air_date's year (pure display derive). Both nil → 0.
+func TestSkeletonComposer_YearStart_DerivedFromFirstAirDate(t *testing.T) {
+	t.Parallel()
+	t.Run("year nil, first_air_date set → derived", func(t *testing.T) {
+		t.Parallel()
+		canon := skBaseCanon()
+		canon.Year = nil
+		fad := time.Date(2022, 8, 21, 0, 0, 0, 0, time.UTC)
+		canon.FirstAirDate = &fad
+		deps, _, lookup := skBaseDeps(canon)
+		lookup.rows = []series.CacheEntry{{InstanceName: "homelab"}}
+		sc := NewSkeletonComposer(deps)
+		dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+		require.NoError(t, err)
+		require.Equal(t, 2022, dto.Hero.YearStart.Value())
+	})
+	t.Run("year nil, first_air_date nil → zero", func(t *testing.T) {
+		t.Parallel()
+		canon := skBaseCanon()
+		canon.Year = nil
+		canon.FirstAirDate = nil
+		deps, _, lookup := skBaseDeps(canon)
+		lookup.rows = []series.CacheEntry{{InstanceName: "homelab"}}
+		sc := NewSkeletonComposer(deps)
+		dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+		require.NoError(t, err)
+		require.True(t, dto.Hero.YearStart.IsZero())
+	})
+}
+
 // W15-2 — series_texts miss/error, but canon.OriginalTitle set → hero
 // title falls back to original_title (the terminal never-empty tier).
 // This replaces the old S-E2 "blank not canon" behaviour: original_title
