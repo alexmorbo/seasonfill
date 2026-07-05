@@ -1864,6 +1864,9 @@ export const en = {
       },
     },
   },
+  seriesCard: {
+    open: '{{title}} — open',
+  },
   series: {
     title: 'Series',
     refresh: 'Refresh',

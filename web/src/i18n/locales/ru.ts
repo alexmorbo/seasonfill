@@ -1862,6 +1862,9 @@ export const ru: Translations = {
       },
     },
   },
+  seriesCard: {
+    open: '{{title}} — открыть',
+  },
   series: {
     title: 'Сериалы',
     refresh: 'Обновить',
