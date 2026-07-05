@@ -57,7 +57,7 @@ describe('<RecommendationsCarousel /> (530)', () => {
     expect(screen.getByTestId('recommendations-carousel-sentinel')).toBeInTheDocument();
   });
 
-  it('fetches and renders cards once visible', async () => {
+  it('fetches and renders unified SeriesCards once visible', async () => {
     mockApi.mockResolvedValueOnce(payload);
     wrap(<RecommendationsCarousel seriesId={140} />);
     // Story 565 (B-recs-lang) — carousel now forwards i18n.resolvedLanguage as ?lang=.
@@ -67,18 +67,34 @@ describe('<RecommendationsCarousel /> (530)', () => {
       ),
     );
     await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());
-    expect(screen.getAllByTestId('recommendation-card')).toHaveLength(2);
+    expect(screen.getAllByTestId('series-card')).toHaveLength(2);
   });
 
-  it('wraps ALL recs with valid series_id in a Link (542 — in-library AND out-of-library both navigate)', async () => {
+  it('renders ★ tmdb_rating on each card', async () => {
     mockApi.mockResolvedValueOnce(payload);
     wrap(<RecommendationsCarousel seriesId={140} />);
-    await waitFor(() => expect(screen.getAllByTestId('recommendation-link')).toHaveLength(2));
-    const links = screen.getAllByTestId('recommendation-link') as HTMLAnchorElement[];
-    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/series/1', '/series/2']);
+    await waitFor(() => expect(screen.getAllByTestId('series-card-rating')).toHaveLength(2));
+    expect(screen.getByText('8.1')).toBeInTheDocument();
+    expect(screen.getByText('7.6')).toBeInTheDocument();
   });
 
-  it('out-of-library rec with valid series_id is a Link AND still shows the "Add to Sonarr" hover overlay (542)', async () => {
+  it('shows the in-library badge only for in-library recs', async () => {
+    mockApi.mockResolvedValueOnce(payload);
+    wrap(<RecommendationsCarousel seriesId={140} />);
+    // Show A is in_library:true, Show B is in_library:false → exactly one badge.
+    await waitFor(() => expect(screen.getAllByTestId('series-card')).toHaveLength(2));
+    expect(screen.getAllByTestId('series-card-library-badge')).toHaveLength(1);
+  });
+
+  it('routes internally: recs with a canon series_id are anchors to /series/:id (in-library AND out-of-library)', async () => {
+    mockApi.mockResolvedValueOnce(payload);
+    wrap(<RecommendationsCarousel seriesId={140} />);
+    await waitFor(() => expect(screen.getAllByTestId('series-card')).toHaveLength(2));
+    const cards = screen.getAllByTestId('series-card') as HTMLAnchorElement[];
+    expect(cards.map((c) => c.getAttribute('href'))).toEqual(['/series/1', '/series/2']);
+  });
+
+  it('out-of-library rec with valid series_id still routes internally and shows no in-library badge', async () => {
     mockApi.mockResolvedValueOnce({
       ...payload,
       items: [
@@ -87,24 +103,26 @@ describe('<RecommendationsCarousel /> (530)', () => {
       ],
     });
     wrap(<RecommendationsCarousel seriesId={140} />);
-    await waitFor(() => expect(screen.getByTestId('recommendation-link')).toBeInTheDocument());
-    const link = screen.getByTestId('recommendation-link') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('/series/99');
-    // The hover-CTA overlay is rendered (visibility gated by group-hover CSS, but presence is asserted).
-    expect(screen.getByTestId('recommendation-add-overlay')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('series-card')).toBeInTheDocument());
+    const card = screen.getByTestId('series-card') as HTMLAnchorElement;
+    expect(card.getAttribute('href')).toBe('/series/99');
+    expect(screen.queryByTestId('series-card-library-badge')).toBeNull();
   });
 
-  it('rec with invalid series_id (0) is rendered as a non-Link div (542 regression)', async () => {
+  it('rec without a canon series_id falls back to tmdb_series_id resolve-nav (routes internally)', async () => {
     mockApi.mockResolvedValueOnce({
       ...payload,
       items: [
-        { series_id: 0, title: 'Broken Row', year: 2020, tmdb_rating: 0, poster_asset: '',
-          in_library: false },
+        { series_id: 0, tmdb_series_id: 555, title: 'Tmdb Only', year: 2020, tmdb_rating: 6.5,
+          poster_asset: 'y', in_library: false },
       ],
     });
     wrap(<RecommendationsCarousel seriesId={140} />);
-    await waitFor(() => expect(screen.getByTestId('recommendation-card')).toBeInTheDocument());
-    expect(screen.queryByTestId('recommendation-link')).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('series-card')).toBeInTheDocument());
+    const card = screen.getByTestId('series-card');
+    // No canon id → SeriesCard renders the resolve-nav button (not a plain anchor).
+    expect(card.tagName).not.toBe('A');
+    expect(card.getAttribute('data-tmdb-id')).toBe('555');
   });
 
   it('renders skeleton + loading label when tmdbSeriesLoading=true and items=[]', async () => {
