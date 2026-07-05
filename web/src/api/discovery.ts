@@ -26,6 +26,10 @@ export interface DiscoverySeriesItem {
   readonly backdrop_hash?: string;
   readonly poster_path?: string;   // legacy — mirror of poster_hash
   readonly backdrop_path?: string; // legacy — mirror of backdrop_hash
+  // TMDB vote average (0-10). BE emits `tmdb_rating`
+  // (internal/discovery/rest/types.go) — the unified SeriesCard renders
+  // it as the ★ in the card meta line.
+  readonly tmdb_rating?: number;
   readonly origin_countries?: readonly string[];
   readonly genres?: readonly string[];
   readonly in_library_instances?: readonly string[];

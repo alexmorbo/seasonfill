@@ -8,7 +8,7 @@ import { toBcp47 } from '@/lib/locale';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { DiscoverySeriesCard } from './DiscoverySeriesCard';
+import { SeriesCard } from '@/components/series/SeriesCard';
 import { DiscoverSkeleton } from './DiscoverSkeleton';
 import { WarmingBanner } from './WarmingBanner';
 import { useDegradedPolling, degradedRefetchInterval } from './useDegradedPolling';
@@ -90,9 +90,22 @@ export function PopularGrid() {
         />
       )}
       <div className={GRID_CLASS} data-testid="discovery-popular-grid">
-        {items.map((item) => (
-          <DiscoverySeriesCard key={item.series_id} item={item} />
-        ))}
+        {items.map((item) => {
+          const inLib = (item.in_library_instances ?? []).length > 0;
+          return (
+            <SeriesCard
+              key={`${item.series_id}-${item.tmdb_id}`}
+              seriesId={item.series_id}
+              tmdbId={item.tmdb_id}
+              title={item.title}
+              year={item.year}
+              posterAsset={item.poster_hash ?? item.poster_path}
+              rating={item.tmdb_rating}
+              libraryBadge={inLib ? 'inLibrary' : undefined}
+              addToSonarr={inLib ? undefined : item}
+            />
+          );
+        })}
       </div>
     </div>
   );

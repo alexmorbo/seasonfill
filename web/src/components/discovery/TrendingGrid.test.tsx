@@ -31,9 +31,9 @@ function renderGrid() {
 const sample = {
   items: [
     { series_id: 31, tmdb_id: 1, title: 'Rick and Morty', year: 2013,
-      poster_path: '/a.jpg', in_library_instances: [] },
+      poster_path: '/a.jpg', tmdb_rating: 8.7, in_library_instances: [] },
     { series_id: 32, tmdb_id: 2, title: 'Severance', year: 2022,
-      poster_path: '/b.jpg', in_library_instances: ['sonarr-alpha'] },
+      poster_path: '/b.jpg', tmdb_rating: 8.4, in_library_instances: ['sonarr-alpha'] },
   ],
   cache_status: 'hit',
 };
@@ -99,6 +99,28 @@ describe('<TrendingGrid />', () => {
     } finally {
       await act(async () => { await i18n.changeLanguage('en-US'); });
     }
+  });
+
+  it('renders unified SeriesCard: ★ rating, add/badge slots, internal route', async () => {
+    mockApi.mockResolvedValueOnce(sample);
+    renderGrid();
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-trending-grid')).toBeInTheDocument());
+
+    // ★ from tmdb_rating on both cards
+    const ratings = screen.getAllByTestId('series-card-rating');
+    expect(ratings.map((r) => r.textContent)).toEqual(
+      expect.arrayContaining(['8.7', '8.4']),
+    );
+
+    // Not-in-library → Add-to-Sonarr button; in-library → badge
+    expect(screen.getByTestId('add-to-sonarr-button')).toBeInTheDocument();
+    expect(screen.getByTestId('series-card-library-badge')).toBeInTheDocument();
+
+    // Poster/title click routes internally to /series/:id
+    const cards = screen.getAllByTestId('series-card') as HTMLAnchorElement[];
+    const rick = cards.find((c) => c.getAttribute('data-series-id') === '31');
+    expect(rick?.getAttribute('href')).toBe('/series/31');
   });
 
   it('shows banner above grid when degraded but items present', async () => {

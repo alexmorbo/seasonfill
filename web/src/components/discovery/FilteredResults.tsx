@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { DiscoverySeriesCard } from './DiscoverySeriesCard';
+import { SeriesCard } from '@/components/series/SeriesCard';
 import { DiscoverSkeleton } from './DiscoverSkeleton';
 import { WarmingBanner } from './WarmingBanner';
 import { useDegradedPolling, degradedRefetchInterval } from './useDegradedPolling';
@@ -102,7 +102,22 @@ export function FilteredResults({ filter, hasActiveFilter }: FilteredResultsProp
         />
       )}
       <div className={GRID_CLASS} data-testid="discovery-filtered-grid">
-        {items.map((it) => <DiscoverySeriesCard key={it.series_id} item={it} />)}
+        {items.map((it) => {
+          const inLib = (it.in_library_instances ?? []).length > 0;
+          return (
+            <SeriesCard
+              key={`${it.series_id}-${it.tmdb_id}`}
+              seriesId={it.series_id}
+              tmdbId={it.tmdb_id}
+              title={it.title}
+              year={it.year}
+              posterAsset={it.poster_hash ?? it.poster_path}
+              rating={it.tmdb_rating}
+              libraryBadge={inLib ? 'inLibrary' : undefined}
+              addToSonarr={inLib ? undefined : it}
+            />
+          );
+        })}
       </div>
       <div className="flex justify-center">
         <Button

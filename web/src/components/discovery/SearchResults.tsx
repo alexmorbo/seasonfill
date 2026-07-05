@@ -5,7 +5,7 @@ import { toBcp47 } from '@/lib/locale';
 import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { DiscoverySeriesCard } from './DiscoverySeriesCard';
+import { SeriesCard } from '@/components/series/SeriesCard';
 
 const GRID_CLASS =
   'grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
@@ -52,7 +52,22 @@ export function SearchResults({ q }: SearchResultsProps) {
   }
   return (
     <div className={GRID_CLASS} data-testid="discovery-search-grid">
-      {items.map((it) => <DiscoverySeriesCard key={it.series_id} item={it} />)}
+      {items.map((it) => {
+        const inLib = (it.in_library_instances ?? []).length > 0;
+        return (
+          <SeriesCard
+            key={`${it.series_id}-${it.tmdb_id}`}
+            seriesId={it.series_id}
+            tmdbId={it.tmdb_id}
+            title={it.title}
+            year={it.year}
+            posterAsset={it.poster_hash ?? it.poster_path}
+            rating={it.tmdb_rating}
+            libraryBadge={inLib ? 'inLibrary' : undefined}
+            addToSonarr={inLib ? undefined : it}
+          />
+        );
+      })}
     </div>
   );
 }
