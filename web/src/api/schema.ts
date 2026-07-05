@@ -5545,6 +5545,17 @@ export type components = {
             readonly title?: string;
             /** @example for-all-mankind */
             readonly title_slug?: string;
+            /**
+             * @description TMDBRating / TMDBVotes are the canon TMDB vote_average /
+             *     vote_count read from series.tmdb_rating / series.tmdb_votes. The
+             *     unified series card renders ★rating right of the year. Absent when
+             *     the canon row has no TMDB enrichment yet. Mirrors the shape
+             *     discovery + recommendations already emit (`tmdb_rating`).
+             * @example 8.4
+             */
+            readonly tmdb_rating?: number;
+            /** @example 1240 */
+            readonly tmdb_votes?: number;
             readonly updated_at?: string;
             /** @example 2019 */
             readonly year?: number;

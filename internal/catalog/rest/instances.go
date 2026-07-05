@@ -854,6 +854,8 @@ func toSeriesCacheItem(e series.CacheEntry, lg ports.LastGrabInfo) dto.SeriesCac
 		LastGrabAt:          lastGrabAt,
 		LastImportedEpisode: lg.LastImportedEpisode,
 		LastAiredAt:         e.LastAiredAt,
+		TMDBRating:          e.TMDBRating,
+		TMDBVotes:           e.TMDBVotes,
 		UpdatedAt:           e.UpdatedAt,
 	}
 }

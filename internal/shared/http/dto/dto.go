@@ -691,6 +691,13 @@ type SeriesCacheItem struct {
 	// in series_networks join; the catalog tile omits the network line
 	// until the detail-card endpoint (future story) projects per-row.
 	Status *string `json:"status,omitempty"        example:"continuing" enums:"continuing,ended,upcoming"`
+	// TMDBRating / TMDBVotes are the canon TMDB vote_average /
+	// vote_count read from series.tmdb_rating / series.tmdb_votes. The
+	// unified series card renders ★rating right of the year. Absent when
+	// the canon row has no TMDB enrichment yet. Mirrors the shape
+	// discovery + recommendations already emit (`tmdb_rating`).
+	TMDBRating *float64 `json:"tmdb_rating,omitempty"   example:"8.4"`
+	TMDBVotes  *int     `json:"tmdb_votes,omitempty"    example:"1240"`
 	// PosterHash is the content-addressed sha256 of the stored w342
 	// hero poster (LEFT JOIN media_assets on the synthetic TMDB CDN
 	// URL). Absent when the row has not been warmed yet — the FE falls

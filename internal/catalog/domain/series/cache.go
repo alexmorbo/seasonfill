@@ -69,8 +69,14 @@ type CacheEntry struct {
 	// episode has aired yet (upcoming series). Powers the F11
 	// `air_date_desc` sort.
 	LastAiredAt *time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
+	// TMDBRating / TMDBVotes are the canon TMDB vote_average /
+	// vote_count (series.tmdb_rating / series.tmdb_votes). nil when the
+	// canon row has no TMDB enrichment. Projected onto the series-list
+	// card so it can render the ★rating next to the year.
+	TMDBRating *float64
+	TMDBVotes  *int
+	UpdatedAt  time.Time
+	DeletedAt  *time.Time
 }
 
 // IsActive reports whether the entry is non-soft-deleted. The

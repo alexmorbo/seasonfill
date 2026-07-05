@@ -608,6 +608,42 @@ func TestInstancesHandler_ListSeriesCache_AirDateDesc(t *testing.T) {
 	assert.Nil(t, body.Items[2].LastAiredAt)
 }
 
+func TestInstancesHandler_ListSeriesCache_ExposesTMDBRating(t *testing.T) {
+	t.Parallel()
+	f := newSeriesCacheFixture(t, "homelab")
+	now := time.Now().UTC()
+
+	// Rated series — canon carries tmdb_rating / tmdb_votes.
+	f.seed(t, "homelab", 1, "Rated", 0, now)
+	rating := 8.4
+	votes := 1240
+	require.NoError(t, f.db.Exec(
+		`UPDATE series SET tmdb_rating = ?, tmdb_votes = ? WHERE id = ?`,
+		rating, votes, int64(f.canonSeriesID(t, "homelab", 1)),
+	).Error)
+
+	// Unrated series — no TMDB enrichment → null on the wire.
+	f.seed(t, "homelab", 2, "Unrated", 0, now.Add(-time.Hour))
+
+	rec, body := f.do(t, "/api/v1/instances/homelab/series-cache")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, body.Items, 2)
+
+	byID := map[shareddomain.SonarrSeriesID]dto.SeriesCacheItem{}
+	for _, it := range body.Items {
+		byID[it.SonarrSeriesID] = it
+	}
+	rated := byID[1]
+	require.NotNil(t, rated.TMDBRating)
+	assert.InDelta(t, 8.4, *rated.TMDBRating, 0.001)
+	require.NotNil(t, rated.TMDBVotes)
+	assert.Equal(t, 1240, *rated.TMDBVotes)
+
+	unrated := byID[2]
+	assert.Nil(t, unrated.TMDBRating)
+	assert.Nil(t, unrated.TMDBVotes)
+}
+
 func TestInstancesHandler_ListSeriesCache_QFiltersByTitle(t *testing.T) {
 	t.Parallel()
 	f := newSeriesCacheFixture(t, "homelab")

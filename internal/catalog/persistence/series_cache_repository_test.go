@@ -927,6 +927,60 @@ func TestSeriesCacheRepository_Upsert_PersistsLastAiredAt(t *testing.T) {
 	}
 }
 
+// seedSeriesTMDBRating writes tmdb_rating / tmdb_votes onto the canon
+// series row resolved by (instance, sonarrID). Mirrors the TMDB
+// enrichment worker, which owns these columns (the cache Upsert path
+// never writes them). Pass nil to leave a column NULL.
+func seedSeriesTMDBRating(t *testing.T, db *gorm.DB, instance domain.InstanceName, sonarrID int, rating *float64, votes *int) {
+	t.Helper()
+	var sc database.SeriesCacheModel
+	require.NoError(t, db.Where(
+		"instance_name = ? AND sonarr_series_id = ?", instance, sonarrID,
+	).First(&sc).Error)
+	require.NotNil(t, sc.SeriesID, "series_cache row must have a resolved series_id")
+	require.NoError(t, db.Exec(
+		`UPDATE series SET tmdb_rating = ?, tmdb_votes = ? WHERE id = ?`,
+		rating, votes, int64(*sc.SeriesID),
+	).Error)
+}
+
+// TestSeriesCacheRepository_ProjectsTMDBRating verifies the canon
+// series.tmdb_rating / tmdb_votes columns reach the CacheEntry via the
+// point read (Get) — populated when set, nil-safe when absent.
+func TestSeriesCacheRepository_ProjectsTMDBRating(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesCacheRepository(db, NewSeriesRepository(db))
+			ctx := context.Background()
+
+			// Rated series: canon carries tmdb_rating / tmdb_votes.
+			require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 42)))
+			seedSeriesTextForCache(t, db, "main", 42, "en-US", "Rated Series")
+			rating := 8.4
+			votes := 1240
+			seedSeriesTMDBRating(t, db, "main", 42, &rating, &votes)
+
+			got, err := repo.Get(ctx, "main", 42)
+			require.NoError(t, err)
+			require.NotNil(t, got.TMDBRating)
+			assert.InDelta(t, 8.4, *got.TMDBRating, 0.001)
+			require.NotNil(t, got.TMDBVotes)
+			assert.Equal(t, 1240, *got.TMDBVotes)
+
+			// Unrated series: canon has no TMDB enrichment → nil, no panic.
+			require.NoError(t, repo.Upsert(ctx, sampleEntry("main", 7)))
+			seedSeriesTextForCache(t, db, "main", 7, "en-US", "Unrated Series")
+			gotNil, err := repo.Get(ctx, "main", 7)
+			require.NoError(t, err)
+			assert.Nil(t, gotNil.TMDBRating)
+			assert.Nil(t, gotNil.TMDBVotes)
+		})
+	}
+}
+
 // TestSeriesCacheRepository_ListByFilter_MonitoredOnly — Story 121a §A
 func TestSeriesCacheRepository_ListByFilter_MonitoredOnly(t *testing.T) {
 	t.Parallel()

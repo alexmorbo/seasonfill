@@ -2637,6 +2637,15 @@
                         "example": "for-all-mankind",
                         "type": "string"
                     },
+                    "tmdb_rating": {
+                        "description": "TMDBRating / TMDBVotes are the canon TMDB vote_average /\nvote_count read from series.tmdb_rating / series.tmdb_votes. The\nunified series card renders ★rating right of the year. Absent when\nthe canon row has no TMDB enrichment yet. Mirrors the shape\ndiscovery + recommendations already emit (`tmdb_rating`).",
+                        "example": 8.4,
+                        "type": "number"
+                    },
+                    "tmdb_votes": {
+                        "example": 1240,
+                        "type": "integer"
+                    },
                     "updated_at": {
                         "type": "string"
                     },

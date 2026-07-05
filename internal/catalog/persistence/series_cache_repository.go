@@ -83,6 +83,11 @@ type cacheRow struct {
 	// card lands in a future story.
 	RuntimeMinutes *int       `gorm:"column:s_runtime_minutes"`
 	LastAiredAt    *time.Time `gorm:"column:s_last_air_date"`
+	// TMDBRating / TMDBVotes — canon series.tmdb_rating / tmdb_votes,
+	// projected for the series-list card. nil when the canon row has no
+	// TMDB enrichment.
+	TMDBRating *float64 `gorm:"column:s_tmdb_rating"`
+	TMDBVotes  *int     `gorm:"column:s_tmdb_votes"`
 	// PosterAsset is the raw canon path read straight from
 	// series.poster_asset. The handler layer derives the content-
 	// addressed media hash from this path so the catalog tiles can
@@ -133,7 +138,9 @@ const seriesCacheSelectCore = `
 		s.tmdb_id                       AS s_tmdb_id,
 		s.status                        AS s_status,
 		s.runtime_minutes               AS s_runtime_minutes,
-		s.last_air_date                 AS s_last_air_date
+		s.last_air_date                 AS s_last_air_date,
+		s.tmdb_rating                   AS s_tmdb_rating,
+		s.tmdb_votes                    AS s_tmdb_votes
 	`
 
 // seriesCacheSelect is the point-read projection (Get / ListBySeriesID /
@@ -970,6 +977,8 @@ func rowToCacheEntry(r cacheRow) series.CacheEntry {
 		SizeOnDiskBytes:   r.SizeOnDiskBytes,
 		AiredEpisodeCount: r.AiredEpisodeCount,
 		LastAiredAt:       r.LastAiredAt,
+		TMDBRating:        r.TMDBRating,
+		TMDBVotes:         r.TMDBVotes,
 		UpdatedAt:         r.UpdatedAt,
 		DeletedAt:         r.DeletedAt,
 	}
