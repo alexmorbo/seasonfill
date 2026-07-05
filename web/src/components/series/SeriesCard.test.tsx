@@ -36,15 +36,34 @@ beforeEach(() => {
 });
 
 describe('<SeriesCard />', () => {
-  it('renders the title and year', () => {
+  it('renders the title below and the year as a bottom-left poster overlay', () => {
     r(<SeriesCard title="Breaking Bad" year={2008} seriesId={7} />);
     expect(screen.getByTestId('series-card-title')).toHaveTextContent('Breaking Bad');
-    expect(screen.getByTestId('series-card')).toHaveTextContent('2008');
+    const yr = screen.getByTestId('series-card-year');
+    expect(yr).toHaveTextContent('2008');
+    expect(yr.className).toContain('absolute');
+    expect(yr.className).toContain('bottom-2');
+    expect(yr.className).toContain('left-2');
   });
 
-  it('shows the ★ rating when rating > 0', () => {
+  it('shows the ★ rating as a bottom-right poster overlay when rating > 0', () => {
     r(<SeriesCard title="Show" year={2020} rating={8.4} seriesId={1} />);
-    expect(screen.getByTestId('series-card-rating')).toHaveTextContent('8.4');
+    const rt = screen.getByTestId('series-card-rating');
+    expect(rt).toHaveTextContent('8.4');
+    expect(rt.className).toContain('absolute');
+    expect(rt.className).toContain('bottom-2');
+    expect(rt.className).toContain('right-2');
+  });
+
+  it('hides the year overlay when year is absent', () => {
+    r(<SeriesCard title="Show" rating={8.4} seriesId={1} />);
+    expect(screen.queryByTestId('series-card-year')).toBeNull();
+  });
+
+  it('renders no bottom overlays when neither year nor rating is present', () => {
+    r(<SeriesCard title="Show" seriesId={1} />);
+    expect(screen.queryByTestId('series-card-year')).toBeNull();
+    expect(screen.queryByTestId('series-card-rating')).toBeNull();
   });
 
   it('hides the ★ rating when rating is absent or 0', () => {

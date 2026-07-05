@@ -84,8 +84,9 @@ function Poster({
 }
 
 // SeriesCard — the single portrait card unified across the list, discovery,
-// recommendations and person surfaces. Base render is poster + title + a meta
-// line (year + optional ★rating). Every surface-specific affordance is an
+// recommendations and person surfaces. Base render is poster (with the year
+// pinned bottom-left and the optional ★rating bottom-right as corner overlays)
+// + title below. Every surface-specific affordance is an
 // opt-in slot (missing chip, in-library badge, Add-to-Sonarr, role line,
 // footer). Clicks always route internally to /series/:id via
 // useResolveSeriesNav (direct when seriesId is known, resolve-then-navigate
@@ -111,7 +112,7 @@ export function SeriesCard({
   const hasDirectId = typeof seriesId === 'number' && seriesId > 0;
   const hasTmdb = typeof tmdbId === 'number' && tmdbId > 0;
   const showRating = typeof rating === 'number' && rating > 0;
-  const showMeta = year !== undefined || showRating;
+  const showYear = year !== undefined;
   const ariaLabel = t('seriesCard.open', {
     title: formatSeriesTitle(title, year),
   });
@@ -144,6 +145,36 @@ export function SeriesCard({
             <AddToSonarrButton item={addToSonarr} />
           </div>
         )}
+
+        {(showYear || showRating) && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14 bg-gradient-to-t from-black/70 to-transparent"
+          />
+        )}
+
+        {showYear && (
+          <span
+            data-testid="series-card-year"
+            className="absolute bottom-2 left-2 z-20 inline-flex items-center rounded-md bg-black/60 px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums text-white backdrop-blur-sm"
+          >
+            {year}
+          </span>
+        )}
+
+        {showRating && (
+          <span
+            data-testid="series-card-rating"
+            className="absolute bottom-2 right-2 z-20 inline-flex items-center gap-0.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums text-white backdrop-blur-sm"
+          >
+            <Star
+              className="h-2.5 w-2.5 text-warn"
+              aria-hidden="true"
+              fill="currentColor"
+            />
+            {rating.toFixed(1)}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-col gap-1 px-0.5 pt-2">
@@ -161,24 +192,6 @@ export function SeriesCard({
             title={characterName}
           >
             {characterName}
-          </div>
-        )}
-        {showMeta && (
-          <div className="flex items-center gap-1.5 text-[11px] text-tx-muted tabular-nums">
-            {year !== undefined && <span>{year}</span>}
-            {showRating && (
-              <span
-                data-testid="series-card-rating"
-                className="inline-flex items-center gap-0.5"
-              >
-                <Star
-                  className="h-2.5 w-2.5 text-warn"
-                  aria-hidden="true"
-                  fill="currentColor"
-                />
-                {rating.toFixed(1)}
-              </span>
-            )}
           </div>
         )}
         {footer}
