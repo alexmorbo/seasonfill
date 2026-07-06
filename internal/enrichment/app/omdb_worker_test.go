@@ -30,6 +30,7 @@ type omdbColumnWrite struct {
 type fakeOMDbSeries struct {
 	canon       series.Canon
 	getErr      error
+	markErr     error // F-12: force MarkOMDBSynced to fail (tx-abort path)
 	upserts     []series.Canon
 	omdbUpdates []omdbColumnWrite
 }
@@ -64,8 +65,12 @@ func (f *fakeOMDbSeries) MarkTMDBSynced(_ context.Context, _ domain.SeriesID, _ 
 }
 
 // MarkOMDBSynced — 464b: stamps the canon row's EnrichmentOMDBSyncedAt
-// from the OMDb worker's success path.
+// from the OMDb worker's success path. F-12: returns markErr when set so
+// a test can prove the stamp is inside the success tx.
 func (f *fakeOMDbSeries) MarkOMDBSynced(_ context.Context, id domain.SeriesID, now time.Time) error {
+	if f.markErr != nil {
+		return f.markErr
+	}
 	c := f.canon
 	c.ID = id
 	t := now
@@ -238,12 +243,6 @@ func TestOMDbWorker_HappyPath_PatchesFourFieldsOnly(t *testing.T) {
 	f.series.canon.TMDBVotes = &tmdbVotes
 	status := "Ended"
 	f.series.canon.Status = &status
-	// Story 1039 — add the Ratings array to the default fixture response.
-	f.client.resp.Ratings = []omdb.Rating{
-		{Source: "Internet Movie Database", Value: "9.5/10"},
-		{Source: "Rotten Tomatoes", Value: "96%"},
-		{Source: "Metacritic", Value: "73/100"},
-	}
 
 	require.NoError(t, w.HandleCold(context.Background(), 42))
 	assert.Equal(t, 1, f.client.calls)
@@ -572,4 +571,33 @@ func TestOMDbWorker_ColdLane_FutureBackoff_Unaffected(t *testing.T) {
 	assert.Equal(t, 1, f.budget.coldCalls, "Cold lane ignores in-band backoff")
 	assert.Equal(t, 1, f.client.calls)
 	require.Len(t, f.series.omdbUpdates, 1)
+}
+
+// F-12: MarkOMDBSynced is now folded INTO the success tx. A stamp failure must
+// abort the success path — the worker records a retryable failure row, does NOT
+// stamp enrichment_omdb_synced_at, and does NOT clear the error row. (Under the
+// OLD post-tx best-effort stamp, a stamp failure was logged-only: the worker
+// still declared success, fired ClearOnSuccess, and left the row unstamped =
+// one wasted refetch. This test locks in the new atomic behaviour.)
+//
+// fakeTxr.Transaction has no rollback, so the fake still records the column
+// write in omdbUpdates; in production the real GORM tx rolls back both together.
+// The assertion is on the worker's decision: a stamp failure ⇒ NOT success.
+func TestOMDbWorker_StampFailsInTx_NoSuccessJournal(t *testing.T) {
+	t.Parallel()
+	w, f := newOMDbWorkerForTest(t, nil)
+	f.series.markErr = errors.New("stamp write failed")
+
+	require.NoError(t, w.HandleCold(context.Background(), 42))
+
+	// Success was NOT declared: no freshness stamp, error row NOT cleared.
+	assert.Nil(t, f.series.canon.EnrichmentOMDBSyncedAt,
+		"stamp failure inside the tx must leave the row unstamped")
+	assert.Zero(t, f.enrichmentErrors.clearedRun,
+		"ClearOnSuccess must NOT fire when the success tx failed")
+	// A retryable failure row was recorded (tx error → generic backoff path).
+	require.Len(t, f.enrichmentErrors.failures, 1)
+	assert.Equal(t, 1, f.enrichmentErrors.failures[0].Attempts)
+	require.NotNil(t, f.enrichmentErrors.failures[0].NextAttemptAt,
+		"tx failure is retryable ⇒ NextAttemptAt set")
 }

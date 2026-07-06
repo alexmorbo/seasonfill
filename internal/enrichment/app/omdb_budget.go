@@ -148,6 +148,12 @@ func NewOMDbBudgetGuardDB(initial, hotFloor int, counter quota.QuotaCounter, log
 	metrics.GetOrCreateGauge("seasonfill_omdb_quota_remaining_guess", func() float64 {
 		return float64(g.Remaining())
 	})
+	// NOTE (Story 305 soft-floor semantics): reserve() increments the daily
+	// counter BEFORE the cap check, so a DENIED reservation at cap still bumps
+	// `used`. This gauge can therefore transiently read ABOVE the cap by the
+	// number of denials once the cap is hit — intentional (the phantom count is
+	// bounded and the upstream "Daily limit reached!" auth_failed path handles the
+	// overflow). Dashboards/alerts MUST treat used > cap as expected, not a fault.
 	metrics.GetOrCreateGauge(`seasonfill_external_service_quota_used{service="omdb"}`, func() float64 {
 		used, _ := g.UsedAndCap()
 		return float64(used)

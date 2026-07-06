@@ -14,11 +14,6 @@ func TestMap_BreakingBadFixture(t *testing.T) {
 		IMDBVotes:  "2,034,123",
 		Rated:      "TV-MA",
 		Awards:     "Won 16 Primetime Emmys",
-		Ratings: []Rating{
-			{Source: "Internet Movie Database", Value: "9.5/10"},
-			{Source: "Rotten Tomatoes", Value: "96%"},
-			{Source: "Metacritic", Value: "73/100"},
-		},
 	}
 	out := Map(resp)
 	require.NotNil(t, out.IMDBRating)
@@ -29,10 +24,6 @@ func TestMap_BreakingBadFixture(t *testing.T) {
 	assert.Equal(t, "TV-MA", *out.OMDbRated)
 	require.NotNil(t, out.OMDbAwards)
 	assert.Equal(t, "Won 16 Primetime Emmys", *out.OMDbAwards)
-	require.NotNil(t, out.OMDbRTRating)
-	assert.Equal(t, 96, *out.OMDbRTRating)
-	require.NotNil(t, out.OMDbMetacritic)
-	assert.Equal(t, 73, *out.OMDbMetacritic)
 }
 
 func TestMap_NAValues_AllFieldsNil(t *testing.T) {
@@ -42,18 +33,12 @@ func TestMap_NAValues_AllFieldsNil(t *testing.T) {
 		IMDBVotes:  "N/A",
 		Rated:      "N/A",
 		Awards:     "N/A",
-		Ratings: []Rating{
-			{Source: "Rotten Tomatoes", Value: "N/A"},
-			{Source: "Metacritic", Value: "N/A"},
-		},
 	}
 	out := Map(resp)
 	assert.Nil(t, out.IMDBRating)
 	assert.Nil(t, out.IMDBVotes)
 	assert.Nil(t, out.OMDbRated)
 	assert.Nil(t, out.OMDbAwards)
-	assert.Nil(t, out.OMDbRTRating)
-	assert.Nil(t, out.OMDbMetacritic)
 }
 
 func TestMap_Rating_ParseFailure_ReturnsNil(t *testing.T) {
@@ -114,68 +99,4 @@ func TestMap_EmptyResponse_AllFieldsNil(t *testing.T) {
 	assert.Nil(t, out.IMDBVotes)
 	assert.Nil(t, out.OMDbRated)
 	assert.Nil(t, out.OMDbAwards)
-	assert.Nil(t, out.OMDbRTRating)
-	assert.Nil(t, out.OMDbMetacritic)
-}
-
-func TestMap_Ratings_AllThreeSources(t *testing.T) {
-	t.Parallel()
-	resp := &Response{
-		Ratings: []Rating{
-			{Source: "Internet Movie Database", Value: "8.0/10"},
-			{Source: "Rotten Tomatoes", Value: "91%"},
-			{Source: "Metacritic", Value: "69/100"},
-		},
-		ResponseFlag: "True",
-	}
-	out := Map(resp)
-	require.NotNil(t, out.OMDbRTRating)
-	assert.Equal(t, 91, *out.OMDbRTRating)
-	require.NotNil(t, out.OMDbMetacritic)
-	assert.Equal(t, 69, *out.OMDbMetacritic)
-}
-
-func TestMap_Ratings_MissingArray_BothNil(t *testing.T) {
-	t.Parallel()
-	out := Map(&Response{ResponseFlag: "True"})
-	assert.Nil(t, out.OMDbRTRating)
-	assert.Nil(t, out.OMDbMetacritic)
-}
-
-func TestMap_Ratings_OnlyIMDbEntry_BothNil(t *testing.T) {
-	t.Parallel()
-	resp := &Response{
-		Ratings: []Rating{
-			{Source: "Internet Movie Database", Value: "8.0/10"},
-		},
-	}
-	out := Map(resp)
-	assert.Nil(t, out.OMDbRTRating)
-	assert.Nil(t, out.OMDbMetacritic)
-}
-
-func TestMap_Ratings_RTValue_EmptyOrNA_Nil(t *testing.T) {
-	t.Parallel()
-	for _, v := range []string{"N/A", "n/a", "", "  "} {
-		out := Map(&Response{Ratings: []Rating{{Source: "Rotten Tomatoes", Value: v}}})
-		assert.Nil(t, out.OMDbRTRating, "value=%q", v)
-	}
-}
-
-func TestMap_Ratings_MetacriticValue_EmptyOrNA_Nil(t *testing.T) {
-	t.Parallel()
-	for _, v := range []string{"N/A", "n/a", "", "  "} {
-		out := Map(&Response{Ratings: []Rating{{Source: "Metacritic", Value: v}}})
-		assert.Nil(t, out.OMDbMetacritic, "value=%q", v)
-	}
-}
-
-func TestMap_Ratings_UnparseableValue_Nil(t *testing.T) {
-	t.Parallel()
-	out := Map(&Response{Ratings: []Rating{
-		{Source: "Rotten Tomatoes", Value: "unrated"},
-		{Source: "Metacritic", Value: "tbd"},
-	}})
-	assert.Nil(t, out.OMDbRTRating)
-	assert.Nil(t, out.OMDbMetacritic)
 }

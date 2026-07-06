@@ -582,7 +582,13 @@ func (c *Composer) computeDegraded(ctx context.Context, seriesID domain.SeriesID
 				in.SyncedAt[s] = nil
 			}
 		}
-		in.TTLs[s] = enrichment.TTL(s, kindFor(s, kind))
+		if s == enrichment.SourceOMDb {
+			// F-11: OMDb uses the progressive rating curve so the degraded
+			// badge agrees with the /ratings endpoint's OMDbRatingStale.
+			in.TTLs[s] = omdbDegradedTTL(canon, c.d.Now())
+		} else {
+			in.TTLs[s] = enrichment.TTL(s, kindFor(s, kind))
+		}
 	}
 	out := enrichment.Degraded(in, c.d.Now())
 	// OR in any branch failure that maps to a TMDB-series source
@@ -730,6 +736,19 @@ func kindFor(s enrichment.Source, base enrichment.Kind) enrichment.Kind {
 		return enrichment.KindOMDb
 	}
 	return enrichment.KindUnknown
+}
+
+// omdbDegradedTTL returns the OMDb source's TTL for the degraded / freshness
+// projection using the SAME progressive age curve (W18-5 / W18-10) that the
+// on-view /ratings endpoint's OMDbRatingStale consumes — so the composer's
+// stale badge and the /ratings freshness verdict classify OMDb identically.
+//
+// Before W18-13 this source used the flat enrichment.TTL(SourceOMDb, KindOMDb)
+// (24h → 48h at the Degraded rule-3 2×TTL threshold), which flipped the badge to
+// "OMDb stale" far sooner than the /ratings curve (up to 180d) reported it fresh.
+// Reusing TMDBRatingTTL (aliased by OMDbRatingStale) keeps the two in lockstep.
+func omdbDegradedTTL(canon series.Canon, now time.Time) time.Duration {
+	return TMDBRatingTTL(now, canon.InProduction, canon.Status, canon.LastAirDate, canon.FirstAirDate)
 }
 
 // resolveAssets walks every image field on the composed Detail and overwrites

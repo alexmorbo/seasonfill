@@ -6,10 +6,12 @@
 //  3. Reserve a slot from Budget; skip (no error, no journal) if
 //     counter is zero.
 //  4. omdb.GetByIMDB → omdb.Map → enrichment.OMDbEnrichment.
-//  5. ONE tx: upsert series with ONLY the four OMDb-owned columns
-//     patched onto the existing canon row.
-//  6. Stamp canon.enrichment_omdb_synced_at via MarkOMDBSynced +
-//     clear any outstanding enrichment_errors row.
+//  5. ONE tx: upsert series with the four OMDb-owned columns patched onto
+//     the existing canon row AND stamp enrichment_omdb_synced_at — both
+//     commit atomically, so a stamp failure rolls back the column write
+//     (no "values written but row still stale" gap).
+//  6. After the tx (best-effort, log-only): clear any outstanding
+//     enrichment_errors row for (series, omdb).
 //
 // Sentinel errors from the client map to enrichment_errors writes:
 //   - omdb.ErrNotFound   → attempts=terminalAttempts (no retry)
@@ -264,29 +266,36 @@ func (w *OMDbWorker) handle(ctx context.Context, seriesID domain.SeriesID, lane 
 	// 5. Map outside the tx.
 	mapped := omdb.Map(resp)
 
-	// 6. ONE tx: plain-assign the four OMDb-owned columns onto the canon row.
-	//    UpdateOMDbColumns writes NULL for any nil pointer (unlike the COALESCE
-	//    Upsert path), so an OMDb "N/A" response actively CLEARS a previously-
-	//    stored rating — M-1 fix. The worker always supplies all four values
-	//    (mapper yields value-or-nil per field), so the blanket assign is safe.
+	// 6. ONE tx: plain-assign the four OMDb-owned columns onto the canon row
+	//    AND stamp enrichment_omdb_synced_at, atomically. UpdateOMDbColumns
+	//    writes NULL for any nil pointer (unlike the COALESCE Upsert path), so an
+	//    OMDb "N/A" response actively CLEARS a previously-stored rating (M-1 fix).
+	//    MarkOMDBSynced resolves the SAME dbFromContext(txCtx) handle, so folding
+	//    the freshness stamp into the tx makes column-write + stamp commit or roll
+	//    back together — a stamp failure no longer leaves the row written-but-stale.
+	//    `now` is captured BEFORE the tx so the stamped timestamp is deterministic.
 	var votes *int
 	if mapped.IMDBVotes != nil {
 		v := int(*mapped.IMDBVotes)
 		votes = &v
 	}
+	now := w.deps.Clock()
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		return w.deps.Series.UpdateOMDbColumns(txCtx, seriesID,
-			mapped.IMDBRating, votes, mapped.OMDbRated, mapped.OMDbAwards)
+		if e := w.deps.Series.UpdateOMDbColumns(txCtx, seriesID,
+			mapped.IMDBRating, votes, mapped.OMDbRated, mapped.OMDbAwards); e != nil {
+			return e
+		}
+		return w.deps.Series.MarkOMDBSynced(txCtx, seriesID, now)
 	})
 	if err != nil {
 		return w.handleClientError(ctx, seriesID, "tx", err, prevAttempts, start)
 	}
 
-	// 7. Journal success — stamp canon column + clear any pending error row.
-	now := w.deps.Clock()
-	durMs := int(now.Sub(start).Milliseconds())
-	w.journalOK(ctx, seriesID, now)
+	// 7. Clear any pending error row (best-effort, log-only) — NOT a correctness
+	//    invariant, so it stays outside the success tx.
+	w.clearErrorRow(ctx, seriesID)
 
+	durMs := int(w.deps.Clock().Sub(start).Milliseconds())
 	log.InfoContext(ctx, "enrichment.omdb.handle.ok",
 		slog.Int("duration_ms", durMs),
 		slog.Int("quota_remaining", w.deps.Budget.Remaining()),
@@ -408,14 +417,12 @@ func (w *OMDbWorker) recordOMDbError(
 	}
 }
 
-// journalOK stamps series.enrichment_omdb_synced_at = now and clears
-// any outstanding enrichment_errors row for (series, omdb).
-func (w *OMDbWorker) journalOK(ctx context.Context, seriesID domain.SeriesID, now time.Time) {
-	if err := w.deps.Series.MarkOMDBSynced(ctx, seriesID, now); err != nil {
-		w.deps.Logger.WarnContext(ctx, "enrichment.omdb.handle.mark_synced_failed",
-			slog.Int64("entity_id", int64(seriesID)),
-			slog.String("error", err.Error()))
-	}
+// clearErrorRow clears any outstanding enrichment_errors row for
+// (series, omdb) after a successful OMDb write. Best-effort: a failure here
+// only leaves a stale error row (self-heals on the next success) and never
+// invalidates the committed column write + freshness stamp, so it is
+// deliberately OUTSIDE the success tx.
+func (w *OMDbWorker) clearErrorRow(ctx context.Context, seriesID domain.SeriesID) {
 	if err := w.deps.EnrichmentErrors.ClearOnSuccess(ctx,
 		enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceOMDb); err != nil {
 		w.deps.Logger.WarnContext(ctx, "enrichment.omdb.handle.clear_error_failed",
