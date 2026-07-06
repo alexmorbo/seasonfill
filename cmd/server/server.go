@@ -200,8 +200,12 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// fully-on-disk series skips syncEpisodes, so without a one-time heal
 	// its episode_states stay empty and every episode renders "not
 	// monitored". The guard fires the refresh only when coverage is absent.
+	// W18-3 (#1044): the same repo also serves the canon-episode probe so the
+	// heal skips tmdb-less / canon-unresolved series (zero canon episodes)
+	// instead of re-issuing Sonarr calls on every scan forever.
 	if webhookBundle.EpisodeStatesRepo != nil && scanUC != nil {
 		scanUC.WithEpisodeStatesCoverage(webhookBundle.EpisodeStatesRepo)
+		scanUC.WithCanonEpisodeCounter(webhookBundle.EpisodeStatesRepo)
 	}
 
 	instanceBundle, err := wiring.BuildInstance(persistence, webhookBundle, bus, log)

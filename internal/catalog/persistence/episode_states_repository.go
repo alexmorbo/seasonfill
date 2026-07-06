@@ -157,6 +157,39 @@ func (r *EpisodeStatesRepository) CountBySeries(
 	return int(count), nil
 }
 
+// CanonEpisodeCount returns the number of canonical `episodes` rows for the
+// (instance_name, sonarr_series_id) pair. The canon series_id is resolved via
+// series_cache (episodes carries series_id; series_cache maps
+// (instance_name, sonarr_series_id) → series_id) — the same join CountBySeries
+// uses, but against `episodes` directly instead of `episode_states`.
+//
+// Used by the all-complete heal-reloop guard (#1044/W18-3): a tmdb-less /
+// canon-unresolved series has zero canon episodes, so refreshEpisodeStatesFrom-
+// Bundle can key nothing and writes zero episode_states — coverage stays 0 and
+// the #1031 "one-time" heal would re-issue its Sonarr calls on every scan
+// forever. This lets the guard skip such series without a Sonarr fetch. Cheap
+// single COUNT — no rows loaded.
+func (r *EpisodeStatesRepository) CanonEpisodeCount(
+	ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID,
+) (int, error) {
+	if instanceName == "" {
+		return 0, fmt.Errorf("count canon episodes by series: instance_name must be non-empty")
+	}
+	var count int64
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Table("episodes").
+		Where(`series_id IN (
+		       SELECT sc.series_id FROM series_cache sc
+		       WHERE sc.instance_name = ? AND sc.sonarr_series_id = ?
+		   )`,
+			instanceName, sonarrSeriesID).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count canon episodes by series: %w", err)
+	}
+	return int(count), nil
+}
+
 func toEpisodeState(m database.EpisodeStateModel) series.EpisodeState {
 	return series.EpisodeState{
 		InstanceName:  m.InstanceName,

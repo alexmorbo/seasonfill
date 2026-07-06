@@ -1776,6 +1776,25 @@ func (f *fakeEpisodeStatesCoverage) CountBySeries(_ context.Context, _ domain.In
 
 var _ EpisodeStatesCoverage = (*fakeEpisodeStatesCoverage)(nil)
 
+// fakeCanonEpisodeCounter is the W18-3 (#1044) heal-reloop guard stub. count is
+// the canon-episode count returned for every series; err (when set) simulates a
+// count failure. calls records each probed series id.
+type fakeCanonEpisodeCounter struct {
+	mu    sync.Mutex
+	count int
+	err   error
+	calls []domain.SonarrSeriesID
+}
+
+func (f *fakeCanonEpisodeCounter) CanonEpisodeCount(_ context.Context, _ domain.InstanceName, id domain.SonarrSeriesID) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, id)
+	return f.count, f.err
+}
+
+var _ CanonEpisodeCounter = (*fakeCanonEpisodeCounter)(nil)
+
 // completeSeries builds a series whose single monitored season is fully
 // on-disk (Aired == EpisodeFileCount) so seriesAllSeasonsComplete short-
 // circuits it before any Sonarr per-series work — the F-975 piggyback must
@@ -1913,5 +1932,90 @@ func TestProcessScan_HealCoverageProbeError_DoesNotFailScan(t *testing.T) {
 
 	ref.mu.Lock()
 	assert.Empty(t, ref.calls, "probe error must NOT trigger a heal refresh")
+	ref.mu.Unlock()
+}
+
+// newHealTestUseCase builds a bare scan UseCase suitable for calling the
+// unexported heal helper directly — the heal path touches only the refresher,
+// coverage, canon-counter and logger, never the evaluator or instances.
+func newHealTestUseCase(t *testing.T) *UseCase {
+	t.Helper()
+	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	return NewUseCase(nil, nil, &fakeScanRepo{}, lg, true)
+}
+
+// TestHealEpisodeStates_SkipsNoCanonEpisodes_NoReloop is the W18-3 (#1044)
+// proof: a tmdb-less / canon-unresolved all-complete series (coverage stays 0
+// because there are no canon episodes to key episode_states against) must NEVER
+// call Sonarr — not on the first scan and not on any subsequent scan. Before
+// the fix the heal re-fired forever.
+func TestHealEpisodeStates_SkipsNoCanonEpisodes_NoReloop(t *testing.T) {
+	t.Parallel()
+	uc := newHealTestUseCase(t)
+	ref := &fakeEpisodeStatesRefresher{}
+	cov := &fakeEpisodeStatesCoverage{count: 0} // coverage never climbs (symptom)
+	cnt := &fakeCanonEpisodeCounter{count: 0}   // zero canon episodes
+	uc.WithEpisodeStatesRefresher(ref).
+		WithEpisodeStatesCoverage(cov).
+		WithCanonEpisodeCounter(cnt)
+
+	uc.healEpisodeStatesForCompleteSeries(context.Background(), "main", 140)
+	uc.healEpisodeStatesForCompleteSeries(context.Background(), "main", 140)
+
+	ref.mu.Lock()
+	assert.Empty(t, ref.calls, "no canon episodes -> heal must never call Sonarr, across scans")
+	ref.mu.Unlock()
+
+	cnt.mu.Lock()
+	assert.Len(t, cnt.calls, 2, "canon-episode count must be consulted on each zero-coverage scan")
+	cnt.mu.Unlock()
+}
+
+// TestHealEpisodeStates_HealsOnceThenCovered proves the preserved #1031
+// behavior for a series that DOES have canon episodes: heal fires exactly once
+// while coverage is absent, and once the write lands (coverage > 0) subsequent
+// scans issue no further Sonarr fetch.
+func TestHealEpisodeStates_HealsOnceThenCovered(t *testing.T) {
+	t.Parallel()
+	uc := newHealTestUseCase(t)
+	ref := &fakeEpisodeStatesRefresher{}
+	cov := &fakeEpisodeStatesCoverage{count: 0} // coverage absent
+	cnt := &fakeCanonEpisodeCounter{count: 12}  // canon episodes exist
+	uc.WithEpisodeStatesRefresher(ref).
+		WithEpisodeStatesCoverage(cov).
+		WithCanonEpisodeCounter(cnt)
+
+	uc.healEpisodeStatesForCompleteSeries(context.Background(), "main", 140)
+	ref.mu.Lock()
+	assert.Len(t, ref.calls, 1, "canon episodes + absent coverage must heal exactly once")
+	ref.mu.Unlock()
+
+	// simulate the heal write landing: coverage now present.
+	cov.mu.Lock()
+	cov.count = 12
+	cov.mu.Unlock()
+
+	uc.healEpisodeStatesForCompleteSeries(context.Background(), "main", 140)
+	ref.mu.Lock()
+	assert.Len(t, ref.calls, 1, "once covered, subsequent scans must not re-heal")
+	ref.mu.Unlock()
+}
+
+// TestHealEpisodeStates_NilCanonCounter_PreservesPriorBehavior asserts the
+// nil-OK fallback: with no canon counter wired, the pre-W18-3 #1031 behavior
+// stands (heal fires whenever coverage is absent) and nothing panics.
+func TestHealEpisodeStates_NilCanonCounter_PreservesPriorBehavior(t *testing.T) {
+	t.Parallel()
+	uc := newHealTestUseCase(t)
+	ref := &fakeEpisodeStatesRefresher{}
+	cov := &fakeEpisodeStatesCoverage{count: 0}
+	uc.WithEpisodeStatesRefresher(ref).WithEpisodeStatesCoverage(cov)
+	// canonEpisodeCounter deliberately unset (nil).
+
+	require.NotPanics(t, func() {
+		uc.healEpisodeStatesForCompleteSeries(context.Background(), "main", 140)
+	})
+	ref.mu.Lock()
+	assert.Len(t, ref.calls, 1, "nil counter -> prior #1031 behavior: heal fires on absent coverage")
 	ref.mu.Unlock()
 }

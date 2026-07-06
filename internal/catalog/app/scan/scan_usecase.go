@@ -122,6 +122,20 @@ type EpisodeStatesCoverage interface {
 	CountBySeries(ctx context.Context, instanceName shareddomain.InstanceName, sonarrSeriesID shareddomain.SonarrSeriesID) (int, error)
 }
 
+// CanonEpisodeCounter reports how many CANON `episodes` rows exist for a
+// (instance, sonarr_series_id) pair. The all-complete heal guard (#1044/W18-3)
+// consults it only when episode_states coverage is absent: a tmdb-less /
+// canon-unresolved series has zero canon episodes, so the #1031 heal writes
+// nothing (no canon rows to key episode_states against) and coverage never
+// climbs — without this guard the "one-time" heal re-fires its Sonarr calls on
+// every scan forever. The count MUST come from `episodes`, never episode_states
+// (which is empty by the symptom — using it would over-skip every zero-coverage
+// series). Implemented by *catalogpersistence.EpisodeStatesRepository. Nil-OK —
+// when unset the guard is skipped and prior #1031 behavior is preserved.
+type CanonEpisodeCounter interface {
+	CanonEpisodeCount(ctx context.Context, instanceName shareddomain.InstanceName, sonarrSeriesID shareddomain.SonarrSeriesID) (int, error)
+}
+
 // TMDBResolver resolves a Sonarr series that has a tvdb_id but no tmdb_id
 // to its TMDB id, then enqueues full enrichment. W15-13 scan piggyback.
 // Implemented by *enrichment.TVDBResolver. Nil-OK — skipped when unset.
@@ -169,6 +183,10 @@ type UseCase struct {
 	// episodeStatesCoverage — #1031 all-complete heal guard. Nil-OK: when
 	// unset the fast-path never heals episode_states (no coverage probe).
 	episodeStatesCoverage EpisodeStatesCoverage
+
+	// canonEpisodeCounter — #1044/W18-3 heal-reloop guard. Nil-OK: when unset
+	// the canon-episode-count check is skipped and the #1031 behavior stands.
+	canonEpisodeCounter CanonEpisodeCounter
 
 	// tmdbResolver — W15-13 scan piggyback. Nil-OK: fillSeriesCache skips
 	// the tvdb→tmdb resolution when unset.
@@ -267,6 +285,16 @@ func (u *UseCase) WithEpisodeStatesRefresher(r EpisodeStatesRefresher) *UseCase 
 // when unset the all-seasons-complete fast-path skips the episode_states heal.
 func (u *UseCase) WithEpisodeStatesCoverage(c EpisodeStatesCoverage) *UseCase {
 	u.episodeStatesCoverage = c
+	return u
+}
+
+// WithCanonEpisodeCounter wires the #1044/W18-3 heal-reloop guard's canon-
+// episode probe (production: the catalog EpisodeStatesRepository, which also
+// serves the coverage probe). Nil-OK — when unset the all-complete heal keeps
+// the pre-W18-3 behavior (heals whenever coverage is absent, which re-loops
+// forever for canon-less series).
+func (u *UseCase) WithCanonEpisodeCounter(c CanonEpisodeCounter) *UseCase {
+	u.canonEpisodeCounter = c
 	return u
 }
 
@@ -1362,9 +1390,15 @@ func (u *UseCase) refreshEpisodeStatesForSeries(ctx context.Context, instName sh
 //
 // The coverage probe keeps steady-state scans call-free: once any state row
 // exists the Sonarr fetch is skipped. For a complete series has_file /
-// monitored are stable, so a single heal is sufficient. No-op when either
-// port is unset. Best-effort — coverage-probe and refresh errors are
-// WARN-logged and never abort the scan.
+// monitored are stable, so a single heal is sufficient.
+//
+// W18-3 (#1044): a tmdb-less / canon-unresolved series has zero CANON episodes,
+// so the heal writes nothing and coverage never climbs — the "one-time" heal
+// would then re-issue its Sonarr calls on every scan forever. When coverage is
+// absent AND the series has zero canon episodes, the heal is skipped without a
+// Sonarr call. No-op when either #1031 port is unset; the canon-count guard is
+// skipped (prior behavior) when the W18-3 counter is unset. Best-effort — all
+// probe/refresh errors are WARN-logged and never abort the scan.
 func (u *UseCase) healEpisodeStatesForCompleteSeries(ctx context.Context, instName shareddomain.InstanceName, seriesID shareddomain.SonarrSeriesID) {
 	if u.episodeStatesRefresher == nil || u.episodeStatesCoverage == nil {
 		return
@@ -1380,6 +1414,31 @@ func (u *UseCase) healEpisodeStatesForCompleteSeries(ctx context.Context, instNa
 	}
 	if count > 0 {
 		return // already covered — keep steady-state complete-series scans call-free
+	}
+	// W18-3 (#1044): coverage is 0. For a tmdb-less / canon-unresolved series
+	// the canon `episodes` table has 0 rows, so refreshEpisodeStatesFromBundle
+	// maps nothing and writes 0 episode_states — coverage stays 0 and this
+	// "one-time" heal would re-issue its 3 Sonarr calls on EVERY scan forever.
+	// Guard: no canon episodes ⇒ nothing to heal ⇒ skip WITHOUT calling Sonarr.
+	// Runs only on this zero-coverage branch, so covered series never pay for
+	// the extra query. Nil counter ⇒ fall through to prior #1031 behavior.
+	if u.canonEpisodeCounter != nil {
+		canonCount, cerr := u.canonEpisodeCounter.CanonEpisodeCount(ctx, instName, seriesID)
+		if cerr != nil {
+			u.logger.WarnContext(ctx, "canon_episode_count_failed",
+				slog.String("instance", string(instName)),
+				slog.Int("series_id", int(seriesID)),
+				slog.String("error", cerr.Error()),
+			)
+			return
+		}
+		if canonCount == 0 {
+			u.logger.DebugContext(ctx, "episode_states_heal_skipped_no_canon_episodes",
+				slog.String("instance", string(instName)),
+				slog.Int("series_id", int(seriesID)),
+			)
+			return
+		}
 	}
 	u.refreshEpisodeStatesForSeries(ctx, instName, seriesID)
 }
