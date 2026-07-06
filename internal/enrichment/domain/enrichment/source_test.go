@@ -19,6 +19,11 @@ func TestKind_IsValid(t *testing.T) {
 		{"season_closed", KindSeasonClosed, true},
 		{"person", KindPerson, true},
 		{"omdb", KindOMDb, true},
+		{"omdb in_production", KindOMDbInProduction, true},
+		{"omdb recent", KindOMDbRecent, true},
+		{"omdb mid", KindOMDbMid, true},
+		{"omdb old", KindOMDbOld, true},
+		{"omdb ancient", KindOMDbAncient, true},
 		{"unknown empty", KindUnknown, false},
 		{"unknown garbage", Kind("xyz"), false},
 	}

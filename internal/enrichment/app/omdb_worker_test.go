@@ -458,3 +458,48 @@ func TestOMDbWorker_LoadSeriesErrorOther_Propagates(t *testing.T) {
 	err := w.Handle(context.Background(), 42)
 	require.Error(t, err)
 }
+
+func TestClassifyOMDbKind(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC)
+
+	// helper to build a *time.Time offset from `now`.
+	at := func(d time.Duration) *time.Time { v := now.Add(d); return &v }
+	yearsAgo := func(y int) *time.Time { v := now.AddDate(-y, 0, 0); return &v }
+
+	cases := []struct {
+		name         string
+		inProduction bool
+		status       *string
+		lastAir      *time.Time
+		firstAir     *time.Time
+		want         enrichment.Kind
+	}{
+		{"in_production wins over old dates", true, new("Ended"), yearsAgo(20), yearsAgo(25), enrichment.KindOMDbInProduction},
+		{"continuing status no flag", false, new("Returning Series"), yearsAgo(20), nil, enrichment.KindOMDbInProduction},
+		{"continuing lowercase (sonarr)", false, new("continuing"), yearsAgo(20), nil, enrichment.KindOMDbInProduction},
+		{"both dates nil -> mid", false, new("Ended"), nil, nil, enrichment.KindOMDbMid},
+		{"nil status both dates nil -> mid", false, nil, nil, nil, enrichment.KindOMDbMid},
+		{"recent <1y (6 months)", false, new("Ended"), at(-180 * 24 * time.Hour), nil, enrichment.KindOMDbRecent},
+		{"fallback first_air when last nil", false, new("Ended"), nil, at(-180 * 24 * time.Hour), enrichment.KindOMDbRecent},
+		{"boundary exactly 1y -> mid (older tier)", false, new("Ended"), yearsAgo(1), nil, enrichment.KindOMDbMid},
+		{"mid 2y", false, new("Ended"), yearsAgo(2), nil, enrichment.KindOMDbMid},
+		{"boundary exactly 3y -> old", false, new("Ended"), yearsAgo(3), nil, enrichment.KindOMDbOld},
+		{"old 5y", false, new("Ended"), yearsAgo(5), nil, enrichment.KindOMDbOld},
+		{"boundary exactly 8y -> ancient", false, new("Ended"), yearsAgo(8), nil, enrichment.KindOMDbAncient},
+		{"ancient 12y", false, new("Ended"), yearsAgo(12), nil, enrichment.KindOMDbAncient},
+		{"last_air preferred over first_air", false, new("Ended"), yearsAgo(2), yearsAgo(20), enrichment.KindOMDbMid},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := series.Canon{
+				InProduction: tc.inProduction,
+				Status:       tc.status,
+				LastAirDate:  tc.lastAir,
+				FirstAirDate: tc.firstAir,
+			}
+			assert.Equal(t, tc.want, classifyOMDbKind(c, now))
+		})
+	}
+}

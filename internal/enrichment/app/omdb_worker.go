@@ -123,11 +123,18 @@ func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error
 	log = log.With(slog.String("imdb_id", string(imdbID)))
 
 	// 2. Staleness short-circuit — read canon.EnrichmentOMDBSyncedAt
-	//    directly. nil = never enriched (proceed); within TTL = skip.
+	//    directly. nil = never enriched (proceed); within the age-based
+	//    TTL (W18-5 curve B.1) = skip. The Kind is classified from the
+	//    canon's lifecycle + air-date age — mirrors the SQL age-CASE in
+	//    ListLibraryWithIMDBStale so batch selection and in-band guard
+	//    agree on freshness.
 	if canon.EnrichmentOMDBSyncedAt != nil {
-		ttl := enrichment.TTL(enrichment.SourceOMDb, enrichment.KindOMDb)
+		kind := classifyOMDbKind(canon, w.deps.Clock())
+		ttl := enrichment.TTL(enrichment.SourceOMDb, kind)
 		if ttl > 0 && w.deps.Clock().Sub(*canon.EnrichmentOMDBSyncedAt) < ttl {
 			log.DebugContext(ctx, "enrichment.omdb.handle.fresh_skip",
+				slog.String("ttl_kind", string(kind)),
+				slog.Duration("ttl", ttl),
 				slog.Time("synced_at", *canon.EnrichmentOMDBSyncedAt))
 			return nil
 		}
@@ -196,6 +203,51 @@ func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error
 		slog.Int("quota_remaining", w.deps.Budget.Remaining()),
 	)
 	return nil
+}
+
+// classifyOMDbKind picks the progressive OMDb TTL bucket (W18-5
+// curve B.1) from the canon's lifecycle + air-date age. It MUST
+// stay byte-for-byte equivalent to the SQL age-CASE in
+// SeriesRepository.ListLibraryWithIMDBStale so the daily batch's
+// set-selection and this in-band guard never disagree:
+//
+//	in_production OR continuing status → InProduction (2d)
+//	both dates NULL                    → Mid (30d, unknown-age)
+//	last_air (fallback first_air) < 1y → Recent (7d)
+//	1y–3y                              → Mid (30d)
+//	3y–8y                              → Old (90d)
+//	> 8y                               → Ancient (180d)
+//
+// Boundaries are strict (`After`): a series exactly 1y old is NOT
+// "< 1y" and falls into the older tier — same as SQL `>`.
+// continuing status-list mirrors classifyKind (series_worker.go).
+func classifyOMDbKind(c series.Canon, now time.Time) enrichment.Kind {
+	if c.InProduction {
+		return enrichment.KindOMDbInProduction
+	}
+	if c.Status != nil {
+		switch *c.Status {
+		case "Returning Series", "In Production", "Pilot", "Planned", "continuing":
+			return enrichment.KindOMDbInProduction
+		}
+	}
+	metric := c.LastAirDate
+	if metric == nil {
+		metric = c.FirstAirDate
+	}
+	if metric == nil {
+		return enrichment.KindOMDbMid // unknown age → conservative 30d
+	}
+	switch {
+	case metric.After(now.AddDate(-1, 0, 0)):
+		return enrichment.KindOMDbRecent
+	case metric.After(now.AddDate(-3, 0, 0)):
+		return enrichment.KindOMDbMid
+	case metric.After(now.AddDate(-8, 0, 0)):
+		return enrichment.KindOMDbOld
+	default:
+		return enrichment.KindOMDbAncient
+	}
 }
 
 // applyOMDbToCanon patches ONLY the four OMDb-owned columns onto the

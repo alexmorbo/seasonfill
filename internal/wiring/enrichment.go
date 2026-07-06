@@ -557,8 +557,7 @@ func BuildEnrichment(
 			return
 		}
 		const batchLimit = 900
-		ttl := enrichment.TTL(enrichment.SourceOMDb, enrichment.KindOMDb)
-		ids, err := repos.LibraryWithIMDB.ListLibraryWithIMDBStale(ctx, ttl, batchLimit)
+		ids, err := repos.LibraryWithIMDB.ListLibraryWithIMDBStale(ctx, batchLimit)
 		if err != nil {
 			omdbLog.WarnContext(ctx, "enrichment.omdb.daily_batch.scan_failed",
 				slog.String("error", err.Error()))
@@ -1004,9 +1003,10 @@ type PeopleStaleScanner interface {
 
 // OMDbBatchScanner is the application-layer surface for the
 // "library series with imdb_id whose OMDb sync is stale" query.
-// Production impl wraps *SeriesRepository.
+// Production impl wraps *SeriesRepository. Staleness is age-based
+// (W18-5) and computed inside the query — no ttl param.
 type OMDbBatchScanner interface {
-	ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]int64, error)
+	ListLibraryWithIMDBStale(ctx context.Context, limit int) ([]int64, error)
 }
 
 // omdbBatchScannerAdapter wraps *SeriesRepository to satisfy
@@ -1021,8 +1021,8 @@ func NewOMDbBatchScannerAdapter(s *enrichpersistence.SeriesRepository) OMDbBatch
 	return omdbBatchScannerAdapter{inner: s}
 }
 
-func (a omdbBatchScannerAdapter) ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]int64, error) {
-	ids, err := a.inner.ListLibraryWithIMDBStale(ctx, ttl, limit)
+func (a omdbBatchScannerAdapter) ListLibraryWithIMDBStale(ctx context.Context, limit int) ([]int64, error) {
+	ids, err := a.inner.ListLibraryWithIMDBStale(ctx, limit)
 	if err != nil {
 		return nil, err
 	}

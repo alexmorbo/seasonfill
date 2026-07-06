@@ -402,7 +402,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_HappyPath(t *testing.T) {
 			seedSeriesCacheRow(t, db, idD, "main", 5, false)
 			seedEnrichmentError(t, db, enrichment.EntityTypeSeries, int64(idD), enrichment.SourceOMDb, 6)
 
-			ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+			ids, err := repo.ListLibraryWithIMDBStale(ctx, 100)
 			require.NoError(t, err)
 			got := make(map[domain.SeriesID]bool, len(ids))
 			for _, id := range ids {
@@ -440,22 +440,116 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_FreshSyncFiltered(t *testing.
 			require.NoError(t, err)
 			seedSeriesCacheRow(t, db, id, "main", 10, false)
 
-			ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+			ids, err := repo.ListLibraryWithIMDBStale(ctx, 100)
 			require.NoError(t, err)
 			assert.NotContains(t, ids, id, "fresh sync (within TTL) excluded")
 
-			// Now update enrichment_omdb_synced_at to 25h ago (past TTL).
-			// COALESCE on the new column means a NULL re-upsert would
-			// preserve the stale value, so we use a direct UPDATE here
-			// to confirm the WHERE comparison reads the stored cutoff.
-			stale := now.Add(-25 * time.Hour)
+			// Now update enrichment_omdb_synced_at to 3 days ago. sampleCanon
+			// is in_production=true → the W18-5 age curve puts it in the 2-day
+			// tier, so 3 days is safely past its cutoff. A direct UPDATE (not a
+			// re-upsert) is used because the COALESCE assignment on the synced_at
+			// column would preserve the stale value on a NULL re-upsert.
+			stale := now.Add(-3 * 24 * time.Hour)
 			require.NoError(t, db.Exec(
 				"UPDATE series SET enrichment_omdb_synced_at = ? WHERE id = ?",
 				stale, id).Error)
 
-			ids, err = repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+			ids, err = repo.ListLibraryWithIMDBStale(ctx, 100)
 			require.NoError(t, err)
 			assert.Contains(t, ids, id, "stale sync past TTL returned")
+		})
+	}
+}
+
+// TestSeriesRepository_ListLibraryWithIMDBStale_AgeTiers — W18-5.
+// Verifies the per-row age-CASE picks each row's own cutoff by its
+// air-date tier. For every tier we seed one series with synced_at
+// JUST WITHIN the cutoff (fresh → excluded) and one JUST PAST it
+// (stale → included). Runs on sqlite AND Postgres (dual-dialect gate).
+func TestSeriesRepository_ListLibraryWithIMDBStale_AgeTiers(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Now().UTC()
+			day := 24 * time.Hour
+			timePtr := func(tm time.Time) *time.Time { return &tm }
+
+			// seed builds one library series with explicit lifecycle +
+			// air-date + synced_at and a live series_cache row.
+			var seq int
+			seed := func(inProd bool, status *string, lastAir *time.Time, syncedAt time.Time) domain.SeriesID {
+				seq++
+				c := series.Canon{
+					Hydration:              series.HydrationFull,
+					TMDBID:                 ptrTMDBID(9000 + seq),
+					IMDBID:                 ptrIMDBID(fmt.Sprintf("tt900%04d", seq)),
+					OriginalTitle:          new(fmt.Sprintf("Age %d", seq)),
+					InProduction:           inProd,
+					Status:                 status,
+					LastAirDate:            lastAir,
+					EnrichmentOMDBSyncedAt: timePtr(syncedAt),
+				}
+				id, err := repo.Upsert(ctx, c)
+				require.NoError(t, err)
+				seedSeriesCacheRow(t, db, id, "main", domain.SonarrSeriesID(9000+seq), false)
+				return id
+			}
+
+			ended := new("Ended")
+			// margin keeps "just within/past" clear of test runtime jitter.
+			m := time.Hour
+
+			type tier struct {
+				name    string
+				inProd  bool
+				status  *string
+				lastAir *time.Time
+				cutoff  time.Duration // the tier's TTL
+			}
+			tiers := []tier{
+				{"in_production 2d", true, ended, timePtr(now.AddDate(-20, 0, 0)), 2 * day},
+				{"recent 7d (6mo)", false, ended, timePtr(now.Add(-180 * day)), 7 * day},
+				{"mid 30d (2y)", false, ended, timePtr(now.AddDate(-2, 0, 0)), 30 * day},
+				{"old 90d (5y)", false, ended, timePtr(now.AddDate(-5, 0, 0)), 90 * day},
+				{"ancient 180d (12y)", false, ended, timePtr(now.AddDate(-12, 0, 0)), 180 * day},
+				{"both-nil mid 30d", false, ended, nil, 30 * day},
+			}
+
+			freshIDs := map[domain.SeriesID]string{}
+			staleIDs := map[domain.SeriesID]string{}
+			for _, tr := range tiers {
+				// fresh: synced just INSIDE cutoff → excluded.
+				fresh := seed(tr.inProd, tr.status, tr.lastAir, now.Add(-tr.cutoff+m))
+				// stale: synced just PAST cutoff → included.
+				stale := seed(tr.inProd, tr.status, tr.lastAir, now.Add(-tr.cutoff-m))
+				freshIDs[fresh] = tr.name
+				staleIDs[stale] = tr.name
+			}
+
+			// boundary: exactly-1y old ended → Mid(30d) tier (older tier).
+			// synced 20 days ago: within 30d → excluded (proves 1y row is
+			// NOT treated as Recent/7d, which would include a 20d-old sync).
+			boundary1y := seed(false, ended, timePtr(now.AddDate(-1, 0, 0)), now.Add(-20*day))
+
+			ids, err := repo.ListLibraryWithIMDBStale(ctx, 900)
+			require.NoError(t, err)
+			got := make(map[domain.SeriesID]bool, len(ids))
+			for _, id := range ids {
+				got[id] = true
+			}
+
+			for id, name := range staleIDs {
+				assert.Truef(t, got[id], "tier %q: stale sync (past cutoff) must be included", name)
+			}
+			for id, name := range freshIDs {
+				assert.Falsef(t, got[id], "tier %q: fresh sync (within cutoff) must be excluded", name)
+			}
+			assert.Falsef(t, got[boundary1y], "exactly-1y ended row is Mid(30d): 20d-old sync stays fresh")
 		})
 	}
 }
@@ -479,7 +573,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_StubExcludedBySeriesCacheJoin
 			_, err := repo.Upsert(ctx, stub)
 			require.NoError(t, err)
 
-			ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+			ids, err := repo.ListLibraryWithIMDBStale(ctx, 100)
 			require.NoError(t, err)
 			assert.Empty(t, ids, "stub series without series_cache row never appears")
 		})
@@ -506,7 +600,7 @@ func TestSeriesRepository_ListLibraryWithIMDBStale_SoftDeletedSeriesCacheExclude
 			require.NoError(t, err)
 			seedSeriesCacheRow(t, db, id, "main", 30, true) // deleted_at set
 
-			ids, err := repo.ListLibraryWithIMDBStale(ctx, 24*time.Hour, 100)
+			ids, err := repo.ListLibraryWithIMDBStale(ctx, 100)
 			require.NoError(t, err)
 			assert.NotContains(t, ids, id)
 		})

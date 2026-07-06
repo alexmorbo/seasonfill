@@ -636,11 +636,58 @@ func (r *SeriesRepository) ListMissingTMDBSync(ctx context.Context, limit int) (
 // instance refs (typical: 1080p + 4K Sonarr). Postgres + sqlite
 // both accept this shape (the SELECT list is a subset of the
 // GROUP BY list — no `ANY_VALUE` needed).
-func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, ttl time.Duration, limit int) ([]domain.SeriesID, error) {
+func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, limit int) ([]domain.SeriesID, error) {
 	if limit <= 0 {
 		limit = 900
 	}
-	cutoff := time.Now().UTC().Add(-ttl)
+
+	// W18-5 progressive age-based OMDb TTL. Instead of one flat cutoff
+	// for every row, each row's freshness cutoff is chosen by its own
+	// age tier via a per-row CASE. Every branch is a boolean
+	// column-vs-bind comparison `enrichment_omdb_synced_at < ?` — the
+	// SAME idiom the repo already uses (ListOrphanCandidates:
+	// `s.created_at < ?`; the original flat cutoff here). No date
+	// functions (NOW()/INTERVAL/datetime()/julianday()) so it is
+	// dialect-agnostic across Postgres and sqlite. NOTE: the comparison
+	// MUST live inside each THEN branch (CASE returns boolean); a CASE
+	// returning the timestamp bind and comparing OUTSIDE fails on
+	// Postgres ("timestamp < text": the all-bind CASE result infers to
+	// text). All thresholds are Go time.Time bind params. Branch order +
+	// values MUST match app.classifyOMDbKind exactly (in-band parity).
+	now := time.Now().UTC()
+	b1y := now.AddDate(-1, 0, 0)
+	b3y := now.AddDate(-3, 0, 0)
+	b8y := now.AddDate(-8, 0, 0)
+	c2d := now.Add(-2 * 24 * time.Hour)
+	c7d := now.Add(-7 * 24 * time.Hour)
+	c30d := now.Add(-30 * 24 * time.Hour)
+	c90d := now.Add(-90 * 24 * time.Hour)
+	c180d := now.Add(-180 * 24 * time.Hour)
+
+	// Continuing status list mirrors classifyKind (series_worker.go) and
+	// classifyOMDbKind. NULL status → `IN (...)` is unknown → falls
+	// through to the date branches (or the both-NULL Mid branch).
+	const ageCaseExpr = `CASE
+		WHEN s.in_production THEN s.enrichment_omdb_synced_at < ?
+		WHEN s.status IN (?, ?, ?, ?, ?) THEN s.enrichment_omdb_synced_at < ?
+		WHEN COALESCE(s.last_air_date, s.first_air_date) IS NULL THEN s.enrichment_omdb_synced_at < ?
+		WHEN COALESCE(s.last_air_date, s.first_air_date) > ? THEN s.enrichment_omdb_synced_at < ?
+		WHEN COALESCE(s.last_air_date, s.first_air_date) > ? THEN s.enrichment_omdb_synced_at < ?
+		WHEN COALESCE(s.last_air_date, s.first_air_date) > ? THEN s.enrichment_omdb_synced_at < ?
+		ELSE s.enrichment_omdb_synced_at < ?
+	END`
+
+	whereSQL := "(s.enrichment_omdb_synced_at IS NULL OR " + ageCaseExpr + ")"
+	whereArgs := []any{
+		c2d,                                                                        // in_production → 2d
+		"Returning Series", "In Production", "Pilot", "Planned", "continuing", c2d, // continuing status → 2d
+		c30d,     // both dates NULL → 30d (unknown age)
+		b1y, c7d, // metric > now-1y → 7d
+		b3y, c30d, // metric > now-3y → 30d
+		b8y, c90d, // metric > now-8y → 90d
+		c180d, // else (>8y) → 180d
+	}
+
 	var ids []domain.SeriesID
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Table("series AS s").
@@ -650,7 +697,7 @@ func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, ttl tim
 		      AND sc.deleted_at IS NULL`).
 		Where("s.imdb_id IS NOT NULL").
 		Where("s.imdb_id != ''").
-		Where("(s.enrichment_omdb_synced_at IS NULL OR s.enrichment_omdb_synced_at < ?)", cutoff).
+		Where(whereSQL, whereArgs...).
 		Where(`NOT EXISTS (
 		    SELECT 1 FROM enrichment_errors ee
 		     WHERE ee.entity_type = 'series'
