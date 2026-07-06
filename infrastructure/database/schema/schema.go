@@ -391,6 +391,7 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 	enrichmentCastSyncedAt := timestampColumn(d, "enrichment_cast_synced_at", false, false)
 	enrichmentRecsSyncedAt := timestampColumn(d, "enrichment_recs_synced_at", false, false)
 	enrichmentMediaSyncedAt := timestampColumn(d, "enrichment_media_synced_at", false, false)
+	tmdbRatingSyncedAt := timestampColumn(d, "tmdb_rating_synced_at", false, false)
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
@@ -427,6 +428,7 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			enrichmentCastSyncedAt,
 			enrichmentRecsSyncedAt,
 			enrichmentMediaSyncedAt,
+			tmdbRatingSyncedAt,
 			createdAt,
 			updatedAt,
 		).

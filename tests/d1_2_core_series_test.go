@@ -82,19 +82,20 @@ func TestD12_SchemaHasThreeCoreTables(t *testing.T) {
 	}
 }
 
-// TestD12_SeriesColumnCount asserts the canonical 33-column count. Migration
+// TestD12_SeriesColumnCount asserts the canonical 34-column count. Migration
 // 000031 (story 1039) added omdb_rt_rating / omdb_metacritic (33 -> 35);
 // migration 000032 (W18-0) drops both again (OMDb carries RT/MC only for
-// movies, never TV) bringing it back to 33. Drift indicates a renamed/added
-// column that should require a follow-up story revision.
+// movies, never TV) bringing it back to 33; migration 000033 (W18-11) adds
+// tmdb_rating_synced_at (33 -> 34). Drift indicates a renamed/added column
+// that should require a follow-up story revision.
 func TestD12_SeriesColumnCount(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			tbl := mustTable(t, schema.Schema(d), "series")
-			if len(tbl.Columns) != 33 {
-				t.Errorf("series column count = %d, want 33", len(tbl.Columns))
+			if len(tbl.Columns) != 34 {
+				t.Errorf("series column count = %d, want 34", len(tbl.Columns))
 			}
 		})
 	}

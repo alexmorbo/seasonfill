@@ -93,8 +93,14 @@ type Canon struct {
 	EnrichmentRecsSyncedAt *time.Time
 	// EnrichmentMediaSyncedAt is set by Worker.RefreshMediaAssets (A4).
 	EnrichmentMediaSyncedAt *time.Time
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	// TMDBRatingSyncedAt (W18-11) is set by the on-view /ratings TMDB refresher
+	// (UpdateTMDBRatingColumns / MarkTMDBRatingSynced) — the dedicated rating
+	// freshness clock, split from EnrichmentTMDBSyncedAt (the full-enrichment
+	// TTL gate) so a rating-only view cannot re-time full re-sync (F-01/F-04).
+	// NULL = never rating-refreshed; TMDBRatingStale then reports stale.
+	TMDBRatingSyncedAt *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // CanonSeason is one row of `seasons`. SeriesID is a foreign reference

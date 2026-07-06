@@ -109,6 +109,7 @@ func TestGetRatings_Fresh_NoFetch(t *testing.T) {
 	port := &fakeSeriesPort{canon: series.Canon{
 		ID: 1, TMDBID: tmdbID(100), IMDBID: imdbID("tt1"),
 		TMDBRating: new(8.4), TMDBVotes: new(1200), IMDBRating: new(8.7),
+		TMDBRatingSyncedAt:     &synced,
 		EnrichmentTMDBSyncedAt: &synced, EnrichmentOMDBSyncedAt: &synced,
 	}}
 	tmdb, omdb := &fakeRefresher{}, &fakeRefresher{}

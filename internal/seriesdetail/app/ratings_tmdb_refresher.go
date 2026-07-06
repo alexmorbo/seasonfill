@@ -39,7 +39,7 @@ type RatingsTMDBClient interface {
 type RatingsTMDBWriter interface {
 	Get(ctx context.Context, id domain.SeriesID) (series.Canon, error)
 	UpdateTMDBRatingColumns(ctx context.Context, id domain.SeriesID, rating *float64, votes *int, syncedAt time.Time) error
-	MarkTMDBSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
+	MarkTMDBRatingSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
 }
 
 // RatingsErrorLedger is the narrow enrichment_errors seam (terminal-respect +
@@ -144,9 +144,9 @@ func (r *RatingsTMDBRefresher) Refresh(ctx context.Context, seriesID domain.Seri
 			return werr
 		}
 	} else {
-		// Genuine no-rating from TMDB — stamp synced_at only (do NOT null an existing
-		// value). MarkTMDBSynced is the shipped stamp writer.
-		if werr := r.writer.MarkTMDBSynced(ctx, seriesID, now); werr != nil {
+		// Genuine no-rating from TMDB — stamp the rating clock only (do NOT null an
+		// existing value, do NOT re-time the shared full-enrichment clock — F-01/F-04).
+		if werr := r.writer.MarkTMDBRatingSynced(ctx, seriesID, now); werr != nil {
 			return werr
 		}
 	}

@@ -506,9 +506,16 @@ func (r *SeriesRepository) UpdateOMDbColumns(
 
 // UpdateTMDBRatingColumns writes the two TMDB-owned rating columns (tmdb_rating,
 // tmdb_votes) as PLAIN values onto the existing series row, keyed by id, and stamps
-// enrichment_tmdb_synced_at in the SAME atomic Updates. It is the narrow owner-write
+// tmdb_rating_synced_at in the SAME atomic Updates. It is the narrow owner-write
 // for the on-view /ratings TMDB branch (W18-7a) — analogous to UpdateOMDbColumns
 // (W18-6) but for TMDB.
+//
+// W18-11 (F-01): it stamps tmdb_rating_synced_at, NOT the shared
+// enrichment_tmdb_synced_at. The shared column is the full-enrichment TTL gate
+// (series worker fresh-skip, tier-refresh selector, skeleton probe, cold-start
+// backfill IS NULL); re-timing it from a rating-only view would suppress full
+// re-sync (missed status flips / new seasons / cast) — see F-04. Only the full
+// series worker (journalOK → MarkTMDBSynced) writes enrichment_tmdb_synced_at.
 //
 // TMDB is the sole owner of tmdb_rating/tmdb_votes: the Sonarr-sync Upsert path
 // COALESCE-guards them (seriesUpsertAssignments) so no other writer can clobber.
@@ -517,7 +524,7 @@ func (r *SeriesRepository) UpdateOMDbColumns(
 // CONTRACT: the caller (RatingsTMDBRefresher) MUST only invoke this with a non-nil
 // rating — it is NOT a clobber-with-NULL path (unlike UpdateOMDbColumns, whose whole
 // point is clearing an OMDb "N/A"). When TMDB returns no rating the refresher stamps
-// via MarkTMDBSynced instead, so an existing value is never nulled by a transient
+// via MarkTMDBRatingSynced instead, so an existing value is never nulled by a transient
 // empty fetch. votes may be nil (rating present, vote_count 0) — that column follows
 // the rating.
 //
@@ -537,13 +544,41 @@ func (r *SeriesRepository) UpdateTMDBRatingColumns(
 		Table("series").
 		Where("id = ?", id).
 		Updates(map[string]any{
-			"tmdb_rating":               rating,
-			"tmdb_votes":                votes,
-			"enrichment_tmdb_synced_at": syncedAt.UTC(),
-			"updated_at":                now,
+			"tmdb_rating":           rating,
+			"tmdb_votes":            votes,
+			"tmdb_rating_synced_at": syncedAt.UTC(),
+			"updated_at":            now,
 		}).Error
 	if err != nil {
 		return fmt.Errorf("update tmdb rating columns: %w", err)
+	}
+	return nil
+}
+
+// MarkTMDBRatingSynced stamps series.tmdb_rating_synced_at = now for one row —
+// the no-rating branch of the on-view /ratings TMDB refresher (W18-11 / F-01).
+// When TMDB returns a genuine no-rating (vote_average 0 / vote_count 0) we still
+// mark the rating clock as freshly checked so the SWR gate does not re-hammer the
+// same empty fetch on every open — WITHOUT touching tmdb_rating (an existing value
+// is preserved) and WITHOUT touching the shared enrichment_tmdb_synced_at (the
+// full-enrichment TTL gate — see UpdateTMDBRatingColumns / F-04).
+//
+// Distinct from MarkTMDBSynced (which stamps enrichment_tmdb_synced_at and remains
+// the full series worker's post-hydration stamp). Single-column UPDATE + updated_at;
+// participates in the caller's tx via dbFromContext.
+func (r *SeriesRepository) MarkTMDBRatingSynced(ctx context.Context, seriesID domain.SeriesID, now time.Time) error {
+	if seriesID == 0 {
+		return fmt.Errorf("mark series tmdb rating synced: series_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", seriesID).
+		Updates(map[string]any{
+			"tmdb_rating_synced_at": now.UTC(),
+			"updated_at":            now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark series tmdb rating synced: %w", err)
 	}
 	return nil
 }
@@ -1004,6 +1039,7 @@ func toCanon(m database.SeriesModel) series.Canon {
 		EnrichmentCastSyncedAt:  m.EnrichmentCastSyncedAt,
 		EnrichmentRecsSyncedAt:  m.EnrichmentRecsSyncedAt,
 		EnrichmentMediaSyncedAt: m.EnrichmentMediaSyncedAt,
+		TMDBRatingSyncedAt:      m.TMDBRatingSyncedAt,
 		CreatedAt:               m.CreatedAt,
 		UpdatedAt:               m.UpdatedAt,
 	}
@@ -1044,6 +1080,7 @@ func fromCanon(c series.Canon) database.SeriesModel {
 		EnrichmentCastSyncedAt:  c.EnrichmentCastSyncedAt,
 		EnrichmentRecsSyncedAt:  c.EnrichmentRecsSyncedAt,
 		EnrichmentMediaSyncedAt: c.EnrichmentMediaSyncedAt,
+		TMDBRatingSyncedAt:      c.TMDBRatingSyncedAt,
 		CreatedAt:               c.CreatedAt,
 		UpdatedAt:               c.UpdatedAt,
 	}

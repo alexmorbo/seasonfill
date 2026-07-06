@@ -68,7 +68,7 @@ func TMDBRatingTTL(now time.Time, inProduction bool, status *string, lastAir, fi
 
 // TMDBRatingStale reports whether a series' tmdb_rating has aged past its
 // TTL and should be re-pulled from TMDB. ratingUpdatedAt is the series'
-// enrichment_tmdb_synced_at (Canon.EnrichmentTMDBSyncedAt): a nil pointer
+// tmdb_rating_synced_at (Canon.TMDBRatingSyncedAt): a nil pointer
 // means the rating was never TMDB-enriched and is treated as stale.
 //
 // Staleness mirrors the W18-5 worker guard: a row is fresh while

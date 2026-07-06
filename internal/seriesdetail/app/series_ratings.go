@@ -141,7 +141,7 @@ func (u *SeriesRatingsUseCase) GetRatings(ctx context.Context, seriesID domain.S
 func (u *SeriesRatingsUseCase) resolveTMDB(reqCtx, fetchCtx context.Context, seriesID domain.SeriesID, canon series.Canon, now time.Time) (string, series.Canon) {
 	hasID := canon.TMDBID != nil && int64(*canon.TMDBID) != 0
 	hasValue := canon.TMDBRating != nil
-	stale := TMDBRatingStale(now, canon.EnrichmentTMDBSyncedAt, canon.InProduction, canon.Status, canon.LastAirDate, canon.FirstAirDate)
+	stale := TMDBRatingStale(now, canon.TMDBRatingSyncedAt, canon.InProduction, canon.Status, canon.LastAirDate, canon.FirstAirDate)
 
 	if u.d.TMDB == nil {
 		hasID = false // no refresher ⇒ read-only: fresh (if value) or unavailable

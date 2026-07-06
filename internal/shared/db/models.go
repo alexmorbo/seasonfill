@@ -550,8 +550,14 @@ type SeriesModel struct {
 	EnrichmentCastSyncedAt  *time.Time `gorm:"column:enrichment_cast_synced_at"`
 	EnrichmentRecsSyncedAt  *time.Time `gorm:"column:enrichment_recs_synced_at"`
 	EnrichmentMediaSyncedAt *time.Time `gorm:"column:enrichment_media_synced_at"`
-	CreatedAt               time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt               time.Time  `gorm:"column:updated_at;not null"`
+	// TMDBRatingSyncedAt (W18-11) — dedicated on-view TMDB rating freshness
+	// clock, written ONLY by the /ratings TMDB refresher path
+	// (UpdateTMDBRatingColumns / MarkTMDBRatingSynced). Split from the shared
+	// enrichment_tmdb_synced_at (the full-enrichment TTL gate) so a rating-only
+	// view cannot re-time full re-sync. NULL = never rating-refreshed.
+	TMDBRatingSyncedAt *time.Time `gorm:"column:tmdb_rating_synced_at"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesModel) TableName() string { return "series" }

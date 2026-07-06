@@ -167,7 +167,7 @@ func (b *SeriesDetailBundle) WireGlobalRatings(
 			}
 			return nil
 		},
-		seriesRepo, // *persistence.SeriesRepository — Get + UpdateTMDBRatingColumns + MarkTMDBSynced
+		seriesRepo, // *persistence.SeriesRepository — Get + UpdateTMDBRatingColumns + MarkTMDBRatingSynced
 		errorsRepo,
 		ratingsLog,
 		nil,
