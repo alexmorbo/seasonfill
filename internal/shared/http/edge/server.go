@@ -82,6 +82,7 @@ func NewServer(
 	globalSeasonHandler *seriesdetailrest.GlobalSeriesSeasonHandler, // TMDB-only season fallback
 	globalOverviewHandler *seriesdetailrest.GlobalSeriesOverviewHandler, // story 529
 	globalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler, // story 530
+	globalRatingsHandler *seriesdetailrest.GlobalSeriesRatingsHandler, // W18-7a /ratings SWR
 	globalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler, // story 577 E-1-B2
 	seasonsHandler *seriesdetailrest.SeasonsHandler, // story 582 E-1 B3c
 	resolveHandler *seriesdetailrest.ResolveHandler, // BE-3 card-unification
@@ -290,6 +291,12 @@ func NewServer(
 		// Story 582 / E-1 B3c — canon list-of-seasons (posters + counts).
 		if seasonsHandler != nil {
 			guarded.GET("/series/:id/seasons", seasonsHandler.Get)
+		}
+		// W18-7a — unified lazy ratings (SWR): TMDB ★ + OMDb/IMDb, per-source
+		// freshness. Canon-keyed (series.id); no instance splice; no ETag
+		// (poll-driven + write-triggering, mirrors /torrents + /library exclusion).
+		if globalRatingsHandler != nil {
+			guarded.GET("/series/:id/ratings", globalRatingsHandler.Get)
 		}
 		guarded.GET("/grabs/:id/episode-files", globalGrabEpisodeFilesHandler.List)
 		// F-1 (Story 214): content-addressed media proxy. Serves the

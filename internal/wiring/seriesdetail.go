@@ -7,6 +7,7 @@ import (
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
+	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	apppeople "github.com/alexmorbo/seasonfill/internal/enrichment/app/people"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
@@ -125,6 +126,73 @@ type SeriesDetailBundle struct {
 	// middleware. Reuses sdSeriesRepo + sdSeasonsRepo (stateless GORM
 	// wrappers already in scope).
 	ETagFreshness *seriesdetail.ETagFreshnessAdapter
+	// W18-7a — unified lazy /ratings SWR handler. nil until server.go's
+	// LATE BIND ZONE calls WireGlobalRatings (the TMDB holder + OMDb worker
+	// only exist after BuildEnrichment). BuildHTTPServer threads it into the
+	// edge router; a nil handler omits the route (nil-OK, like the siblings).
+	GlobalRatingsHandler *seriesdetailrest.GlobalSeriesRatingsHandler
+}
+
+// WireGlobalRatings builds the W18-7a stale-while-revalidate ratings stack
+// (TMDB refresher + usecase + handler) and attaches the handler to the bundle.
+//
+// It is invoked from cmd/server/server.go's LATE BIND ZONE — NOT from
+// BuildSeriesDetail — because both refreshers only exist after BuildEnrichment:
+// the TMDB client lives behind enrichBundle.TMDBHolder (late-bound, atomic
+// swap on runtime key change) and the OMDb refresher is enrichBundle.OMDbWorker.
+// The two repos here are stateless GORM wrappers, so re-constructing them off
+// persistence.DB is free (same pattern BuildSeriesDetail documents).
+//
+// Both refreshers are nil-OK: a nil TMDB client getter (holder empty at boot)
+// degrades TMDB to read-only until a key is saved; a nil OMDb worker degrades
+// OMDb to read-only. tmdbHolder itself may be nil in minimal/test wirings.
+func (b *SeriesDetailBundle) WireGlobalRatings(
+	persistence *PersistenceBundle,
+	tmdbHolder *adapters.TMDBClientHolder,
+	omdbWorker *appenrich.OMDbWorker,
+	log *slog.Logger,
+) error {
+	db := persistence.DB
+	seriesRepo := enrichpersistence.NewSeriesRepository(db)
+	errorsRepo := enrichpersistence.NewEnrichmentErrorsRepository(db)
+	ratingsLog := sharedports.DomainLogger(log, "composer")
+
+	refresher, err := seriesdetail.NewRatingsTMDBRefresher(
+		func() seriesdetail.RatingsTMDBClient {
+			if tmdbHolder == nil {
+				return nil
+			}
+			if c := tmdbHolder.Load(); c != nil {
+				return c // *tmdb.Client satisfies RatingsTMDBClient via GetTV
+			}
+			return nil
+		},
+		seriesRepo, // *persistence.SeriesRepository — Get + UpdateTMDBRatingColumns + MarkTMDBSynced
+		errorsRepo,
+		ratingsLog,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("ratings tmdb refresher: %w", err)
+	}
+
+	deps := seriesdetail.SeriesRatingsDeps{
+		Series: seriesRepo, // SeriesPort (Get)
+		TMDB:   refresher,
+		Logger: ratingsLog,
+	}
+	// Guard the typed-nil trap: assigning a nil *OMDbWorker to the interface
+	// field would make it non-nil (typed nil) and defeat the usecase's
+	// read-only degradation. Only set when the worker actually exists.
+	if omdbWorker != nil {
+		deps.OMDb = omdbWorker // satisfies OMDbRatingRefresher (Handle)
+	}
+	uc, err := seriesdetail.NewSeriesRatingsUseCase(deps)
+	if err != nil {
+		return fmt.Errorf("series ratings use case: %w", err)
+	}
+	b.GlobalRatingsHandler = seriesdetailrest.NewGlobalSeriesRatingsHandler(uc, ratingsLog)
+	return nil
 }
 
 // BuildSeriesDetail wires the Story 215 / 216 / 217 / 218 series-detail

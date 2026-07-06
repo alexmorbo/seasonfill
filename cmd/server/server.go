@@ -509,6 +509,16 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && mediaHandler != nil && enrichBundle.MediaOnDemand != nil {
 		mediaHandler.SetOnDemandFetcher(enrichBundle.MediaOnDemand)
 	}
+	// W18-7a — unified /ratings SWR stack. Built here (not in
+	// BuildSeriesDetail) because the TMDB holder + OMDb worker only exist
+	// after BuildEnrichment. Attaches the handler onto the bundle so
+	// BuildHTTPServer threads it into the edge router. nil-OK refreshers
+	// keep the route working (read-only) if a subsystem is disabled.
+	if enrichBundle != nil {
+		if err := seriesDetailBundle.WireGlobalRatings(persistence, enrichBundle.TMDBHolder, enrichBundle.OMDbWorker, log); err != nil {
+			return nil, fmt.Errorf("wire global ratings: %w", err)
+		}
+	}
 	// ───────── END LATE BIND ZONE ─────────
 
 	// Story 506 (N-2e) — DiscoveryWorker. BuildDiscoveryPersistence

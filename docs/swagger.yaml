@@ -2306,6 +2306,30 @@ components:
         sonarr_series_id:
           type: integer
       type: object
+    dto.SeriesRatingsResponse:
+      properties:
+        awards:
+          type: string
+        imdb_rating:
+          type: number
+        imdb_votes:
+          type: integer
+        rated:
+          type: string
+        sources:
+          $ref: '#/components/schemas/dto.SeriesRatingsSources'
+        tmdb_rating:
+          type: number
+        tmdb_votes:
+          type: integer
+      type: object
+    dto.SeriesRatingsSources:
+      properties:
+        omdb:
+          type: string
+        tmdb:
+          type: string
+      type: object
     dto.SeriesRecommendationsResponse:
       properties:
         degraded:
@@ -5390,6 +5414,54 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Series overview block (description + keywords + awards)
+      tags:
+      - series
+  /series/{id}/ratings:
+    get:
+      description: |-
+        Returns every rating a series carries — TMDB ★ + votes, IMDb + votes,
+        OMDb content-rating (rated) and awards — each with a per-source
+        freshness status (fresh | revalidating | pending | unavailable).
+        Shows DB values immediately; refreshes stale/empty sources in the
+        background (TTL-driven) and blocks up to 3s only when a source is
+        empty and has an upstream id. Works for non-library series. Always
+        200 for fetch outcomes; 404 only when the canonical id is unknown.
+      parameters:
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SeriesRatingsResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Unified series ratings (stale-while-revalidate)
       tags:
       - series
   /series/{id}/recommendations:

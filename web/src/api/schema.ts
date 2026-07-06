@@ -3217,6 +3217,81 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/series/{id}/ratings": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Unified series ratings (stale-while-revalidate)
+         * @description Returns every rating a series carries — TMDB ★ + votes, IMDb + votes,
+         *     OMDb content-rating (rated) and awards — each with a per-source
+         *     freshness status (fresh | revalidating | pending | unavailable).
+         *     Shows DB values immediately; refreshes stale/empty sources in the
+         *     background (TTL-driven) and blocks up to 3s only when a source is
+         *     empty and has an upstream id. Works for non-library series. Always
+         *     200 for fetch outcomes; 404 only when the canonical id is unknown.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Canonical series.id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SeriesRatingsResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/series/{id}/recommendations": {
         readonly parameters: {
             readonly query?: never;
@@ -5772,6 +5847,19 @@ export type components = {
             readonly overview?: components["schemas"]["dto.OverviewAside"];
             readonly series_id?: number;
             readonly sonarr_series_id?: number;
+        };
+        readonly "dto.SeriesRatingsResponse": {
+            readonly awards?: string;
+            readonly imdb_rating?: number;
+            readonly imdb_votes?: number;
+            readonly rated?: string;
+            readonly sources?: components["schemas"]["dto.SeriesRatingsSources"];
+            readonly tmdb_rating?: number;
+            readonly tmdb_votes?: number;
+        };
+        readonly "dto.SeriesRatingsSources": {
+            readonly omdb?: string;
+            readonly tmdb?: string;
         };
         readonly "dto.SeriesRecommendationsResponse": {
             readonly degraded?: readonly string[];

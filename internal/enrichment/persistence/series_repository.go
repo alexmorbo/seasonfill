@@ -504,6 +504,50 @@ func (r *SeriesRepository) UpdateOMDbColumns(
 	return nil
 }
 
+// UpdateTMDBRatingColumns writes the two TMDB-owned rating columns (tmdb_rating,
+// tmdb_votes) as PLAIN values onto the existing series row, keyed by id, and stamps
+// enrichment_tmdb_synced_at in the SAME atomic Updates. It is the narrow owner-write
+// for the on-view /ratings TMDB branch (W18-7a) — analogous to UpdateOMDbColumns
+// (W18-6) but for TMDB.
+//
+// TMDB is the sole owner of tmdb_rating/tmdb_votes: the Sonarr-sync Upsert path
+// COALESCE-guards them (seriesUpsertAssignments) so no other writer can clobber.
+// Plain assignment from this owner is therefore safe.
+//
+// CONTRACT: the caller (RatingsTMDBRefresher) MUST only invoke this with a non-nil
+// rating — it is NOT a clobber-with-NULL path (unlike UpdateOMDbColumns, whose whole
+// point is clearing an OMDb "N/A"). When TMDB returns no rating the refresher stamps
+// via MarkTMDBSynced instead, so an existing value is never nulled by a transient
+// empty fetch. votes may be nil (rating present, vote_count 0) — that column follows
+// the rating.
+//
+// Participates in the caller's tx via dbFromContext when present. Bumps updated_at.
+func (r *SeriesRepository) UpdateTMDBRatingColumns(
+	ctx context.Context,
+	id domain.SeriesID,
+	rating *float64,
+	votes *int,
+	syncedAt time.Time,
+) error {
+	if id == 0 {
+		return fmt.Errorf("update tmdb rating columns: series_id must be non-zero")
+	}
+	now := time.Now().UTC()
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"tmdb_rating":               rating,
+			"tmdb_votes":                votes,
+			"enrichment_tmdb_synced_at": syncedAt.UTC(),
+			"updated_at":                now,
+		}).Error
+	if err != nil {
+		return fmt.Errorf("update tmdb rating columns: %w", err)
+	}
+	return nil
+}
+
 // MarkTextSynced stamps series.enrichment_text_synced_at = now. Same
 // shape as MarkTMDBSynced — A2 narrow refresh writer. The COALESCE on
 // the Upsert path (seriesUpsertAssignments) ensures a concurrent

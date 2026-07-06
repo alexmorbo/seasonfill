@@ -86,3 +86,19 @@ func TMDBRatingStale(now time.Time, ratingUpdatedAt *time.Time, inProduction boo
 	}
 	return now.Sub(*ratingUpdatedAt) >= ttl
 }
+
+// OMDbRatingStale reports whether a series' OMDb-owned ratings (imdb_rating /
+// imdb_votes / omdb_rated / omdb_awards) have aged past their progressive TTL and
+// should be re-pulled from OMDb. syncedAt is series.enrichment_omdb_synced_at
+// (Canon.EnrichmentOMDBSyncedAt); nil ⇒ never OMDb-enriched ⇒ stale.
+//
+// The W18-5 OMDb curve (enrichment.classifyOMDbKind + TTL(SourceOMDb,kind)) and the
+// W18-10 TMDB rating curve (TMDBRatingTTL above) are byte-identical by design —
+// same continuing status-list, same 2d/7d/30d/90d/180d age tiers, same strict
+// `After` boundaries. So OMDb staleness is exactly TMDB staleness; aliasing here
+// REUSES the shipped curve and avoids duplicating the (unexported) classifyOMDbKind
+// from internal/enrichment/app. If the two curves ever diverge, split this into a
+// dedicated function — but W18-5/W18-10 pin them equal on purpose.
+func OMDbRatingStale(now time.Time, syncedAt *time.Time, inProduction bool, status *string, lastAir, firstAir *time.Time) bool {
+	return TMDBRatingStale(now, syncedAt, inProduction, status, lastAir, firstAir)
+}

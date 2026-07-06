@@ -858,6 +858,7 @@ func BuildHTTPServer(
 		seriesDetailBundle.GlobalSeasonHandler,
 		seriesDetailBundle.GlobalOverviewHandler,
 		seriesDetailBundle.GlobalRecommendationsHandler,
+		seriesDetailBundle.GlobalRatingsHandler,
 		seriesDetailBundle.GlobalLibraryHandler,
 		seriesDetailBundle.SeasonsHandler,
 		seriesDetailBundle.ResolveHandler,

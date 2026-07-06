@@ -195,6 +195,11 @@ type EnrichmentBundle struct {
 	// ZONE wires it into scan.UseCase via WithTMDBResolver. nil when any
 	// dependency is unavailable (resolver skips the piggyback).
 	TVDBResolver *appenrich.TVDBResolver
+	// OMDbWorker (W18-7a) — exposed so cmd/server/server.go's LATE BIND
+	// ZONE can wire it as the on-view /ratings OMDb refresher. Same
+	// budget/terminal/TTL/owner-write/journal instance the dispatcher's
+	// OMDb handler consumes — reused wholesale (no duplication).
+	OMDbWorker *appenrich.OMDbWorker
 }
 
 // BuildEnrichment builds the dispatcher + nightly stale scan closure.
@@ -787,6 +792,8 @@ func BuildEnrichment(
 		RefreshScheduler: refreshScheduler,
 		// W15-13: scan-piggyback tvdb→tmdb resolver (nil-OK).
 		TVDBResolver: tvdbResolver,
+		// W18-7a: on-view /ratings OMDb refresher (reused worker).
+		OMDbWorker: omdbWorker,
 	}, nil
 }
 
