@@ -12,7 +12,9 @@ package seriesdetail
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -227,7 +229,23 @@ func (u *SeriesRatingsUseCase) blockingFetch(
 	reload func(context.Context) (series.Canon, bool),
 	valuePresent func(series.Canon) bool,
 ) (string, series.Canon) {
-	ch := u.sf.DoChan(key, func() (any, error) {
+	ch := u.sf.DoChan(key, func() (res any, err error) {
+		// F-03: recover INSIDE the singleflight fn. DoChan re-panics for
+		// channel waiters via `go panic(e)` (unrecoverable, uncovered by the
+		// HTTP recover middleware) — a nil-deref in the refresh func would
+		// otherwise crash the whole process. Converting the panic to an error
+		// here keeps singleflight on its normal-return path; the caller below
+		// degrades to `pending`, and the FE re-polls.
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("ratings: panic in blocking refresh: %v", r)
+				u.d.Logger.ErrorContext(reqCtx, "ratings.refresh_panic",
+					slog.String("key", key),
+					slog.String("phase", "blocking"),
+					slog.Any("panic", r),
+					slog.String("stack", string(debug.Stack())))
+			}
+		}()
 		// Detached context: outlives the request + the deadline so the refresh
 		// completes even after we return pending. Precedent: admin/rest/media_pending.go.
 		bgCtx, bgCancel := context.WithTimeout(context.WithoutCancel(reqCtx), u.d.BackgroundTimeout)
@@ -260,12 +278,26 @@ func (u *SeriesRatingsUseCase) blockingFetch(
 // opens while a refresh is in flight are deduplicated by the group.
 func (u *SeriesRatingsUseCase) kickBackground(reqCtx context.Context, key string, refresh func(context.Context) error) {
 	go func() {
-		_, _, _ = u.sf.Do(key, func() (any, error) {
+		_, _, _ = u.sf.Do(key, func() (res any, err error) {
+			// F-03: recover INSIDE the singleflight fn. `sf.Do` re-panics in
+			// THIS goroutine on a panicking fn; without an in-fn recover the
+			// detached goroutine takes the process down. Degrade to a logged
+			// error instead.
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("ratings: panic in background refresh: %v", r)
+					u.d.Logger.ErrorContext(reqCtx, "ratings.refresh_panic",
+						slog.String("key", key),
+						slog.String("phase", "background"),
+						slog.Any("panic", r),
+						slog.String("stack", string(debug.Stack())))
+				}
+			}()
 			bgCtx, cancel := context.WithTimeout(context.WithoutCancel(reqCtx), u.d.BackgroundTimeout)
 			defer cancel()
-			if err := refresh(bgCtx); err != nil {
+			if rerr := refresh(bgCtx); rerr != nil {
 				u.d.Logger.WarnContext(bgCtx, "ratings.background_refresh_error",
-					slog.String("key", key), slog.String("error", err.Error()))
+					slog.String("key", key), slog.String("error", rerr.Error()))
 			}
 			return nil, nil
 		})

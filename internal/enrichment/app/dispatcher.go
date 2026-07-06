@@ -38,12 +38,34 @@ type Workers struct {
 	// 213 (D-1). OMDb handler; nil-OK — when nil the goroutine
 	// still spawns but every dequeue logs "handler_nil" and
 	// releases the dedup slot (matches the 211 person-nil pattern).
-	OMDbHandler func(ctx context.Context, id int64) error
+	// W18-12 (F-02): priority-aware. The dispatcher threads the Job's
+	// Priority so the handler can select the OMDb budget lane —
+	// PriorityHot → HandleHot (spends into the Hot floor), else
+	// HandleCold (backs off at the floor). Series/person handlers stay
+	// id-only (they have no lane).
+	OMDbHandler func(ctx context.Context, id int64, p Priority) error
 	// 306. Optional per-series completion hook. Fired AFTER the
 	// queue release for EntitySeries jobs only — success OR error.
 	// Nil-OK (production-only feature for the cold-start gauge;
 	// tests that don't care leave it nil).
 	OnSeriesComplete func(id int64)
+}
+
+// jobHandler is the internal, priority-aware handler shape the worker loop
+// invokes. The public Workers fields for series/person expose the id-only
+// shape (they do not select a lane); Start lifts them via liftIDHandler. The
+// OMDb field is priority-aware (F-02) so queue priority can pick the OMDb
+// budget lane (Hot vs Cold), not just dequeue ordering.
+type jobHandler func(ctx context.Context, id int64, p Priority) error
+
+// liftIDHandler adapts an id-only worker handler to the jobHandler shape,
+// discarding the priority. Returns nil when h is nil so the loop's
+// handler_nil path is preserved for an unset optional handler.
+func liftIDHandler(h func(context.Context, int64) error) jobHandler {
+	if h == nil {
+		return nil
+	}
+	return func(ctx context.Context, id int64, _ Priority) error { return h(ctx, id) }
 }
 
 // NewDispatcher constructs a not-yet-running dispatcher. Start binds
@@ -73,24 +95,29 @@ func (d *DispatcherImpl) Start(parent context.Context) {
 	d.cancel = cancel
 	d.mu.Unlock()
 
-	// Two series goroutines.
+	// Two series goroutines. Series/person handlers are lifted to the
+	// priority-aware jobHandler shape (priority discarded — no lane).
+	seriesH := liftIDHandler(d.workers.SeriesHandler)
 	for i := range 2 {
 		idx := i
 		d.wg.Go(func() {
-			d.loop(ctx, EntitySeries, idx, d.workers.SeriesHandler)
+			d.loop(ctx, EntitySeries, idx, seriesH)
 		})
 	}
 	// One person goroutine — placeholder until 212 lands the real
 	// handler. PersonHandler nil → loop logs "not implemented"
 	// per-dequeue.
+	personH := liftIDHandler(d.workers.PersonHandler)
 	d.wg.Go(func() {
-		d.loop(ctx, EntityPerson, 0, d.workers.PersonHandler)
+		d.loop(ctx, EntityPerson, 0, personH)
 	})
 	// 213 (D-1): one OMDb goroutine. The shared queue's cross-kind
 	// drain in loop() guarantees an OMDb goroutine waking on a
 	// series job re-enqueues it. With 2× series + 1× person + 1×
 	// OMDb goroutines and 3 EntityKinds the cross-kind spin remains
 	// the known caveat documented in 211 §10.
+	// W18-12 (F-02): OMDbHandler is already the priority-aware shape;
+	// pass it straight through so Job.Priority reaches the closure.
 	d.wg.Go(func() {
 		d.loop(ctx, EntityOMDb, 0, d.workers.OMDbHandler)
 	})
@@ -146,7 +173,7 @@ func (d *DispatcherImpl) Close() {
 // loop is one worker's main pump. handler nil → log + release (the
 // person placeholder case). Errors bubble up as slog WARN; the
 // worker NEVER takes the dispatcher down on a handler error.
-func (d *DispatcherImpl) loop(ctx context.Context, kind EntityKind, idx int, handler func(context.Context, int64) error) {
+func (d *DispatcherImpl) loop(ctx context.Context, kind EntityKind, idx int, handler jobHandler) {
 	log := d.logger.With(
 		slog.String("entity_type", string(kind)),
 		slog.Int("worker_idx", idx),
@@ -176,7 +203,7 @@ func (d *DispatcherImpl) loop(ctx context.Context, kind EntityKind, idx int, han
 // runHandler invokes handler with a deferred dedup release so a
 // panic surfaces (we re-panic after release) without trapping the
 // (kind, id) slot in the in-flight map.
-func (d *DispatcherImpl) runHandler(ctx context.Context, log *slog.Logger, j Job, handler func(context.Context, int64) error) {
+func (d *DispatcherImpl) runHandler(ctx context.Context, log *slog.Logger, j Job, handler jobHandler) {
 	defer func() {
 		d.queue.release(j.Kind, j.EntityID)
 		// 306 — cold-start gauge tick. Fires AFTER release so the
@@ -203,7 +230,7 @@ func (d *DispatcherImpl) runHandler(ctx context.Context, log *slog.Logger, j Job
 		)
 		return
 	}
-	err := handler(ctx, j.EntityID)
+	err := handler(ctx, j.EntityID, j.Priority)
 	dur := time.Since(start)
 	if err != nil {
 		log.WarnContext(ctx, "enrichment.dispatcher.handler_failed",

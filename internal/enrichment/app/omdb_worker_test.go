@@ -493,3 +493,83 @@ func TestClassifyOMDbKind(t *testing.T) {
 		})
 	}
 }
+
+func TestOMDbWorker_HandleWithPriority_RoutesLane(t *testing.T) {
+	t.Parallel()
+
+	// PriorityHot → Hot lane.
+	wHot, fHot := newOMDbWorkerForTest(t, nil)
+	require.NoError(t, wHot.HandleWithPriority(context.Background(), 42, PriorityHot))
+	assert.Equal(t, 1, fHot.budget.hotCalls, "PriorityHot must draw the Hot lane")
+	assert.Equal(t, 0, fHot.budget.coldCalls)
+
+	// PriorityCold → Cold lane.
+	wCold, fCold := newOMDbWorkerForTest(t, nil)
+	require.NoError(t, wCold.HandleWithPriority(context.Background(), 42, PriorityCold))
+	assert.Equal(t, 1, fCold.budget.coldCalls, "PriorityCold must draw the Cold lane")
+	assert.Equal(t, 0, fCold.budget.hotCalls)
+}
+
+// F-04: on the Hot lane, a series whose enrichment_errors row has a FUTURE
+// NextAttemptAt is in backoff — the worker must return WITHOUT reserving or
+// fetching, so an OMDb outage cannot burn Hot reservations on every re-poll.
+func TestOMDbWorker_HotLane_FutureBackoff_SkipsNoReserveNoFetch(t *testing.T) {
+	t.Parallel()
+	w, f := newOMDbWorkerForTest(t, nil)
+	future := time.Date(2026, 6, 13, 1, 0, 0, 0, time.UTC) // clock + 1h
+	f.enrichmentErrors.preexist = &enrichment.EnrichmentError{
+		EntityType:    enrichment.EntityTypeSeries,
+		EntityID:      42,
+		Source:        enrichment.SourceOMDb,
+		Attempts:      2,
+		NextAttemptAt: &future,
+	}
+
+	require.NoError(t, w.HandleHot(context.Background(), 42))
+	assert.Zero(t, f.budget.reserves, "Hot backoff must not reserve budget")
+	assert.Zero(t, f.budget.hotCalls, "Hot backoff must not touch the Hot lane")
+	assert.Zero(t, f.client.calls, "Hot backoff must not call OMDb")
+	assert.Empty(t, f.enrichmentErrors.failures, "Hot backoff writes no new failure row")
+	assert.Empty(t, f.series.omdbUpdates)
+}
+
+// F-04 healthy path: a PAST NextAttemptAt (backoff elapsed) must still fetch
+// on Hot — the guard must not block a series whose cooldown is over.
+func TestOMDbWorker_HotLane_PastBackoff_StillFetches(t *testing.T) {
+	t.Parallel()
+	w, f := newOMDbWorkerForTest(t, nil)
+	past := time.Date(2026, 6, 12, 23, 0, 0, 0, time.UTC) // clock - 1h
+	f.enrichmentErrors.preexist = &enrichment.EnrichmentError{
+		EntityType:    enrichment.EntityTypeSeries,
+		EntityID:      42,
+		Source:        enrichment.SourceOMDb,
+		Attempts:      2,
+		NextAttemptAt: &past,
+	}
+
+	require.NoError(t, w.HandleHot(context.Background(), 42))
+	assert.Equal(t, 1, f.budget.hotCalls, "elapsed backoff must still reserve Hot")
+	assert.Equal(t, 1, f.client.calls, "elapsed backoff must still fetch")
+	require.Len(t, f.series.omdbUpdates, 1)
+}
+
+// F-04 scope: the backoff guard is Hot-only. A Cold job with a FUTURE
+// NextAttemptAt must be UNAFFECTED (Cold's backoff is enforced at the query
+// layer, not in-band) — so it still reserves + fetches here.
+func TestOMDbWorker_ColdLane_FutureBackoff_Unaffected(t *testing.T) {
+	t.Parallel()
+	w, f := newOMDbWorkerForTest(t, nil)
+	future := time.Date(2026, 6, 13, 1, 0, 0, 0, time.UTC)
+	f.enrichmentErrors.preexist = &enrichment.EnrichmentError{
+		EntityType:    enrichment.EntityTypeSeries,
+		EntityID:      42,
+		Source:        enrichment.SourceOMDb,
+		Attempts:      2,
+		NextAttemptAt: &future,
+	}
+
+	require.NoError(t, w.HandleCold(context.Background(), 42))
+	assert.Equal(t, 1, f.budget.coldCalls, "Cold lane ignores in-band backoff")
+	assert.Equal(t, 1, f.client.calls)
+	require.Len(t, f.series.omdbUpdates, 1)
+}

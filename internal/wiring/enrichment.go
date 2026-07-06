@@ -532,8 +532,12 @@ func BuildEnrichment(
 	if err != nil {
 		return nil, fmt.Errorf("new omdb worker: %w", err)
 	}
-	omdbWorkerHandle := func(ctx context.Context, id int64) error {
-		return omdbWorker.HandleCold(ctx, domain.SeriesID(id))
+	// W18-12 (F-02): thread the job's priority into the lane selection so a
+	// manual /refresh (PriorityHot) actually spends the Hot lane instead of
+	// being denied at the Cold floor. Daily batch + W18-8 enqueue Cold, so
+	// they continue to take HandleCold.
+	omdbWorkerHandle := func(ctx context.Context, id int64, p appenrich.Priority) error {
+		return omdbWorker.HandleWithPriority(ctx, domain.SeriesID(id), p)
 	}
 	// 473 (B-25/B-24): omdbDailyBatch + omdbBudgetReset closures are now
 	// ALWAYS constructed. The closures runtime-gate on holder/budget

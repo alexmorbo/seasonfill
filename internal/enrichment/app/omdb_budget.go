@@ -70,6 +70,29 @@ type OMDbBudgetGuard struct {
 	logger   *slog.Logger
 }
 
+// clampHotFloor bounds the W18-9 Hot floor to a SAFE range: [0, dailyCap-1].
+// A floor of 0 (or negative, normalised to 0) disables the reserve. A floor
+// >= dailyCap would pin Remaining() <= hotFloor forever, so ReserveCold /
+// ColdAvailable would be permanently false — silently killing the daily batch
+// and the W18-8 imdb-gain enqueue (only on-view Hot fetches would run). We
+// clamp to dailyCap-1 (one Cold slot preserved) and log a loud WARN so the
+// misconfiguration is SAFE (Cold still runs) AND VISIBLE at boot. F-06.
+func clampHotFloor(hotFloor, dailyCap int, logger *slog.Logger) int {
+	if hotFloor < 0 {
+		hotFloor = 0
+	}
+	if dailyCap > 0 && hotFloor >= dailyCap {
+		clamped := dailyCap - 1
+		logger.Warn("enrichment.omdb.budget.hot_reserve_clamped",
+			slog.Int("configured_hot_reserve", hotFloor),
+			slog.Int("daily_cap", dailyCap),
+			slog.Int("clamped_to", clamped),
+			slog.String("reason", "hot_reserve >= daily_cap would starve the Cold lane (daily batch + imdb-gain)"))
+		hotFloor = clamped
+	}
+	return hotFloor
+}
+
 // NewOMDbBudgetGuard preserves the legacy in-process constructor.
 // Storage is in-process atomic (NOT DB-backed). hotFloor is the W18-9
 // Cold cutoff (negative → 0 = no floor).
@@ -77,14 +100,15 @@ func NewOMDbBudgetGuard(initial, hotFloor int) *OMDbBudgetGuard {
 	if initial <= 0 {
 		initial = DefaultOMDbBudget
 	}
-	if hotFloor < 0 {
-		hotFloor = 0
-	}
+	logger := sharedports.DomainLogger(slog.Default(), "omdb")
+	// F-06: clamp the Hot floor strictly below the daily cap (with a WARN)
+	// so a floor >= cap can never permanently starve the Cold lane.
+	hotFloor = clampHotFloor(hotFloor, initial, logger)
 	g := &OMDbBudgetGuard{
 		initial:  int64(initial),
 		hotFloor: hotFloor,
 		clock:    func() time.Time { return time.Now().UTC() },
-		logger:   sharedports.DomainLogger(slog.Default(), "omdb"),
+		logger:   logger,
 	}
 	g.fallback.Store(int64(initial))
 	metrics.GetOrCreateGauge("seasonfill_omdb_quota_remaining_guess", func() float64 {
@@ -105,15 +129,15 @@ func NewOMDbBudgetGuardDB(initial, hotFloor int, counter quota.QuotaCounter, log
 	if initial <= 0 {
 		initial = DefaultOMDbBudget
 	}
-	if hotFloor < 0 {
-		hotFloor = 0
-	}
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "omdb")
 	}
+	// F-06: clamp the Hot floor strictly below the daily cap (with a WARN)
+	// so a floor >= cap can never permanently starve the Cold lane.
+	hotFloor = clampHotFloor(hotFloor, initial, logger)
 	g := &OMDbBudgetGuard{
 		initial:  int64(initial),
 		hotFloor: hotFloor,

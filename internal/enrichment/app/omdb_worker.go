@@ -136,6 +136,19 @@ func (w *OMDbWorker) HandleCold(ctx context.Context, seriesID domain.SeriesID) e
 	return w.handle(ctx, seriesID, laneCold)
 }
 
+// HandleWithPriority routes an OMDb job to the correct budget lane from the
+// dispatch priority (W18-12 F-02): PriorityHot (manual /refresh, on-view)
+// spends into the Hot floor via HandleHot; everything else (daily batch,
+// W18-8 imdb-gain, nightly retry) uses the Cold lane via HandleCold. This is
+// the seam the dispatcher's OMDb handler closure calls so queue priority
+// actually selects the lane — not just dequeue ordering.
+func (w *OMDbWorker) HandleWithPriority(ctx context.Context, seriesID domain.SeriesID, p Priority) error {
+	if p == PriorityHot {
+		return w.HandleHot(ctx, seriesID)
+	}
+	return w.HandleCold(ctx, seriesID)
+}
+
 // handle is the shared worker body. seriesID is a CANON series.id. lane
 // selects the budget reservation. Returns nil on every terminal outcome
 // (ok / not_found / auth_failed / retryable journalled / budget skip).
@@ -185,9 +198,11 @@ func (w *OMDbWorker) handle(ctx context.Context, seriesID domain.SeriesID, lane 
 	// Load any current error row (for attempts counter on retry path).
 	prevAttempts := 0
 	terminalRow := false
+	var nextAttemptAt *time.Time
 	if errRow, errErr := w.deps.EnrichmentErrors.GetByEntitySource(ctx,
 		enrichment.EntityTypeSeries, int64(seriesID), enrichment.SourceOMDb); errErr == nil {
 		prevAttempts = errRow.Attempts
+		nextAttemptAt = errRow.NextAttemptAt
 		// not_found terminal — only a manual /refresh requeues (and that
 		// clears the row first). The dispatcher's nightly batch's WHERE
 		// excludes attempts>5 rows; a manual enqueue can still reach us.
@@ -200,6 +215,22 @@ func (w *OMDbWorker) handle(ctx context.Context, seriesID domain.SeriesID, lane 
 	}
 	if terminalRow {
 		log.DebugContext(ctx, "enrichment.omdb.handle.terminal_not_found_skip")
+		return nil
+	}
+
+	// F-04: Hot-lane backoff guard. The on-view (Hot) path has NO query-level
+	// retry filter (unlike the daily batch / nightly sweep, which select only
+	// due rows), so during an OMDb outage or revoked key every page-open would
+	// otherwise burn a fresh Hot reservation — up to 4 per open with the FE's
+	// 3 re-polls — each incrementing the daily counter with zero data landing.
+	// Honor the durable NextAttemptAt backoff BEFORE reserving: a series still
+	// cooling down returns without spending budget or hitting OMDb. Healthy
+	// series (no error row, or NextAttemptAt nil / in the past) still fetch.
+	// Gated to Hot: Cold's backoff is already enforced at the query layer.
+	if lane == laneHot && nextAttemptAt != nil && nextAttemptAt.After(w.deps.Clock()) {
+		log.DebugContext(ctx, "enrichment.omdb.handle.hot_backoff_skip",
+			slog.Time("next_attempt_at", *nextAttemptAt),
+			slog.Int("attempts", prevAttempts))
 		return nil
 	}
 

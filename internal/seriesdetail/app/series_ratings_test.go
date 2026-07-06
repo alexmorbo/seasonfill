@@ -50,16 +50,20 @@ func (f *fakeSeriesPort) ListByTMDBIDs(_ context.Context, _ []domain.TMDBID) ([]
 // fakeRefresher records calls and can mutate the series port on Refresh/Handle
 // (simulating the owner-write) + optionally block until released.
 type fakeRefresher struct {
-	calls  atomic.Int32
-	onCall func() // e.g. port.set(withValue)
-	block  chan struct{}
-	err    error
+	calls    atomic.Int32
+	onCall   func() // e.g. port.set(withValue)
+	block    chan struct{}
+	err      error
+	panicVal any // F-03: when non-nil, run panics with this value (simulates a nil-deref in the worker).
 }
 
 func (f *fakeRefresher) run(_ context.Context) error {
 	f.calls.Add(1)
 	if f.block != nil {
 		<-f.block
+	}
+	if f.panicVal != nil {
+		panic(f.panicVal)
 	}
 	if f.onCall != nil {
 		f.onCall()
@@ -245,3 +249,50 @@ var assertAnErr = &staticErr{"boom"}
 type staticErr struct{ s string }
 
 func (e *staticErr) Error() string { return e.s }
+
+// F-03: a panic in the blocking (empty+id+stale) refresh must be recovered
+// inside the singleflight fn — WITHOUT the recover, DoChan's `go panic(e)`
+// crashes the test binary. WITH it, GetRatings returns pending.
+func TestGetRatings_BlockingRefreshPanic_Recovered_NoCrash(t *testing.T) {
+	now := time.Now().UTC()
+	// never-synced canon with a TMDB id → stale → default (blocking) branch.
+	port := &fakeSeriesPort{canon: series.Canon{ID: 1, TMDBID: tmdbID(100)}}
+	tmdb := &fakeRefresher{panicVal: "boom in blocking refresh"}
+	uc := newUC(t, port, tmdb, nil /* OMDb disabled */, now)
+
+	resp, err := uc.GetRatings(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, dto.RatingStatusPending, resp.Sources.TMDB)
+	assert.EqualValues(t, 1, tmdb.count())
+}
+
+// F-03: a panic in the background (stale-value revalidation) refresh must be
+// recovered inside the singleflight fn so the detached goroutine cannot crash
+// the process. The OLD value is still returned immediately.
+func TestGetRatings_BackgroundRefreshPanic_Recovered_NoCrash(t *testing.T) {
+	now := time.Now().UTC()
+	old := now.AddDate(-5, 0, 0)       // rating synced 5y ago → past TTL → stale
+	firstAir := now.AddDate(-10, 0, 0) // ended 10y ago → 180d tier
+	port := &fakeSeriesPort{canon: series.Canon{
+		ID: 1, TMDBID: tmdbID(100),
+		TMDBRating:         new(7.0),
+		TMDBRatingSyncedAt: &old,
+		FirstAirDate:       &firstAir,
+		LastAirDate:        &firstAir,
+	}}
+	tmdb := &fakeRefresher{panicVal: "boom in background refresh"}
+	uc := newUC(t, port, tmdb, nil, now)
+
+	resp, err := uc.GetRatings(context.Background(), 1)
+	require.NoError(t, err)
+	// Stale value returned NOW; background kick fired.
+	assert.Equal(t, dto.RatingStatusRevalidating, resp.Sources.TMDB)
+	require.NotNil(t, resp.TMDBRating)
+	assert.Equal(t, 7.0, *resp.TMDBRating)
+	// Wait for the detached goroutine to actually run + recover. An
+	// unrecovered panic would crash the binary here.
+	assert.Eventually(t, func() bool { return tmdb.count() == 1 },
+		time.Second, 5*time.Millisecond)
+	// Settle so the recover/return path finishes before the test exits.
+	time.Sleep(20 * time.Millisecond)
+}

@@ -57,7 +57,7 @@ func TestDispatcher_OMDbHandlerCalledForOMDbJob(t *testing.T) {
 			atomic.StoreInt64(&personSeen, id)
 			return nil
 		},
-		OMDbHandler: func(_ context.Context, id int64) error {
+		OMDbHandler: func(_ context.Context, id int64, _ Priority) error {
 			atomic.StoreInt64(&omdbSeen, id)
 			return nil
 		},
@@ -252,7 +252,7 @@ func TestDispatcher_HandlerPanic_ReleasesDedup(t *testing.T) {
 		}()
 		d.runHandler(context.Background(), quietLogger(),
 			Job{Kind: EntitySeries, EntityID: 555, Priority: PriorityHot},
-			func(ctx context.Context, id int64) error {
+			func(ctx context.Context, id int64, _ Priority) error {
 				panic("intentional panic — dedup MUST still release")
 			})
 	}()
@@ -265,4 +265,37 @@ func TestDispatcher_HandlerPanic_ReleasesDedup(t *testing.T) {
 
 	// And a fresh enqueue of the same id MUST succeed.
 	assert.True(t, d.queue.enqueue(Job{Kind: EntitySeries, EntityID: 555, Priority: PriorityHot}))
+}
+
+// F-02: the dispatcher must thread the enqueued Job's Priority into the OMDb
+// handler closure (previously it passed only id, so every OMDb job was treated
+// as Cold regardless of enqueue priority).
+func TestDispatcher_OMDbHandlerReceivesPriority(t *testing.T) {
+	t.Parallel()
+	seen := make(chan Priority, 2)
+	d := NewDispatcher(Workers{
+		OMDbHandler: func(_ context.Context, _ int64, p Priority) error {
+			seen <- p
+			return nil
+		},
+	}, quietLogger())
+	ctx := t.Context()
+	d.Start(ctx)
+	defer d.Close()
+
+	d.Enqueue(EntityOMDb, 77, PriorityHot)
+	select {
+	case p := <-seen:
+		assert.Equal(t, PriorityHot, p, "Hot enqueue must reach handler as PriorityHot")
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for hot OMDb job")
+	}
+
+	d.Enqueue(EntityOMDb, 88, PriorityCold)
+	select {
+	case p := <-seen:
+		assert.Equal(t, PriorityCold, p, "Cold enqueue must reach handler as PriorityCold")
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for cold OMDb job")
+	}
 }

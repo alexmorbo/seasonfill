@@ -1,8 +1,10 @@
 package enrichment
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -287,3 +289,43 @@ func TestBudgetDB_ColdDeniedAtFloor_NoLeak(t *testing.T) {
 // Compile-time interface check: production guard still satisfies the
 // worker's OMDbBudget seam.
 var _ OMDbBudget = (*OMDbBudgetGuard)(nil)
+
+// F-06: an in-process floor >= cap must be clamped below the cap so the Cold
+// lane keeps at least one slot (ColdAvailable true at full budget) instead of
+// being permanently denied.
+func TestBudget_HotFloorClampedBelowCap(t *testing.T) {
+	t.Parallel()
+
+	// floor == cap → without the clamp, ColdAvailable() would be false
+	// (Remaining 5 > floor 5 is false). Clamped to 4 → 5 > 4 == true.
+	gEq := NewOMDbBudgetGuard(5, 5)
+	assert.True(t, gEq.ColdAvailable(), "floor==cap must clamp so Cold keeps a slot")
+	assert.True(t, gEq.ReserveCold(), "clamped floor must let Cold spend at least once")
+
+	// floor > cap → same clamp.
+	gGt := NewOMDbBudgetGuard(5, 100)
+	assert.True(t, gGt.ColdAvailable(), "floor>cap must clamp so Cold keeps a slot")
+
+	// Sanity: a normal floor below cap is untouched (Cold denied AT the floor).
+	gOk := NewOMDbBudgetGuard(5, 3)
+	assert.True(t, gOk.ReserveCold()) // 5→4
+	assert.True(t, gOk.ReserveCold()) // 4→3
+	assert.False(t, gOk.ReserveCold(), "unchanged floor still backs off at 3")
+}
+
+// F-06: the DB-backed constructor logs a loud WARN when the configured floor
+// is clamped, so the misconfig is visible at boot.
+func TestBudgetDB_HotFloorClamp_LogsWarn(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	c := newFakeQuotaCounter()
+	clock := func() time.Time { return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC) }
+
+	g := NewOMDbBudgetGuardDB(10, 10 /* floor == cap */, c, logger, clock)
+
+	assert.True(t, g.ColdAvailable(), "clamped DB guard keeps a Cold slot at full budget")
+	logs := buf.String()
+	assert.Contains(t, logs, "enrichment.omdb.budget.hot_reserve_clamped")
+	assert.Contains(t, logs, "\"clamped_to\":9")
+}
