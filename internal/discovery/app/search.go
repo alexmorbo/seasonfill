@@ -185,6 +185,7 @@ func (uc *SearchUseCase) TMDBFallback(ctx context.Context, q, language string) (
 		if len(r.OriginCountry) > 0 {
 			item.OriginCountries = append([]string(nil), r.OriginCountry...)
 		}
+		item.TMDBRating = nonZeroRating(r.VoteAverage)
 		out = append(out, item)
 	}
 	uc.log.InfoContext(ctx, "discovery.search.tmdb_fallback",

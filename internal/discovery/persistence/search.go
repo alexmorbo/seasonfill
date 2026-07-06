@@ -134,6 +134,10 @@ SELECT s.id, s.tmdb_id,
 			v := *row.BackdropPath
 			item.BackdropPath = &v
 		}
+		if row.TMDBRating != nil {
+			v := *row.TMDBRating
+			item.TMDBRating = &v
+		}
 		out = append(out, item)
 	}
 	return out, nil
