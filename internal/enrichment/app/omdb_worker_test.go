@@ -157,11 +157,12 @@ func (f *fakeOMDbClient) GetByIMDB(_ context.Context, _ domain.IMDBID) (*omdb.Re
 }
 
 type fakeOMDbBudget struct {
-	allow     bool
-	reserves  int // total across both lanes (existing assertions read this)
-	hotCalls  int
-	coldCalls int
-	remaining int
+	allow         bool
+	coldAvailable bool // W18-8: non-consuming Cold-availability pre-check
+	reserves      int  // total across both lanes (existing assertions read this)
+	hotCalls      int
+	coldCalls     int
+	remaining     int
 }
 
 func (f *fakeOMDbBudget) ReserveHot() bool {
@@ -175,6 +176,8 @@ func (f *fakeOMDbBudget) ReserveCold() bool {
 	f.coldCalls++
 	return f.allow
 }
+
+func (f *fakeOMDbBudget) ColdAvailable() bool { return f.coldAvailable }
 
 func (f *fakeOMDbBudget) Remaining() int { return f.remaining }
 

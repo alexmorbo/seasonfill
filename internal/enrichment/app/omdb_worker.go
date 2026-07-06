@@ -56,6 +56,13 @@ type OMDbBudget interface {
 	// Hot floor; false ⇒ floor reached (skip, no journal, no decrement).
 	// Used by all dispatcher-driven work (daily batch, discovery).
 	ReserveCold() bool
+	// ColdAvailable reports whether a Cold reservation would currently
+	// succeed (remaining ABOVE the Hot floor) WITHOUT consuming a slot.
+	// W18-8's imdb_id-gain enqueue uses it as a non-consuming pre-check so
+	// a floor-exhausted budget doesn't flood the dispatcher queue with jobs
+	// ReserveCold would immediately deny. Advisory only — the real spend
+	// still goes through ReserveCold in the worker (no double-spend).
+	ColdAvailable() bool
 	// Remaining returns the current counter for logging + metric.
 	Remaining() int
 }

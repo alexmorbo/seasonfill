@@ -116,6 +116,11 @@ type SeriesWorkerDeps struct {
 	// nil OK — keeps the existing test fixtures green; production
 	// wiring passes the shared *DispatcherImpl.
 	Dispatcher Dispatcher
+	// OMDbBudget — W18-8: nil-OK non-consuming Cold-budget pre-check for the
+	// imdb_id-gain OMDb enqueue. When nil the budget gate is skipped and the
+	// OMDb worker's ReserveCold still gates downstream. Production wiring
+	// (internal/wiring/enrichment.go) injects the shared *OMDbBudgetGuard.
+	OMDbBudget OMDbBudget
 	Logger     *slog.Logger
 	Clock      func() time.Time // injected for tests; defaults to time.Now
 
@@ -268,7 +273,8 @@ func (w *SeriesWorker) HandleForcedLang(ctx context.Context, seriesID domain.Ser
 	// requires the pointer pair).
 	personsEnqueued := false
 	prewarmEnqueued := false
-	if err := w.refreshOneLanguageStaged(ctx, canon, lang, &personsEnqueued, &prewarmEnqueued, log); err != nil {
+	omdbEnqueued := false
+	if err := w.refreshOneLanguageStaged(ctx, canon, lang, &personsEnqueued, &prewarmEnqueued, &omdbEnqueued, log); err != nil {
 		return w.handleTMDBError(ctx, seriesID, "lang-stage1="+lang, err, prevAttempts, start)
 	}
 
@@ -301,6 +307,7 @@ func (w *SeriesWorker) refreshOneLanguageStaged(
 	lang string,
 	personsEnqueued *bool,
 	prewarmEnqueued *bool,
+	omdbEnqueued *bool,
 	log *slog.Logger,
 ) error {
 	// One TMDB call. GetTV bundles aggregate_credits + videos + images +
@@ -319,12 +326,14 @@ func (w *SeriesWorker) refreshOneLanguageStaged(
 	mapped := w.mapAllForLanguage(tv, emptySeasons, canon, lang)
 
 	var enqueueRows []personEnqueueRow
+	var mergedCanon series.Canon
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		rows, err := w.applyAllForLanguage(txCtx, canon, tv, emptySeasons, mapped, lang, log)
+		rows, merged, err := w.applyAllForLanguage(txCtx, canon, tv, emptySeasons, mapped, lang, log)
 		if err != nil {
 			return err
 		}
 		enqueueRows = rows
+		mergedCanon = merged
 		return nil
 	})
 	if err != nil {
@@ -346,6 +355,10 @@ func (w *SeriesWorker) refreshOneLanguageStaged(
 		w.enqueuePersons(ctx, enqueueRows, log)
 		*personsEnqueued = true
 	}
+
+	// W18-8 — cover the freshener staged path too: if this lang-targeted pass
+	// is the first to write imdb_id, enqueue the OMDb Cold backfill.
+	w.maybeEnqueueOMDbOnIMDBGain(ctx, canon, mergedCanon, omdbEnqueued, log)
 
 	log.InfoContext(ctx, "enrichment.series.handle_lang.language_ok",
 		slog.Int("seasons_fetched", 0),
@@ -435,12 +448,13 @@ func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.Serie
 	//    enrichment/persistence/i18n_texts.go:21.
 	personsEnqueued := false
 	prewarmEnqueued := false
+	omdbEnqueued := false
 	failedLangs := make([]string, 0, len(w.deps.Languages))
 	succeededLangs := make([]string, 0, len(w.deps.Languages))
 	var firstErr error
 	for _, lang := range w.deps.Languages {
 		langLog := log.With(slog.String("language", lang))
-		if err := w.refreshOneLanguage(ctx, canon, lang, force, &personsEnqueued, &prewarmEnqueued, langLog); err != nil {
+		if err := w.refreshOneLanguage(ctx, canon, lang, force, &personsEnqueued, &prewarmEnqueued, &omdbEnqueued, langLog); err != nil {
 			failedLangs = append(failedLangs, lang)
 			if firstErr == nil {
 				firstErr = err
@@ -492,6 +506,7 @@ func (w *SeriesWorker) refreshOneLanguage(
 	force bool,
 	personsEnqueued *bool,
 	prewarmEnqueued *bool,
+	omdbEnqueued *bool,
 	log *slog.Logger,
 ) error {
 	// 3a. Fetch TV payload + active seasons in this language.
@@ -523,12 +538,14 @@ func (w *SeriesWorker) refreshOneLanguage(
 
 	// 3c. ONE tx for THIS language's writes.
 	var enqueueRows []personEnqueueRow
+	var mergedCanon series.Canon
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		rows, err := w.applyAllForLanguage(txCtx, canon, tv, seasonResponses, mapped, lang, log)
+		rows, merged, err := w.applyAllForLanguage(txCtx, canon, tv, seasonResponses, mapped, lang, log)
 		if err != nil {
 			return err
 		}
 		enqueueRows = rows
+		mergedCanon = merged
 		return nil
 	})
 	if err != nil {
@@ -552,6 +569,12 @@ func (w *SeriesWorker) refreshOneLanguage(
 		w.enqueuePersons(ctx, enqueueRows, log)
 		*personsEnqueued = true
 	}
+
+	// 3f. W18-8 — enqueue an OMDb Cold fetch on the imdb_id null→value
+	//     transition (once per Handle). Passive backfill so the next on-view
+	//     already has IMDb rating/awards/rated. Guards (fresh-TTL /
+	//     terminal-negative / Cold-budget) live in maybeEnqueueOMDbOnIMDBGain.
+	w.maybeEnqueueOMDbOnIMDBGain(ctx, canon, mergedCanon, omdbEnqueued, log)
 
 	log.InfoContext(ctx, "enrichment.series.handle.language_ok",
 		slog.Int("seasons_fetched", len(seasonResponses)),
@@ -590,6 +613,92 @@ func (w *SeriesWorker) enqueuePersons(ctx context.Context, rows []personEnqueueR
 		slog.Int("hot", hot),
 		slog.Int("cold", cold),
 	)
+}
+
+// maybeEnqueueOMDbOnIMDBGain enqueues one OMDb Cold fetch when a series' canon
+// imdb_id transitions empty→value on this Handle. Called post-tx (Enqueue
+// inside a tx is a layering violation). The transition test compares the OLD
+// canon (Handle-start snapshot, stable across the language loop) against the
+// merged canon this language pass just persisted; a re-enrichment of an
+// already-imdb_id'd series does NOT fire (imdbWasEmpty is false). The
+// omdbEnqueued pointer gates to once-per-Handle: it trips the first time the
+// transition is observed on a committed language pass, regardless of the guard
+// outcome (the guards do not change within one Handle).
+func (w *SeriesWorker) maybeEnqueueOMDbOnIMDBGain(ctx context.Context, oldCanon, merged series.Canon, omdbEnqueued *bool, log *slog.Logger) {
+	if omdbEnqueued == nil || *omdbEnqueued || w.deps.Dispatcher == nil {
+		return
+	}
+	imdbWasEmpty := oldCanon.IMDBID == nil || *oldCanon.IMDBID == ""
+	imdbNowSet := merged.IMDBID != nil && *merged.IMDBID != ""
+	if !imdbWasEmpty || !imdbNowSet {
+		return // no null→value transition this Handle
+	}
+	// Transition observed — evaluate once per Handle regardless of outcome.
+	*omdbEnqueued = true
+	if merged.ID == 0 {
+		return
+	}
+	if !w.shouldEnqueueOMDbCold(ctx, merged, log) {
+		return
+	}
+	w.deps.Dispatcher.Enqueue(EntityOMDb, int64(merged.ID), PriorityCold)
+	log.InfoContext(ctx, "enrichment.omdb.enqueued",
+		slog.Int64("series_id", int64(merged.ID)),
+		slog.String("imdb_id", string(*merged.IMDBID)),
+		slog.String("priority", priorityLabel(PriorityCold)),
+		slog.String("trigger", "imdb_id_gained"),
+	)
+}
+
+// shouldEnqueueOMDbCold runs the anti-hammer guards for the W18-8 imdb_id-gain
+// enqueue. All checks are cheap reads on the just-merged canon + the durable
+// negative-cache; none consume budget (the real ReserveCold spend stays in the
+// OMDb worker). Returns false — skip silently — when OMDb is already fresh, the
+// series is terminal-negative, or the Cold budget is at the Hot floor.
+func (w *SeriesWorker) shouldEnqueueOMDbCold(ctx context.Context, canon series.Canon, log *slog.Logger) bool {
+	// Guard 1: OMDb already fresh by the W18-5 progressive TTL → skip.
+	if canon.EnrichmentOMDBSyncedAt != nil {
+		kind := classifyOMDbKind(canon, w.deps.Clock())
+		ttl := enrichment.TTL(enrichment.SourceOMDb, kind)
+		if ttl > 0 && w.deps.Clock().Sub(*canon.EnrichmentOMDBSyncedAt) < ttl {
+			log.DebugContext(ctx, "enrichment.omdb.enqueue_skip_fresh",
+				slog.Int64("series_id", int64(canon.ID)),
+				slog.String("ttl_kind", string(kind)),
+			)
+			return false
+		}
+	}
+
+	// Guard 2: terminal-negative (attempts > 5) → skip. Parity with the daily
+	// batch selector's SQL give-up filter (F-09 durable negative-cache).
+	if errRow, err := w.deps.EnrichmentErrors.GetByEntitySource(ctx,
+		enrichment.EntityTypeSeries, int64(canon.ID), enrichment.SourceOMDb); err == nil {
+		if errRow.Attempts > omdbColdEnqueueTerminalAttempts {
+			log.DebugContext(ctx, "enrichment.omdb.enqueue_skip_terminal",
+				slog.Int64("series_id", int64(canon.ID)),
+				slog.Int("attempts", errRow.Attempts),
+			)
+			return false
+		}
+	} else if !errors.Is(err, ports.ErrNotFound) {
+		log.WarnContext(ctx, "enrichment.omdb.enqueue_error_row_read_failed",
+			slog.Int64("series_id", int64(canon.ID)),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	// Guard 3: Cold budget at the Hot floor → skip (non-consuming). nil budget
+	// (test fixtures / not-yet-wired) leaves the gate to the OMDb worker's
+	// ReserveCold. On-view Hot or the next trigger will retry.
+	if w.deps.OMDbBudget != nil && !w.deps.OMDbBudget.ColdAvailable() {
+		log.DebugContext(ctx, "enrichment.omdb.enqueue_skip_budget",
+			slog.Int64("series_id", int64(canon.ID)),
+			slog.Int("quota_remaining", w.deps.OMDbBudget.Remaining()),
+		)
+		return false
+	}
+
+	return true
 }
 
 // classifyKind picks the TTL bucket from the canon's Status /
@@ -760,7 +869,7 @@ func (w *SeriesWorker) mapAllForLanguage(tv *tmdb.TVResponse, seasons map[int]*t
 // (TMDB returns localised genre/keyword names per ?language=X). The
 // series_texts + episode_texts rows already carry Language=lang via
 // the mapping step.
-func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.Canon, tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonResponse, m mappedPayload, lang string, log *slog.Logger) ([]personEnqueueRow, error) {
+func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.Canon, tv *tmdb.TVResponse, seasons map[int]*tmdb.SeasonResponse, m mappedPayload, lang string, log *slog.Logger) ([]personEnqueueRow, series.Canon, error) {
 	// 1. Merge + upsert series canon.
 	merged := enrichment.MergeSeries(
 		canonToEnrichmentCanon(canon),
@@ -775,13 +884,17 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 	// by RefreshMediaAssets (A4) into series_media_texts.
 	seriesID, err := w.deps.Series.Upsert(txCtx, canonOut)
 	if err != nil {
-		return nil, fmt.Errorf("upsert series canon: %w", err)
+		return nil, series.Canon{}, fmt.Errorf("upsert series canon: %w", err)
 	}
+	// W18-8: pin the persisted id onto the returned canon so the post-tx
+	// caller enqueues against the real series id (canonOut.ID is preserved
+	// from the base canon, but Upsert is the authoritative id for new rows).
+	canonOut.ID = seriesID
 
 	// 2. series_texts.
 	m.SeriesText.SeriesID = seriesID
 	if err := w.deps.SeriesTexts.Upsert(txCtx, m.SeriesText); err != nil {
-		return nil, fmt.Errorf("upsert series_texts: %w", err)
+		return nil, series.Canon{}, fmt.Errorf("upsert series_texts: %w", err)
 	}
 
 	// 2b. series_media_texts — per-language poster/backdrop seed.
@@ -817,7 +930,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 				BackdropAsset: backdropPath,
 				EnrichedAt:    &now,
 			}); err != nil {
-				return nil, fmt.Errorf("upsert series_media_texts: %w", err)
+				return nil, series.Canon{}, fmt.Errorf("upsert series_media_texts: %w", err)
 			}
 		}
 	}
@@ -829,7 +942,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		s.SeriesID = seriesID
 		id, err := w.deps.Seasons.Upsert(txCtx, s)
 		if err != nil {
-			return nil, fmt.Errorf("upsert season %d: %w", s.SeasonNumber, err)
+			return nil, series.Canon{}, fmt.Errorf("upsert season %d: %w", s.SeasonNumber, err)
 		}
 		seasonIDByNumber[s.SeasonNumber] = id
 	}
@@ -843,7 +956,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 	}
 	episodeIDs, err := w.deps.Episodes.BatchUpsert(txCtx, m.Episodes)
 	if err != nil {
-		return nil, fmt.Errorf("batch upsert episodes: %w", err)
+		return nil, series.Canon{}, fmt.Errorf("batch upsert episodes: %w", err)
 	}
 
 	// 5. episode_texts — wire by parallel index from BatchUpsert.
@@ -853,7 +966,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		}
 		txt.EpisodeID = domain.EpisodeID(episodeIDs[i])
 		if err := w.deps.EpisodeTexts.Upsert(txCtx, txt); err != nil {
-			return nil, fmt.Errorf("upsert episode_texts: %w", err)
+			return nil, series.Canon{}, fmt.Errorf("upsert episode_texts: %w", err)
 		}
 	}
 
@@ -873,7 +986,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 	for _, st := range m.PersonStubs {
 		pid, err := w.deps.People.Upsert(txCtx, st)
 		if err != nil {
-			return nil, fmt.Errorf("upsert person stub: %w", err)
+			return nil, series.Canon{}, fmt.Errorf("upsert person stub: %w", err)
 		}
 		if st.TMDBID != nil {
 			personIDByTMDB[int(*st.TMDBID)] = pid
@@ -904,7 +1017,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		// by mapSeriesCreditsToPersonCredits.
 		pcRows := mapSeriesCreditsToPersonCredits(finalCredits, tv, int64(*canon.TMDBID))
 		if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, pcRows); err != nil {
-			return nil, fmt.Errorf("batch upsert person_credits (tv): %w", err)
+			return nil, series.Canon{}, fmt.Errorf("batch upsert person_credits (tv): %w", err)
 		}
 	}
 	if droppedCredits > 0 {
@@ -936,11 +1049,11 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 	//     posture rather than a hot-path. Loss is acceptable.
 	episodeCreditRows, droppedEpisodeCredits, err := w.applyEpisodeCredits(txCtx, seasons, personIDByTMDB, log)
 	if err != nil {
-		return nil, fmt.Errorf("apply episode credits: %w", err)
+		return nil, series.Canon{}, fmt.Errorf("apply episode credits: %w", err)
 	}
 	if len(episodeCreditRows) > 0 {
 		if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, episodeCreditRows); err != nil {
-			return nil, fmt.Errorf("batch upsert person_credits (tv_episode): %w", err)
+			return nil, series.Canon{}, fmt.Errorf("batch upsert person_credits (tv_episode): %w", err)
 		}
 	}
 	if droppedEpisodeCredits > 0 {
@@ -984,28 +1097,28 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 	//    Story 533c: lang threads through so genres_i18n / keywords_i18n
 	//    rows are written keyed by THIS language.
 	if err := w.applyTaxonomyForLanguage(txCtx, seriesID, m, lang); err != nil {
-		return nil, err
+		return nil, series.Canon{}, err
 	}
 
 	// 9. Videos.
 	for _, v := range m.Videos {
 		v.SeriesID = seriesID
 		if err := w.deps.Videos.Upsert(txCtx, v); err != nil {
-			return nil, fmt.Errorf("upsert video: %w", err)
+			return nil, series.Canon{}, fmt.Errorf("upsert video: %w", err)
 		}
 	}
 
 	// 10. Content ratings.
 	for _, cr := range m.ContentRatings {
 		if err := w.deps.ContentRatings.Upsert(txCtx, seriesID, cr.Country, cr.Rating); err != nil {
-			return nil, fmt.Errorf("upsert content_rating: %w", err)
+			return nil, series.Canon{}, fmt.Errorf("upsert content_rating: %w", err)
 		}
 	}
 
 	// 11. External IDs.
 	for _, e := range m.ExternalIDs {
 		if err := w.deps.ExternalIDs.Upsert(txCtx, enrichment.EntityTypeSeries, int64(seriesID), e.Provider, e.ProviderID); err != nil {
-			return nil, fmt.Errorf("upsert external_id: %w", err)
+			return nil, series.Canon{}, fmt.Errorf("upsert external_id: %w", err)
 		}
 	}
 
@@ -1032,7 +1145,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 	for _, rec := range sortedRecs {
 		id, err := w.deps.Series.UpsertStub(txCtx, rec)
 		if err != nil {
-			return nil, fmt.Errorf("upsert recommendation stub: %w", err)
+			return nil, series.Canon{}, fmt.Errorf("upsert recommendation stub: %w", err)
 		}
 		if rec.TMDBID != nil {
 			stubIDByTMDB[*rec.TMDBID] = id
@@ -1058,9 +1171,9 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		recIDs = append(recIDs, id)
 	}
 	if err := w.deps.Recommendations.Set(txCtx, seriesID, recIDs); err != nil {
-		return nil, fmt.Errorf("set recommendations: %w", err)
+		return nil, series.Canon{}, fmt.Errorf("set recommendations: %w", err)
 	}
-	return enqueueRows, nil
+	return enqueueRows, canonOut, nil
 }
 
 // mapSeriesCreditsToPersonCredits projects the per-series cast+crew
@@ -1426,6 +1539,14 @@ func (w *SeriesWorker) applyTaxonomyForLanguage(txCtx context.Context, seriesID 
 // dispatcher can surface degraded[], but ListDueForRetry won't pick it
 // up because attempts > 5 trips the terminal-failure filter.
 const terminalAttempts = 99
+
+// omdbColdEnqueueTerminalAttempts is the W18-8 enqueue-time terminal-negative
+// cutoff for OMDb. It mirrors the SQL `ee.attempts > 5` guard in
+// SeriesRepository.ListLibraryWithIMDBStale (the daily batch selector) so a
+// series that has exhausted OMDb retries is not passively re-enqueued on an
+// imdb_id gain. Distinct from terminalAttempts (99, the not_found sentinel the
+// OMDb worker writes) — this is the retry give-up threshold, not the sentinel.
+const omdbColdEnqueueTerminalAttempts = 5
 
 // handleTMDBError records an enrichment_errors row for a TMDB failure.
 // TMDB 404 lands as attempts=terminalAttempts (no NextAttemptAt → no

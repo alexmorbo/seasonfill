@@ -157,6 +157,16 @@ func (g *OMDbBudgetGuard) ReserveCold() bool {
 	return g.reserve()
 }
 
+// ColdAvailable reports whether a Cold reservation would currently succeed
+// (remaining ABOVE the Hot floor) WITHOUT consuming a slot. W18-8 uses it as a
+// non-consuming pre-check before enqueuing an OMDb Cold job on the imdb_id
+// null→value transition. Advisory: the actual spend still flows through
+// ReserveCold in the worker (no double-spend); the floor is soft under
+// concurrency (same tolerance ReserveCold documents).
+func (g *OMDbBudgetGuard) ColdAvailable() bool {
+	return g.Remaining() > g.hotFloor
+}
+
 // reserve atomically consumes one slot from the daily budget when
 // available. Returns true on success, false when the daily cap has been
 // hit. (Formerly the exported Reserve; W18-9 made it private behind the

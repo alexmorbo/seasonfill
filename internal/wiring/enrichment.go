@@ -416,6 +416,32 @@ func BuildEnrichment(
 	// locale.SupportedUserLanguages (currently en-US + ru-RU). PersonWorker
 	// (below) keeps its single-language path because biographies remain
 	// en-US-only until a follow-up story.
+	// W18-9 — Hot-lane floor. Env-tunable without rebuild; default 200.
+	// NOTE: repo convention is flat SEASONFILL_* env vars (spec shorthand
+	// was OMDB__HOT_RESERVE — normalised here to match the family).
+	// W18-8 — construction hoisted above NewSeriesWorker so the series worker
+	// can receive the same *OMDbBudgetGuard for its non-consuming Cold pre-check.
+	omdbHotReserve := appenrich.DefaultOMDbHotReserve
+	if v := os.Getenv("SEASONFILL_OMDB_HOT_RESERVE"); v != "" {
+		if n, perr := strconv.Atoi(v); perr == nil && n >= 0 {
+			omdbHotReserve = n
+		} else {
+			omdbLog.WarnContext(rootCtx, "enrichment.omdb.hot_reserve.invalid_env",
+				slog.String("value", v),
+				slog.Int("default", appenrich.DefaultOMDbHotReserve))
+		}
+	}
+	var omdbBudget *appenrich.OMDbBudgetGuard
+	if quotaCounter != nil {
+		omdbBudget = appenrich.NewOMDbBudgetGuardDB(
+			appenrich.DefaultOMDbBudget, omdbHotReserve, quotaCounter, omdbLog, nil)
+	} else {
+		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget, omdbHotReserve)
+	}
+	omdbLog.InfoContext(rootCtx, "enrichment.omdb.budget.configured",
+		slog.Int("daily_cap", appenrich.DefaultOMDbBudget),
+		slog.Int("hot_reserve", omdbHotReserve))
+
 	worker, err := appenrich.NewSeriesWorker(appenrich.SeriesWorkerDeps{
 		TMDB:               tmdbHolder,
 		Tx:                 tx,
@@ -448,6 +474,7 @@ func BuildEnrichment(
 		MediaPrewarmer: mediaPrewarmer, // 214 (F-1): nil-OK when MediaStore/MediaAssets absent
 		MediaResolver:  mediaResolver,  // E-1 A4: shared *media.Resolver instance
 		Dispatcher:     holder,
+		OMDbBudget:     omdbBudget, // W18-8: non-consuming Cold-budget pre-check
 		Logger:         enrichmentLog,
 	})
 	if err != nil {
@@ -494,29 +521,6 @@ func BuildEnrichment(
 	// reload subscriber can flip OMDb from disabled→enabled at runtime
 	// without touching the dispatcher. When the holder is empty the
 	// worker's getter returns nil and the dequeue logs "handler_nil".
-	var omdbBudget *appenrich.OMDbBudgetGuard
-	// W18-9 — Hot-lane floor. Env-tunable without rebuild; default 200.
-	// NOTE: repo convention is flat SEASONFILL_* env vars (spec shorthand
-	// was OMDB__HOT_RESERVE — normalised here to match the family).
-	omdbHotReserve := appenrich.DefaultOMDbHotReserve
-	if v := os.Getenv("SEASONFILL_OMDB_HOT_RESERVE"); v != "" {
-		if n, perr := strconv.Atoi(v); perr == nil && n >= 0 {
-			omdbHotReserve = n
-		} else {
-			omdbLog.WarnContext(rootCtx, "enrichment.omdb.hot_reserve.invalid_env",
-				slog.String("value", v),
-				slog.Int("default", appenrich.DefaultOMDbHotReserve))
-		}
-	}
-	if quotaCounter != nil {
-		omdbBudget = appenrich.NewOMDbBudgetGuardDB(
-			appenrich.DefaultOMDbBudget, omdbHotReserve, quotaCounter, omdbLog, nil)
-	} else {
-		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget, omdbHotReserve)
-	}
-	omdbLog.InfoContext(rootCtx, "enrichment.omdb.budget.configured",
-		slog.Int("daily_cap", appenrich.DefaultOMDbBudget),
-		slog.Int("hot_reserve", omdbHotReserve))
 	omdbWorker, err := appenrich.NewOMDbWorker(appenrich.OMDbWorkerDeps{
 		Client:           omdbHolder.Get,
 		Budget:           omdbBudget,
