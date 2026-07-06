@@ -385,8 +385,6 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 	imdbVotes := atlasschema.NewNullIntColumn("imdb_votes", "integer")
 	omdbRated := atlasschema.NewNullStringColumn("omdb_rated", "text")
 	omdbAwards := atlasschema.NewNullStringColumn("omdb_awards", "text")
-	omdbRTRating := atlasschema.NewNullIntColumn("omdb_rt_rating", "integer")
-	omdbMetacritic := atlasschema.NewNullIntColumn("omdb_metacritic", "integer")
 	enrichmentTMDBSyncedAt := timestampColumn(d, "enrichment_tmdb_synced_at", false, false)
 	enrichmentOMDBSyncedAt := timestampColumn(d, "enrichment_omdb_synced_at", false, false)
 	enrichmentTextSyncedAt := timestampColumn(d, "enrichment_text_synced_at", false, false)
@@ -423,8 +421,6 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			imdbVotes,
 			omdbRated,
 			omdbAwards,
-			omdbRTRating,
-			omdbMetacritic,
 			enrichmentTMDBSyncedAt,
 			enrichmentOMDBSyncedAt,
 			enrichmentTextSyncedAt,

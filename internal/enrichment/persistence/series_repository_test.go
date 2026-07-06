@@ -780,8 +780,6 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 			imdbVotes := 590000
 			omdbRated := "TV-14"
 			omdbAwards := "Won 4 Primetime Emmys"
-			omdbRTRating := 96
-			omdbMetacritic := 73
 			popularity := 425.7
 			runtime := 22
 
@@ -806,8 +804,6 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 				IMDBVotes:        &imdbVotes,
 				OMDBRated:        &omdbRated,
 				OMDBAwards:       &omdbAwards,
-				OMDBRTRating:     &omdbRTRating,
-				OMDBMetacritic:   &omdbMetacritic,
 			})
 			require.NoError(t, err)
 
@@ -866,12 +862,6 @@ func TestSeriesRepository_Upsert_PreservesTMDBAndOMDbFieldsOnSonarrInput(t *test
 			}
 			if assert.NotNil(t, got.OMDBAwards) {
 				assert.Equal(t, omdbAwards, *got.OMDBAwards)
-			}
-			if assert.NotNil(t, got.OMDBRTRating) {
-				assert.Equal(t, omdbRTRating, *got.OMDBRTRating)
-			}
-			if assert.NotNil(t, got.OMDBMetacritic) {
-				assert.Equal(t, omdbMetacritic, *got.OMDBMetacritic)
 			}
 		})
 	}

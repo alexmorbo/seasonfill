@@ -73,12 +73,6 @@ type Canon struct {
 	IMDBVotes  *int
 	OMDBRated  *string
 	OMDBAwards *string
-	// OMDBRTRating / OMDBMetacritic — Story 1039. Parsed from OMDb's
-	// `Ratings` array (Rotten Tomatoes percent, Metacritic /100).
-	// Written only by the OMDb worker, same merge-policy ownership as
-	// OMDBRated/OMDBAwards.
-	OMDBRTRating   *int
-	OMDBMetacritic *int
 	// EnrichmentTMDBSyncedAt is set by the TMDB series worker on a
 	// successful /tv/{id} fetch (PRD §D-3). NULL = never TMDB-enriched
 	// — replaces the legacy sync_log(tmdb_series, outcome='ok') TTL

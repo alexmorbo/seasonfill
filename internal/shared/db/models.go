@@ -530,14 +530,12 @@ type SeriesModel struct {
 	InProduction    bool           `gorm:"column:in_production;not null;default:false"`
 	// Network field REMOVED in E-1 (000033). Network membership lives
 	// in series_networks join, resolved via NetworksRepository.
-	TMDBRating     *float64 `gorm:"column:tmdb_rating"`
-	TMDBVotes      *int     `gorm:"column:tmdb_votes"`
-	IMDBRating     *float64 `gorm:"column:imdb_rating"`
-	IMDBVotes      *int     `gorm:"column:imdb_votes"`
-	OMDBRated      *string  `gorm:"column:omdb_rated;type:text"`
-	OMDBAwards     *string  `gorm:"column:omdb_awards;type:text"`
-	OMDBRTRating   *int     `gorm:"column:omdb_rt_rating"`
-	OMDBMetacritic *int     `gorm:"column:omdb_metacritic"`
+	TMDBRating *float64 `gorm:"column:tmdb_rating"`
+	TMDBVotes  *int     `gorm:"column:tmdb_votes"`
+	IMDBRating *float64 `gorm:"column:imdb_rating"`
+	IMDBVotes  *int     `gorm:"column:imdb_votes"`
+	OMDBRated  *string  `gorm:"column:omdb_rated;type:text"`
+	OMDBAwards *string  `gorm:"column:omdb_awards;type:text"`
 	// EnrichmentTMDBSyncedAt / EnrichmentOMDBSyncedAt — D-3 enrichment
 	// freshness columns (migration 000001 §D-3). NULL = never
 	// enriched. Set by workers on success; canonical replacement for

@@ -30,8 +30,6 @@ type Overview struct {
 	DescriptionLanguage string
 	Keywords            []taxonomy.Keyword
 	Awards              *string // nil when OMDb hasn't synced or = "N/A"
-	RTRating            *int    // nil when OMDb hasn't synced or has no RT entry
-	Metacritic          *int    // nil when OMDb hasn't synced or has no Metacritic entry
 	Degraded            []string
 }
 
@@ -121,8 +119,6 @@ func (c *Composer) GetOverview(
 		v := *canon.OMDBAwards
 		out.Awards = &v
 	}
-	out.RTRating = canon.OMDBRTRating
-	out.Metacritic = canon.OMDBMetacritic
 
 	c.d.Logger.InfoContext(ctx, "series_overview_composed",
 		slog.String("instance_name", string(instanceName)),
@@ -131,8 +127,6 @@ func (c *Composer) GetOverview(
 		slog.String("lang", lang),
 		slog.Int("keyword_count", len(out.Keywords)),
 		slog.Bool("has_awards", out.Awards != nil),
-		slog.Bool("has_rt_rating", out.RTRating != nil),
-		slog.Bool("has_metacritic", out.Metacritic != nil),
 		slog.Bool("has_description", out.Description != ""))
 	return out, nil
 }

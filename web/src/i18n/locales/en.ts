@@ -1984,7 +1984,6 @@ export const en = {
     ratings: {
       tmdb: 'TMDB',
       imdb: 'IMDb',
-      metacritic: 'MC',
     },
     stale: {
       asOf: 'as of {{time}}',

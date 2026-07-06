@@ -54,12 +54,10 @@ func toSeriesOverviewResponse(o *seriesdetail.Overview) dto.SeriesOverviewRespon
 		SeriesID:       o.SeriesID,
 		Lang:           o.Lang,
 		Overview: dto.OverviewAside{
-			Overview:   o.Description,
-			Language:   o.DescriptionLanguage,
-			Keywords:   make([]dto.TaxonomyChip, 0, len(o.Keywords)),
-			Awards:     o.Awards,
-			RTRating:   o.RTRating,
-			Metacritic: o.Metacritic,
+			Overview: o.Description,
+			Language: o.DescriptionLanguage,
+			Keywords: make([]dto.TaxonomyChip, 0, len(o.Keywords)),
+			Awards:   o.Awards,
 		},
 		Degraded: append([]string{}, o.Degraded...),
 	}
