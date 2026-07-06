@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { components } from '@/api/schema';
 
@@ -18,6 +20,7 @@ export interface ResolveNavTarget {
 // unknown ids, so navigation always lands on a real /series/:id route.
 export function useResolveSeriesNav() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [pending, setPending] = useState(false);
 
   const resolveAndNavigate = useCallback(
@@ -38,12 +41,14 @@ export function useResolveSeriesNav() {
         }
       } catch {
         // Resolve failed — leave the user where they are rather than crashing
-        // the card. A later click retries.
+        // the card, but surface a toast so the dead click is visible. A later
+        // click retries.
+        toast.error(t('discovery.error.resolve_failed'));
       } finally {
         setPending(false);
       }
     },
-    [navigate],
+    [navigate, t],
   );
 
   return { resolveAndNavigate, pending };

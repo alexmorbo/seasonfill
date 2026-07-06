@@ -34,8 +34,7 @@ import (
 // BuildSeriesDetail. Threaded into:
 //
 //   - httpserver.NewServer (SeasonHandler, CastHandler,
-//     PeopleHandler, RefreshHandler) — the HTTP wirer remains in
-//     server.go for now.
+//     PeopleHandler) — the HTTP wirer remains in server.go for now.
 //   - server.go's LATE BIND ZONE block calls:
 //   - MediaResolver.SetSideEffects(MediaEnqueuer, MediaOnDemand) after
 //     wireEnrichment returns (Story 316 — the media pipeline doesn't
@@ -79,7 +78,6 @@ type SeriesDetailBundle struct {
 	SeasonHandler        *seriesdetailrest.SeriesSeasonHandler
 	CastHandler          *seriesdetailrest.SeriesCastHandler
 	PeopleHandler        *enrichrest.PeopleHandler
-	RefreshHandler       *enrichrest.SeriesRefreshHandler
 	PersonEnqueuerHolder *adapters.PersonEnqueuerHolder
 	// Story 528 — late-binding on-demand TMDB enrichment trigger for
 	// the TMDBFallback path. Holder no-ops until server.go's LATE BIND
@@ -142,8 +140,8 @@ type SeriesDetailBundle struct {
 //  7. PersonEnqueuerHolder (late-binding shared between H-2 and E-2).
 //  8. PeopleUC over the holder + adapters.
 //  9. PeopleHandler over PeopleUC.
-//  10. SeriesRefreshUC over the holder + refresh adapters.
-//  11. SeriesRefreshHandler over SeriesRefreshUC.
+//  10. SeriesRefreshUC over the holder + refresh adapters (feeds the
+//     global /regrab handler; no dedicated REST handler).
 //
 // Inputs:
 //   - persistence: bedrock DB. All 17 repos are constructed off
@@ -382,7 +380,6 @@ func BuildSeriesDetail(
 	if err != nil {
 		return nil, fmt.Errorf("seriesrefresh use case: %w", err)
 	}
-	seriesRefreshHandler := enrichrest.NewSeriesRefreshHandler(seriesRefreshUC, log)
 
 	// Story 491 / N-1a — global series composer + handler. The
 	// TMDBFallback reads from the same canon series repo as the per-
@@ -528,7 +525,6 @@ func BuildSeriesDetail(
 		SeasonHandler:                seasonHandler,
 		CastHandler:                  castHandler,
 		PeopleHandler:                peopleHandler,
-		RefreshHandler:               seriesRefreshHandler,
 		PersonEnqueuerHolder:         peopleEnqueuerHolder,
 		OnDemandEnricherHolder:       onDemandEnricherHolder,
 		SeriesFreshenerHolder:        seriesFreshenerHolder,

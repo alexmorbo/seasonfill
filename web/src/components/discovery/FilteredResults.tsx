@@ -111,7 +111,7 @@ export function FilteredResults({ filter, hasActiveFilter }: FilteredResultsProp
               tmdbId={it.tmdb_id}
               title={it.title}
               year={it.year}
-              posterAsset={it.poster_hash ?? it.poster_path}
+              posterAsset={it.poster_hash || it.poster_path}
               rating={it.tmdb_rating}
               libraryBadge={inLib ? 'inLibrary' : undefined}
               addToSonarr={inLib ? undefined : it}

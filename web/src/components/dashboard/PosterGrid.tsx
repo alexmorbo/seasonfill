@@ -23,7 +23,6 @@ export function PosterGrid({ items, isLoading }: PosterGridProps) {
         <SeriesCardTile
           key={`${item.instance_name}-${item.sonarr_series_id}`}
           item={item}
-          variant="dashboard"
         />
       ))}
     </div>

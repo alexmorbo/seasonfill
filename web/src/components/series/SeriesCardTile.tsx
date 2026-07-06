@@ -9,11 +9,8 @@ import { MediaImage } from '@/components/MediaImage';
 import { SonarrLink } from '@/components/SonarrLink';
 import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
 
-export type SeriesCardVariant = 'dashboard' | 'library';
-
 export interface SeriesCardTileProps {
   readonly item: SeriesCacheItem;
-  readonly variant: SeriesCardVariant;
 }
 
 type StatusVariant = 'imported' | 'failed';
@@ -50,18 +47,15 @@ function seriesTarget(item: SeriesCacheItem): string {
     : `/series/${encodeURIComponent(item.instance_name)}/${item.sonarr_series_id}`;
 }
 
-export function SeriesCardTile({ item, variant }: SeriesCardTileProps) {
+export function SeriesCardTile({ item }: SeriesCardTileProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const sonarrPublicURL = useInstancePublicURL(item.instance_name);
   const when = relativeTime(item.last_grab_at ?? item.updated_at);
   const showYearFooter = item.year !== undefined;
 
-  const isDashboard = variant === 'dashboard';
   const status = classifyStatus(item);
-  const { season, first, last } = isDashboard
-    ? parseEpisode(item.last_imported_episode)
-    : {};
+  const { season, first, last } = parseEpisode(item.last_imported_episode);
 
   const epsLabel =
     season === undefined
@@ -76,10 +70,9 @@ export function SeriesCardTile({ item, variant }: SeriesCardTileProps) {
 
   // Visible title is the raw, API-localized item.title (no munging).
   // formatSeriesTitle is used ONLY for the aria-label.
-  const ariaLabel = t(
-    isDashboard ? 'dashboard.poster.posterAria' : 'series.tile.posterAria',
-    { label: formatSeriesTitle(item.title, item.year) },
-  );
+  const ariaLabel = t('dashboard.poster.posterAria', {
+    label: formatSeriesTitle(item.title, item.year),
+  });
 
   const handleOpen = () => navigate(seriesTarget(item));
   const onKey = (e: React.KeyboardEvent) => {
@@ -88,13 +81,6 @@ export function SeriesCardTile({ item, variant }: SeriesCardTileProps) {
       handleOpen();
     }
   };
-
-  const variantDataAttrs: Record<string, string> = isDashboard
-    ? { 'data-variant': status }
-    : {
-        'data-monitored': item.monitored ? 'true' : 'false',
-        'data-missing': item.missing_count > 0 ? 'true' : 'false',
-      };
 
   return (
     <article
@@ -109,8 +95,8 @@ export function SeriesCardTile({ item, variant }: SeriesCardTileProps) {
         'hover:-translate-y-[3px] hover:border-border-strong hover:shadow-[0_10px_26px_oklch(0_0_0_/_0.4)]',
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-base',
       )}
-      data-testid={isDashboard ? 'poster-tile' : 'series-poster-tile'}
-      {...variantDataAttrs}
+      data-testid="poster-tile"
+      data-variant={status}
     >
       <MediaImage
         hash={item.poster_hash}
@@ -126,21 +112,6 @@ export function SeriesCardTile({ item, variant }: SeriesCardTileProps) {
         className="absolute inset-0 z-0"
       />
 
-      {/* library: monitored dot (top-left) */}
-      {!isDashboard && (
-        <span
-          aria-label={
-            item.monitored
-              ? t('series.tile.monitoredOn')
-              : t('series.tile.monitoredOff')
-          }
-          className={cn(
-            'absolute z-30 top-2.5 left-2.5 inline-flex items-center justify-center w-2.5 h-2.5 rounded-full',
-            item.monitored ? 'bg-ok' : 'bg-neutral',
-          )}
-        />
-      )}
-
       <SonarrLink
         instance={item.instance_name}
         publicUrl={sonarrPublicURL}
@@ -149,41 +120,26 @@ export function SeriesCardTile({ item, variant }: SeriesCardTileProps) {
         titleSlug={item.title_slug}
         variant="icon"
         size="sm"
-        className={cn(
-          'absolute z-30',
-          isDashboard ? 'bottom-2.5 right-2.5' : 'bottom-2 right-2',
-        )}
+        className="absolute z-30 bottom-2.5 right-2.5"
       />
 
-      {/* dashboard: import status chip (top-right) */}
-      {isDashboard && (
-        <span
-          className={cn(
-            'absolute z-30 top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold backdrop-blur-sm',
-            status === 'imported' && 'bg-ok/85 text-bg-base',
-            status === 'failed' && 'bg-warn/90 text-bg-base',
-          )}
-        >
-          {status === 'imported' ? (
-            <Check className="w-2.5 h-2.5" aria-hidden="true" />
-          ) : (
-            <TriangleAlert className="w-2.5 h-2.5" aria-hidden="true" />
-          )}
-          {status === 'imported'
-            ? t('dashboard.poster.importedChip')
-            : t('dashboard.poster.failChip')}
-        </span>
-      )}
-
-      {/* library: missing chip (top-right) */}
-      {!isDashboard && item.missing_count > 0 && (
-        <span
-          className="absolute z-30 top-2 right-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold backdrop-blur-sm bg-warn/90 text-bg-base"
-          data-testid="series-tile-missing-chip"
-        >
-          {t('series.tile.missing', { count: item.missing_count })}
-        </span>
-      )}
+      {/* import status chip (top-right) */}
+      <span
+        className={cn(
+          'absolute z-30 top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold backdrop-blur-sm',
+          status === 'imported' && 'bg-ok/85 text-bg-base',
+          status === 'failed' && 'bg-warn/90 text-bg-base',
+        )}
+      >
+        {status === 'imported' ? (
+          <Check className="w-2.5 h-2.5" aria-hidden="true" />
+        ) : (
+          <TriangleAlert className="w-2.5 h-2.5" aria-hidden="true" />
+        )}
+        {status === 'imported'
+          ? t('dashboard.poster.importedChip')
+          : t('dashboard.poster.failChip')}
+      </span>
 
       <div className="absolute z-20 inset-x-0 bottom-0 flex flex-col gap-1.5 px-3 pt-10 pb-3 bg-[linear-gradient(transparent,oklch(0.11_0.01_270/_0.55)_30%,oklch(0.10_0.01_270/_0.94)_72%)]">
         <div className="font-semibold text-[15.5px] leading-tight tracking-tight text-tx-primary drop-shadow-[0_1px_8px_oklch(0_0_0_/_0.55)]">
@@ -196,7 +152,7 @@ export function SeriesCardTile({ item, variant }: SeriesCardTileProps) {
             {item.network ?? ''}
           </div>
         )}
-        {isDashboard && epsLabel && (
+        {epsLabel && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span
               className={cn(

@@ -29,7 +29,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil,      // mediaPending (Story 352, nil-OK)
 		nil, nil, // seriesSeasonHandler (215 G-1) + peopleHandler (217 H-2)
 		nil, // peopleHandler (Story 217 H-2)
-		nil, // seriesRefreshHandler (Story 218 E-2)
 		nil, // seriesTorrentsHandler (Story 222 A-4)
 		nil, // timezoneHandler (Story 301)
 		nil, // meHandler (Story 485 N-7a)

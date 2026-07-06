@@ -834,6 +834,7 @@ export const ru: Translations = {
     },
     error: {
       fetch_failed: 'Не удалось загрузить. Попробуйте позже.',
+      resolve_failed: 'Не удалось открыть этот тайтл. Попробуйте ещё раз.',
     },
     stale: {
       updated_ago: 'Обновлено {{time}} назад',

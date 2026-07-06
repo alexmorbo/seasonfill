@@ -829,6 +829,7 @@ export const en = {
     },
     error: {
       fetch_failed: 'Failed to load. Try again later.',
+      resolve_failed: 'Could not open this title. Try again.',
     },
     stale: {
       updated_ago: 'Updated {{time}} ago',

@@ -73,7 +73,6 @@ func NewServer(
 	mediaHandler *mediaproxyrest.MediaHandler,
 	mediaPending adminrest.CatalogMediaPendingWriter,
 	peopleHandler *enrichrest.PeopleHandler,
-	seriesRefreshHandler *enrichrest.SeriesRefreshHandler,
 	seriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler,
 	timezoneHandler *adminrest.TimezoneHandler,
 	meHandler *adminrest.MeHandler,

@@ -31,12 +31,11 @@
 //	  rest/         — HTTP handlers for the enrichment surface
 //	                  (story 438 A-1-12):
 //	                    - PeopleHandler    GET    /api/v1/people/:tmdbId
-//	                    - SeriesRefreshHandler POST
-//	                                /api/v1/instances/:name/series/:id/refresh
 //	                    - ExternalServicesHandler
 //	                                GET/PUT/POST /api/v1/external-services
 //	                                            (+ /:service[/test])
-//	                    seriesrefresh/ — UseCase behind SeriesRefreshHandler
+//	                    seriesrefresh/ — UseCase behind the global
+//	                                /series/:id/regrab handler
 //	                                (cache resolve → enrichment.Enqueue).
 //
 // Import direction (PRD §3.3 — enforced by the depcheck test):

@@ -100,7 +100,7 @@ export function TrendingGrid() {
               tmdbId={item.tmdb_id}
               title={item.title}
               year={item.year}
-              posterAsset={item.poster_hash ?? item.poster_path}
+              posterAsset={item.poster_hash || item.poster_path}
               rating={item.tmdb_rating}
               libraryBadge={inLib ? 'inLibrary' : undefined}
               addToSonarr={inLib ? undefined : item}
