@@ -82,7 +82,8 @@ type NotificationField struct {
 // `Fields` is preserved verbatim from the wire payload so callers can
 // match by url and so CreateNotification can mirror the field shape
 // when building a new Webhook (defends against per-Sonarr-version
-// shape variance — see Concerns §2).
+// shape variance — see Concerns §2). The On* bools are the readable
+// trigger flags used for drift detection by the webhook reconciler.
 type Notification struct {
 	ID                          int
 	Name                        string
@@ -92,7 +93,35 @@ type Notification struct {
 	OnDownloadFailure           bool
 	OnManualInteractionRequired bool
 	OnEpisodeFileDelete         bool
+	OnSeriesAdd                 bool
+	OnSeriesDelete              bool
 	Fields                      []NotificationField
+}
+
+// TriggerSet is the readable subset of a notification's on-event
+// trigger flags the reconciler compares for drift. Being a comparable
+// value type, two TriggerSets can be tested with ==.
+type TriggerSet struct {
+	OnGrab                      bool
+	OnDownload                  bool
+	OnDownloadFailure           bool
+	OnManualInteractionRequired bool
+	OnEpisodeFileDelete         bool
+	OnSeriesAdd                 bool
+	OnSeriesDelete              bool
+}
+
+// Triggers projects a Notification onto its comparable TriggerSet.
+func (n Notification) Triggers() TriggerSet {
+	return TriggerSet{
+		OnGrab:                      n.OnGrab,
+		OnDownload:                  n.OnDownload,
+		OnDownloadFailure:           n.OnDownloadFailure,
+		OnManualInteractionRequired: n.OnManualInteractionRequired,
+		OnEpisodeFileDelete:         n.OnEpisodeFileDelete,
+		OnSeriesAdd:                 n.OnSeriesAdd,
+		OnSeriesDelete:              n.OnSeriesDelete,
+	}
 }
 
 // NotificationPayload carries only what callers must supply when
@@ -167,7 +196,9 @@ func (c *Client) ListNotifications(ctx context.Context) ([]Notification, error) 
 // notificationFromDTO projects the wire DTO onto the trimmed typed
 // Notification. OnDownloadFailure folds the legacy v3 alias with the
 // v4 ManualInteractionRequired trigger so callers see a single
-// "import-failed enabled" signal regardless of Sonarr version.
+// "import-failed enabled" signal regardless of Sonarr version. The
+// series triggers are surfaced verbatim so the reconciler can detect
+// drift on them (they carry no v3/v4 folding).
 func notificationFromDTO(d notificationDTO) Notification {
 	return Notification{
 		ID: d.ID, Name: d.Name, Implementation: d.Implementation,
@@ -175,6 +206,8 @@ func notificationFromDTO(d notificationDTO) Notification {
 		OnDownloadFailure:           d.OnDownloadFailure || d.OnImportFailure || d.OnManualInteractionRequired,
 		OnManualInteractionRequired: d.OnManualInteractionRequired,
 		OnEpisodeFileDelete:         d.OnEpisodeFileDelete,
+		OnSeriesAdd:                 d.OnSeriesAdd,
+		OnSeriesDelete:              d.OnSeriesDelete,
 		Fields:                      d.Fields,
 	}
 }
@@ -230,8 +263,9 @@ func (c *Client) UpdateNotification(ctx context.Context, existing Notification, 
 	return notificationFromDTO(resp), nil
 }
 
-// setDesiredTriggers turns on exactly the Sonarr notification triggers
-// whose events seasonfill consumes (webhook.EventType.IsConsumed):
+// desiredTriggerDTO is the SINGLE source of the trigger set seasonfill
+// wants on the Sonarr webhook — the events webhook.EventType.IsConsumed
+// covers:
 //
 //	Grabbed             -> onGrab
 //	Imported            -> onDownload
@@ -242,18 +276,43 @@ func (c *Client) UpdateNotification(ctx context.Context, existing Notification, 
 //	SeriesDeleted       -> onSeriesDelete
 //
 // Unsupported events (Rename/FileUpgrade/ImportComplete/Health*/
-// AppUpdate) are deliberately NOT requested. This is the single source
-// of the desired trigger set — Create and Update both call it so they
-// cannot drift.
+// AppUpdate) are deliberately NOT requested. Both the outbound write
+// (setDesiredTriggers) and the drift-check target (DesiredTriggers)
+// derive from this factory so they cannot diverge.
+func desiredTriggerDTO() notificationDTO {
+	return notificationDTO{
+		OnGrab:                      true,
+		OnDownload:                  true,
+		OnManualInteractionRequired: true,
+		OnDownloadFailure:           true,
+		OnImportFailure:             true,
+		OnEpisodeFileDelete:         true,
+		OnSeriesAdd:                 true,
+		OnSeriesDelete:              true,
+	}
+}
+
+// setDesiredTriggers turns on exactly the triggers desiredTriggerDTO
+// declares. Create and Update both call it so their outbound payloads
+// cannot drift from the drift-check target.
 func setDesiredTriggers(dto *notificationDTO) {
-	dto.OnGrab = true
-	dto.OnDownload = true
-	dto.OnManualInteractionRequired = true
-	dto.OnDownloadFailure = true
-	dto.OnImportFailure = true
-	dto.OnEpisodeFileDelete = true
-	dto.OnSeriesAdd = true
-	dto.OnSeriesDelete = true
+	d := desiredTriggerDTO()
+	dto.OnGrab = d.OnGrab
+	dto.OnDownload = d.OnDownload
+	dto.OnManualInteractionRequired = d.OnManualInteractionRequired
+	dto.OnDownloadFailure = d.OnDownloadFailure
+	dto.OnImportFailure = d.OnImportFailure
+	dto.OnEpisodeFileDelete = d.OnEpisodeFileDelete
+	dto.OnSeriesAdd = d.OnSeriesAdd
+	dto.OnSeriesDelete = d.OnSeriesDelete
+}
+
+// DesiredTriggers is the readable trigger set seasonfill wants on the
+// webhook, projected through the SAME notificationFromDTO folding a
+// listed Notification goes through — so it is directly ==-comparable to
+// Notification.Triggers() without version-specific special-casing.
+func DesiredTriggers() TriggerSet {
+	return notificationFromDTO(desiredTriggerDTO()).Triggers()
 }
 
 // dropUnsupportedTriggers strips the triggers an older Sonarr may not

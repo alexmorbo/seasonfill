@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
@@ -31,10 +32,15 @@ const DefaultRetryAfter = 5 * time.Minute
 const DefaultRefreshAfter = 15 * time.Minute
 
 // Reconciler ensures one Sonarr instance carries the seasonfill
-// webhook at the expected URL. Idempotent: two consecutive calls with
-// no external change update the cache only. Concurrent calls for the
-// same instance race on Sonarr writes but never corrupt the cache —
-// every attempt fully replaces the entry.
+// webhook at the expected URL AND the desired trigger set. Idempotent:
+// two consecutive calls with no external change update the cache only.
+// Concurrent calls for the same instance race on Sonarr writes but
+// never corrupt the cache — every attempt fully replaces the entry.
+//
+// `achieved` memoises, per instance, the trigger set Sonarr actually
+// persisted on the last successful write. The trigger-drift check
+// compares against it (not the ideal) so an older Sonarr that drops
+// unsupported triggers converges instead of updating every tick.
 type Reconciler struct {
 	lookup    InstanceLookup
 	publicURL PublicURLFunc
@@ -42,6 +48,9 @@ type Reconciler struct {
 	apiKey    string
 	logger    *slog.Logger
 	now       func() time.Time
+
+	mu       sync.Mutex
+	achieved map[string]sonarr.TriggerSet
 }
 
 type Deps struct {
@@ -76,17 +85,19 @@ func New(d Deps) *Reconciler {
 // WithClock — tests only.
 func (r *Reconciler) WithClock(f func() time.Time) *Reconciler { r.now = f; return r }
 
-// Reconcile ensures the Sonarr-side webhook matches the expected URL.
-// Behaviour:
+// Reconcile ensures the Sonarr-side webhook matches the expected URL
+// AND the desired trigger set. Behaviour:
 //   - WebhookInstallEnabled=false → cache {Installed:false, no error},
 //     no Sonarr call.
 //   - PublicURL unresolved → cache LastError "public_url undetermined"
 //   - NextRetryAt; returns (status, error).
-//   - Existing webhook with matching URL → cache Installed=true, no
-//     write.
-//   - Existing webhook with different URL → UpdateNotification, cache
-//     reflects new URL.
 //   - No existing webhook → CreateNotification.
+//   - Existing webhook whose URL matches AND whose triggers match the
+//     target (achieved memo, or the ideal on first sight) → no write.
+//   - Existing webhook whose URL differs OR whose triggers drift →
+//     UpdateNotification (re-applies the full desired trigger set), then
+//     memoise the achieved set so a version that legitimately drops
+//     triggers does not update on every tick.
 //   - Sonarr error at any step → cache LastError + NextRetryAt, return.
 //
 // NEVER panics. NEVER deletes cache entries — caller uses
@@ -132,8 +143,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, instanceName string) (Status
 		}
 	}
 
-	switch {
-	case match == nil:
+	if match == nil {
 		created, err := notifier.CreateNotification(ctx, sonarr.NotificationPayload{
 			Name:           "seasonfill",
 			URL:            expectedURL,
@@ -143,6 +153,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, instanceName string) (Status
 		if err != nil {
 			return r.recordFailure(ctx, instanceName, now, "create_notification", err), err
 		}
+		r.rememberAchieved(instanceName, created)
 		st := r.successStatus(now, created.ID, expectedURL)
 		r.cache.Set(instanceName, st)
 		r.logger.InfoContext(ctx, "webhook_reconciled",
@@ -150,28 +161,35 @@ func (r *Reconciler) Reconcile(ctx context.Context, instanceName string) (Status
 			slog.String("action", "create"),
 			slog.Int("notification_id", created.ID))
 		return st, nil
+	}
 
-	case sonarr.WebhookFieldURL(match.Fields) == expectedURL:
+	urlMatches := sonarr.WebhookFieldURL(match.Fields) == expectedURL
+	if urlMatches && r.triggersConverged(instanceName, *match) {
 		st := r.successStatus(now, match.ID, expectedURL)
 		r.cache.Set(instanceName, st)
 		return st, nil
-
-	default:
-		updated, err := notifier.UpdateNotification(ctx, *match, sonarr.NotificationPayload{
-			Name: "seasonfill", URL: expectedURL, APIKeyHeader: r.apiKey,
-		})
-		if err != nil {
-			return r.recordFailure(ctx, instanceName, now, "update_notification", err), err
-		}
-		st := r.successStatus(now, updated.ID, expectedURL)
-		r.cache.Set(instanceName, st)
-		r.logger.InfoContext(ctx, "webhook_reconciled",
-			slog.String("instance", instanceName),
-			slog.String("action", "update"),
-			slog.Int("notification_id", updated.ID),
-			slog.String("url", expectedURL))
-		return st, nil
 	}
+
+	updated, err := notifier.UpdateNotification(ctx, *match, sonarr.NotificationPayload{
+		Name: "seasonfill", URL: expectedURL, APIKeyHeader: r.apiKey,
+	})
+	if err != nil {
+		return r.recordFailure(ctx, instanceName, now, "update_notification", err), err
+	}
+	r.rememberAchieved(instanceName, updated)
+	st := r.successStatus(now, updated.ID, expectedURL)
+	r.cache.Set(instanceName, st)
+	reason := "url"
+	if urlMatches {
+		reason = "triggers"
+	}
+	r.logger.InfoContext(ctx, "webhook_reconciled",
+		slog.String("instance", instanceName),
+		slog.String("action", "update"),
+		slog.String("reason", reason),
+		slog.Int("notification_id", updated.ID),
+		slog.String("url", expectedURL))
+	return st, nil
 }
 
 // GetStatus returns the cached Status, lazily triggering Reconcile
@@ -194,6 +212,7 @@ func (r *Reconciler) GetStatus(ctx context.Context, instanceName string) (Status
 // re-created instance starts fresh.
 func (r *Reconciler) HandleInstanceDeleted(ctx context.Context, instanceName string) {
 	defer r.cache.Delete(instanceName)
+	defer r.forgetAchieved(instanceName)
 	cur, hit := r.cache.Get(instanceName)
 	if !hit || !cur.Installed || cur.NotificationID == nil {
 		return
@@ -274,4 +293,42 @@ func pickTemplateFields(list []sonarr.Notification) []sonarr.NotificationField {
 		}
 	}
 	return nil
+}
+
+// triggersConverged reports whether the notification's current trigger
+// flags already equal the target. Target = the achieved memo when we
+// have one (storm-proof: a Sonarr that dropped unsupported triggers has
+// its reduced set as target), else the ideal DesiredTriggers on first
+// sight (upgrades a genuinely-stale install exactly once, after which
+// the write memoises the achieved set).
+func (r *Reconciler) triggersConverged(instanceName string, n sonarr.Notification) bool {
+	cur := n.Triggers()
+	r.mu.Lock()
+	target, ok := r.achieved[instanceName]
+	r.mu.Unlock()
+	if ok {
+		return cur == target
+	}
+	return cur == sonarr.DesiredTriggers()
+}
+
+// rememberAchieved records the trigger set Sonarr persisted on the last
+// successful write. Read straight off the returned Notification, which
+// went through the same notificationFromDTO folding a later LIST does,
+// so a subsequent triggersConverged compare is apples-to-apples.
+func (r *Reconciler) rememberAchieved(instanceName string, n sonarr.Notification) {
+	r.mu.Lock()
+	if r.achieved == nil {
+		r.achieved = make(map[string]sonarr.TriggerSet)
+	}
+	r.achieved[instanceName] = n.Triggers()
+	r.mu.Unlock()
+}
+
+// forgetAchieved drops the memo so a re-created instance re-evaluates
+// against the ideal on its next reconcile.
+func (r *Reconciler) forgetAchieved(instanceName string) {
+	r.mu.Lock()
+	delete(r.achieved, instanceName)
+	r.mu.Unlock()
 }

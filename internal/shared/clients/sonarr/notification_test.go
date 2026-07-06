@@ -415,3 +415,43 @@ func TestWebhookFieldURL_Absent(t *testing.T) {
 	got := WebhookFieldURL(fields)
 	assert.Equal(t, "", got)
 }
+
+func TestNotification_Triggers_FoldsImportFailedFamily(t *testing.T) {
+	t.Parallel()
+	// v4-shaped DTO: import-failed exposed only as onManualInteractionRequired.
+	n := notificationFromDTO(notificationDTO{
+		OnGrab: true, OnDownload: true,
+		OnManualInteractionRequired: true,
+		OnEpisodeFileDelete:         true,
+		OnSeriesAdd:                 true,
+		OnSeriesDelete:              true,
+	})
+	tr := n.Triggers()
+	assert.True(t, tr.OnGrab)
+	assert.True(t, tr.OnDownload)
+	assert.True(t, tr.OnDownloadFailure, "folded from onManualInteractionRequired")
+	assert.True(t, tr.OnManualInteractionRequired)
+	assert.True(t, tr.OnEpisodeFileDelete)
+	assert.True(t, tr.OnSeriesAdd)
+	assert.True(t, tr.OnSeriesDelete)
+}
+
+func TestDesiredTriggers_AllOn(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, TriggerSet{
+		OnGrab:                      true,
+		OnDownload:                  true,
+		OnDownloadFailure:           true,
+		OnManualInteractionRequired: true,
+		OnEpisodeFileDelete:         true,
+		OnSeriesAdd:                 true,
+		OnSeriesDelete:              true,
+	}, DesiredTriggers())
+}
+
+func TestNotificationFromDTO_SurfacesSeriesTriggers(t *testing.T) {
+	t.Parallel()
+	n := notificationFromDTO(notificationDTO{OnSeriesAdd: true})
+	assert.True(t, n.OnSeriesAdd)
+	assert.False(t, n.OnSeriesDelete)
+}
