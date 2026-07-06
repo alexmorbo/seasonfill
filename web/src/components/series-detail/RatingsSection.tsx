@@ -9,8 +9,8 @@ export interface RatingsSectionProps {
   readonly className?: string | undefined;
 }
 
-// Collapses OMDb's absent-value sentinels (nil / "" / "N/A") to empty — same
-// semantics AwardsBlock uses for the awards string.
+// Collapses OMDb's absent-value sentinels (nil / "" / "N/A") to empty — an
+// absent awards / rated value is simply not rendered.
 function isEmptyText(v: string | undefined): boolean {
   if (!v) return true;
   const trimmed = v.trim();

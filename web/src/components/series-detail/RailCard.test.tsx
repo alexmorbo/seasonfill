@@ -35,7 +35,7 @@ describe('RailCard', () => {
     expect(screen.getByTestId('rail-row-premiere-date')).toBeInTheDocument();
     expect(screen.getByTestId('rail-row-countries')).toBeInTheDocument();
     expect(screen.getByTestId('rail-row-original-language')).toBeInTheDocument();
-    // B-36: awards relocated to <AwardsBlock /> — RailCard no longer
+    // B-36: awards relocated to <RatingsSection /> — RailCard no longer
     // renders the row regardless of input.
     expect(screen.queryByTestId('rail-row-awards')).toBeNull();
   });
@@ -104,7 +104,7 @@ describe('RailCard', () => {
     expect(screen.queryByTestId('rail-row-original-language')).toBeNull();
   });
 
-  it('never renders awards row (B-36: relocated to <AwardsBlock />)', () => {
+  it('never renders awards row (B-36: relocated to <RatingsSection />)', () => {
     const hero: SeriesHero = { title: 'X' };
     // `awards` is no longer in RailCardProps — passing it would TS-fail.
     // This guards the runtime invariant in case the type drifts.

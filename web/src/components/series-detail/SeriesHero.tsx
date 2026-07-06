@@ -9,10 +9,12 @@ import { slugifyTitle, buildSonarrSeriesHref } from '@/lib/sonarrUrl';
 import {
   mediaUrl, parseStatus, isSonarrOnly,
   type SeriesHero as HeroDTO,
+  type RatingScore,
   type LibraryStrip,
   type DownloadChip,
   type NextEpisode,
 } from '@/api/series';
+import { useSeriesRatings } from '@/api/seriesRatings';
 import { RatingDuo } from './RatingDuo';
 import { StaleBadge } from './StaleBadge';
 import { TrailerModal } from './TrailerModal';
@@ -50,13 +52,16 @@ function yearRange(start: number | undefined, end: number | undefined, status: s
 }
 
 export function SeriesHero({
-  instance, hero, library, download, tmdbStaleAt, imdbStaleAt, titleSlug,
+  instance, seriesId, hero, library, download, tmdbStaleAt, imdbStaleAt, titleSlug,
   onScrollToTorrents, tmdbSeriesDegraded, imdbLoading,
 }: SeriesHeroProps) {
   const { t } = useTranslation();
   // `useInstancePublicURL` tolerates undefined — returns undefined,
   // which makes `sonarrHref` undefined and hides the Sonarr button.
   const sonarrPublic = useInstancePublicURL(instance ?? '');
+  // #1059 / F-11-FE — shared live /ratings query (same key as RatingsSection ⇒
+  // react-query dedups to one fetch). Drives the effective hero ★ values below.
+  const { data: liveRatings } = useSeriesRatings({ seriesId });
   const status = parseStatus(hero?.status);
   const sonarrOnly = useMemo(() => isSonarrOnly(hero), [hero]);
   const title = hero?.title ?? '';
@@ -76,7 +81,31 @@ export function SeriesHero({
   const sonarrHref = sonarrPublic
     ? buildSonarrSeriesHref(sonarrPublic, titleSlug && titleSlug.length > 0 ? titleSlug : slugifyTitle(title))
     : undefined;
-  const showRatings = !sonarrOnly && (hero?.tmdb_rating || hero?.imdb_rating || imdbLoading);
+  // #1059 / F-11-FE — single-source the hero ★ off the live /ratings query
+  // RatingsSection also consumes (react-query dedups the shared key ⇒ one
+  // fetch, identical numbers, no post-refresh divergence). The skeleton hero
+  // rating is the instant first-paint fallback until /ratings resolves; the
+  // imdbLoading / StaleBadge / degraded prop-wiring is UNCHANGED (those are
+  // orthogonal freshness signals, not rating values).
+  const tmdbScore: RatingScore | undefined =
+    typeof liveRatings?.tmdb_rating === 'number' && liveRatings.tmdb_rating > 0
+      ? {
+          score: liveRatings.tmdb_rating,
+          ...(liveRatings.tmdb_votes && liveRatings.tmdb_votes > 0
+            ? { votes: liveRatings.tmdb_votes }
+            : {}),
+        }
+      : hero?.tmdb_rating;
+  const imdbScore: RatingScore | undefined =
+    typeof liveRatings?.imdb_rating === 'number' && liveRatings.imdb_rating > 0
+      ? {
+          score: liveRatings.imdb_rating,
+          ...(liveRatings.imdb_votes && liveRatings.imdb_votes > 0
+            ? { votes: liveRatings.imdb_votes }
+            : {}),
+        }
+      : hero?.imdb_rating;
+  const showRatings = !sonarrOnly && (tmdbScore || imdbScore || imdbLoading);
   const nextEpisode: NextEpisode | undefined = hero?.next_episode;
   const backdropLoadingLabel = !sonarrOnly && !backdropSrc && tmdbSeriesDegraded
     ? t('seriesDetail.degraded.backdrop.loading')
@@ -201,8 +230,8 @@ export function SeriesHero({
 
               {showRatings && (
                 <RatingDuo
-                  {...(hero?.tmdb_rating ? { tmdb: hero.tmdb_rating } : {})}
-                  {...(hero?.imdb_rating ? { imdb: hero.imdb_rating } : {})}
+                  {...(tmdbScore ? { tmdb: tmdbScore } : {})}
+                  {...(imdbScore ? { imdb: imdbScore } : {})}
                   {...(imdbStaleAt ? { imdbStaleAt } : {})}
                   {...(imdbLoading ? { imdbLoading: true } : {})}
                 />

@@ -1,11 +1,23 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/i18n';
 import type { SeriesHero as HeroDTO } from '@/api/series';
+import type { SeriesRatingsResponse } from '@/api/seriesRatings';
 import { SeriesHero } from './SeriesHero';
+
+// The hero single-sources its ★ from useSeriesRatings; mock the hook so each
+// test drives a controlled /ratings response without a QueryClient/network.
+let heroRatings: SeriesRatingsResponse | undefined;
+vi.mock('@/api/seriesRatings', () => ({
+  useSeriesRatings: () => ({ data: heroRatings }),
+}));
+
+beforeEach(() => {
+  heroRatings = undefined;
+});
 
 function wrap(ui: React.ReactElement) {
   const qc = new QueryClient();
@@ -91,5 +103,41 @@ describe('SeriesHero v2 bleed', () => {
       hero={{ title: 'Cold', status: 'unknown' } as unknown as HeroDTO}
     />));
     expect(screen.getByTestId('hero-back-link')).toBeInTheDocument();
+  });
+});
+
+describe('SeriesHero — single-source ratings (#1059 / F-11-FE)', () => {
+  it('renders the hero ★ from the live /ratings value', () => {
+    heroRatings = { tmdb_rating: 9.2, tmdb_votes: 5_000, sources: { tmdb: 'fresh' } };
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={baseHero as unknown as HeroDTO}
+    />));
+    expect(screen.getByTestId('rating-tmdb')).toHaveTextContent('9.2');
+  });
+
+  it('falls back to the skeleton rating for instant first paint when /ratings is unresolved', () => {
+    heroRatings = undefined;
+    const heroWithRating = { ...baseHero, tmdb_rating: { score: 7.5, votes: 100 } };
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={heroWithRating as unknown as HeroDTO}
+    />));
+    expect(screen.getByTestId('rating-tmdb')).toHaveTextContent('7.5');
+  });
+
+  it('prefers the live /ratings value over the skeleton (single source, no divergence)', () => {
+    heroRatings = { tmdb_rating: 9.9, tmdb_votes: 10, sources: { tmdb: 'fresh' } };
+    const heroWithRating = { ...baseHero, tmdb_rating: { score: 7.5, votes: 100 } };
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={heroWithRating as unknown as HeroDTO}
+    />));
+    const tmdb = screen.getByTestId('rating-tmdb');
+    expect(tmdb).toHaveTextContent('9.9');
+    expect(tmdb).not.toHaveTextContent('7.5');
   });
 });

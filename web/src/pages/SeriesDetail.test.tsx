@@ -117,7 +117,7 @@ const recsFixture = {
   degraded: [] as string[],
 };
 // W18-7b: canonical detail-page ratings surface loads from its own SWR
-// /ratings endpoint (awards migrated in from the removed AwardsBlock).
+// /ratings endpoint (awards served inline by the /ratings payload).
 const ratingsFixture = {
   tmdb_rating: 8.1,
   tmdb_votes: 2100,
@@ -192,8 +192,8 @@ describe('<SeriesDetail />', () => {
     expect(screen.getByTestId('overview-section')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('cast-strip-grid')).toBeInTheDocument());
     expect(screen.getByTestId('rail-card')).toBeInTheDocument();
-    // W18-7b: ratings section renders under cast (replaces AwardsBlock;
-    // awards migrated in). Backed by the SWR /ratings endpoint.
+    // W18-7b: canonical ratings surface renders under cast, backed by the
+    // SWR /ratings endpoint (awards served inline).
     const ratingsSection = await screen.findByTestId('ratings-section');
     expect(ratingsSection).toBeInTheDocument();
     expect(screen.getByTestId('ratings-awards')).toHaveTextContent(
@@ -333,6 +333,18 @@ describe('B-20 degraded per-section', () => {
   it('shows IMDb loading chip in hero when omdb is degraded and rating is missing', async () => {
     installRoutes({
       skeleton: { degraded: ['omdb'], hero: coldHero, sidebar: coldSidebar },
+      // Repoint (#1059): the hero imdb ★ now reads /ratings, so this fixture
+      // must ALSO omit imdb (undefined overrides the default fixture's 8.0)
+      // for the loading-chip path to remain reachable.
+      ratings: {
+        tmdb_rating: 7.5,
+        tmdb_votes: 100,
+        imdb_rating: undefined,
+        imdb_votes: undefined,
+        rated: undefined,
+        awards: undefined,
+        sources: { tmdb: 'fresh', omdb: 'revalidating' },
+      },
     });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('imdb-rating-loading')).toBeInTheDocument());

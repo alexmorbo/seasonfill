@@ -271,11 +271,12 @@ export function SeriesDetail() {
                       {...(tmdbPersonDegraded ? { tmdbPersonDegraded: true } : {})}
                     />
                   )}
-                  {/* W18-7b: canonical ratings surface (SWR /ratings) — TMDB
-                      ★, IMDb, OMDb content-rating + awards. Replaces the
-                      standalone AwardsBlock (awards migrated in). Self-hides
-                      when no source carries a value. Hero TMDB★/IMDb reads are
-                      intentionally left as-is (skeleton-degraded coupled). */}
+                  {/* Canonical ratings surface (SWR /ratings) — TMDB ★, IMDb,
+                      OMDb content-rating + awards. Self-hides when no source
+                      carries a value. The hero ★ reads this SAME /ratings query
+                      (react-query dedup) so the two never show divergent
+                      numbers (#1059); the hero's imdbLoading / StaleBadge stay
+                      driven by the skeleton degraded[] signal. */}
                   <RatingsSection seriesId={seriesId} />
                 </>
               }

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { components } from '@/api/schema';
@@ -60,6 +60,13 @@ export function useSeriesRatings({
   // refetchInterval(query) must stay pure on the data slice (same discipline
   // as series.ts's tickRef).
   const attemptRef = useRef<number>(0);
+  // F-08: the counter is per-hook-instance, and this hook stays mounted across
+  // series navigation (RatingsSection / SeriesHero keep one instance). Reset
+  // the ladder whenever the id changes so a new series starts fresh — otherwise
+  // it inherits the previous series' exhausted counter and never re-polls.
+  useEffect(() => {
+    attemptRef.current = 0;
+  }, [seriesId]);
   return useQuery<SeriesRatingsResponse>({
     queryKey: ready
       ? seriesRatingsQueryKey(seriesId as number)

@@ -15,7 +15,7 @@ type TaxonomyChip = components['schemas']['dto.TaxonomyChip'];
 export interface RailCardProps {
   readonly status: StatusToken;
   readonly hero: SeriesHero | undefined;
-  // B-36: `awards` relocated to <AwardsBlock /> under the cast strip.
+  // B-36: `awards` moved out of the rail — now served by <RatingsSection />.
   // `omdbDegraded` is retained as a no-op pass-through for future rail
   // rows that may need degraded gating (RailCard call site still passes
   // it; deletion would force a SeriesDetail.tsx edit per drop).
@@ -65,7 +65,7 @@ export function RailCard({
   const showCountries = countriesList.length > 0;
   const showPremiereDate = Boolean(hero?.premiere_date);
   const showOriginalLanguage = Boolean(hero?.original_language);
-  // B-36: awards row removed — rendered by <AwardsBlock /> under cast.
+  // B-36: awards row removed — rendered by <RatingsSection /> under cast.
   const showNetwork = Boolean(network?.name);
   const showKeywords = (keywords?.length ?? 0) > 0;
 
@@ -143,7 +143,7 @@ export function RailCard({
             testId="rail-row-original-language"
           />
         )}
-        {/* B-36: awards row relocated to <AwardsBlock /> under cast. */}
+        {/* B-36: awards row relocated to <RatingsSection /> under cast. */}
       </div>
 
       {showKeywords && (
