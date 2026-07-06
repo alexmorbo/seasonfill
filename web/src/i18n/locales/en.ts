@@ -1985,6 +1985,10 @@ export const en = {
     ratings: {
       tmdb: 'TMDB',
       imdb: 'IMDb',
+      sectionTitle: 'Ratings',
+      rated: 'Rated',
+      awards: 'Awards',
+      votes: 'votes',
     },
     stale: {
       asOf: 'as of {{time}}',

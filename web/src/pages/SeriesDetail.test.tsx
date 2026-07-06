@@ -116,6 +116,17 @@ const recsFixture = {
   offset: 0,
   degraded: [] as string[],
 };
+// W18-7b: canonical detail-page ratings surface loads from its own SWR
+// /ratings endpoint (awards migrated in from the removed AwardsBlock).
+const ratingsFixture = {
+  tmdb_rating: 8.1,
+  tmdb_votes: 2100,
+  imdb_rating: 8.0,
+  imdb_votes: 84_000,
+  rated: 'TV-MA',
+  awards: '4 wins, 18 nominations',
+  sources: { tmdb: 'fresh', omdb: 'fresh' },
+};
 
 interface RouteOverrides {
   readonly skeleton?: Record<string, unknown>;
@@ -124,6 +135,7 @@ interface RouteOverrides {
   readonly seasons?: Record<string, unknown>;
   readonly library?: Record<string, unknown>;
   readonly recs?: Record<string, unknown>;
+  readonly ratings?: Record<string, unknown>;
 }
 
 // Install a path-routed mock. Overrides shallow-merge over the section
@@ -136,6 +148,7 @@ function installRoutes(over: RouteOverrides = {}) {
   const seasons = { ...seasonsFixture, ...over.seasons };
   const library = { ...libraryFixture, ...over.library };
   const recs = { ...recsFixture, ...over.recs };
+  const ratings = { ...ratingsFixture, ...over.ratings };
   mockApi.mockImplementation((path: string) => {
     // Default to the skeleton for any unrecognized / transient path so a
     // late-resolving query during cross-test teardown can't throw.
@@ -145,6 +158,7 @@ function installRoutes(over: RouteOverrides = {}) {
     if (path.includes('/cast')) return Promise.resolve(cast);
     if (path.includes('/seasons')) return Promise.resolve(seasons);
     if (path.includes('/library')) return Promise.resolve(library);
+    if (path.includes('/ratings')) return Promise.resolve(ratings);
     return Promise.resolve(skeleton); // /series/:id
   });
 }
@@ -178,17 +192,18 @@ describe('<SeriesDetail />', () => {
     expect(screen.getByTestId('overview-section')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('cast-strip-grid')).toBeInTheDocument());
     expect(screen.getByTestId('rail-card')).toBeInTheDocument();
-    // B-36: awards block renders under cast (no longer inside RailCard).
-    const awardsBlock = screen.getByTestId('awards-block');
-    expect(awardsBlock).toBeInTheDocument();
-    expect(screen.getByTestId('awards-text')).toHaveTextContent(
+    // W18-7b: ratings section renders under cast (replaces AwardsBlock;
+    // awards migrated in). Backed by the SWR /ratings endpoint.
+    const ratingsSection = await screen.findByTestId('ratings-section');
+    expect(ratingsSection).toBeInTheDocument();
+    expect(screen.getByTestId('ratings-awards')).toHaveTextContent(
       '4 wins, 18 nominations',
     );
     expect(screen.queryByTestId('rail-row-awards')).toBeNull();
-    // DOM order — cast strip must come BEFORE the awards block.
+    // DOM order — cast strip must come BEFORE the ratings section.
     const castStrip = screen.getByTestId('cast-strip');
     expect(
-      castStrip.compareDocumentPosition(awardsBlock) &
+      castStrip.compareDocumentPosition(ratingsSection) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument();

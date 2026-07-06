@@ -1983,6 +1983,10 @@ export const ru: Translations = {
     ratings: {
       tmdb: 'TMDB',
       imdb: 'IMDb',
+      sectionTitle: 'Рейтинги',
+      rated: 'Возрастной рейтинг',
+      awards: 'Награды',
+      votes: 'голосов',
     },
     stale: {
       asOf: 'по состоянию на {{time}}',

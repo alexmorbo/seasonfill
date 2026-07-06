@@ -25,7 +25,7 @@ import { DegradedChip } from '@/components/series-detail/DegradedChip';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
 import { RailCard } from '@/components/series-detail/RailCard';
 import { CastStrip } from '@/components/series-detail/CastStrip';
-import { AwardsBlock } from '@/components/series-detail/AwardsBlock';
+import { RatingsSection } from '@/components/series-detail/RatingsSection';
 import { RecentStrip } from '@/components/series-detail/RecentStrip';
 import { SeriesDetailSkeleton } from '@/components/series-detail/SeriesDetailSkeleton';
 import { StaleBadge } from '@/components/series-detail/StaleBadge';
@@ -271,14 +271,12 @@ export function SeriesDetail() {
                       {...(tmdbPersonDegraded ? { tmdbPersonDegraded: true } : {})}
                     />
                   )}
-                  {/* B-36: awards relocated from right MetaSidebar to under
-                      cast. AwardsBlock self-hides when awards is empty / N/A
-                      or omdb is degraded — no outer guard needed here. */}
-                  <AwardsBlock
-                    awards={overviewData?.awards ?? undefined}
-                    omdbDegraded={omdbDegraded}
-                    {...(syncedAt ? { syncedAt } : {})}
-                  />
+                  {/* W18-7b: canonical ratings surface (SWR /ratings) — TMDB
+                      ★, IMDb, OMDb content-rating + awards. Replaces the
+                      standalone AwardsBlock (awards migrated in). Self-hides
+                      when no source carries a value. Hero TMDB★/IMDb reads are
+                      intentionally left as-is (skeleton-degraded coupled). */}
+                  <RatingsSection seriesId={seriesId} />
                 </>
               }
               right={
