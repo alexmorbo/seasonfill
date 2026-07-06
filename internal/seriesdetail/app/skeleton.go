@@ -366,6 +366,18 @@ func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, can
 				backdropPath = mt.BackdropAsset
 			}
 		}
+		// W18-15 — GetWithFallback picks ONE best-language ROW; if that row is
+		// poster-only (backdrop_asset NULL — RefreshMediaAssets historically
+		// wrote ru rows with no backdrop) the hero would render a placeholder
+		// even though an en-US / other-language row HAS a backdrop. Recover with
+		// a per-COLUMN any-language backdrop (prefer requested lang → en-US →
+		// any). Poster stays strictly per-language (per-lang poster art is
+		// intentional, #977/#978).
+		if backdropPath == nil {
+			if bp, berr := sc.d.SeriesMediaTexts.GetBackdropAnyLang(ctx, seriesID, langStr); berr == nil && bp != nil && *bp != "" {
+				backdropPath = bp
+			}
+		}
 	}
 
 	syncCtx, cancel := context.WithTimeout(ctx, posterResolveBudget)

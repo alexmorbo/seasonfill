@@ -132,6 +132,10 @@ func (f *fakeFallbackMedia) ListByIDsWithFallback(_ context.Context, _ []domain.
 	return map[domain.SeriesID]series.SeriesMediaText{}, nil
 }
 
+func (f *fakeFallbackMedia) GetBackdropAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
+	return nil, nil
+}
+
 // fakeFallbackKeywords satisfies seriesdetail.KeywordsPort.
 type fakeFallbackKeywords struct {
 	ids      []int64

@@ -103,6 +103,11 @@ type SeriesTextsPort interface {
 type SeriesMediaTextsPort interface {
 	GetWithFallback(ctx context.Context, seriesID domain.SeriesID, language string) (series.SeriesMediaText, error)
 	ListByIDsWithFallback(ctx context.Context, seriesIDs []domain.SeriesID, language string) (map[domain.SeriesID]series.SeriesMediaText, error)
+	// GetBackdropAnyLang returns a per-COLUMN backdrop path across all languages
+	// (prefer language → en-US → any), skipping NULL backdrops, so the skeleton
+	// hero recovers a backdrop when the best-language row is poster-only (W18-15).
+	// Returns (nil, nil) when no row carries a backdrop.
+	GetBackdropAnyLang(ctx context.Context, seriesID domain.SeriesID, preferLang string) (*string, error)
 }
 
 // SeasonsPort lists every season row for a series, ordered by

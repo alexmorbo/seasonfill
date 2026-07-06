@@ -171,12 +171,3 @@ func pickPosterForLangStrict(imgs *tmdb.TVImages, lang string) *string {
 	}
 	return pickByLangPriority(imgs.Posters, []langMatcher{matchISO(shortLang(lang))})
 }
-
-// pickBackdropForLangStrict: EXACT short(lang) tier ONLY (no agnostic/en/root).
-// Non-base backdrop counterpart to pickPosterForLangStrict.
-func pickBackdropForLangStrict(imgs *tmdb.TVImages, lang string) *string {
-	if imgs == nil || len(imgs.Backdrops) == 0 || shortLang(lang) == "" {
-		return nil
-	}
-	return pickByLangPriority(imgs.Backdrops, []langMatcher{matchISO(shortLang(lang))})
-}

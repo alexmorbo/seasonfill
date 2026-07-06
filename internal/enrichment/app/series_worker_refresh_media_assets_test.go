@@ -110,9 +110,10 @@ func newMediaFixture(t *testing.T, canonTMDBID *domain.TMDBID, probe freshener.P
 
 // helper: canonical happy-path TV payload — one series-level poster+backdrop
 // + 3 seasons (season 2 has empty poster to exercise the skip-empty filter).
-// Images is nil, so the base en-US series_media_texts row falls back to the
-// root poster/backdrop and the non-base ru-RU strict pick finds nothing → the
-// ru row is skipped (anti-poison).
+// Images is nil, so the base en-US series_media_texts row falls back to the root
+// poster/backdrop. The non-base ru-RU poster stays STRICT (Images nil → nil
+// poster), but W18-15 gives its backdrop the neutral→lang→en→root ladder, so the
+// ru row is written with a root-fallback backdrop (parity with RefreshSeriesAllLangs).
 func canonicalMediaTV(parentTMDB int64) *tmdb.TVResponse {
 	return mediaTVPayload(parentTMDB, "/p.jpg", "/b.jpg", []tmdb.TVSeasonStub{
 		{ID: 5001, SeasonNumber: 1, Name: "S1", Overview: "ov1", AirDate: "2020-01-01", PosterPath: "/s1.jpg"},
@@ -269,15 +270,26 @@ func TestSeriesWorker_RefreshMediaAssets_HappyPath(t *testing.T) {
 	require.NotNil(t, s1.TMDBSeasonID)
 	assert.Equal(t, 5001, *s1.TMDBSeasonID)
 
-	// series_media_texts: exactly one en-US row (ru-RU skipped, no strict art).
-	require.Len(t, caps.seriesMedia.rows, 1, "base en-US row written; ru-RU skipped (anti-poison)")
-	smt := caps.seriesMedia.rows[0]
-	assert.Equal(t, "en-US", smt.Language)
+	// series_media_texts: en-US (root poster+backdrop) + ru-RU (poster strict
+	// nil, backdrop root-fallback /b.jpg — W18-15 non-base backdrop parity).
+	require.Len(t, caps.seriesMedia.rows, 2, "en-US base row + ru-RU root-fallback backdrop row")
+	byLang := map[string]series.SeriesMediaText{}
+	for _, r := range caps.seriesMedia.rows {
+		byLang[r.Language] = r
+	}
+	require.Contains(t, byLang, "en-US")
+	require.Contains(t, byLang, "ru-RU")
+	smt := byLang["en-US"]
 	require.NotNil(t, smt.PosterAsset)
 	assert.Equal(t, "/p.jpg", *smt.PosterAsset, "base poster from root fallback")
 	require.NotNil(t, smt.BackdropAsset)
 	assert.Equal(t, "/b.jpg", *smt.BackdropAsset, "base backdrop from root fallback")
 	require.NotNil(t, smt.EnrichedAt)
+	// ru-RU: strict poster finds nothing (Images nil) → nil; backdrop falls to
+	// the root (W18-15) so the row is written backdrop-only.
+	assert.Nil(t, byLang["ru-RU"].PosterAsset, "no ru poster art → nil (poster stays strict)")
+	require.NotNil(t, byLang["ru-RU"].BackdropAsset, "ru backdrop from root fallback (W18-15)")
+	assert.Equal(t, "/b.jpg", *byLang["ru-RU"].BackdropAsset)
 
 	// season_media_texts: 2 en-US rows (season 1 + 3).
 	require.Len(t, caps.seasonMedia.rows, 2)
@@ -291,20 +303,24 @@ func TestSeriesWorker_RefreshMediaAssets_HappyPath(t *testing.T) {
 	require.NotNil(t, byNum[1].PosterAsset)
 	assert.Equal(t, "/s1.jpg", *byNum[1].PosterAsset)
 
-	// MediaResolver calls: series poster + series backdrop + 2 season posters = 4.
-	require.Len(t, resolver.calls, 4)
+	// MediaResolver calls: en poster + en backdrop + ru backdrop (root) + 2
+	// season posters = 5 (ru poster is nil → no poster resolve).
+	require.Len(t, resolver.calls, 5)
 	assert.Equal(t, "poster_w342", resolver.calls[0].Kind)
 	require.NotNil(t, resolver.calls[0].Path)
 	assert.Equal(t, "/p.jpg", *resolver.calls[0].Path)
 	assert.Equal(t, "backdrop_w1280", resolver.calls[1].Kind)
 	require.NotNil(t, resolver.calls[1].Path)
 	assert.Equal(t, "/b.jpg", *resolver.calls[1].Path)
-	assert.Equal(t, "poster_w342", resolver.calls[2].Kind)
+	assert.Equal(t, "backdrop_w1280", resolver.calls[2].Kind, "ru-RU root-fallback backdrop resolve (W18-15)")
 	require.NotNil(t, resolver.calls[2].Path)
-	assert.Equal(t, "/s1.jpg", *resolver.calls[2].Path)
+	assert.Equal(t, "/b.jpg", *resolver.calls[2].Path)
 	assert.Equal(t, "poster_w342", resolver.calls[3].Kind)
 	require.NotNil(t, resolver.calls[3].Path)
-	assert.Equal(t, "/s3.jpg", *resolver.calls[3].Path)
+	assert.Equal(t, "/s1.jpg", *resolver.calls[3].Path)
+	assert.Equal(t, "poster_w342", resolver.calls[4].Kind)
+	require.NotNil(t, resolver.calls[4].Path)
+	assert.Equal(t, "/s3.jpg", *resolver.calls[4].Path)
 }
 
 // A non-base language with a strict poster in images[] gets its OWN
@@ -485,10 +501,16 @@ func TestSeriesWorker_RefreshMediaAssets_NilMediaResolver_HappyPath(t *testing.T
 	require.NoError(t, err, "nil MediaResolver MUST be tolerated")
 	assert.True(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"), "writes still fire without resolver")
 	require.NotNil(t, f.series.rows[1].EnrichmentMediaSyncedAt)
-	// Rows still written (raw paths), just without hashes.
-	require.Len(t, caps.seriesMedia.rows, 1)
-	assert.Nil(t, caps.seriesMedia.rows[0].PosterHash, "no resolver → no hash, raw path only")
-	require.NotNil(t, caps.seriesMedia.rows[0].PosterAsset)
+	// en-US + ru-RU (W18-15 root-fallback backdrop) rows, raw paths only (no hashes).
+	require.Len(t, caps.seriesMedia.rows, 2)
+	byLang := map[string]series.SeriesMediaText{}
+	for _, r := range caps.seriesMedia.rows {
+		byLang[r.Language] = r
+	}
+	require.NotNil(t, byLang["en-US"].PosterAsset)
+	assert.Nil(t, byLang["en-US"].PosterHash, "no resolver → no hash, raw path only")
+	require.NotNil(t, byLang["ru-RU"].BackdropAsset, "ru backdrop from root fallback (W18-15)")
+	assert.Equal(t, "/b.jpg", *byLang["ru-RU"].BackdropAsset)
 	require.Len(t, caps.seasonMedia.rows, 2)
 }
 
@@ -538,4 +560,68 @@ func TestSeriesWorker_RefreshMediaAssets_NilTMDBResponse_Skip(t *testing.T) {
 	assert.False(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"), "no stamp on nil response")
 	assert.Empty(t, resolver.calls)
 	assert.Empty(t, caps.seriesMedia.rows)
+}
+
+// W18-15 — non-base backdrop parity: RefreshMediaAssets used a STRICT backdrop
+// pick, leaving a poster-only ru-RU row (backdrop NULL) whenever TMDB carried a
+// ru poster but only a neutral/en backdrop. The fix uses the same
+// neutral→lang→en→root ladder as RefreshSeriesAllLangs, so the ru row carries a
+// backdrop; the POSTER stays strict (per-lang art intentional).
+func TestSeriesWorker_RefreshMediaAssets_NonBaseBackdrop_NeutralFallback(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	resolver := &fakeMediaResolver{}
+	tv := mediaTVPayload(42, "/root_p.jpg", "/root_b.jpg", nil)
+	en, ru := "en", "ru"
+	tv.Images = &tmdb.TVImages{
+		Posters: []tmdb.TVImage{
+			{FilePath: "/en_poster.jpg", ISO6391: &en, VoteAverage: 8, VoteCount: 40},
+			{FilePath: "/ru_poster.jpg", ISO6391: &ru, VoteAverage: 7, VoteCount: 20},
+		},
+		Backdrops: []tmdb.TVImage{
+			{FilePath: "/neutral_bd.jpg", ISO6391: nil, VoteAverage: 6, VoteCount: 10}, // NO ru backdrop
+		},
+	}
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, tv)
+	require.NoError(t, f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true))
+
+	byLang := map[string]series.SeriesMediaText{}
+	for _, r := range caps.seriesMedia.rows {
+		byLang[r.Language] = r
+	}
+	require.Contains(t, byLang, "ru-RU", "ru-RU row must be written (poster present)")
+	require.NotNil(t, byLang["ru-RU"].PosterAsset)
+	assert.Equal(t, "/ru_poster.jpg", *byLang["ru-RU"].PosterAsset, "poster stays strict ru")
+	require.NotNil(t, byLang["ru-RU"].BackdropAsset, "W18-15 — ru backdrop must NOT be NULL")
+	assert.Equal(t, "/neutral_bd.jpg", *byLang["ru-RU"].BackdropAsset, "ru backdrop from neutral tier")
+	require.NotNil(t, byLang["en-US"].PosterAsset)
+	assert.Equal(t, "/en_poster.jpg", *byLang["en-US"].PosterAsset)
+	require.NotNil(t, byLang["en-US"].BackdropAsset)
+	assert.Equal(t, "/neutral_bd.jpg", *byLang["en-US"].BackdropAsset)
+}
+
+// W18-15 — when TMDB carries NO tagged backdrop at all, the non-base row still
+// gets the ROOT backdrop (root-fallback parity with RefreshSeriesAllLangs).
+func TestSeriesWorker_RefreshMediaAssets_NonBaseBackdrop_RootFallback(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	resolver := &fakeMediaResolver{}
+	tv := mediaTVPayload(42, "/root_p.jpg", "/root_b.jpg", nil)
+	ru := "ru"
+	tv.Images = &tmdb.TVImages{
+		Posters:   []tmdb.TVImage{{FilePath: "/ru_poster.jpg", ISO6391: &ru, VoteAverage: 7, VoteCount: 20}},
+		Backdrops: nil, // no tagged backdrops anywhere
+	}
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, tv)
+	require.NoError(t, f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true))
+
+	byLang := map[string]series.SeriesMediaText{}
+	for _, r := range caps.seriesMedia.rows {
+		byLang[r.Language] = r
+	}
+	require.Contains(t, byLang, "ru-RU")
+	require.NotNil(t, byLang["ru-RU"].BackdropAsset, "root-fallback backdrop for non-base lang")
+	assert.Equal(t, "/root_b.jpg", *byLang["ru-RU"].BackdropAsset)
+	require.NotNil(t, byLang["ru-RU"].PosterAsset)
+	assert.Equal(t, "/ru_poster.jpg", *byLang["ru-RU"].PosterAsset, "poster still strict ru")
 }

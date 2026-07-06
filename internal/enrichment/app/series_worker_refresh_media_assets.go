@@ -23,11 +23,13 @@ import (
 //     root fallback tv.PosterPath; pickBackdropForLang with root fallback
 //     tv.BackdropPath. This guarantees the en-US baseline row and closes the
 //     "no media row while SectionMedia is Fresh" silent hole.
-//     - NON-base langs (ru-RU): pickPosterForLangStrict / pickBackdropForLangStrict
-//     — EXACT short(lang) tier ONLY, no agnostic/en/root fallback. If TMDB
-//     carries no art in that exact language the row is SKIPPED (never poison a
-//     ru row with en art — the W15-2 any-lang reader + async per-lang path
-//     cover it later).
+//     - NON-base langs (ru-RU): poster uses pickPosterForLangStrict — EXACT
+//     short(lang) tier ONLY, no agnostic/en/root fallback, so a ru poster row
+//     is never poisoned by en art. Backdrop uses pickBackdropForLang (short(lang)
+//     with lang-agnostic root fallback), since backdrops are typically textless
+//     and a language-neutral backdrop is acceptable. If both come back nil the
+//     row is SKIPPED (the W15-2 any-lang reader + async per-lang path cover it
+//     later).
 //     - A row is written only when poster OR backdrop is non-nil — a row with no
 //     art is useless (applies to base and non-base alike).
 //
@@ -272,7 +274,19 @@ func (w *SeriesWorker) RefreshMediaAssets(
 				}
 			} else {
 				posterPath = pickPosterForLangStrict(tv.Images, l)
-				backdropPath = pickBackdropForLangStrict(tv.Images, l)
+				// W18-15 — non-base backdrop parity with RefreshSeriesAllLangs
+				// (series_worker_refresh_all_langs.go:161-168). Backdrops are
+				// textless key-art (no baked-in localized title), so the
+				// neutral → lang → en → root ladder cannot poison a language row
+				// the way a poster would. The old strict pick left a poster-only
+				// ru row (backdrop NULL) whenever TMDB carried a ru poster but
+				// only neutral/en backdrops, forcing the hero to render a
+				// placeholder. POSTER stays STRICT (#977/#978 — per-lang poster
+				// art is intentional).
+				backdropPath = pickBackdropForLang(tv.Images, l)
+				if backdropPath == nil {
+					backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+				}
 			}
 			if posterPath == nil && backdropPath == nil {
 				continue

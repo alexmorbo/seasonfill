@@ -69,6 +69,10 @@ func (f *recFakeMediaBatch) ListByIDsWithFallback(_ context.Context, ids []domai
 	return out, nil
 }
 
+func (f *recFakeMediaBatch) GetBackdropAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
+	return nil, nil
+}
+
 // TestComposerGetRecommendations_LangLocalisesPresentTitles pins the
 // bug the operator surfaced live: series_texts.ru-RU exists but the
 // wire still emitted the EN canon.Title. Two recs — one with a

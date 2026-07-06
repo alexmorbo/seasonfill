@@ -155,8 +155,9 @@ func (f *fakeSkNextEpisode) NextAired(context.Context, domain.SeriesID, string) 
 // fake. GetWithFallback returns the configured row/err; the batch method
 // is unused by the skeleton path.
 type fakeSkMediaTexts struct {
-	row series.SeriesMediaText
-	err error
+	row         series.SeriesMediaText
+	err         error
+	backdropAny *string // W18-15 — GetBackdropAnyLang result
 }
 
 func (f *fakeSkMediaTexts) GetWithFallback(context.Context, domain.SeriesID, string) (series.SeriesMediaText, error) {
@@ -164,6 +165,9 @@ func (f *fakeSkMediaTexts) GetWithFallback(context.Context, domain.SeriesID, str
 }
 func (f *fakeSkMediaTexts) ListByIDsWithFallback(context.Context, []domain.SeriesID, string) (map[domain.SeriesID]series.SeriesMediaText, error) {
 	return nil, nil
+}
+func (f *fakeSkMediaTexts) GetBackdropAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
+	return f.backdropAny, nil
 }
 
 // fakeSkMediaLookup is an always-miss HashLookupPort: HashForSourceURL
@@ -997,4 +1001,44 @@ func TestSkeletonComposer_ExternalLinks_EmptyHomepageNilled(t *testing.T) {
 	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "en-US"))
 	require.NoError(t, err)
 	require.Nil(t, dto.ExternalLinks.Homepage) // "" → nil, no bare footer link
+}
+
+// W18-15 — the best-language row is POSTER-ONLY (backdrop NULL); the hero must
+// recover a backdrop from the per-column any-language fallback, not a placeholder.
+func TestSkeletonComposer_PerLangBackdrop_AnyLangFallback(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := skBaseDeps(skBaseCanon())
+	deps.MediaResolver = skEagerResolver()
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{
+		row: series.SeriesMediaText{
+			SeriesID:      42,
+			Language:      "ru-RU",
+			PosterAsset:   new("/ru.jpg"),
+			BackdropAsset: nil, // poster-only ru row — the bug
+		},
+		backdropAny: new("/en_bg.jpg"), // an en-US / other-lang row HAS a backdrop
+	}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, skEagerHash("/ru.jpg", "w342"), dto.Hero.PosterAsset.Value(), "poster stays per-lang ru")
+	require.Equal(t, skEagerHash("/en_bg.jpg", "w1280"), dto.Hero.BackdropAsset.Value(),
+		"W18-15 — backdrop recovered from any-lang fallback, not a placeholder")
+}
+
+// W18-15 negative — poster-only row AND no backdrop in any language → the hero
+// backdrop stays zero (placeholder); the fallback must not fabricate one.
+func TestSkeletonComposer_PerLangBackdrop_AnyLangMiss_NilBackdrop(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := skBaseDeps(skBaseCanon())
+	deps.MediaResolver = skEagerResolver()
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{
+		row:         series.SeriesMediaText{SeriesID: 42, Language: "ru-RU", PosterAsset: new("/ru.jpg")},
+		backdropAny: nil, // no backdrop in any language
+	}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, skEagerHash("/ru.jpg", "w342"), dto.Hero.PosterAsset.Value())
+	require.True(t, dto.Hero.BackdropAsset.IsZero(), "no backdrop anywhere → zero (placeholder)")
 }

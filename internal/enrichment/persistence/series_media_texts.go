@@ -62,6 +62,36 @@ func (r *SeriesMediaTextsRepository) GetWithFallback(ctx context.Context, series
 	return toSeriesMediaText(m), nil
 }
 
+// GetBackdropAnyLang returns the best per-COLUMN backdrop path for a series
+// across ALL languages, preferring preferLang, then en-US, then any other
+// language (deterministic language ASC). Unlike GetWithFallback — which picks
+// ONE best-language ROW and then reads whatever backdrop_asset that row happens
+// to carry (NULL for a poster-only row) — this scans only rows whose
+// backdrop_asset is non-NULL, so a poster-only requested-language row never
+// shadows another language's row that DOES have a backdrop (W18-15). Mirrors the
+// per-column any-lang subselect the discovery list/search projections already
+// use (list_repository.go / search.go). Returns (nil, nil) when NO language row
+// carries a backdrop — the composer then renders a placeholder.
+func (r *SeriesMediaTextsRepository) GetBackdropAnyLang(ctx context.Context, seriesID domain.SeriesID, preferLang string) (*string, error) {
+	if preferLang == "" {
+		preferLang = fallbackLanguage
+	}
+	const q = "SELECT smt.backdrop_asset AS backdrop_asset " +
+		"FROM series_media_texts smt " +
+		"WHERE smt.series_id = ? AND smt.backdrop_asset IS NOT NULL AND smt.backdrop_asset <> '' " +
+		"ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = ? THEN 1 ELSE 0 END DESC, smt.language ASC " +
+		"LIMIT 1"
+	var row struct {
+		BackdropAsset *string `gorm:"column:backdrop_asset"`
+	}
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Raw(q, int64(seriesID), preferLang, fallbackLanguage).
+		Scan(&row).Error; err != nil {
+		return nil, fmt.Errorf("get backdrop any-lang (series_media_texts): %w", err)
+	}
+	return row.BackdropAsset, nil
+}
+
 // ListByIDsWithFallback returns one SeriesMediaText per requested
 // series_id, applying the never-empty poster ladder (requested language →
 // en-US → any-available-language) in at most three round-trips. Mirrors

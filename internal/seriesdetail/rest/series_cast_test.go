@@ -121,6 +121,10 @@ func (f castHandlerFakeMediaTexts) ListByIDsWithFallback(_ context.Context, _ []
 	return map[domain.SeriesID]series.SeriesMediaText{}, nil
 }
 
+func (f castHandlerFakeMediaTexts) GetBackdropAnyLang(_ context.Context, _ domain.SeriesID, _ string) (*string, error) {
+	return nil, nil
+}
+
 func newCastComposerForHandlerTest(canon series.Canon, cacheEntries map[string]series.CacheEntry,
 	cast []people.SeriesCredit, persons map[int64]people.Person, total int, posterRaw *string,
 ) *seriesdetail.CastComposer {
