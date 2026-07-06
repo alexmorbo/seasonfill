@@ -157,6 +157,14 @@ type SeriesRepo interface {
 	// seriesUpsertAssignments() line 818 — pre-reserved slot from A2 I-1
 	// defensive addition).
 	MarkMediaSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
+	// UpdateOMDbColumns — W18-6 (M-1): plain-assigns the four OMDb-owned
+	// columns (imdb_rating, imdb_votes, omdb_rated, omdb_awards) onto the
+	// canon row, writing NULL for any nil pointer so an OMDb "N/A" response
+	// CLEARS a previously-stored rating. The OMDb worker is the SOLE owner of
+	// these columns; every other writer goes through the COALESCE Upsert path
+	// (seriesUpsertAssignments) and cannot clobber them. Called inside the
+	// worker's success tx, keyed by series id.
+	UpdateOMDbColumns(ctx context.Context, id domain.SeriesID, rating *float64, votes *int, rated *string, awards *string) error
 }
 
 type SeriesTextsRepo interface {

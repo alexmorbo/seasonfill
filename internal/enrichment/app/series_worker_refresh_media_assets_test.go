@@ -453,6 +453,11 @@ func (e *erroringSeriesRepo) MarkMediaSynced(ctx context.Context, id domain.Seri
 	return e.inner.MarkMediaSynced(ctx, id, now)
 }
 
+// UpdateOMDbColumns — W18-6: no-op stub to satisfy SeriesRepo.
+func (e *erroringSeriesRepo) UpdateOMDbColumns(_ context.Context, _ domain.SeriesID, _ *float64, _ *int, _ *string, _ *string) error {
+	return nil
+}
+
 func TestSeriesWorker_RefreshMediaAssets_SeriesUpsertError_NoStamp(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)

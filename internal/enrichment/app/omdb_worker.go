@@ -183,11 +183,19 @@ func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error
 	// 5. Map outside the tx.
 	mapped := omdb.Map(resp)
 
-	// 6. ONE tx: patch the four OMDb columns onto the canon row.
+	// 6. ONE tx: plain-assign the four OMDb-owned columns onto the canon row.
+	//    UpdateOMDbColumns writes NULL for any nil pointer (unlike the COALESCE
+	//    Upsert path), so an OMDb "N/A" response actively CLEARS a previously-
+	//    stored rating — M-1 fix. The worker always supplies all four values
+	//    (mapper yields value-or-nil per field), so the blanket assign is safe.
+	var votes *int
+	if mapped.IMDBVotes != nil {
+		v := int(*mapped.IMDBVotes)
+		votes = &v
+	}
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
-		patched := applyOMDbToCanon(canon, mapped)
-		_, err := w.deps.Series.Upsert(txCtx, patched)
-		return err
+		return w.deps.Series.UpdateOMDbColumns(txCtx, seriesID,
+			mapped.IMDBRating, votes, mapped.OMDbRated, mapped.OMDbAwards)
 	})
 	if err != nil {
 		return w.handleClientError(ctx, seriesID, "tx", err, prevAttempts, start)
@@ -248,25 +256,6 @@ func classifyOMDbKind(c series.Canon, now time.Time) enrichment.Kind {
 	default:
 		return enrichment.KindOMDbAncient
 	}
-}
-
-// applyOMDbToCanon patches ONLY the four OMDb-owned columns onto the
-// existing canon row. Every other field on `base` carries through —
-// the merge policy (§5.4) guarantees OMDb never overrides Sonarr or
-// TMDB-owned fields. We pre-clear the fields so a None response
-// (mapper returns Enrichment{}) translates to NULL writes, matching
-// the "N/A" → NULL contract for in-place updates.
-func applyOMDbToCanon(base series.Canon, m omdb.Enrichment) series.Canon {
-	base.IMDBRating = m.IMDBRating
-	if m.IMDBVotes != nil {
-		v := int(*m.IMDBVotes)
-		base.IMDBVotes = &v
-	} else {
-		base.IMDBVotes = nil
-	}
-	base.OMDBRated = m.OMDbRated
-	base.OMDBAwards = m.OMDbAwards
-	return base
 }
 
 // ---- error handling + journal helpers ------------------------------

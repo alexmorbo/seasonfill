@@ -233,6 +233,13 @@ func (f *fakeSeriesRepo) MarkMediaSynced(ctx context.Context, id domain.SeriesID
 	return nil
 }
 
+// UpdateOMDbColumns — W18-6: no-op; the series worker never issues OMDb
+// owner-writes (that's the OMDb worker's job). Present only to satisfy the
+// SeriesRepo interface.
+func (f *fakeSeriesRepo) UpdateOMDbColumns(_ context.Context, _ domain.SeriesID, _ *float64, _ *int, _ *string, _ *string) error {
+	return nil
+}
+
 // UpsertStub mirrors the production COALESCE semantics: existing
 // non-NULL columns win over the stub's value. An existing 'full' row
 // keeps its hydration. Story 319 — see SeriesRepository.UpsertStub.

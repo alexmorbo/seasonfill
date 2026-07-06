@@ -456,6 +456,54 @@ func (r *SeriesRepository) MarkOMDBSynced(ctx context.Context, seriesID domain.S
 	return nil
 }
 
+// UpdateOMDbColumns writes the four OMDb-owned columns (imdb_rating,
+// imdb_votes, omdb_rated, omdb_awards) as PLAIN values — INCLUDING NULL —
+// onto the existing series row, keyed by id. The OMDb worker is the SOLE
+// owner of these columns per the merge policy (§5.4): TMDB and Sonarr never
+// write them.
+//
+// Plain assignment (NOT COALESCE) is the whole point: it lets an OMDb "N/A"
+// response actively CLEAR a previously-stored rating. GORM's
+// Updates(map[string]any{...}) binds a nil map value as SQL NULL (unlike
+// struct-based Updates, which skips zero-values). Contrast with
+// seriesUpsertAssignments() COALESCE(excluded.<col>, series.<col>), which
+// every OTHER writer (Sonarr-sync Upsert, UpsertStub, recs) uses so they
+// cannot clobber OMDb data — that path deliberately preserves the stored
+// value when its own payload is nil.
+//
+// Safe as a blanket assign: the worker always supplies the full intended
+// value for all four columns on every call (omdb.Map yields value-or-nil per
+// field), so there is no partial-OMDb-write path that this could wrongly null.
+// Bumps updated_at like the Mark*Synced writers. Participates in the caller's
+// tx via dbFromContext so the worker's success tx wraps it.
+func (r *SeriesRepository) UpdateOMDbColumns(
+	ctx context.Context,
+	id domain.SeriesID,
+	rating *float64,
+	votes *int,
+	rated *string,
+	awards *string,
+) error {
+	if id == 0 {
+		return fmt.Errorf("update omdb columns: series_id must be non-zero")
+	}
+	now := time.Now().UTC()
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"imdb_rating": rating,
+			"imdb_votes":  votes,
+			"omdb_rated":  rated,
+			"omdb_awards": awards,
+			"updated_at":  now,
+		}).Error
+	if err != nil {
+		return fmt.Errorf("update omdb columns: %w", err)
+	}
+	return nil
+}
+
 // MarkTextSynced stamps series.enrichment_text_synced_at = now. Same
 // shape as MarkTMDBSynced — A2 narrow refresh writer. The COALESCE on
 // the Upsert path (seriesUpsertAssignments) ensures a concurrent

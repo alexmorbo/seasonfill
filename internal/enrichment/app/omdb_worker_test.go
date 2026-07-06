@@ -19,10 +19,19 @@ import (
 
 // --- fakes for OMDb worker -----------------------------------------
 
+type omdbColumnWrite struct {
+	id     domain.SeriesID
+	rating *float64
+	votes  *int
+	rated  *string
+	awards *string
+}
+
 type fakeOMDbSeries struct {
-	canon   series.Canon
-	getErr  error
-	upserts []series.Canon
+	canon       series.Canon
+	getErr      error
+	upserts     []series.Canon
+	omdbUpdates []omdbColumnWrite
 }
 
 func (f *fakeOMDbSeries) Get(_ context.Context, id domain.SeriesID) (series.Canon, error) {
@@ -83,6 +92,16 @@ func (f *fakeOMDbSeries) MarkRecsSynced(_ context.Context, _ domain.SeriesID, _ 
 
 // MarkMediaSynced — E-1 A4: no-op for OMDb tests.
 func (f *fakeOMDbSeries) MarkMediaSynced(_ context.Context, _ domain.SeriesID, _ time.Time) error {
+	return nil
+}
+
+// UpdateOMDbColumns — W18-6: records the owner-write the OMDb worker now
+// issues instead of Upsert. Captures nil pointers verbatim so the N/A-clears
+// contract is assertable.
+func (f *fakeOMDbSeries) UpdateOMDbColumns(_ context.Context, id domain.SeriesID, rating *float64, votes *int, rated *string, awards *string) error {
+	f.omdbUpdates = append(f.omdbUpdates, omdbColumnWrite{
+		id: id, rating: rating, votes: votes, rated: rated, awards: awards,
+	})
 	return nil
 }
 
@@ -216,27 +235,19 @@ func TestOMDbWorker_HappyPath_PatchesFourFieldsOnly(t *testing.T) {
 
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Equal(t, 1, f.client.calls)
-	require.Len(t, f.series.upserts, 1)
+	require.Len(t, f.series.omdbUpdates, 1)
 
-	upserted := f.series.upserts[0]
-	// OMDb-owned columns patched.
-	require.NotNil(t, upserted.IMDBRating)
-	assert.InDelta(t, 9.5, *upserted.IMDBRating, 1e-9)
-	require.NotNil(t, upserted.IMDBVotes)
-	assert.Equal(t, 2034123, *upserted.IMDBVotes)
-	require.NotNil(t, upserted.OMDBRated)
-	assert.Equal(t, "TV-MA", *upserted.OMDBRated)
-	require.NotNil(t, upserted.OMDBAwards)
-	// Non-OMDb fields preserved.
-	require.NotNil(t, upserted.TMDBRating)
-	assert.InDelta(t, 8.0, *upserted.TMDBRating, 1e-9)
-	require.NotNil(t, upserted.TMDBVotes)
-	assert.Equal(t, 100, *upserted.TMDBVotes)
-	require.NotNil(t, upserted.Status)
-	assert.Equal(t, "Ended", *upserted.Status)
-	// S-E3a — canon carries original_title (a fact), no localizable Title.
-	require.NotNil(t, upserted.OriginalTitle)
-	assert.Equal(t, "Breaking Bad", *upserted.OriginalTitle)
+	up := f.series.omdbUpdates[0]
+	assert.Equal(t, domain.SeriesID(42), up.id)
+	// OMDb-owned columns written with the mapped values.
+	require.NotNil(t, up.rating)
+	assert.InDelta(t, 9.5, *up.rating, 1e-9)
+	require.NotNil(t, up.votes)
+	assert.Equal(t, 2034123, *up.votes)
+	require.NotNil(t, up.rated)
+	assert.Equal(t, "TV-MA", *up.rated)
+	require.NotNil(t, up.awards)
+	assert.Equal(t, "Won 16 Primetime Emmys", *up.awards)
 
 	// Canon column stamped + no failure row recorded + ClearOnSuccess fired.
 	require.NotNil(t, f.series.canon.EnrichmentOMDBSyncedAt, "canon enrichment_omdb_synced_at must be stamped on success")
@@ -265,7 +276,7 @@ func TestOMDbWorker_BudgetExhausted_NoCallNoJournal(t *testing.T) {
 	require.NoError(t, w.Handle(context.Background(), 42))
 	assert.Zero(t, f.client.calls, "no upstream call when budget exhausted")
 	assert.Empty(t, f.enrichmentErrors.failures, "no failure row when budget exhausted")
-	assert.Empty(t, f.series.upserts, "no series upsert when budget exhausted")
+	assert.Empty(t, f.series.omdbUpdates, "no series omdb write when budget exhausted")
 }
 
 func TestOMDbWorker_NotFoundSentinel_JournalsTerminal(t *testing.T) {
@@ -278,7 +289,7 @@ func TestOMDbWorker_NotFoundSentinel_JournalsTerminal(t *testing.T) {
 	require.Len(t, f.enrichmentErrors.failures, 1)
 	assert.Equal(t, terminalAttempts, f.enrichmentErrors.failures[0].Attempts)
 	assert.Nil(t, f.enrichmentErrors.failures[0].NextAttemptAt)
-	assert.Empty(t, f.series.upserts)
+	assert.Empty(t, f.series.omdbUpdates)
 }
 
 func TestOMDbWorker_InvalidKey_JournalsAuthFailed(t *testing.T) {
@@ -377,61 +388,12 @@ func TestOMDbWorker_NAValues_ResultsInNullColumns(t *testing.T) {
 	f.series.canon.OMDBAwards = &awards
 
 	require.NoError(t, w.Handle(context.Background(), 42))
-	require.Len(t, f.series.upserts, 1)
-	up := f.series.upserts[0]
-	assert.Nil(t, up.IMDBRating)
-	assert.Nil(t, up.IMDBVotes)
-	assert.Nil(t, up.OMDBRated)
-	assert.Nil(t, up.OMDBAwards)
-}
-
-// TestOMDbWorker_WritesOnlyFourColumns is the Critical Decision #3
-// in-memory diff test. With an empty mapper output (all-nil
-// Enrichment) the worker must touch ONLY the four OMDb-owned fields
-// on the canon row; every other field stays byte-equal.
-func TestOMDbWorker_WritesOnlyFourColumns(t *testing.T) {
-	t.Parallel()
-	tmdbID := domain.TMDBID(99)
-	tvdbID := domain.TVDBID(100)
-	imdb := domain.IMDBID("tt0903747")
-	origTitle := "BB original"
-	status := "Ended"
-	year := 2008
-	popularity := 80.5
-	tmdbRating := 8.5
-	tmdbVotes := 1000
-
-	base := series.Canon{
-		ID:            42,
-		TMDBID:        &tmdbID,
-		TVDBID:        &tvdbID,
-		IMDBID:        &imdb,
-		Hydration:     series.HydrationFull,
-		OriginalTitle: &origTitle,
-		Status:        &status,
-		Year:          &year,
-		Popularity:    &popularity,
-		InProduction:  false,
-		TMDBRating:    &tmdbRating,
-		TMDBVotes:     &tmdbVotes,
-	}
-
-	// Empty Enrichment — mapper output for a response of all "N/A".
-	patched := applyOMDbToCanon(base, omdb.Enrichment{})
-
-	// Four OMDb-owned columns cleared to nil.
-	assert.Nil(t, patched.IMDBRating)
-	assert.Nil(t, patched.IMDBVotes)
-	assert.Nil(t, patched.OMDBRated)
-	assert.Nil(t, patched.OMDBAwards)
-
-	// Every other field byte-equal — re-clear them on `base` for
-	// fair comparison, then diff.
-	base.IMDBRating = nil
-	base.IMDBVotes = nil
-	base.OMDBRated = nil
-	base.OMDBAwards = nil
-	assert.Equal(t, base, patched, "non-OMDb fields must be unchanged")
+	require.Len(t, f.series.omdbUpdates, 1)
+	up := f.series.omdbUpdates[0]
+	assert.Nil(t, up.rating)
+	assert.Nil(t, up.votes)
+	assert.Nil(t, up.rated)
+	assert.Nil(t, up.awards)
 }
 
 // TestOMDbWorker_LoadSeriesNotFound_NoCallsNoJournal verifies the
