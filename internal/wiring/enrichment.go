@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
@@ -494,12 +495,28 @@ func BuildEnrichment(
 	// without touching the dispatcher. When the holder is empty the
 	// worker's getter returns nil and the dequeue logs "handler_nil".
 	var omdbBudget *appenrich.OMDbBudgetGuard
+	// W18-9 — Hot-lane floor. Env-tunable without rebuild; default 200.
+	// NOTE: repo convention is flat SEASONFILL_* env vars (spec shorthand
+	// was OMDB__HOT_RESERVE — normalised here to match the family).
+	omdbHotReserve := appenrich.DefaultOMDbHotReserve
+	if v := os.Getenv("SEASONFILL_OMDB_HOT_RESERVE"); v != "" {
+		if n, perr := strconv.Atoi(v); perr == nil && n >= 0 {
+			omdbHotReserve = n
+		} else {
+			omdbLog.WarnContext(rootCtx, "enrichment.omdb.hot_reserve.invalid_env",
+				slog.String("value", v),
+				slog.Int("default", appenrich.DefaultOMDbHotReserve))
+		}
+	}
 	if quotaCounter != nil {
 		omdbBudget = appenrich.NewOMDbBudgetGuardDB(
-			appenrich.DefaultOMDbBudget, quotaCounter, omdbLog, nil)
+			appenrich.DefaultOMDbBudget, omdbHotReserve, quotaCounter, omdbLog, nil)
 	} else {
-		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget)
+		omdbBudget = appenrich.NewOMDbBudgetGuard(appenrich.DefaultOMDbBudget, omdbHotReserve)
 	}
+	omdbLog.InfoContext(rootCtx, "enrichment.omdb.budget.configured",
+		slog.Int("daily_cap", appenrich.DefaultOMDbBudget),
+		slog.Int("hot_reserve", omdbHotReserve))
 	omdbWorker, err := appenrich.NewOMDbWorker(appenrich.OMDbWorkerDeps{
 		Client:           omdbHolder.Get,
 		Budget:           omdbBudget,
@@ -512,7 +529,7 @@ func BuildEnrichment(
 		return nil, fmt.Errorf("new omdb worker: %w", err)
 	}
 	omdbWorkerHandle := func(ctx context.Context, id int64) error {
-		return omdbWorker.Handle(ctx, domain.SeriesID(id))
+		return omdbWorker.HandleCold(ctx, domain.SeriesID(id))
 	}
 	// 473 (B-25/B-24): omdbDailyBatch + omdbBudgetReset closures are now
 	// ALWAYS constructed. The closures runtime-gate on holder/budget

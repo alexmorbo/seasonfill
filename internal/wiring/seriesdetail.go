@@ -185,7 +185,7 @@ func (b *SeriesDetailBundle) WireGlobalRatings(
 	// field would make it non-nil (typed nil) and defeat the usecase's
 	// read-only degradation. Only set when the worker actually exists.
 	if omdbWorker != nil {
-		deps.OMDb = omdbWorker // satisfies OMDbRatingRefresher (Handle)
+		deps.OMDb = omdbWorker // satisfies OMDbRatingRefresher (HandleHot)
 	}
 	uc, err := seriesdetail.NewSeriesRatingsUseCase(deps)
 	if err != nil {

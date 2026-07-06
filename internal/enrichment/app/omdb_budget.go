@@ -39,6 +39,11 @@ import (
 // 100 calls of headroom under the upstream 1000/day limit.
 const DefaultOMDbBudget = 900
 
+// DefaultOMDbHotReserve is the W18-9 Hot-lane floor: Cold reservations
+// back off once remaining <= this value, leaving headroom for on-view
+// (Hot) fetches. 200 of 1000 (20%). Env-tunable via the wiring.
+const DefaultOMDbHotReserve = 200
+
 // OMDbServiceName is the canonical service identifier used in the
 // quota_state table and the `service` metric label. Exported so the
 // metrics exporter goroutine + the GC sweeper can name it without
@@ -53,6 +58,9 @@ type quotaClock func() time.Time
 // (DB-backed, the production wiring).
 type OMDbBudgetGuard struct {
 	initial int64
+	// hotFloor is the W18-9 Cold cutoff: ReserveCold denies while
+	// remaining <= hotFloor; ReserveHot ignores it (spends to 0).
+	hotFloor int
 	// fallback is consulted when counter is nil (the OMDbBudgetGuard
 	// constructed by the legacy in-process constructor). When counter
 	// is set, fallback is unused.
@@ -62,37 +70,43 @@ type OMDbBudgetGuard struct {
 	logger   *slog.Logger
 }
 
-// NewOMDbBudgetGuard preserves the legacy in-process constructor so
-// existing call sites (and the unit tests in omdb_budget_test.go)
-// continue to work. Storage is in-process atomic; the counter is
-// NOT DB-backed by this constructor.
-func NewOMDbBudgetGuard(initial int) *OMDbBudgetGuard {
+// NewOMDbBudgetGuard preserves the legacy in-process constructor.
+// Storage is in-process atomic (NOT DB-backed). hotFloor is the W18-9
+// Cold cutoff (negative → 0 = no floor).
+func NewOMDbBudgetGuard(initial, hotFloor int) *OMDbBudgetGuard {
 	if initial <= 0 {
 		initial = DefaultOMDbBudget
 	}
+	if hotFloor < 0 {
+		hotFloor = 0
+	}
 	g := &OMDbBudgetGuard{
-		initial: int64(initial),
-		clock:   func() time.Time { return time.Now().UTC() },
-		logger:  sharedports.DomainLogger(slog.Default(), "omdb"),
+		initial:  int64(initial),
+		hotFloor: hotFloor,
+		clock:    func() time.Time { return time.Now().UTC() },
+		logger:   sharedports.DomainLogger(slog.Default(), "omdb"),
 	}
 	g.fallback.Store(int64(initial))
 	metrics.GetOrCreateGauge("seasonfill_omdb_quota_remaining_guess", func() float64 {
 		return float64(g.Remaining())
 	})
+	metrics.GetOrCreateGauge("seasonfill_omdb_quota_hot_reserve", func() float64 {
+		return float64(g.hotFloor)
+	})
 	return g
 }
 
 // NewOMDbBudgetGuardDB constructs the production guard backed by a
-// DB-persisted QuotaCounter. `initial` is the per-day cap (defaults
-// to DefaultOMDbBudget when ≤0); `counter` is the durable store.
-// Pass clock=nil to use time.Now().UTC().
-//
-// Registers BOTH the legacy gauge (`seasonfill_omdb_quota_remaining_guess`,
-// preserved for dashboard back-compat) and the generic gauge
-// (`seasonfill_external_service_quota_used{service="omdb"}`).
-func NewOMDbBudgetGuardDB(initial int, counter quota.QuotaCounter, logger *slog.Logger, clock func() time.Time) *OMDbBudgetGuard {
+// DB-persisted QuotaCounter. `initial` is the per-day cap (defaults to
+// DefaultOMDbBudget when ≤0); `hotFloor` is the W18-9 Cold cutoff
+// (negative → 0); `counter` is the durable store. Pass clock=nil to use
+// time.Now().UTC().
+func NewOMDbBudgetGuardDB(initial, hotFloor int, counter quota.QuotaCounter, logger *slog.Logger, clock func() time.Time) *OMDbBudgetGuard {
 	if initial <= 0 {
 		initial = DefaultOMDbBudget
+	}
+	if hotFloor < 0 {
+		hotFloor = 0
 	}
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
@@ -101,22 +115,21 @@ func NewOMDbBudgetGuardDB(initial int, counter quota.QuotaCounter, logger *slog.
 		logger = sharedports.DomainLogger(slog.Default(), "omdb")
 	}
 	g := &OMDbBudgetGuard{
-		initial: int64(initial),
-		counter: counter,
-		clock:   clock,
-		logger:  logger,
+		initial:  int64(initial),
+		hotFloor: hotFloor,
+		counter:  counter,
+		clock:    clock,
+		logger:   logger,
 	}
-	// Legacy gauge — guarded by metrics.GetOrCreateGauge's
-	// idempotency on (name,labelset). Returns "estimated remaining"
-	// based on a single Get; lag-tolerant (the exporter goroutine in
-	// main.go publishes a periodic snapshot).
 	metrics.GetOrCreateGauge("seasonfill_omdb_quota_remaining_guess", func() float64 {
 		return float64(g.Remaining())
 	})
-	// Generic gauge — used count (not remaining). Labelled by service.
 	metrics.GetOrCreateGauge(`seasonfill_external_service_quota_used{service="omdb"}`, func() float64 {
 		used, _ := g.UsedAndCap()
 		return float64(used)
+	})
+	metrics.GetOrCreateGauge("seasonfill_omdb_quota_hot_reserve", func() float64 {
+		return float64(g.hotFloor)
 	})
 	return g
 }
@@ -127,10 +140,27 @@ func (g *OMDbBudgetGuard) currentWindow() time.Time {
 	return quota.Daily(g.clock(), time.UTC)
 }
 
-// Reserve atomically consumes one slot from the daily budget when
-// available. Returns true on success, false when the daily cap has
-// been hit. The OMDbWorker treats false as a no-error skip (logs +
-// no journal write); see omdb_worker.go.
+// ReserveHot consumes one slot when any remain (down to 0). On-view path.
+func (g *OMDbBudgetGuard) ReserveHot() bool {
+	return g.reserve()
+}
+
+// ReserveCold consumes one slot only while remaining stays ABOVE the Hot
+// floor. Checks BEFORE spending so a denial never decrements (no leak).
+// Under concurrency the floor is soft (two Colds racing at floor+1 can
+// both pass) — same phantom-overshoot tolerance as reserve()'s DB path;
+// OMDb QPS ≤1/min makes it immaterial.
+func (g *OMDbBudgetGuard) ReserveCold() bool {
+	if g.Remaining() <= g.hotFloor {
+		return false
+	}
+	return g.reserve()
+}
+
+// reserve atomically consumes one slot from the daily budget when
+// available. Returns true on success, false when the daily cap has been
+// hit. (Formerly the exported Reserve; W18-9 made it private behind the
+// lane methods.)
 //
 // DB-backed path: Increment is "INSERT ... ON CONFLICT DO UPDATE"
 // which returns the post-update count. The cap comparison happens
@@ -139,7 +169,7 @@ func (g *OMDbBudgetGuard) currentWindow() time.Time {
 // 901 in parallel). Worst case: the OMDb upstream returns
 // "Daily limit reached!" once per restart, which Story 213's
 // auth_failed dispatch already handles gracefully.
-func (g *OMDbBudgetGuard) Reserve() bool {
+func (g *OMDbBudgetGuard) reserve() bool {
 	if g.counter == nil {
 		// Legacy in-process path — Reserve via CAS loop on fallback.
 		for {

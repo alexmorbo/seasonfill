@@ -35,7 +35,7 @@ func TestNewOMDbBudgetGuard_StructLiteralDefault_EmitsDomainOMDb(t *testing.T) {
 	// this story's patch. Initial=0 → defaults to DefaultOMDbBudget;
 	// no DB counter wired (fallback path, exercising the struct
 	// literal default).
-	g := NewOMDbBudgetGuard(0)
+	g := NewOMDbBudgetGuard(0, 0)
 	g.logger.WarnContext(context.Background(), "f4b5_omdb_proof_emit")
 
 	out := buf.String()

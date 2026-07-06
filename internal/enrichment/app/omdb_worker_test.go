@@ -158,12 +158,21 @@ func (f *fakeOMDbClient) GetByIMDB(_ context.Context, _ domain.IMDBID) (*omdb.Re
 
 type fakeOMDbBudget struct {
 	allow     bool
-	reserves  int
+	reserves  int // total across both lanes (existing assertions read this)
+	hotCalls  int
+	coldCalls int
 	remaining int
 }
 
-func (f *fakeOMDbBudget) Reserve() bool {
+func (f *fakeOMDbBudget) ReserveHot() bool {
 	f.reserves++
+	f.hotCalls++
+	return f.allow
+}
+
+func (f *fakeOMDbBudget) ReserveCold() bool {
+	f.reserves++
+	f.coldCalls++
 	return f.allow
 }
 
@@ -233,7 +242,7 @@ func TestOMDbWorker_HappyPath_PatchesFourFieldsOnly(t *testing.T) {
 		{Source: "Metacritic", Value: "73/100"},
 	}
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	assert.Equal(t, 1, f.client.calls)
 	require.Len(t, f.series.omdbUpdates, 1)
 
@@ -260,7 +269,7 @@ func TestOMDbWorker_NoIMDBID_TerminalNotFound(t *testing.T) {
 	w, f := newOMDbWorkerForTest(t, nil)
 	f.series.canon.IMDBID = nil
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	assert.Zero(t, f.client.calls, "no OMDb call without imdb_id")
 	assert.Zero(t, f.budget.reserves, "no budget reservation")
 	require.Len(t, f.enrichmentErrors.failures, 1)
@@ -273,7 +282,7 @@ func TestOMDbWorker_BudgetExhausted_NoCallNoJournal(t *testing.T) {
 	f.budget.allow = false
 	f.budget.remaining = 0
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	assert.Zero(t, f.client.calls, "no upstream call when budget exhausted")
 	assert.Empty(t, f.enrichmentErrors.failures, "no failure row when budget exhausted")
 	assert.Empty(t, f.series.omdbUpdates, "no series omdb write when budget exhausted")
@@ -285,7 +294,7 @@ func TestOMDbWorker_NotFoundSentinel_JournalsTerminal(t *testing.T) {
 	f.client.err = fmt.Errorf("%w: Movie not found!", omdb.ErrNotFound)
 	f.client.resp = nil
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	require.Len(t, f.enrichmentErrors.failures, 1)
 	assert.Equal(t, terminalAttempts, f.enrichmentErrors.failures[0].Attempts)
 	assert.Nil(t, f.enrichmentErrors.failures[0].NextAttemptAt)
@@ -298,7 +307,7 @@ func TestOMDbWorker_InvalidKey_JournalsAuthFailed(t *testing.T) {
 	f.client.err = fmt.Errorf("%w: Invalid API key!", omdb.ErrInvalidKey)
 	f.client.resp = nil
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	require.Len(t, f.enrichmentErrors.failures, 1)
 	assert.Contains(t, f.enrichmentErrors.failures[0].LastError, "invalid api key")
 }
@@ -309,7 +318,7 @@ func TestOMDbWorker_DailyLimit_JournalsAuthFailed(t *testing.T) {
 	f.client.err = fmt.Errorf("%w: Daily limit reached!", omdb.ErrDailyLimit)
 	f.client.resp = nil
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	require.Len(t, f.enrichmentErrors.failures, 1)
 	assert.Contains(t, f.enrichmentErrors.failures[0].LastError, "daily limit")
 }
@@ -326,7 +335,7 @@ func TestOMDbWorker_GenericError_BackoffSet(t *testing.T) {
 		Attempts:   1,
 	}
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	require.Len(t, f.enrichmentErrors.failures, 1)
 	assert.Equal(t, 2, f.enrichmentErrors.failures[0].Attempts)
 	require.NotNil(t, f.enrichmentErrors.failures[0].NextAttemptAt)
@@ -339,7 +348,7 @@ func TestOMDbWorker_FreshSkip_TTLNotExpired(t *testing.T) {
 	w, f := newOMDbWorkerForTest(t, nil)
 	f.series.canon.EnrichmentOMDBSyncedAt = &syncedAt
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	assert.Zero(t, f.client.calls)
 	assert.Zero(t, f.budget.reserves)
 	assert.Empty(t, f.enrichmentErrors.failures)
@@ -357,7 +366,7 @@ func TestOMDbWorker_TerminalNotFoundEntry_SkipsManualEnqueue(t *testing.T) {
 		Attempts:   terminalAttempts,
 	}
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	assert.Zero(t, f.client.calls)
 	assert.Empty(t, f.enrichmentErrors.failures)
 }
@@ -387,7 +396,7 @@ func TestOMDbWorker_NAValues_ResultsInNullColumns(t *testing.T) {
 	f.series.canon.OMDBRated = &rated
 	f.series.canon.OMDBAwards = &awards
 
-	require.NoError(t, w.Handle(context.Background(), 42))
+	require.NoError(t, w.HandleCold(context.Background(), 42))
 	require.Len(t, f.series.omdbUpdates, 1)
 	up := f.series.omdbUpdates[0]
 	assert.Nil(t, up.rating)
@@ -405,7 +414,7 @@ func TestOMDbWorker_LoadSeriesNotFound_NoCallsNoJournal(t *testing.T) {
 	w, f := newOMDbWorkerForTest(t, nil)
 	f.series.getErr = ports.ErrNotFound
 
-	require.NoError(t, w.Handle(context.Background(), 999))
+	require.NoError(t, w.HandleCold(context.Background(), 999))
 	assert.Zero(t, f.client.calls)
 	assert.Empty(t, f.enrichmentErrors.failures)
 }
@@ -417,8 +426,24 @@ func TestOMDbWorker_LoadSeriesErrorOther_Propagates(t *testing.T) {
 	w, f := newOMDbWorkerForTest(t, nil)
 	f.series.getErr = errors.New("db down")
 
-	err := w.Handle(context.Background(), 42)
+	err := w.HandleCold(context.Background(), 42)
 	require.Error(t, err)
+}
+
+func TestOMDbWorker_LaneRouting_HotVsCold(t *testing.T) {
+	t.Parallel()
+
+	// Hot path → ReserveHot.
+	wHot, fHot := newOMDbWorkerForTest(t, nil)
+	require.NoError(t, wHot.HandleHot(context.Background(), 42))
+	assert.Equal(t, 1, fHot.budget.hotCalls, "HandleHot must draw the Hot lane")
+	assert.Equal(t, 0, fHot.budget.coldCalls)
+
+	// Cold path → ReserveCold.
+	wCold, fCold := newOMDbWorkerForTest(t, nil)
+	require.NoError(t, wCold.HandleCold(context.Background(), 42))
+	assert.Equal(t, 1, fCold.budget.coldCalls, "HandleCold must draw the Cold lane")
+	assert.Equal(t, 0, fCold.budget.hotCalls)
 }
 
 func TestClassifyOMDbKind(t *testing.T) {

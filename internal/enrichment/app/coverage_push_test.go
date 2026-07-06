@@ -58,27 +58,27 @@ func TestNewOMDbBudgetGuardDB_NilClockDefaults(t *testing.T) {
 	t.Parallel()
 	c := newFakeQuotaCounter()
 	// Pass clock=nil; constructor must install a UTC time.Now default.
-	g := NewOMDbBudgetGuardDB(5, c, quietLogger(), nil)
+	g := NewOMDbBudgetGuardDB(5, 0, c, quietLogger(), nil)
 	require.NotNil(t, g)
 	// Reserve drives the clock through one branch — proves the
 	// installed default works without panicking.
-	assert.True(t, g.Reserve())
+	assert.True(t, g.ReserveHot())
 }
 
 func TestNewOMDbBudgetGuardDB_NilLoggerDefaults(t *testing.T) {
 	t.Parallel()
 	c := newFakeQuotaCounter()
-	g := NewOMDbBudgetGuardDB(5, c, nil, func() time.Time {
+	g := NewOMDbBudgetGuardDB(5, 0, c, nil, func() time.Time {
 		return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	})
 	require.NotNil(t, g)
-	assert.True(t, g.Reserve())
+	assert.True(t, g.ReserveHot())
 }
 
 func TestNewOMDbBudgetGuardDB_ZeroInitialUsesDefault(t *testing.T) {
 	t.Parallel()
 	c := newFakeQuotaCounter()
-	g := NewOMDbBudgetGuardDB(0, c, quietLogger(), func() time.Time {
+	g := NewOMDbBudgetGuardDB(0, 0, c, quietLogger(), func() time.Time {
 		return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	})
 	_, capacity := g.UsedAndCap()
@@ -88,11 +88,20 @@ func TestNewOMDbBudgetGuardDB_ZeroInitialUsesDefault(t *testing.T) {
 func TestNewOMDbBudgetGuardDB_NegativeInitialUsesDefault(t *testing.T) {
 	t.Parallel()
 	c := newFakeQuotaCounter()
-	g := NewOMDbBudgetGuardDB(-3, c, quietLogger(), func() time.Time {
+	g := NewOMDbBudgetGuardDB(-3, 0, c, quietLogger(), func() time.Time {
 		return time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	})
 	_, capacity := g.UsedAndCap()
 	assert.Equal(t, DefaultOMDbBudget, capacity)
+}
+
+func TestBudget_HotFloor_DefaultAndCustom(t *testing.T) {
+	t.Parallel()
+	// Default constant is 200 (the wiring passes this when the env is unset).
+	assert.Equal(t, 200, DefaultOMDbHotReserve)
+	// Custom floor honoured; negative clamps to 0.
+	assert.Equal(t, 3, NewOMDbBudgetGuard(10, 3).hotFloor)
+	assert.Equal(t, 0, NewOMDbBudgetGuard(10, -5).hotFloor)
 }
 
 // --- NewOMDbWorker validation branches ---

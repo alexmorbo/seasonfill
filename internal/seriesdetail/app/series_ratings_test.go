@@ -66,9 +66,9 @@ func (f *fakeRefresher) run(_ context.Context) error {
 	}
 	return f.err
 }
-func (f *fakeRefresher) Refresh(ctx context.Context, _ domain.SeriesID) error { return f.run(ctx) }
-func (f *fakeRefresher) Handle(ctx context.Context, _ domain.SeriesID) error  { return f.run(ctx) }
-func (f *fakeRefresher) count() int32                                         { return f.calls.Load() }
+func (f *fakeRefresher) Refresh(ctx context.Context, _ domain.SeriesID) error   { return f.run(ctx) }
+func (f *fakeRefresher) HandleHot(ctx context.Context, _ domain.SeriesID) error { return f.run(ctx) }
+func (f *fakeRefresher) count() int32                                           { return f.calls.Load() }
 
 func tmdbID(v int) *domain.TMDBID    { id := domain.TMDBID(v); return &id }
 func imdbID(v string) *domain.IMDBID { id := domain.IMDBID(v); return &id }

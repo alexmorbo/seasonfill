@@ -41,10 +41,10 @@ type TMDBRatingRefresher interface {
 }
 
 // OMDbRatingRefresher fetches + owner-writes a series' OMDb columns. Satisfied by
-// *enrichment.OMDbWorker (Handle) — it already owns budget/terminal/TTL/owner-write/
-// journal, so the usecase reuses it wholesale (no duplication).
+// *enrichment.OMDbWorker (HandleHot) — it already owns budget/terminal/TTL/owner-write/
+// journal, so the usecase reuses it wholesale (no duplication). On-view is the Hot lane.
 type OMDbRatingRefresher interface {
-	Handle(ctx context.Context, seriesID domain.SeriesID) error
+	HandleHot(ctx context.Context, seriesID domain.SeriesID) error
 }
 
 // SeriesRatingsDeps — narrow ports. SeriesPort (Get) is the existing canon loader.
@@ -167,8 +167,8 @@ func (u *SeriesRatingsUseCase) resolveOMDb(reqCtx, fetchCtx context.Context, ser
 		hasID = false
 	}
 	key := "omdb:" + strconv.FormatInt(int64(seriesID), 10)
-	// OMDb fetch = the shipped worker (budget/terminal/TTL/owner-write/journal).
-	refresh := func(ctx context.Context) error { return u.d.OMDb.Handle(ctx, seriesID) }
+	// OMDb fetch = the shipped worker, Hot lane (on-view spends into the floor).
+	refresh := func(ctx context.Context) error { return u.d.OMDb.HandleHot(ctx, seriesID) }
 	reload := func(ctx context.Context) (series.Canon, bool) {
 		c, err := u.d.Series.Get(ctx, seriesID)
 		return c, err == nil

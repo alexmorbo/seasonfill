@@ -43,13 +43,19 @@ type OMDbClient interface {
 }
 
 // OMDbBudget is the budget-guard surface the worker calls into.
-// Production impl is *OMDbBudgetGuard. Tests can pass a fake
-// that always-reserves / always-denies.
+// Production impl is *OMDbBudgetGuard. Tests pass a fake.
+//
+// W18-9: two lanes over one counter + a Hot floor. Hot (user on-view)
+// spends down to 0; Cold (background/enqueue) backs off once remaining
+// hits the floor so on-view is never starved by batch/discovery.
 type OMDbBudget interface {
-	// Reserve atomically decrements the in-process counter when
-	// available, returns true on success. False ⇒ counter==0 (the
-	// worker logs + skips, no journal write).
-	Reserve() bool
+	// ReserveHot consumes one slot when any remain (down to 0). Used by
+	// the on-view /ratings path. False ⇒ counter==0 (skip, no journal).
+	ReserveHot() bool
+	// ReserveCold consumes one slot only while remaining stays ABOVE the
+	// Hot floor; false ⇒ floor reached (skip, no journal, no decrement).
+	// Used by all dispatcher-driven work (daily batch, discovery).
+	ReserveCold() bool
 	// Remaining returns the current counter for logging + metric.
 	Remaining() int
 }
@@ -95,15 +101,44 @@ func NewOMDbWorker(deps OMDbWorkerDeps) (*OMDbWorker, error) {
 	return &OMDbWorker{deps: deps}, nil
 }
 
-// Handle is the dispatcher-facing entry point. seriesID is a CANON
-// series.id. Returns nil on every terminal outcome (ok / not_found /
-// auth_failed / retryable error journalled / budget exhaustion).
-func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error {
+// quotaLane selects which budget reservation an OMDb fetch draws from.
+type quotaLane int
+
+const (
+	laneCold quotaLane = iota // background/enqueue-driven — backs off at the Hot floor
+	laneHot                   // user on-view — spends into the floor
+)
+
+func (l quotaLane) String() string {
+	if l == laneHot {
+		return "hot"
+	}
+	return "cold"
+}
+
+// HandleHot is the on-view (user-initiated) entry point. Reserves from
+// the Hot lane (allowed down to 0). Satisfies seriesdetail.OMDbRatingRefresher.
+func (w *OMDbWorker) HandleHot(ctx context.Context, seriesID domain.SeriesID) error {
+	return w.handle(ctx, seriesID, laneHot)
+}
+
+// HandleCold is the background/enqueue-driven entry point (daily batch,
+// discovery W18-8). Reserves from the Cold lane (backs off at the Hot
+// floor). Cold is the natural default for all dispatcher-driven work.
+func (w *OMDbWorker) HandleCold(ctx context.Context, seriesID domain.SeriesID) error {
+	return w.handle(ctx, seriesID, laneCold)
+}
+
+// handle is the shared worker body. seriesID is a CANON series.id. lane
+// selects the budget reservation. Returns nil on every terminal outcome
+// (ok / not_found / auth_failed / retryable journalled / budget skip).
+func (w *OMDbWorker) handle(ctx context.Context, seriesID domain.SeriesID, lane quotaLane) error {
 	start := w.deps.Clock()
 	log := w.deps.Logger.With(
 		slog.String("entity_type", string(enrichment.EntityTypeSeries)),
 		slog.Int64("entity_id", int64(seriesID)),
 		slog.String("source", string(enrichment.SourceOMDb)),
+		slog.String("lane", lane.String()),
 	)
 
 	// 1. Load series — need imdb_id.
@@ -161,8 +196,16 @@ func (w *OMDbWorker) Handle(ctx context.Context, seriesID domain.SeriesID) error
 		return nil
 	}
 
-	// 3. Budget guard — counter==0 ⇒ skip (no error, no journal).
-	if !w.deps.Budget.Reserve() {
+	// 3. Budget guard — lane-aware. Hot spends into the floor; Cold backs
+	//    off at the floor. false ⇒ skip (no error, no journal). Each lane
+	//    draws exactly one reservation (no double-spend).
+	var reserved bool
+	if lane == laneCold {
+		reserved = w.deps.Budget.ReserveCold()
+	} else {
+		reserved = w.deps.Budget.ReserveHot()
+	}
+	if !reserved {
 		log.InfoContext(ctx, "enrichment.omdb.handle.budget_exhausted_skip",
 			slog.Int("quota_remaining", w.deps.Budget.Remaining()))
 		return nil
