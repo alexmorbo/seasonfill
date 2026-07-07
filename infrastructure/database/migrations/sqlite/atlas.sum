@@ -1,4 +1,4 @@
-h1:/86krJxglxR7/XELoTqqjoCy81xDLRjGc5CNt3GVCrI=
+h1:VssGP/8TZVLCTc8SK/M7WVepW1W8bbLyPxjT+8/T34o=
 000001_core_series.down.sql h1:g/jAztVO3BHc0O0tkKdmg68Q0lZZlgzecVvBegBQlBE=
 000001_core_series.up.sql h1:MmXX1qaneSHNwJbnxUh0lI51h1t2Ijg2A5r4P8hMxQ8=
 000002_i18n_texts.down.sql h1:XeUg6hO9QcWnT/EE/pvGZKTYq2uESNtlTw5o8c3zPwA=
@@ -65,3 +65,5 @@ h1:/86krJxglxR7/XELoTqqjoCy81xDLRjGc5CNt3GVCrI=
 000032_drop_omdb_rt_mc.up.sql h1:wvrFg3WL4bvqIqf56NkSnTDLAdoXLTZMPoGT/gHJgLg=
 000033_tmdb_rating_synced_at.down.sql h1:WCFBijS4njqnh6SwIu0QTV7OaBwSeclLukDEWn7ItMA=
 000033_tmdb_rating_synced_at.up.sql h1:UljtEgfZ9FunxR7C3+GWA5SoFTVlMTjYpfnHyn7gRs4=
+000034_skeleton_synced_at.down.sql h1:kyD5dhSoAV9luOuxezLGoAEHz3Ow/tZwInMnhvBMTQ0=
+000034_skeleton_synced_at.up.sql h1:HXmW5vql3NzEpU6q9YKEiTuNOJqQRJDE/lQ3vWAmPSU=
