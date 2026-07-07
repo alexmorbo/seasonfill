@@ -137,6 +137,10 @@ type fakeSeriesRepo struct {
 	// Partial-language-failure tests assert this stays false so the
 	// next dispatcher tick re-tries the failing language.
 	markedSynced bool
+	// skeletonSyncedCalls / lastSkeletonSyncedAt — W18-16: counts
+	// MarkSkeletonSynced invocations (HandleForcedLang stamp path).
+	skeletonSyncedCalls  int
+	lastSkeletonSyncedAt time.Time
 }
 
 func newFakeSeriesRepo(rec *callRecord) *fakeSeriesRepo {
@@ -228,6 +232,20 @@ func (f *fakeSeriesRepo) MarkMediaSynced(ctx context.Context, id domain.SeriesID
 	if c, ok := f.rows[id]; ok {
 		t := now
 		c.EnrichmentMediaSyncedAt = &t
+		f.rows[id] = c
+	}
+	return nil
+}
+
+// MarkSkeletonSynced — W18-16: stamps the dedicated skeleton clock. Records the
+// call + count so the on-view stamp path can be asserted.
+func (f *fakeSeriesRepo) MarkSkeletonSynced(ctx context.Context, id domain.SeriesID, now time.Time) error {
+	f.rec.add("Series.MarkSkeletonSynced")
+	f.skeletonSyncedCalls++
+	f.lastSkeletonSyncedAt = now
+	if c, ok := f.rows[id]; ok {
+		t := now
+		c.SkeletonSyncedAt = &t
 		f.rows[id] = c
 	}
 	return nil

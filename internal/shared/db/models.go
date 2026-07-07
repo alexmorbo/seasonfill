@@ -556,8 +556,16 @@ type SeriesModel struct {
 	// enrichment_tmdb_synced_at (the full-enrichment TTL gate) so a rating-only
 	// view cannot re-time full re-sync. NULL = never rating-refreshed.
 	TMDBRatingSyncedAt *time.Time `gorm:"column:tmdb_rating_synced_at"`
-	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
+	// SkeletonSyncedAt (W18-16) — dedicated on-view SKELETON freshness clock,
+	// written ONLY by MarkSkeletonSynced on a real HandleForcedLang canon commit.
+	// Split from the shared enrichment_tmdb_synced_at (which HandleForcedLang
+	// never stamps, to avoid short-circuiting the dispatcher full Handle) so the
+	// progressive-TTL SWR gate has a clock that advances. Absent from
+	// seriesUpsertAssignments() → a Sonarr scan cannot null it. NULL = never
+	// skeleton-refreshed (cold → first view blocks + fetches).
+	SkeletonSyncedAt *time.Time `gorm:"column:skeleton_synced_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesModel) TableName() string { return "series" }

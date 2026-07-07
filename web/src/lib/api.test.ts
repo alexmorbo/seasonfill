@@ -91,3 +91,26 @@ describe('api()', () => {
     await expect(api('/scan')).rejects.toMatchObject({ status: 400, message: 'bad request' });
   });
 });
+
+describe('api() HTTP-cache participation (W18-16)', () => {
+  const origFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  it('does not force cache:no-store on GET (keeps ETag/304 alive)', async () => {
+    const spy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    globalThis.fetch = spy as typeof fetch;
+    await api('/series/42?lang=ru-RU');
+    expect(spy).toHaveBeenCalledTimes(1);
+    const init = spy.mock.calls[0]?.[1] as RequestInit | undefined;
+    // default (undefined) or an explicit non-'no-store' mode both preserve the
+    // browser conditional-request path; only 'no-store' breaks it.
+    expect(init?.cache).not.toBe('no-store');
+  });
+});

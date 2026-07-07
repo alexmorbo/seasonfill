@@ -284,6 +284,14 @@ func (w *SeriesWorker) HandleForcedLang(ctx context.Context, seriesID domain.Ser
 		slog.Int("duration_ms", durMs),
 		slog.String("note", "stage1_2_committed_episodes_pending_dispatcher"),
 	)
+	// W18-16: stamp the DEDICATED skeleton clock so the on-view SWR gate stops
+	// re-firing this ~1.5s GetTV on every view. Best-effort (WARN on error): the
+	// canon commit above is the source of truth; a missed stamp just means the
+	// next view re-checks. Explicitly NOT MarkTMDBSynced — see below.
+	if err := w.deps.Series.MarkSkeletonSynced(ctx, seriesID, w.deps.Clock()); err != nil {
+		log.WarnContext(ctx, "enrichment.series.handle_lang.mark_skeleton_failed",
+			slog.String("error", err.Error()))
+	}
 	// NB: deliberately NOT calling journalOK — see Story 546 decision #3.
 	// The series-level data is committed, but the dispatcher-driven
 	// full Handle pass (triggered via OnDemandEnricher.EnqueueIfStale by

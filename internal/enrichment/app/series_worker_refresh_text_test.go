@@ -393,6 +393,11 @@ func (s *seriesNotFoundRepo) MarkMediaSynced(ctx context.Context, id domain.Seri
 	return s.inner.MarkMediaSynced(ctx, id, now)
 }
 
+// MarkSkeletonSynced — W18-16: no-op stub to satisfy SeriesRepo.
+func (s *seriesNotFoundRepo) MarkSkeletonSynced(context.Context, domain.SeriesID, time.Time) error {
+	return nil
+}
+
 // UpdateOMDbColumns — W18-6: no-op stub to satisfy SeriesRepo.
 func (s *seriesNotFoundRepo) UpdateOMDbColumns(_ context.Context, _ domain.SeriesID, _ *float64, _ *int, _ *string, _ *string) error {
 	return nil

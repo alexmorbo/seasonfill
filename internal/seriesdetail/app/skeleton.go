@@ -184,33 +184,45 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 	langTag := lang
 	langStr := lang.Value()
 
+	// W18-16 SWR: load canon ONCE up-front — it drives the block-vs-async mode
+	// decision below AND the DTO build. "cold" = no paintable skeleton yet (stub
+	// hydration OR skeleton_synced_at never stamped): block (ModeSync) so the
+	// first paint carries the fetched skeleton. Otherwise serve the current canon
+	// immediately and revalidate the skeleton in the BACKGROUND (ModeAsync) when
+	// its progressive TTL has elapsed — mirrors the /ratings blockingFetch
+	// (cold) vs kickBackground (stale-with-value) split. This is what stops the
+	// ~1.5s GetTV + updated_at churn on every warm view.
+	canon, err := sc.d.Series.Get(ctx, seriesID)
+	if err != nil {
+		return SkeletonDTO{}, fmt.Errorf("skeleton canon load: %w", err)
+	}
+
 	var freshen FreshenResult
 	if sc.d.Freshener != nil {
-		// SectionSkeleton stays ModeSync — the ONLY section the HTTP
-		// response blocks on (SyncTimeout-bounded). The skeleton verdict
-		// alone drives the degraded[] projection below; the response budget
-		// is unchanged from the pre-W17-2 skeleton-only shape.
+		cold := canon.Hydration != series.HydrationFull || canon.SkeletonSyncedAt == nil
+		skeletonMode := ModeAsync
+		if cold {
+			skeletonMode = ModeSync
+		}
 		freshen, _ = sc.d.Freshener.EnsureFreshScope(
 			ctx, seriesID, langStr,
 			[]freshener.Section{freshener.SectionSkeleton},
-			nil,   // seasonNumbers — skeleton renders no season episodes
-			false, // force — TTL respected
-			ModeSync,
+			nil,          // seasonNumbers — skeleton renders no season episodes
+			false,        // force — progressive TTL respected (Probe gates)
+			skeletonMode, // cold ⇒ block first paint; warm-stale ⇒ background revalidate
 		)
-		// W17-2 — bring the library detail-view freshen scope to parity with
-		// the canonical/tmdb_fallback route (tmdb_fallback_usecase.go). Prior
-		// to this, only SectionSkeleton was freshened on a library open, so a
-		// library series' Overview/Cast/Media were never fetched: A4 per-lang
-		// art (eager-hash), S-B all-langs text, and the
-		// enrichment_media/text/cast_synced_at stamps stayed absent forever
-		// (all 120 library series had enrichment_media_synced_at NULL). Dispatch
-		// the three heavy sections in ModeAsync (detached goroutines, 180s
-		// budget — the same async-carryover path a ModeSync timeout re-uses) so
-		// the response NEVER waits on the TMDB fetches. force=false keeps the
-		// Probe as the gate: a fresh section (TTL not elapsed / singleflight
-		// in-flight) dispatches nothing, so re-opening a warm page does not
-		// re-hit TMDB. Fire-and-forget: the async FreshenResult/error is
-		// intentionally discarded (the sync skeleton call owns degraded[]).
+		if cold {
+			// A blocking cold refresh may have just written the canon — re-read so
+			// the first paint carries the fetched skeleton, not the stub. On error
+			// keep the pre-freshen canon (renders placeholders, degraded[] flags it).
+			if fresh, rerr := sc.d.Series.Get(ctx, seriesID); rerr == nil {
+				canon = fresh
+			}
+		}
+		// W17-2 — Overview/Cast/Media stay ModeAsync (detached, probe-gated): a
+		// library open still warms them without ever blocking the response. force
+		// =false so a fresh section (TTL not elapsed / singleflight in-flight)
+		// dispatches nothing. Fire-and-forget (the sync skeleton call owns degraded[]).
 		_, _ = sc.d.Freshener.EnsureFreshScope(
 			ctx, seriesID, langStr,
 			[]freshener.Section{
@@ -218,19 +230,14 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 				freshener.SectionCast,
 				freshener.SectionMedia,
 			},
-			nil,   // seasonNumbers — hero sections, no season episodes
-			false, // force — TTL respected (Probe gates re-runs)
+			nil,
+			false,
 			ModeAsync,
 		)
 	}
 
-	canon, err := sc.d.Series.Get(ctx, seriesID)
-	if err != nil {
-		return SkeletonDTO{}, fmt.Errorf("skeleton canon load: %w", err)
-	}
-
 	dto := SkeletonDTO{SeriesID: seriesID, Lang: lang}
-	dto.SyncedAt = canon.UpdatedAt
+	dto.SyncedAt = canon.UpdatedAt // W18-16: no longer churns — gate refreshes only on real staleness
 	dto.ExternalLinks = buildExternalLinks(canon)
 
 	g, gctx := errgroup.WithContext(ctx)

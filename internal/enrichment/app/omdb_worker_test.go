@@ -100,6 +100,11 @@ func (f *fakeOMDbSeries) MarkMediaSynced(_ context.Context, _ domain.SeriesID, _
 	return nil
 }
 
+// MarkSkeletonSynced — W18-16: no-op for OMDb tests.
+func (f *fakeOMDbSeries) MarkSkeletonSynced(_ context.Context, _ domain.SeriesID, _ time.Time) error {
+	return nil
+}
+
 // UpdateOMDbColumns — W18-6: records the owner-write the OMDb worker now
 // issues instead of Upsert. Captures nil pointers verbatim so the N/A-clears
 // contract is assertable.

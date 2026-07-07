@@ -74,6 +74,12 @@ async function handle401(): Promise<void> {
 
 export async function api<T>(path: string, init: RequestInitWithJson = {}): Promise<T> {
   const { body, headers, ...rest } = init;
+  // NOTE: no `cache` option is set, so GETs use the browser's default cache mode.
+  // This is REQUIRED for the /series/:id weak-ETag 304 path (W18-16): the browser
+  // stores the ETag and revalidates with If-None-Match transparently, returning
+  // the cached body on a 304 (JS never sees the 304). Do NOT add
+  // `cache: 'no-store'` to GETs — it disables conditional requests and re-churns
+  // the (now stable) skeleton body on every view.
   const res = await fetch(`${BASE}${path}`, {
     ...rest,
     credentials: 'same-origin',

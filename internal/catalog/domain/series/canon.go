@@ -99,8 +99,13 @@ type Canon struct {
 	// TTL gate) so a rating-only view cannot re-time full re-sync (F-01/F-04).
 	// NULL = never rating-refreshed; TMDBRatingStale then reports stale.
 	TMDBRatingSyncedAt *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	// SkeletonSyncedAt (W18-16) is stamped by the on-view worker
+	// (HandleForcedLang → MarkSkeletonSynced) on a successful skeleton canon
+	// commit — the dedicated freshness clock for the SectionSkeleton SWR gate.
+	// NULL = never skeleton-refreshed; the gate then treats the row as cold.
+	SkeletonSyncedAt *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // CanonSeason is one row of `seasons`. SeriesID is a foreign reference

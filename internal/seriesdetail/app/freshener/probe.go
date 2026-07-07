@@ -96,6 +96,14 @@ type DBProbeConfig struct {
 
 	// Logger — fail-open events are logged at WarnLevel for grep.
 	Logger *slog.Logger
+
+	// SkeletonStale computes the SectionSkeleton verdict via the progressive age
+	// curve (W18-16), keyed on the dedicated skeleton_synced_at clock. Injected as
+	// a func value (production: seriesdetail.TMDBRatingStale) because the curve
+	// lives in package seriesdetail, which imports THIS package — a direct call
+	// would cycle. Signature is byte-identical to seriesdetail.TMDBRatingStale.
+	// Nil (tests / minimal boot) → flat SectionTTLs fallback on skeleton_synced_at.
+	SkeletonStale func(now time.Time, syncedAt *time.Time, inProduction bool, status *string, lastAir, firstAir *time.Time) bool
 }
 
 // DBProbe is the production implementation backed by the catalog repositories.
@@ -170,12 +178,11 @@ func (p *DBProbe) IsStale(
 	// applies TTL policy, then layers in lang-coverage checks where
 	// applicable. Predictable ordering matches FixedSections.
 
-	// SectionSkeleton: canon-level signal (EnrichmentTMDBSyncedAt — the
-	// Stage 1+2 stamp). Pre-A2 this is the only column that gets bumped.
-	verdicts = append(verdicts, ttlSectionVerdict(
-		SectionSkeleton, canon.EnrichmentTMDBSyncedAt, canon.Status,
-		SectionTTLs[SectionSkeleton], now,
-	))
+	// SectionSkeleton: gated on the DEDICATED skeleton_synced_at clock via the
+	// progressive age curve (W18-16), NOT the shared enrichment_tmdb_synced_at
+	// (which HandleForcedLang never stamps → the pre-W18-16 gate was permanently
+	// stale and re-fired a ~1.5s GetTV on every view).
+	verdicts = append(verdicts, p.skeletonVerdict(canon, now))
 
 	// SectionOverview: enrichment_text_synced_at + missing_lang check.
 	// missing_lang short-circuits the TTL verdict — if we don't HAVE the
@@ -312,6 +319,31 @@ func (p *DBProbe) checkMissingLang(ctx context.Context, seriesID domain.SeriesID
 		return "missing_lang"
 	}
 	return ""
+}
+
+// skeletonVerdict computes the SectionSkeleton verdict on the dedicated
+// skeleton_synced_at clock. When cfg.SkeletonStale is wired (production) it uses
+// the shared progressive age curve (2d continuing / 7d <1y / 30d 1-3y|unknown /
+// 90d 3-8y / 180d >8y). Nil falls back to the flat SectionTTLs policy — still on
+// skeleton_synced_at, never on the permanently-stale enrichment_tmdb_synced_at.
+func (p *DBProbe) skeletonVerdict(canon catalogseries.Canon, now time.Time) SectionVerdict {
+	syncedAt := canon.SkeletonSyncedAt
+	if p.cfg.SkeletonStale == nil {
+		return ttlSectionVerdict(SectionSkeleton, syncedAt, canon.Status, SectionTTLs[SectionSkeleton], now)
+	}
+	stale := p.cfg.SkeletonStale(now, syncedAt, canon.InProduction, canon.Status, canon.LastAirDate, canon.FirstAirDate)
+	reason := "fresh"
+	switch {
+	case syncedAt == nil:
+		reason = "never"
+	case stale:
+		reason = "expired"
+	}
+	v := SectionVerdict{Section: SectionSkeleton, Stale: stale, Reason: reason, SyncedAt: syncedAt}
+	if syncedAt != nil {
+		v.Age = now.Sub(*syncedAt)
+	}
+	return v
 }
 
 // ttlSectionVerdict bundles TTL policy + section identity into a verdict.

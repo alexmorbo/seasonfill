@@ -326,6 +326,8 @@ func BuildSeriesDetail(
 		SeriesTextsCoverage:  sdSeriesTextsRepo, // Story 566 — reuses SeriesTextsRepository (new RecommendationsCoverage method)
 		Seasons:              sdSeasonsRepo,
 		Logger:               composerLog,
+		// W18-16: reuse the shipped progressive rating curve for the skeleton gate.
+		SkeletonStale: seriesdetail.TMDBRatingStale,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("seriesfreshener probe: %w", err)

@@ -583,6 +583,30 @@ func (r *SeriesRepository) MarkTMDBRatingSynced(ctx context.Context, seriesID do
 	return nil
 }
 
+// MarkSkeletonSynced stamps series.skeleton_synced_at = now for one row — the
+// on-view SKELETON freshness clock (W18-16). Called by the on-view worker
+// (HandleForcedLang) after its staged canon tx commits. Deliberately does NOT
+// stamp enrichment_tmdb_synced_at: HandleForcedLang leaves that for the
+// dispatcher-driven full Handle pass (series_worker.go:287-292), and re-timing it
+// here would suppress the follow-up (missed episodes / status flips). Single
+// UPDATE + updated_at; participates in the caller's tx via dbFromContext.
+func (r *SeriesRepository) MarkSkeletonSynced(ctx context.Context, seriesID domain.SeriesID, now time.Time) error {
+	if seriesID == 0 {
+		return fmt.Errorf("mark series skeleton synced: series_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("series").
+		Where("id = ?", seriesID).
+		Updates(map[string]any{
+			"skeleton_synced_at": now.UTC(),
+			"updated_at":         now.UTC(),
+		}).Error
+	if err != nil {
+		return fmt.Errorf("mark series skeleton synced: %w", err)
+	}
+	return nil
+}
+
 // MarkTextSynced stamps series.enrichment_text_synced_at = now. Same
 // shape as MarkTMDBSynced — A2 narrow refresh writer. The COALESCE on
 // the Upsert path (seriesUpsertAssignments) ensures a concurrent
@@ -1040,6 +1064,7 @@ func toCanon(m database.SeriesModel) series.Canon {
 		EnrichmentRecsSyncedAt:  m.EnrichmentRecsSyncedAt,
 		EnrichmentMediaSyncedAt: m.EnrichmentMediaSyncedAt,
 		TMDBRatingSyncedAt:      m.TMDBRatingSyncedAt,
+		SkeletonSyncedAt:        m.SkeletonSyncedAt,
 		CreatedAt:               m.CreatedAt,
 		UpdatedAt:               m.UpdatedAt,
 	}
@@ -1081,6 +1106,7 @@ func fromCanon(c series.Canon) database.SeriesModel {
 		EnrichmentRecsSyncedAt:  c.EnrichmentRecsSyncedAt,
 		EnrichmentMediaSyncedAt: c.EnrichmentMediaSyncedAt,
 		TMDBRatingSyncedAt:      c.TMDBRatingSyncedAt,
+		SkeletonSyncedAt:        c.SkeletonSyncedAt,
 		CreatedAt:               c.CreatedAt,
 		UpdatedAt:               c.UpdatedAt,
 	}

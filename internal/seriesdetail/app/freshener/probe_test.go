@@ -120,6 +120,7 @@ func TestProbe_AllFresh_DenseOnly(t *testing.T) {
 		Hydration:               catalogseries.HydrationFull,
 		Status:                  &status,
 		EnrichmentTMDBSyncedAt:  &fresh,
+		SkeletonSyncedAt:        &fresh, // W18-16: skeleton gate now reads this clock
 		EnrichmentTextSyncedAt:  &fresh,
 		EnrichmentCastSyncedAt:  &fresh,
 		EnrichmentRecsSyncedAt:  &fresh,
@@ -211,7 +212,8 @@ func TestProbe_OverviewNever(t *testing.T) {
 	canon := catalogseries.Canon{
 		Hydration:              catalogseries.HydrationFull,
 		Status:                 &status,
-		EnrichmentTMDBSyncedAt: &fresh, // skeleton fresh
+		EnrichmentTMDBSyncedAt: &fresh,
+		SkeletonSyncedAt:       &fresh, // W18-16: skeleton fresh via dedicated clock
 		// EnrichmentTextSyncedAt nil → overview never
 		EnrichmentCastSyncedAt:  &fresh,
 		EnrichmentRecsSyncedAt:  &fresh,
@@ -241,6 +243,7 @@ func TestProbe_OverviewExpired(t *testing.T) {
 		Hydration:               catalogseries.HydrationFull,
 		Status:                  &status,
 		EnrichmentTMDBSyncedAt:  &old,   // 25h ended → ttl status-aware says fresh
+		SkeletonSyncedAt:        &old,   // W18-16: skeleton gate reads this clock
 		EnrichmentTextSyncedAt:  &stale, // 8d > 7d ceiling → expired
 		EnrichmentCastSyncedAt:  &old,
 		EnrichmentRecsSyncedAt:  &old,
@@ -267,6 +270,7 @@ func TestProbe_StatusAware_ReturningTriggersEarly(t *testing.T) {
 		Hydration:               catalogseries.HydrationFull,
 		Status:                  &status,
 		EnrichmentTMDBSyncedAt:  &floorCrossed,
+		SkeletonSyncedAt:        &floorCrossed, // W18-16: skeleton gate reads this clock
 		EnrichmentTextSyncedAt:  &floorCrossed,
 		EnrichmentCastSyncedAt:  &floorCrossed,
 		EnrichmentRecsSyncedAt:  &floorCrossed,

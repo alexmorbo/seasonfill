@@ -157,6 +157,13 @@ type SeriesRepo interface {
 	// seriesUpsertAssignments() line 818 — pre-reserved slot from A2 I-1
 	// defensive addition).
 	MarkMediaSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
+	// MarkSkeletonSynced — W18-16: stamps series.skeleton_synced_at = now for one
+	// row. Called by HandleForcedLang AFTER the staged skeleton canon tx commits.
+	// Single-column UPDATE (+ updated_at); it does NOT touch the shared
+	// enrichment_tmdb_synced_at (the on-view worker deliberately leaves that for
+	// the dispatcher-driven full Handle). Absent from seriesUpsertAssignments()
+	// so a concurrent Sonarr scan preserves it by omission.
+	MarkSkeletonSynced(ctx context.Context, id domain.SeriesID, now time.Time) error
 	// UpdateOMDbColumns — W18-6 (M-1): plain-assigns the four OMDb-owned
 	// columns (imdb_rating, imdb_votes, omdb_rated, omdb_awards) onto the
 	// canon row, writing NULL for any nil pointer so an OMDb "N/A" response
