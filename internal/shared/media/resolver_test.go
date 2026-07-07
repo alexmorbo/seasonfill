@@ -19,10 +19,11 @@ type ensurePendingCall struct {
 }
 
 type fakeMediaLookup struct {
-	byURL       map[string]string
-	err         error
-	ensureCalls []ensurePendingCall
-	ensureErr   error
+	byURL         map[string]string
+	err           error
+	ensureCalls   []ensurePendingCall
+	ensureErr     error
+	lastEnsureErr error // ctx.Err() observed at the moment EnsurePending was called
 }
 
 func (f *fakeMediaLookup) HashForSourceURL(_ context.Context, url string) (string, error) {
@@ -36,7 +37,8 @@ func (f *fakeMediaLookup) HashForSourceURL(_ context.Context, url string) (strin
 	return h, nil
 }
 
-func (f *fakeMediaLookup) EnsurePending(_ context.Context, hash, sourceURL, kind string) error {
+func (f *fakeMediaLookup) EnsurePending(ctx context.Context, hash, sourceURL, kind string) error {
+	f.lastEnsureErr = ctx.Err()
 	f.ensureCalls = append(f.ensureCalls, ensurePendingCall{hash, sourceURL, kind})
 	return f.ensureErr
 }
@@ -174,6 +176,31 @@ func TestResolver_ResolveSync_FetchFailReturnsEagerHash(t *testing.T) {
 	assert.Equal(t, url, lookup.ensureCalls[0].sourceURL)
 	assert.Equal(t, "poster_w342", lookup.ensureCalls[0].kind)
 	require.Len(t, enq.calls, 1, "fallback async enqueue still kicks the pre-warm pipeline")
+}
+
+func TestResolver_ResolveSync_ColdMissReturnsEagerHashOnExpiredCtx(t *testing.T) {
+	t.Parallel()
+	// W19-1b: the sync fetch consumes the caller's posterResolveBudget, so
+	// the caller ctx is already expired by the time the eager-hash path
+	// runs. EnsurePending + enqueue must still run on a DETACHED, freshly
+	// budgeted ctx — otherwise EnsurePending errors (deadline exceeded),
+	// the resolver falls to the nil branch, and the cold first view shows a
+	// placeholder poster forever. Assert the eager hash comes back non-nil.
+	lookup := &fakeMediaLookup{} // EnsurePending succeeds (ensureErr nil)
+	enq := &stubEnqueuer{}
+	fetcher := &stubFetcher{ok: false} // budget/failure path
+	r := NewResolver(lookup, enq, fetcher, silentResolverLogger())
+	// Caller ctx is already cancelled — mimics the spent sync budget.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	path := "/abc.jpg"
+	got := r.ResolveSync(ctx, &path, "w342", "poster_w342")
+	require.NotNil(t, got, "cold miss on an expired ctx must still return the eager hash (detach worked)")
+	url := appmedia.BuildTMDBImageURL("w342", path)
+	assert.Equal(t, appmedia.HashFromURL(url), *got)
+	require.Len(t, lookup.ensureCalls, 1)
+	assert.NoError(t, lookup.lastEnsureErr, "EnsurePending must run on a live (detached) ctx, not the expired caller ctx")
+	require.Len(t, enq.calls, 1)
 }
 
 func TestResolver_ResolveSync_EagerHashWithoutFetcher(t *testing.T) {

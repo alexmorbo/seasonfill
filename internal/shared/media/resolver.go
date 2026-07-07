@@ -33,6 +33,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"github.com/VictoriaMetrics/metrics"
 
@@ -40,6 +41,11 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
+
+// eagerPersistTimeout bounds the detached EnsurePending + enqueue that
+// hands the frontend an eager hash after the caller's sync fetch budget
+// is spent. Short — it only writes one pending row + a channel push.
+const eagerPersistTimeout = 3 * time.Second
 
 // sentinelEmitCounter increments every time Resolve/ResolveSync hands
 // back the sentinel hash. Labels split the cases an operator wants to
@@ -291,18 +297,27 @@ func (r *Resolver) ResolveSync(ctx context.Context, rawPath *string, size, kind 
 	// error logs at Debug and falls back to the legacy async-enqueue +
 	// nil path so the frontend's next refresh has a chance.
 	eagerHash := appmedia.HashFromURL(url)
-	if perr := r.lookup.EnsurePending(ctx, eagerHash, url, kind); perr != nil {
-		r.logger.DebugContext(ctx, "media_resolver.ensure_pending_failed",
+	// The sync fetch consumed the caller's budget (posterResolveBudget),
+	// but registering the pending row + enqueue must still succeed so the
+	// frontend receives the eager hash and GET /media/:hash can recover the
+	// source URL and download-through. Detach from the (now-expired) caller
+	// ctx while preserving request-scoped values; give it a fresh short
+	// budget. Mirrors the detached-refresh pattern in
+	// internal/seriesdetail/app/series_ratings.go:251.
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), eagerPersistTimeout)
+	defer cancel()
+	if perr := r.lookup.EnsurePending(persistCtx, eagerHash, url, kind); perr != nil {
+		r.logger.DebugContext(persistCtx, "media_resolver.ensure_pending_failed",
 			slog.String("kind", kind),
 			slog.String("source_url", url),
 			slog.String("error", perr.Error()))
-		r.enqueueAsync(ctx, url, kind, ext)
+		r.enqueueAsync(persistCtx, url, kind, ext)
 		return nil
 	}
 	// Pending row written — also kick the async pre-warm pipeline so the
 	// downloader has a shot at landing the bytes before the handler's
 	// next request races for them. Cheap; FIFO-deduped on hash.
-	r.enqueueAsync(ctx, url, kind, ext)
+	r.enqueueAsync(persistCtx, url, kind, ext)
 	return &eagerHash
 }
 
