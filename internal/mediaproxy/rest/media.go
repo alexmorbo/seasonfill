@@ -98,10 +98,12 @@ var mediaPlaceholderSVG []byte
 // embedded SVG placeholder.
 const mediaPlaceholderContentType = "image/svg+xml"
 
-// mediaPlaceholderCacheControl caps placeholder caching at 5 minutes
-// so the frontend reattempts within a reasonable window once the row
-// transitions to status='stored'.
-const mediaPlaceholderCacheControl = "public, max-age=300"
+// mediaPlaceholderCacheControl marks the transient/pending placeholder
+// as no-store so it is never cached. Any FE-initiated re-request
+// (navigation, react-query refetch, component remount) re-hits the
+// handler and receives the real bytes the moment the downloader lands
+// them (W19-1 makes that ~1-2s), instead of a stale cached placeholder.
+const mediaPlaceholderCacheControl = "no-store"
 
 // MediaHandler implements GET /api/v1/media/:hash. Cache tiers:
 // in-process LRU → mediastore → on-demand sync fetch (story 321,
@@ -284,10 +286,10 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 			// response commits. Serving 404 here breaks <img onError>
 			// into the monogram fallback for the milliseconds between
 			// the FE receiving the hash and the goroutine landing the
-			// row. The SVG placeholder (200 + image/svg+xml + 5-min
-			// Cache-Control) keeps the visual stable; the FE re-requests
-			// once the cache window expires and by then the row is
-			// pending → on-demand fetch path takes over.
+			// row. The SVG placeholder (200 + image/svg+xml +
+			// no-store Cache-Control) keeps the visual stable; because
+			// it is never cached the FE re-requests immediately and by
+			// then the row is pending → on-demand fetch path takes over.
 			h.writePlaceholder(c, hash, "unknown_hash")
 			return
 		}

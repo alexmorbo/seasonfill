@@ -298,8 +298,8 @@ func TestMedia_UnknownHashServesPlaceholder(t *testing.T) {
 	if rr.Header().Get("X-Media-Placeholder") != "1" {
 		t.Fatal("expected X-Media-Placeholder=1")
 	}
-	if got := rr.Header().Get("Cache-Control"); got != "public, max-age=300" {
-		t.Fatalf("want Cache-Control public, max-age=300, got %q", got)
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("want Cache-Control no-store, got %q", got)
 	}
 	if !strings.Contains(rr.Body.String(), "<svg") {
 		t.Fatalf("expected SVG body, got %q", rr.Body.String()[:min(120, rr.Body.Len())])
@@ -495,8 +495,8 @@ func TestMediaHandler_OnDemand_PendingMissServesPlaceholderWithoutStampingFailed
 	if rr.Header().Get("X-Media-Placeholder") != "1" {
 		t.Fatal("expected X-Media-Placeholder=1")
 	}
-	if cc := rr.Header().Get("Cache-Control"); cc != "public, max-age=300" {
-		t.Fatalf("want 5-min cache-control, got %q", cc)
+	if cc := rr.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("want Cache-Control no-store, got %q", cc)
 	}
 	if !strings.Contains(rr.Body.String(), "<svg") {
 		t.Fatal("body must be SVG")
@@ -655,8 +655,8 @@ func TestMediaHandler_Placeholder_ContentAndHeaders(t *testing.T) {
 	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
 		t.Errorf("Content-Type want image/svg+xml, got %q", got)
 	}
-	if got := rr.Header().Get("Cache-Control"); got != "public, max-age=300" {
-		t.Errorf("Cache-Control want 5min, got %q", got)
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control want no-store, got %q", got)
 	}
 	if got := rr.Header().Get("X-Media-Placeholder"); got != "1" {
 		t.Errorf("X-Media-Placeholder want 1, got %q", got)

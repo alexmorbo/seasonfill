@@ -44,10 +44,12 @@ import (
 const onDemandTimeout = 10 * time.Second
 
 // negativeCacheTTL bounds how long a hash stays in the failed-fetch
-// cooldown. Short enough to self-heal once the store recovers or the
-// image becomes fetchable; long enough to stop per-render re-hammering
-// of TMDB while a store/image is broken.
-const negativeCacheTTL = 2 * time.Minute
+// cooldown. The short window matches the fast W19-1 downloader: a
+// pending/failed hash typically heals in seconds, so a long cooldown
+// would needlessly keep serving the placeholder instead of retrying
+// the now-stored bytes. 20s still throttles a genuinely-dead upstream
+// URL from being re-hammered on every request.
+const negativeCacheTTL = 20 * time.Second
 
 // OnDemandFetcher is the public interface; *onDemandFetcher is the
 // production impl. Kept as an interface so the composer test stubs
