@@ -985,6 +985,10 @@ func addPeople(s *atlasschema.Schema, d Dialect) {
 		// person_credits(id) is ON DELETE CASCADE (texts are dead once the
 		// credit row is dropped) whereas i18nTextTable hard-codes NO ACTION.
 		buildPersonCreditsTextsTable(d, personCredits),
+		// 1083 — people_texts: per-language person DISPLAY name. FK to
+		// people(id) is ON DELETE CASCADE (localized names are dead once the
+		// person row is dropped), same rationale as person_credits_texts.
+		buildPeopleTextsTable(d, people),
 	)
 }
 
@@ -1120,6 +1124,42 @@ func buildPersonCreditsTextsTable(d Dialect, personCreditsTable *atlasschema.Tab
 				AddColumns(personCreditID).
 				SetRefTable(personCreditsTable).
 				AddRefColumns(parentRefCol(personCreditsTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildPeopleTextsTable returns the people_texts table (1083):
+//
+//	PK (person_id, language)          -- 2-column composite
+//	columns: name text NULL,
+//	         updated_at timestamptz NOT NULL DEFAULT now()
+//	FK person_id → people(id) ON DELETE CASCADE
+//
+// Per-language person DISPLAY name. people.name STAYS as the
+// language-neutral base/legacy tier (last-writer-wins); the cast reader
+// resolves requested-lang → en-US → people.original_name → people.name.
+// CASCADE (not the i18nTextTable NO ACTION default) because a texts row
+// is meaningless once its person row is gone.
+func buildPeopleTextsTable(d Dialect, peopleTable *atlasschema.Table) *atlasschema.Table {
+	personID := fkColumn(d, "person_id", false /* not null */)
+	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
+	name := atlasschema.NewNullStringColumn("name", "text")
+	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("people_texts").
+		AddColumns(
+			personID,
+			language,
+			name,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(personID, language)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("people_texts_person_id_fkey").
+				AddColumns(personID).
+				SetRefTable(peopleTable).
+				AddRefColumns(parentRefCol(peopleTable)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)
