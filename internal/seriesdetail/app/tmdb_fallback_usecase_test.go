@@ -118,6 +118,13 @@ type fakeFallbackMedia struct {
 	err error
 }
 
+func (f *fakeFallbackMedia) Get(_ context.Context, _ domain.SeriesID, _ string) (series.SeriesMediaText, error) {
+	if f.err != nil {
+		return series.SeriesMediaText{}, f.err
+	}
+	return f.out, nil
+}
+
 func (f *fakeFallbackMedia) GetWithFallback(_ context.Context, _ domain.SeriesID, _ string) (series.SeriesMediaText, error) {
 	if f.err != nil {
 		return series.SeriesMediaText{}, f.err
@@ -133,6 +140,10 @@ func (f *fakeFallbackMedia) ListByIDsWithFallback(_ context.Context, _ []domain.
 }
 
 func (f *fakeFallbackMedia) GetBackdropAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
+	return nil, nil
+}
+
+func (f *fakeFallbackMedia) GetPosterAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
 	return nil, nil
 }
 

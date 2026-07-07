@@ -675,7 +675,11 @@ type SeriesMediaTextModel struct {
 	BackdropAsset *string         `gorm:"column:backdrop_asset;type:text"`
 	BackdropHash  *string         `gorm:"column:backdrop_hash;type:text"`
 	EnrichedAt    *time.Time      `gorm:"column:enriched_at"`
-	UpdatedAt     time.Time       `gorm:"column:updated_at;not null"`
+	// Story 1081a — per-locale presence markers. NULL = never checked;
+	// SET with a NULL asset = confirmed-absent (reader serves original).
+	PosterCheckedAt   *time.Time `gorm:"column:poster_checked_at"`
+	BackdropCheckedAt *time.Time `gorm:"column:backdrop_checked_at"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesMediaTextModel) TableName() string { return "series_media_texts" }

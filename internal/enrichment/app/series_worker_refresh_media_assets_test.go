@@ -519,11 +519,13 @@ func TestSeriesWorker_RefreshMediaAssets_NilMediaResolver_HappyPath(t *testing.T
 	require.Len(t, caps.seasonMedia.rows, 2)
 }
 
-// EmptyPaths — payload with no poster/backdrop/images and no seasons: the base
-// row would have poster nil AND backdrop nil → skip (a row with no art is
-// useless). So zero media rows + zero resolver calls, but the stamp still fires
-// (a no-work-needed sync).
-func TestSeriesWorker_RefreshMediaAssets_EmptyPaths_NoRows(t *testing.T) {
+// EmptyPaths — payload with no poster/backdrop/images and no seasons. Story
+// 1081a: a row with no art is NO LONGER skipped — it persists as a
+// confirmed-absent presence-marker row (asset NULL + *_checked_at = now) for
+// EVERY supported language, so the reader can tell "checked, nothing there"
+// from "never checked". Zero resolver calls (no non-nil paths to resolve),
+// but the stamp still fires (a no-work-needed sync).
+func TestSeriesWorker_RefreshMediaAssets_EmptyPaths_PersistsAbsenceRows(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
 	tv := mediaTVPayload(42, "", "", nil)
@@ -534,8 +536,56 @@ func TestSeriesWorker_RefreshMediaAssets_EmptyPaths_NoRows(t *testing.T) {
 	assert.True(t, hasCall(f.rec.list(), "Series.MarkMediaSynced"),
 		"stamp MUST fire on empty TMDB media response (no-work-needed sync)")
 	assert.Empty(t, resolver.calls, "no non-empty paths → zero resolver calls")
-	assert.Empty(t, caps.seriesMedia.rows, "base row with poster+backdrop both nil → skipped")
+	require.Len(t, caps.seriesMedia.rows, 2, "Story 1081a — absence rows now persist for BOTH langs (no skip)")
+	for _, r := range caps.seriesMedia.rows {
+		assert.Nil(t, r.PosterAsset)
+		assert.Nil(t, r.BackdropAsset)
+		require.NotNil(t, r.PosterCheckedAt, "confirmed-absent marker stamped even with no art")
+		require.NotNil(t, r.BackdropCheckedAt)
+	}
 	assert.Empty(t, caps.seasonMedia.rows)
+}
+
+// T1 (story 1081a) — the writer persists a per-language absence row
+// distinctly: en-US carries a real poster from images[] while ru-RU has NONE
+// (no ru poster tagged, no root fallback for the strict non-base pick).
+// Regression guard: before Story 1081a the ru-RU row would be SKIPPED
+// entirely (no row); now it EXISTS as confirmed-absent (PosterAsset nil,
+// PosterCheckedAt set).
+func TestSeriesWorker_RefreshMediaAssets_T1_NonBaseAbsenceRowPersists(t *testing.T) {
+	t.Parallel()
+	tmdbID := domain.TMDBID(42)
+	en := "en"
+	tv := mediaTVPayload(42, "", "", nil) // no root poster/backdrop
+	tv.Images = &tmdb.TVImages{
+		Posters: []tmdb.TVImage{
+			{FilePath: "/en_poster.jpg", ISO6391: &en, VoteAverage: 8.0, VoteCount: 40},
+		},
+	}
+	resolver := &fakeMediaResolver{}
+	f, caps := newMediaFixture(t, &tmdbID, nil, resolver, tv)
+	err := f.worker.RefreshMediaAssets(context.Background(), 1, "ru-RU", true)
+	require.NoError(t, err)
+
+	require.Len(t, caps.seriesMedia.rows, 2, "Story 1081a — a row for EVERY supported lang, never skipped")
+	byLang := map[string]series.SeriesMediaText{}
+	for _, r := range caps.seriesMedia.rows {
+		byLang[r.Language] = r
+	}
+	require.Contains(t, byLang, "en-US")
+	require.Contains(t, byLang, "ru-RU")
+
+	enRow := byLang["en-US"]
+	require.NotNil(t, enRow.PosterAsset)
+	assert.Equal(t, "/en_poster.jpg", *enRow.PosterAsset)
+	require.NotNil(t, enRow.PosterCheckedAt)
+
+	ruRow := byLang["ru-RU"]
+	assert.Nil(t, ruRow.PosterAsset, "no ru poster in images[], no root fallback (strict) → confirmed-absent")
+	assert.Nil(t, ruRow.BackdropAsset, "no ru/neutral/root backdrop available either")
+	require.NotNil(t, ruRow.PosterCheckedAt,
+		"regression guard: pre-1081a the ru row would be SKIPPED (no row at all) — now it must EXIST as confirmed-absent")
+	require.NotNil(t, ruRow.BackdropCheckedAt)
 }
 
 func TestSeriesWorker_RefreshMediaAssets_ProbeError_FailOpen(t *testing.T) {

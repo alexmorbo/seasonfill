@@ -27,11 +27,12 @@ import (
 //     short(lang) tier ONLY, no agnostic/en/root fallback, so a ru poster row
 //     is never poisoned by en art. Backdrop uses pickBackdropForLang (short(lang)
 //     with lang-agnostic root fallback), since backdrops are typically textless
-//     and a language-neutral backdrop is acceptable. If both come back nil the
-//     row is SKIPPED (the W15-2 any-lang reader + async per-lang path cover it
-//     later).
-//     - A row is written only when poster OR backdrop is non-nil — a row with no
-//     art is useless (applies to base and non-base alike).
+//     and a language-neutral backdrop is acceptable.
+//     - Story 1081a: a row is ALWAYS written, even when poster and backdrop are
+//     both nil — an absence row (asset NULL + *_checked_at = now) is the
+//     confirmed-absent PRESENCE marker the skeleton hero reads to serve the
+//     stable original poster instead of re-showing a stale localized one on
+//     the next poll (kills the poster swap).
 //
 //  2. season_media_texts (base lang only) — one poster row per season whose
 //     tv.Seasons[i].PosterPath is non-empty. GetTVAllLangs pins the en-US root,
@@ -255,9 +256,11 @@ func (w *SeriesWorker) RefreshMediaAssets(
 	//    EnsurePending pre-warms the media pipeline); nesting that inside the
 	//    tx risks cross-table lock contention (RefreshSeriesAllLangs pattern).
 	//    BASE lang: full priority pick + root fallback → guaranteed en-US row.
-	//    NON-base: strict exact-lang pick, no fallback → skip-if-absent (never
-	//    poison). A row is produced only when poster OR backdrop is non-nil —
-	//    a row with no art is useless (base and non-base alike).
+	//    NON-base: strict exact-lang pick, no root fallback (never poison a
+	//    language row with mismatched art). Story 1081a: a row is ALWAYS
+	//    persisted for every supported language, even when no art was found —
+	//    poster_checked_at/backdrop_checked_at are stamped so the reader can
+	//    tell "confirmed absent" apart from "never checked".
 	seriesMediaWrites := make([]series.SeriesMediaText, 0, len(locale.SupportedUserLanguages))
 	if w.deps.SeriesMediaTexts != nil {
 		base := locale.Default()
@@ -288,9 +291,11 @@ func (w *SeriesWorker) RefreshMediaAssets(
 					backdropPath = nonEmptyStringPtr(tv.BackdropPath)
 				}
 			}
-			if posterPath == nil && backdropPath == nil {
-				continue
-			}
+			// Story 1081a — DO NOT skip an art-less lang. Persist an absence
+			// row (asset NULL + *_checked_at = now) so the reader can tell
+			// "confirmed-absent" from "never checked". The COALESCE-guarded
+			// asset columns keep any previously-fetched art; only the plain-
+			// excluded *_checked_at markers advance.
 			var posterHash, backdropHash *string
 			if w.deps.MediaResolver != nil {
 				if posterPath != nil {
@@ -301,13 +306,15 @@ func (w *SeriesWorker) RefreshMediaAssets(
 				}
 			}
 			seriesMediaWrites = append(seriesMediaWrites, series.SeriesMediaText{
-				SeriesID:      seriesID,
-				Language:      l,
-				PosterAsset:   posterPath,
-				PosterHash:    posterHash,
-				BackdropAsset: backdropPath,
-				BackdropHash:  backdropHash,
-				EnrichedAt:    &now,
+				SeriesID:          seriesID,
+				Language:          l,
+				PosterAsset:       posterPath,
+				PosterHash:        posterHash,
+				BackdropAsset:     backdropPath,
+				BackdropHash:      backdropHash,
+				EnrichedAt:        &now,
+				PosterCheckedAt:   &now,
+				BackdropCheckedAt: &now,
 			})
 		}
 	}

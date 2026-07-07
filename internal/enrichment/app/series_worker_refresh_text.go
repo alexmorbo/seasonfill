@@ -115,61 +115,20 @@ func (w *SeriesWorker) RefreshSeriesText(
 		Tagline:  nonEmptyStringPtr(tv.Tagline),
 	}
 
-	// 5b. Per-language poster/backdrop (C-posters-A, Story 584a). The
-	//     SAME GetTV(lang) payload carries tv.PosterPath / tv.BackdropPath
-	//     (identical struct A4 reads) — zero extra TMDB round-trips.
-	//     Eager-resolve the default-size hashes OUTSIDE the tx: Resolve
-	//     writes a media_assets pending row (EnsurePending) + enqueues the
-	//     download, so the per-lang asset pre-warms into the pipeline
-	//     instead of only fetching on a user's first read. media_assets is
-	//     a different natural key — nesting the Resolve DB write inside the
-	//     series_texts tx risks cross-table lock contention (A4 lesson,
-	//     series_worker_refresh_media_assets.go:45-53). nil resolver → hash
-	//     stays nil (asset path still stored + read paths re-derive).
-	var posterHash, backdropHash *string
-	// S-A (#977): prefer the per-language poster/backdrop from the
-	// already-fetched tv.Images; fall back to the root path when Images is
-	// nil or carries nothing for this language. Same GetTV(lang) payload —
-	// zero extra TMDB round-trips.
-	posterPath := pickPosterForLang(tv.Images, lang)
-	if posterPath == nil {
-		posterPath = nonEmptyStringPtr(tv.PosterPath)
-	}
-	backdropPath := pickBackdropForLang(tv.Images, lang)
-	if backdropPath == nil {
-		backdropPath = nonEmptyStringPtr(tv.BackdropPath)
-	}
-	if w.deps.MediaResolver != nil {
-		if posterPath != nil {
-			posterHash = w.deps.MediaResolver.Resolve(ctx, posterPath, "w342", "poster_w342")
-		}
-		if backdropPath != nil {
-			backdropHash = w.deps.MediaResolver.Resolve(ctx, backdropPath, "w1280", "backdrop_w1280")
-		}
-	}
-
-	// 6. Atomic write — series_texts UPSERT + (nil-OK) series_media_texts
-	//    UPSERT + stamp UPDATE in one tx. Stamp NEVER written without a
-	//    successful series_texts UPSERT.
+	// 6. Atomic write — series_texts UPSERT + stamp UPDATE in one tx. Stamp
+	//    NEVER written without a successful series_texts UPSERT.
 	now := w.deps.Clock()
 	err = w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
 		if err := w.deps.SeriesTexts.Upsert(txCtx, text); err != nil {
 			return fmt.Errorf("upsert series_texts: %w", err)
 		}
-		if w.deps.SeriesMediaTexts != nil {
-			media := series.SeriesMediaText{
-				SeriesID:      seriesID,
-				Language:      lang,
-				PosterAsset:   posterPath,
-				PosterHash:    posterHash,
-				BackdropAsset: backdropPath,
-				BackdropHash:  backdropHash,
-				EnrichedAt:    &now,
-			}
-			if err := w.deps.SeriesMediaTexts.Upsert(txCtx, media); err != nil {
-				return fmt.Errorf("upsert series_media_texts: %w", err)
-			}
-		}
+		// Story 1081a — RefreshSeriesText is TEXT-ONLY. It deliberately no longer
+		// writes series_media_texts: seeding media from a text refresh wrote a
+		// root-fallback poster into non-base rows (root-cause #1) and, under the
+		// plain-excluded *_checked_at markers, would clobber them with a nil.
+		// Media is owned by RefreshMediaAssets (warm, co-dispatched with
+		// SectionOverview) and the cold-view canon-sync seed (series_worker.go);
+		// discovery grid art comes from InsertIfAbsent. See story §0.3.
 		if err := w.deps.Series.MarkTextSynced(txCtx, seriesID, now); err != nil {
 			return fmt.Errorf("mark text synced: %w", err)
 		}
@@ -181,8 +140,6 @@ func (w *SeriesWorker) RefreshSeriesText(
 
 	durMs := int(w.deps.Clock().Sub(start).Milliseconds())
 	log.InfoContext(ctx, "enrichment.series.refresh_text.ok",
-		slog.Bool("poster_present", posterPath != nil),
-		slog.Bool("backdrop_present", backdropPath != nil),
 		slog.Int("duration_ms", durMs))
 	return nil
 }

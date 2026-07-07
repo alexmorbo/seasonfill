@@ -684,6 +684,10 @@ func buildSeasonTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlassche
 // of truth); *_hash are the eager default-size hashes the worker mints via
 // MediaResolver (pre-warm record). enriched_at is the freshness stamp;
 // NULL until the worker runs.
+//
+// Story 1081a adds nullable poster_checked_at / backdrop_checked_at PRESENCE
+// markers: (asset NULL & checked_at SET) = confirmed-absent, (both NULL) =
+// never checked. Stamped plain-excluded by the TMDB media writers.
 func buildSeriesMediaTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
 	seriesID := fkColumn(d, "series_id", false /* not null */)
 	language := atlasschema.NewStringColumn("language", "text").SetNull(false)
@@ -692,6 +696,10 @@ func buildSeriesMediaTextsTable(d Dialect, seriesTable *atlasschema.Table) *atla
 	backdropAsset := atlasschema.NewNullStringColumn("backdrop_asset", "text")
 	backdropHash := atlasschema.NewNullStringColumn("backdrop_hash", "text")
 	enrichedAt := timestampColumn(d, "enriched_at", false /* withDefault */, false /* notNull */)
+	// Story 1081a — per-locale presence markers. Nullable, no default; NULL =
+	// never checked. See buildSeriesMediaTextsTable doc + migration 000036.
+	posterCheckedAt := timestampColumn(d, "poster_checked_at", false /* withDefault */, false /* notNull */)
+	backdropCheckedAt := timestampColumn(d, "backdrop_checked_at", false /* withDefault */, false /* notNull */)
 	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
 
 	return atlasschema.NewTable("series_media_texts").
@@ -703,6 +711,8 @@ func buildSeriesMediaTextsTable(d Dialect, seriesTable *atlasschema.Table) *atla
 			backdropAsset,
 			backdropHash,
 			enrichedAt,
+			posterCheckedAt,
+			backdropCheckedAt,
 			updatedAt,
 		).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID, language)).

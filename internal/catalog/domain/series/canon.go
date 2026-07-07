@@ -251,7 +251,11 @@ type SeriesMediaText struct {
 	BackdropAsset *string
 	BackdropHash  *string
 	EnrichedAt    *time.Time
-	UpdatedAt     time.Time
+	// Story 1081a — per-locale presence markers. NULL = never checked; SET
+	// with a NULL PosterAsset/BackdropAsset = confirmed-absent.
+	PosterCheckedAt   *time.Time
+	BackdropCheckedAt *time.Time
+	UpdatedAt         time.Time
 }
 
 // SeasonMediaText is one per-language season poster/backdrop row of

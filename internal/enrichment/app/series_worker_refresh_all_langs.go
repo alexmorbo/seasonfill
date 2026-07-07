@@ -156,15 +156,28 @@ func (w *SeriesWorker) RefreshSeriesAllLangs(
 
 		var media *series.SeriesMediaText
 		if w.deps.SeriesMediaTexts != nil {
-			// S-A pick with root fallback (reuses pickPosterForLang /
-			// pickBackdropForLang from series_worker_images.go).
-			posterPath := pickPosterForLang(tv.Images, lang)
-			if posterPath == nil {
-				posterPath = nonEmptyStringPtr(tv.PosterPath)
-			}
-			backdropPath := pickBackdropForLang(tv.Images, lang)
-			if backdropPath == nil {
-				backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+			// Story 1081a — base lang keeps the full pick + root fallback
+			// (guaranteed en-US row); NON-base uses the STRICT pick (exact-lang
+			// only, no root) so a ru row holds ONLY a real ru poster — else a
+			// NULL + checked_at absence row. This kills root-cause #1 (all-langs
+			// no longer writes a generic root poster into a ru row). Backdrop stays
+			// non-strict for non-base (textless key-art, W18-15 parity).
+			var posterPath, backdropPath *string
+			if lang == base {
+				posterPath = pickPosterForLang(tv.Images, lang)
+				if posterPath == nil {
+					posterPath = nonEmptyStringPtr(tv.PosterPath)
+				}
+				backdropPath = pickBackdropForLang(tv.Images, lang)
+				if backdropPath == nil {
+					backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+				}
+			} else {
+				posterPath = pickPosterForLangStrict(tv.Images, lang)
+				backdropPath = pickBackdropForLang(tv.Images, lang)
+				if backdropPath == nil {
+					backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+				}
 			}
 			var posterHash, backdropHash *string
 			if w.deps.MediaResolver != nil {
@@ -176,13 +189,15 @@ func (w *SeriesWorker) RefreshSeriesAllLangs(
 				}
 			}
 			media = &series.SeriesMediaText{
-				SeriesID:      seriesID,
-				Language:      lang,
-				PosterAsset:   posterPath,
-				PosterHash:    posterHash,
-				BackdropAsset: backdropPath,
-				BackdropHash:  backdropHash,
-				EnrichedAt:    &now,
+				SeriesID:          seriesID,
+				Language:          lang,
+				PosterAsset:       posterPath,
+				PosterHash:        posterHash,
+				BackdropAsset:     backdropPath,
+				BackdropHash:      backdropHash,
+				EnrichedAt:        &now,
+				PosterCheckedAt:   &now,
+				BackdropCheckedAt: &now,
 			}
 		}
 		writes = append(writes, pendingWrite{text: text, media: media})

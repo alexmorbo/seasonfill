@@ -101,6 +101,10 @@ type SeriesTextsPort interface {
 // enrichpersistence.SeriesMediaTextsRepository. Nil-OK on the deps (the
 // composer falls back to canon when unwired).
 type SeriesMediaTextsPort interface {
+	// Get fetches the row for (series_id, language) exactly (no fallback).
+	// Story 1081a: the skeleton hero uses this to read the requested-lang
+	// row's PosterAsset/PosterCheckedAt presence marker directly.
+	Get(ctx context.Context, seriesID domain.SeriesID, language string) (series.SeriesMediaText, error)
 	GetWithFallback(ctx context.Context, seriesID domain.SeriesID, language string) (series.SeriesMediaText, error)
 	ListByIDsWithFallback(ctx context.Context, seriesIDs []domain.SeriesID, language string) (map[domain.SeriesID]series.SeriesMediaText, error)
 	// GetBackdropAnyLang returns a per-COLUMN backdrop path across all languages
@@ -108,6 +112,12 @@ type SeriesMediaTextsPort interface {
 	// hero recovers a backdrop when the best-language row is poster-only (W18-15).
 	// Returns (nil, nil) when no row carries a backdrop.
 	GetBackdropAnyLang(ctx context.Context, seriesID domain.SeriesID, preferLang string) (*string, error)
+	// GetPosterAnyLang returns a per-COLUMN poster path across all languages
+	// (prefer language → en-US → any), skipping NULL/empty posters. Story
+	// 1081a: the skeleton hero uses this to serve the stable original poster
+	// when the requested-lang row is confirmed-absent (PosterAsset NULL &
+	// PosterCheckedAt SET). Returns (nil, nil) when no row carries a poster.
+	GetPosterAnyLang(ctx context.Context, seriesID domain.SeriesID, preferLang string) (*string, error)
 }
 
 // SeasonsPort lists every season row for a series, ordered by

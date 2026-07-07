@@ -283,7 +283,12 @@ func TestRefreshSeriesAllLangs_NilMediaDeps_NoPanic(t *testing.T) {
 	assert.True(t, hasCall(f.rec.list(), "Series.MarkTextSynced"))
 }
 
-// nil Images but media port present → poster/backdrop fall back to root path.
+// nil Images, media port present. Story 1081a — base (en-US) still gets the
+// root poster/backdrop fallback; NON-base (ru-RU) poster is now STRICT
+// (Images nil → no ru art → nil, not the en/root poster) to kill root-cause
+// #1 (a generic root poster poisoning the ru row). Backdrop stays non-strict
+// for non-base (W18-15 parity), so ru still gets the root backdrop. Both
+// rows are still written (absence row persisted) with *_checked_at stamped.
 func TestRefreshSeriesAllLangs_NilImages_RootPosterFallback(t *testing.T) {
 	t.Parallel()
 	tmdbID := domain.TMDBID(42)
@@ -295,10 +300,25 @@ func TestRefreshSeriesAllLangs_NilImages_RootPosterFallback(t *testing.T) {
 
 	require.NoError(t, f.worker.RefreshSeriesAllLangs(context.Background(), 1, true))
 	require.Len(t, media.rows, 2)
+	byLang := map[string]series.SeriesMediaText{}
 	for _, m := range media.rows {
-		require.NotNil(t, m.PosterAsset)
-		assert.Equal(t, "/root_poster.jpg", *m.PosterAsset, "no images[] → root poster")
-		require.NotNil(t, m.BackdropAsset)
-		assert.Equal(t, "/root_bd.jpg", *m.BackdropAsset)
+		byLang[m.Language] = m
 	}
+	require.Contains(t, byLang, "en-US")
+	require.Contains(t, byLang, "ru-RU")
+
+	en := byLang["en-US"]
+	require.NotNil(t, en.PosterAsset)
+	assert.Equal(t, "/root_poster.jpg", *en.PosterAsset, "base poster still root-fallback")
+	require.NotNil(t, en.BackdropAsset)
+	assert.Equal(t, "/root_bd.jpg", *en.BackdropAsset)
+	require.NotNil(t, en.PosterCheckedAt)
+	require.NotNil(t, en.BackdropCheckedAt)
+
+	ru := byLang["ru-RU"]
+	assert.Nil(t, ru.PosterAsset, "Story 1081a — non-base poster is strict; no images[] → nil, NOT root")
+	require.NotNil(t, ru.BackdropAsset, "non-base backdrop still root-fallback (W18-15 parity)")
+	assert.Equal(t, "/root_bd.jpg", *ru.BackdropAsset)
+	require.NotNil(t, ru.PosterCheckedAt, "confirmed-absent marker stamped even though poster is nil")
+	require.NotNil(t, ru.BackdropCheckedAt)
 }

@@ -218,8 +218,11 @@ func TestA4RefreshMediaAssets_WritesPerLangArt_Integration(t *testing.T) {
 
 // TestA4RefreshMediaAssets_EmptyPayload_NoRowsNoCrash_Integration — NEGATIVE:
 // a TMDB payload with empty poster/backdrop, nil images, and empty-poster
-// seasons must write ZERO media rows (a base row with no art is useless) and
-// NOT crash; the stamp still fires (no-work-needed sync).
+// seasons must NOT crash; the stamp still fires (no-work-needed sync). Story
+// 1081a: series_media_texts rows are NO LONGER skipped when art is absent —
+// a confirmed-absent presence-marker row (asset NULL + *_checked_at = now)
+// persists for every supported language instead, so the reader can tell
+// "checked, nothing there" from "never checked".
 func TestA4RefreshMediaAssets_EmptyPayload_NoRowsNoCrash_Integration(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
@@ -263,9 +266,14 @@ func TestA4RefreshMediaAssets_EmptyPayload_NoRowsNoCrash_Integration(t *testing.
 
 			require.NoError(t, worker.RefreshMediaAssets(ctx, seriesID, "en-US", true))
 
-			assert.Equal(t, 0, countSeriesMediaRows(t, gdb, seriesID), "empty payload → zero series_media_texts rows")
-			_, err = seriesMedia.Get(ctx, seriesID, "en-US")
-			require.ErrorIs(t, err, ports.ErrNotFound)
+			assert.Equal(t, 2, countSeriesMediaRows(t, gdb, seriesID),
+				"Story 1081a — a confirmed-absent row now persists for EVERY supported language (en-US + ru-RU)")
+			enRow, err := seriesMedia.Get(ctx, seriesID, "en-US")
+			require.NoError(t, err, "row exists (confirmed-absent), not ErrNotFound")
+			assert.Nil(t, enRow.PosterAsset)
+			assert.Nil(t, enRow.BackdropAsset)
+			require.NotNil(t, enRow.PosterCheckedAt, "presence marker stamped even with no art")
+			require.NotNil(t, enRow.BackdropCheckedAt)
 
 			// Stamp still fired (no-work-needed sync).
 			after, err := seriesRepo.Get(ctx, seriesID)

@@ -114,6 +114,13 @@ type castHandlerFakeMediaTexts struct {
 	poster   *string
 }
 
+func (f castHandlerFakeMediaTexts) Get(_ context.Context, id domain.SeriesID, _ string) (series.SeriesMediaText, error) {
+	if f.poster == nil || id != f.seriesID {
+		return series.SeriesMediaText{}, ports.ErrNotFound
+	}
+	return series.SeriesMediaText{SeriesID: id, Language: "en-US", PosterAsset: f.poster}, nil
+}
+
 func (f castHandlerFakeMediaTexts) GetWithFallback(_ context.Context, id domain.SeriesID, _ string) (series.SeriesMediaText, error) {
 	if f.poster == nil || id != f.seriesID {
 		return series.SeriesMediaText{}, ports.ErrNotFound
@@ -126,6 +133,10 @@ func (f castHandlerFakeMediaTexts) ListByIDsWithFallback(_ context.Context, _ []
 }
 
 func (f castHandlerFakeMediaTexts) GetBackdropAnyLang(_ context.Context, _ domain.SeriesID, _ string) (*string, error) {
+	return nil, nil
+}
+
+func (f castHandlerFakeMediaTexts) GetPosterAnyLang(_ context.Context, _ domain.SeriesID, _ string) (*string, error) {
 	return nil, nil
 }
 

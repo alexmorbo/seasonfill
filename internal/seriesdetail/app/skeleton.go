@@ -365,24 +365,37 @@ func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, can
 	// unchanged.
 	var posterPath, backdropPath *string
 	if sc.d.SeriesMediaTexts != nil {
+		// Backdrop is UNCHANGED (spec item 6 — the marker gates only the poster
+		// swap): best-language row + per-column any-lang recovery.
 		if mt, err := sc.d.SeriesMediaTexts.GetWithFallback(ctx, seriesID, langStr); err == nil {
-			if mt.PosterAsset != nil && *mt.PosterAsset != "" {
-				posterPath = mt.PosterAsset
-			}
 			if mt.BackdropAsset != nil && *mt.BackdropAsset != "" {
 				backdropPath = mt.BackdropAsset
 			}
 		}
-		// W18-15 — GetWithFallback picks ONE best-language ROW; if that row is
-		// poster-only (backdrop_asset NULL — RefreshMediaAssets historically
-		// wrote ru rows with no backdrop) the hero would render a placeholder
-		// even though an en-US / other-language row HAS a backdrop. Recover with
-		// a per-COLUMN any-language backdrop (prefer requested lang → en-US →
-		// any). Poster stays strictly per-language (per-lang poster art is
-		// intentional, #977/#978).
 		if backdropPath == nil {
 			if bp, berr := sc.d.SeriesMediaTexts.GetBackdropAnyLang(ctx, seriesID, langStr); berr == nil && bp != nil && *bp != "" {
 				backdropPath = bp
+			}
+		}
+
+		// Story 1081a — POSTER is marker-driven off the REQUESTED-lang row to
+		// kill the poll-swap. Three states:
+		//   present            (PosterAsset != "")                 → localized poster.
+		//   confirmed-absent   (PosterAsset NULL & PosterCheckedAt SET) → STABLE
+		//                        original/canonical poster (en-US → any). No swap:
+		//                        we KNOW the localized one won't arrive until a re-check.
+		//   never-checked      (no row, or PosterAsset NULL & PosterCheckedAt NULL) →
+		//                        leave nil (monogram); the cold ModeSync skeleton
+		//                        refresh resolves presence before first paint. DO NOT
+		//                        serve en here — serving it now IS the swap.
+		if row, rerr := sc.d.SeriesMediaTexts.Get(ctx, seriesID, langStr); rerr == nil {
+			switch {
+			case row.PosterAsset != nil && *row.PosterAsset != "":
+				posterPath = row.PosterAsset
+			case row.PosterCheckedAt != nil:
+				if op, oerr := sc.d.SeriesMediaTexts.GetPosterAnyLang(ctx, seriesID, langStr); oerr == nil && op != nil && *op != "" {
+					posterPath = op
+				}
 			}
 		}
 	}

@@ -92,6 +92,36 @@ func (r *SeriesMediaTextsRepository) GetBackdropAnyLang(ctx context.Context, ser
 	return row.BackdropAsset, nil
 }
 
+// GetPosterAnyLang returns the best per-COLUMN poster path across ALL languages
+// that actually carry one, preferring preferLang → en-US → any (deterministic
+// language ASC). Story 1081a: the hero calls this for the CONFIRMED-ABSENT case
+// (requested-lang poster_asset NULL & poster_checked_at SET) to serve the stable
+// original/canonical poster instead of a monogram — because we KNOW the localized
+// poster will not arrive until a re-check, the original never gets swapped out.
+// Rows whose poster_asset is NULL or empty are filtered, so the confirmed-absent
+// requested-lang row never shadows another language's real poster. Returns
+// (nil, nil) when NO language row carries a poster (truly art-less series →
+// monogram). Mirrors GetBackdropAnyLang.
+func (r *SeriesMediaTextsRepository) GetPosterAnyLang(ctx context.Context, seriesID domain.SeriesID, preferLang string) (*string, error) {
+	if preferLang == "" {
+		preferLang = fallbackLanguage
+	}
+	const q = "SELECT smt.poster_asset AS poster_asset " +
+		"FROM series_media_texts smt " +
+		"WHERE smt.series_id = ? AND smt.poster_asset IS NOT NULL AND smt.poster_asset <> '' " +
+		"ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = ? THEN 1 ELSE 0 END DESC, smt.language ASC " +
+		"LIMIT 1"
+	var row struct {
+		PosterAsset *string `gorm:"column:poster_asset"`
+	}
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Raw(q, int64(seriesID), preferLang, fallbackLanguage).
+		Scan(&row).Error; err != nil {
+		return nil, fmt.Errorf("get poster any-lang (series_media_texts): %w", err)
+	}
+	return row.PosterAsset, nil
+}
+
 // ListByIDsWithFallback returns one SeriesMediaText per requested
 // series_id, applying the never-empty poster ladder (requested language →
 // en-US → any-available-language) in at most three round-trips. Mirrors
@@ -212,7 +242,17 @@ func (r *SeriesMediaTextsRepository) Upsert(ctx context.Context, t series.Series
 			"backdrop_asset": gorm.Expr("COALESCE(excluded.backdrop_asset, series_media_texts.backdrop_asset)"),
 			"backdrop_hash":  gorm.Expr("COALESCE(excluded.backdrop_hash, series_media_texts.backdrop_hash)"),
 			"enriched_at":    gorm.Expr("COALESCE(excluded.enriched_at, series_media_texts.enriched_at)"),
-			"updated_at":     gorm.Expr("excluded.updated_at"),
+			// Story 1081a — DELIBERATE COALESCE EXCEPTION. The *_checked_at
+			// presence markers are written PLAIN (excluded.X, not COALESCE) so a
+			// re-check ALWAYS refreshes the stamp to the new "now" — a
+			// confirmed-absent marker must not be frozen. INVARIANT (story §0.0):
+			// every caller that writes a poster/backdrop asset here ALSO stamps
+			// *_checked_at=now (writers 1/2/3 are strict-non-base + stamp; the
+			// text-only RefreshSeriesText path no longer calls this Upsert at all),
+			// so plain-excluded never receives a nil that would erase a valid marker.
+			"poster_checked_at":   gorm.Expr("excluded.poster_checked_at"),
+			"backdrop_checked_at": gorm.Expr("excluded.backdrop_checked_at"),
+			"updated_at":          gorm.Expr("excluded.updated_at"),
 		}),
 	}).Create(&m).Error
 	if err != nil {
@@ -255,26 +295,30 @@ func (r *SeriesMediaTextsRepository) InsertIfAbsent(ctx context.Context, t serie
 
 func toSeriesMediaText(m database.SeriesMediaTextModel) series.SeriesMediaText {
 	return series.SeriesMediaText{
-		SeriesID:      m.SeriesID,
-		Language:      m.Language,
-		PosterAsset:   m.PosterAsset,
-		PosterHash:    m.PosterHash,
-		BackdropAsset: m.BackdropAsset,
-		BackdropHash:  m.BackdropHash,
-		EnrichedAt:    m.EnrichedAt,
-		UpdatedAt:     m.UpdatedAt,
+		SeriesID:          m.SeriesID,
+		Language:          m.Language,
+		PosterAsset:       m.PosterAsset,
+		PosterHash:        m.PosterHash,
+		BackdropAsset:     m.BackdropAsset,
+		BackdropHash:      m.BackdropHash,
+		EnrichedAt:        m.EnrichedAt,
+		PosterCheckedAt:   m.PosterCheckedAt,
+		BackdropCheckedAt: m.BackdropCheckedAt,
+		UpdatedAt:         m.UpdatedAt,
 	}
 }
 
 func fromSeriesMediaText(t series.SeriesMediaText) database.SeriesMediaTextModel {
 	return database.SeriesMediaTextModel{
-		SeriesID:      t.SeriesID,
-		Language:      t.Language,
-		PosterAsset:   t.PosterAsset,
-		PosterHash:    t.PosterHash,
-		BackdropAsset: t.BackdropAsset,
-		BackdropHash:  t.BackdropHash,
-		EnrichedAt:    t.EnrichedAt,
-		UpdatedAt:     t.UpdatedAt,
+		SeriesID:          t.SeriesID,
+		Language:          t.Language,
+		PosterAsset:       t.PosterAsset,
+		PosterHash:        t.PosterHash,
+		BackdropAsset:     t.BackdropAsset,
+		BackdropHash:      t.BackdropHash,
+		EnrichedAt:        t.EnrichedAt,
+		PosterCheckedAt:   t.PosterCheckedAt,
+		BackdropCheckedAt: t.BackdropCheckedAt,
+		UpdatedAt:         t.UpdatedAt,
 	}
 }

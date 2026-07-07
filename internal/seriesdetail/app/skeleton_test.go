@@ -152,14 +152,21 @@ func (f *fakeSkNextEpisode) NextAired(context.Context, domain.SeriesID, string) 
 }
 
 // fakeSkMediaTexts is the Story 584b per-language poster/backdrop port
-// fake. GetWithFallback returns the configured row/err; the batch method
-// is unused by the skeleton path.
+// fake. GetWithFallback/Get return the configured row/err; the batch method
+// is unused by the skeleton path. Story 1081a: Get mirrors GetWithFallback's
+// row/err (same underlying table row in production) so pre-1081a tests that
+// only set `row`/`err` keep exercising the same poster resolution; posterAny
+// backs the confirmed-absent → GetPosterAnyLang recovery tier.
 type fakeSkMediaTexts struct {
 	row         series.SeriesMediaText
 	err         error
 	backdropAny *string // W18-15 — GetBackdropAnyLang result
+	posterAny   *string // Story 1081a — GetPosterAnyLang result
 }
 
+func (f *fakeSkMediaTexts) Get(context.Context, domain.SeriesID, string) (series.SeriesMediaText, error) {
+	return f.row, f.err
+}
 func (f *fakeSkMediaTexts) GetWithFallback(context.Context, domain.SeriesID, string) (series.SeriesMediaText, error) {
 	return f.row, f.err
 }
@@ -168,6 +175,9 @@ func (f *fakeSkMediaTexts) ListByIDsWithFallback(context.Context, []domain.Serie
 }
 func (f *fakeSkMediaTexts) GetBackdropAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
 	return f.backdropAny, nil
+}
+func (f *fakeSkMediaTexts) GetPosterAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
+	return f.posterAny, nil
 }
 
 // fakeSkMediaLookup is an always-miss HashLookupPort: HashForSourceURL
@@ -731,6 +741,75 @@ func TestSkeletonComposer_PerLangPoster_RepoError_NilArt(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, dto.Hero.PosterAsset.IsZero())
 	require.True(t, dto.Hero.BackdropAsset.IsZero())
+}
+
+// --- Story 1081a — marker-aware poster resolution (T3/T4) ---
+
+// T3 — confirmed-absent (PosterAsset nil, PosterCheckedAt SET) serves the
+// STABLE original/canonical poster via GetPosterAnyLang instead of a
+// monogram: we KNOW the localized poster will not arrive until a re-check,
+// so the original poster never gets swapped out on a later poll.
+func TestSkeletonComposer_PosterMarker_ConfirmedAbsent_ServesOriginal(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := skBaseDeps(skBaseCanon())
+	deps.MediaResolver = skEagerResolver()
+	checkedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{
+		row: series.SeriesMediaText{
+			SeriesID:        42,
+			Language:        "ru-RU",
+			PosterAsset:     nil, // confirmed-absent — checked, nothing localized
+			PosterCheckedAt: &checkedAt,
+		},
+		posterAny: new("/en.jpg"), // the stable original/canonical poster
+	}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, skEagerHash("/en.jpg", "w342"), dto.Hero.PosterAsset.Value(),
+		"confirmed-absent must serve the stable original poster, not a monogram")
+}
+
+// T4 — never-checked (no row at all, OR row present but PosterCheckedAt nil)
+// leaves the poster nil (monogram) — the cold ModeSync skeleton refresh
+// resolves presence before first paint. This is the anti-swap invariant: an
+// unchecked ru poster must NOT borrow en.
+func TestSkeletonComposer_PosterMarker_NeverChecked_NilPoster(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := skBaseDeps(skBaseCanon())
+	deps.MediaResolver = skEagerResolver()
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{
+		err:       dataports.ErrNotFound, // no ru-RU row at all
+		posterAny: new("/en.jpg"),        // present elsewhere, but must NOT be served
+	}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.True(t, dto.Hero.PosterAsset.IsZero(),
+		"never-checked (no row) must render nil/monogram, NOT borrow en (that IS the swap)")
+}
+
+// T4b — row EXISTS but is genuinely never-checked (PosterAsset nil AND
+// PosterCheckedAt nil) — must still render nil, not fall through to
+// GetPosterAnyLang (that tier is reserved for confirmed-absent only).
+func TestSkeletonComposer_PosterMarker_RowExistsNeverChecked_NilPoster(t *testing.T) {
+	t.Parallel()
+	deps, _, _ := skBaseDeps(skBaseCanon())
+	deps.MediaResolver = skEagerResolver()
+	deps.SeriesMediaTexts = &fakeSkMediaTexts{
+		row: series.SeriesMediaText{
+			SeriesID:        42,
+			Language:        "ru-RU",
+			PosterAsset:     nil,
+			PosterCheckedAt: nil, // never checked
+		},
+		posterAny: new("/en.jpg"),
+	}
+	sc := NewSkeletonComposer(deps)
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.True(t, dto.Hero.PosterAsset.IsZero(),
+		"never-checked row (both nil) must render nil — the any-lang recovery tier is confirmed-absent-only")
 }
 
 // W16-3 — network & production-company logos must be resolved through the

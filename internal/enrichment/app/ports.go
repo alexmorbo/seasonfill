@@ -242,11 +242,16 @@ type SeasonTextsRepo interface {
 
 // SeriesMediaTextsRepo persists one per-language poster/backdrop row
 // (series_media_texts.Upsert). Nil-OK on SeriesWorkerDeps — when nil the
-// RefreshSeriesText path skips the per-lang media write entirely and the
-// read paths fall back to canon series.poster_asset (Story 584a). The
-// production impl is enrichpersistence.SeriesMediaTextsRepository, whose
-// COALESCE-preserve Upsert guards every column so a partial write never
-// blanks a previously-fetched value.
+// media-writing paths (RefreshMediaAssets / RefreshSeriesAllLangs / the
+// cold-view canon-sync seed) skip their per-lang media write entirely and
+// the read paths fall back to canon series.poster_asset. Story 1081a:
+// RefreshSeriesText no longer writes media at all (text-only) — this port
+// is now used only by RefreshMediaAssets, RefreshSeriesAllLangs, and the
+// series_worker.go cold-view seed. The production impl is
+// enrichpersistence.SeriesMediaTextsRepository, whose COALESCE-preserve
+// Upsert guards every column so a partial write never blanks a previously-
+// fetched value (except the plain-excluded *_checked_at presence markers,
+// which a re-check must always refresh).
 type SeriesMediaTextsRepo interface {
 	Upsert(ctx context.Context, t series.SeriesMediaText) error
 }

@@ -927,25 +927,39 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 	//     COALESCE-protected Upsert preserves any hash a later all-langs/A4
 	//     refresh fills in.
 	if w.deps.SeriesMediaTexts != nil {
-		posterPath := pickPosterForLang(tv.Images, lang)
-		if posterPath == nil {
-			posterPath = nonEmptyStringPtr(tv.PosterPath)
-		}
-		backdropPath := pickBackdropForLang(tv.Images, lang)
-		if backdropPath == nil {
-			backdropPath = nonEmptyStringPtr(tv.BackdropPath)
-		}
-		if posterPath != nil || backdropPath != nil {
-			now := w.deps.Clock()
-			if err := w.deps.SeriesMediaTexts.Upsert(txCtx, series.SeriesMediaText{
-				SeriesID:      seriesID,
-				Language:      lang,
-				PosterAsset:   posterPath,
-				BackdropAsset: backdropPath,
-				EnrichedAt:    &now,
-			}); err != nil {
-				return nil, series.Canon{}, fmt.Errorf("upsert series_media_texts: %w", err)
+		// Story 1081a — the cold-view seed must agree with the strict media
+		// writers or it re-poisons ru rows with the en root poster and clears
+		// the plain-excluded presence markers. Base → full pick + root fallback;
+		// NON-base → strict exact-lang only (absence row when TMDB has no ru
+		// poster). Always write the row (persist the absence) + stamp *_checked_at.
+		var posterPath, backdropPath *string
+		if lang == locale.Default() {
+			posterPath = pickPosterForLang(tv.Images, lang)
+			if posterPath == nil {
+				posterPath = nonEmptyStringPtr(tv.PosterPath)
 			}
+			backdropPath = pickBackdropForLang(tv.Images, lang)
+			if backdropPath == nil {
+				backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+			}
+		} else {
+			posterPath = pickPosterForLangStrict(tv.Images, lang)
+			backdropPath = pickBackdropForLang(tv.Images, lang)
+			if backdropPath == nil {
+				backdropPath = nonEmptyStringPtr(tv.BackdropPath)
+			}
+		}
+		now := w.deps.Clock()
+		if err := w.deps.SeriesMediaTexts.Upsert(txCtx, series.SeriesMediaText{
+			SeriesID:          seriesID,
+			Language:          lang,
+			PosterAsset:       posterPath,
+			BackdropAsset:     backdropPath,
+			EnrichedAt:        &now,
+			PosterCheckedAt:   &now,
+			BackdropCheckedAt: &now,
+		}); err != nil {
+			return nil, series.Canon{}, fmt.Errorf("upsert series_media_texts: %w", err)
 		}
 	}
 

@@ -52,6 +52,10 @@ type recFakeMediaBatch struct {
 	err   error
 }
 
+func (f *recFakeMediaBatch) Get(context.Context, domain.SeriesID, string) (series.SeriesMediaText, error) {
+	return series.SeriesMediaText{}, nil
+}
+
 func (f *recFakeMediaBatch) GetWithFallback(context.Context, domain.SeriesID, string) (series.SeriesMediaText, error) {
 	return series.SeriesMediaText{}, nil
 }
@@ -70,6 +74,10 @@ func (f *recFakeMediaBatch) ListByIDsWithFallback(_ context.Context, ids []domai
 }
 
 func (f *recFakeMediaBatch) GetBackdropAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
+	return nil, nil
+}
+
+func (f *recFakeMediaBatch) GetPosterAnyLang(context.Context, domain.SeriesID, string) (*string, error) {
 	return nil, nil
 }
 

@@ -150,6 +150,62 @@ func TestSeriesMediaTextsRepository_D0(t *testing.T) {
 				assert.True(t, got.EnrichedAt.Equal(stamp))
 			})
 
+			// T2 (Story 1081a) — poster_checked_at/backdrop_checked_at are
+			// written PLAIN excluded (NOT COALESCE): a re-check always
+			// refreshes the stamp, and the asset column keeps its opposite
+			// (COALESCE) guard semantics in the SAME Upsert.
+			t.Run("checked_at_plain_excluded_refreshes_not_coalesce_frozen", func(t *testing.T) {
+				sid, repo := seed(t)
+				t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{
+					SeriesID:        sid,
+					Language:        "ru-RU",
+					PosterAsset:     nil,
+					PosterCheckedAt: &t1,
+				}))
+				got, err := repo.Get(ctx, sid, "ru-RU")
+				require.NoError(t, err)
+				require.NotNil(t, got.PosterCheckedAt)
+				assert.True(t, got.PosterCheckedAt.Equal(t1))
+
+				t2 := t1.Add(24 * time.Hour)
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{
+					SeriesID:        sid,
+					Language:        "ru-RU",
+					PosterAsset:     nil,
+					PosterCheckedAt: &t2,
+				}))
+				got, err = repo.Get(ctx, sid, "ru-RU")
+				require.NoError(t, err)
+				require.NotNil(t, got.PosterCheckedAt)
+				assert.True(t, got.PosterCheckedAt.Equal(t2),
+					"plain-excluded MUST refresh to the new stamp (not COALESCE-frozen to the old one)")
+
+				// Same-Upsert opposite-guard proof: a nil-asset write must NOT
+				// blank a previously-stored poster_asset (COALESCE), while the
+				// checked_at marker still advances (plain-excluded) in the SAME
+				// call.
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{
+					SeriesID:    sid,
+					Language:    "ru-RU",
+					PosterAsset: new("/ru-poster.jpg"),
+				}))
+				t3 := t2.Add(24 * time.Hour)
+				require.NoError(t, repo.Upsert(ctx, series.SeriesMediaText{
+					SeriesID:        sid,
+					Language:        "ru-RU",
+					PosterAsset:     nil, // nil write must not blank the stored poster (COALESCE)
+					PosterCheckedAt: &t3, // but the marker still refreshes (plain-excluded)
+				}))
+				got, err = repo.Get(ctx, sid, "ru-RU")
+				require.NoError(t, err)
+				require.NotNil(t, got.PosterAsset, "COALESCE-guarded poster_asset must survive a nil-asset write")
+				assert.Equal(t, "/ru-poster.jpg", *got.PosterAsset)
+				require.NotNil(t, got.PosterCheckedAt)
+				assert.True(t, got.PosterCheckedAt.Equal(t3),
+					"plain-excluded checked_at must still refresh even though the asset column was COALESCE-preserved")
+			})
+
 			t.Run("upsert_rejects_zero_series_id", func(t *testing.T) {
 				_, repo := seed(t)
 				err := repo.Upsert(ctx, series.SeriesMediaText{SeriesID: 0, Language: "ru-RU"})
