@@ -89,6 +89,31 @@ describe('CastStrip', () => {
     expect(card.getAttribute('data-no-link')).toBe('true');
   });
 
+  it('orders the preview by episode_count desc, then slices to limit (W19-5)', () => {
+    // Incoming order is TMDB credit_order ASC (billing). The preview must
+    // instead surface the actual main cast — highest episode_count first.
+    const cast: CastMember[] = [
+      { person_id: 1, tmdb_person_id: 1, name: 'Billed First', character_name: 'A', episode_count: 1 },
+      { person_id: 2, tmdb_person_id: 2, name: 'Guest Star', character_name: 'B', episode_count: 3 },
+      { person_id: 3, tmdb_person_id: 3, name: 'Main Lead', character_name: 'C', episode_count: 50 },
+    ] as unknown as CastMember[];
+    render(wrap(<CastStrip castHref="/series/1/cast" seriesId={1} cast={cast} limit={2} />));
+    const names = screen.getAllByTestId('cast-strip-name').map((n) => n.textContent);
+    expect(names).toEqual(['Main Lead', 'Guest Star']);
+  });
+
+  it('sorts members without episode_count to the end (W19-5)', () => {
+    // undefined episode_count (?? -1) must sink below any real count, so an
+    // uncounted member is dropped once it exceeds the limit.
+    const cast: CastMember[] = [
+      { person_id: 1, tmdb_person_id: 1, name: 'No Count', character_name: 'A' },
+      { person_id: 2, tmdb_person_id: 2, name: 'Counted', character_name: 'B', episode_count: 10 },
+    ] as unknown as CastMember[];
+    render(wrap(<CastStrip castHref="/series/1/cast" seriesId={1} cast={cast} limit={1} />));
+    const names = screen.getAllByTestId('cast-strip-name').map((n) => n.textContent);
+    expect(names).toEqual(['Counted']);
+  });
+
   it('links to /person/${tmdb_person_id} when TMDB id present (B-45)', () => {
     // Story 538 B-45: the PersonPage route is `/person/:tmdbId`, NOT
     // `/people/:id`. The CastStrip card must point to the TMDB person

@@ -23,7 +23,14 @@ export function CastStrip({
   castHref, seriesId, cast, limit = 8, className, tmdbPersonDegraded,
 }: CastStripProps) {
   const { t } = useTranslation();
-  const items = (cast ?? []).slice(0, limit);
+  // W19-5 (#1075): the preview shows the *main* cast — actors in the most
+  // episodes — not TMDB billing order. Stable-sort a COPY by episode_count
+  // desc before slicing so ties keep the incoming credit_order ASC order;
+  // members with no episode_count (?? -1) sort last. The full /cast page
+  // stays in billing order.
+  const items = [...(cast ?? [])]
+    .sort((a, b) => (b.episode_count ?? -1) - (a.episode_count ?? -1))
+    .slice(0, limit);
 
   if (items.length === 0) {
     if (!tmdbPersonDegraded) return null;
