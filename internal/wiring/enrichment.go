@@ -460,6 +460,7 @@ func BuildEnrichment(
 		People:             repos.People,
 		PersonCredits:      repos.PersonCredits,
 		PersonCreditsTexts: repos.PersonCreditsTexts, // S-G — nil-OK
+		PeopleTexts:        repos.PeopleTexts,        // Story 1083 — nil-OK
 		Genres:             repos.Genres,
 		Keywords:           repos.Keywords,
 		Networks:           repos.Networks,
@@ -993,7 +994,11 @@ type EnrichmentRepoBundle struct {
 	// port consumed by SeriesWorker.RefreshCast. Nil-OK.
 	// *enrichpersistence.PersonCreditsTextsRepository.
 	PersonCreditsTexts appenrich.PersonCreditsTextsPort
-	ColdStartScanner   appenrich.ColdStartScanner
+	// PeopleTexts — Story 1083: per-language person display-name write port
+	// consumed by SeriesWorker.RefreshCast. Nil-OK.
+	// *enrichpersistence.PeopleTextsRepository.
+	PeopleTexts      appenrich.PeopleTextsPort
+	ColdStartScanner appenrich.ColdStartScanner
 	// SeriesStaleScan — D-3 (464b): nightly TMDB-stale series scan.
 	// Production impl wraps *SeriesRepository.ListStaleForTMDB. Required
 	// when enrichment is wired (workers + composer need it).

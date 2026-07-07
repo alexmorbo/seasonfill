@@ -251,6 +251,10 @@ func (f *fakePeople) ListByIDs(_ context.Context, _ []int64) ([]people.Person, e
 	return f.rows, nil
 }
 
+func (f *fakePeople) ListByIDsWithNameFallback(ctx context.Context, ids []int64, _ string) ([]people.Person, error) {
+	return f.ListByIDs(ctx, ids)
+}
+
 type fakeGenres struct {
 	ids []int64
 }

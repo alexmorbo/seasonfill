@@ -158,6 +158,39 @@ func (w *SeriesWorker) RefreshCast(
 				}
 			}
 		}
+
+		// Story 1083 — write per-language person DISPLAY names keyed by the
+		// people surrogate id. Reuses the personIDByTMDB map built from the stub
+		// upserts above and st.Name (the localized aggregate_credits[*].name the
+		// GetTV(lang) payload already carries). An empty/blank name is skipped so
+		// the COALESCE upsert never wipes a previously-stored value. nil-OK: skip
+		// entirely when the port is unwired (cold-boot / tests).
+		if w.deps.PeopleTexts != nil {
+			nameRows := make([]people.PersonText, 0, len(stubs))
+			for _, st := range stubs {
+				if st.TMDBID == nil {
+					continue
+				}
+				pid, ok := personIDByTMDB[int(*st.TMDBID)]
+				if !ok {
+					continue
+				}
+				name := normalizePersonName(st.Name)
+				if name == nil {
+					continue
+				}
+				nameRows = append(nameRows, people.PersonText{
+					PersonID: pid,
+					Language: lang,
+					Name:     name,
+				})
+			}
+			if len(nameRows) > 0 {
+				if err := w.deps.PeopleTexts.BatchUpsert(txCtx, nameRows); err != nil {
+					return fmt.Errorf("batch upsert people_texts (lang=%s): %w", lang, err)
+				}
+			}
+		}
 		if dropped > 0 {
 			log.WarnContext(txCtx, "enrichment.series.refresh_cast.credits_dropped",
 				slog.Int("dropped", dropped),
@@ -188,6 +221,18 @@ func normalizeCharacterName(s *string) *string {
 		return nil
 	}
 	trimmed := strings.TrimSpace(*s)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+// normalizePersonName trims a person display name and maps the empty string to
+// nil so the people_texts COALESCE upsert treats "no name" as "leave existing
+// untouched" rather than overwriting with "". st.Name is a value (people.Person
+// requires a non-empty name for Upsert), so this is defensive.
+func normalizePersonName(s string) *string {
+	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
 		return nil
 	}

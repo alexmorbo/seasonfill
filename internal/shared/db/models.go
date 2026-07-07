@@ -751,13 +751,16 @@ func (SeasonStatModel) TableName() string { return "season_stats" }
 // if a future TVDB-sourced credit lands without a TMDB id) still
 // fit. Hydration is text(stub|full); defaults to 'stub' on insert.
 //
-// Name + OriginalName intentionally stay on this entity (no
-// people_names i18n table) — TMDB does not localise person names
-// reliably. This is the only canon i18n exception in the schema —
-// see PRD §5.3 row "people" + §5.4 row "people.*". A future
-// contributor MUST NOT add a people_names table without first
-// re-evaluating that decision; the value would be three write paths
-// feeding columns that are 99% identical.
+// Name + OriginalName intentionally stay on this entity (localized
+// display name now lives in the people_texts i18n table, migration
+// 000035) for the DISPLAY name only.
+// people.name stays as the language-neutral base/legacy tier (last-writer-wins);
+// people.original_name is the western-actor en-US fallback. Story 1083
+// re-evaluated the prior "do not add a people_names table" note: TMDB
+// aggregate_credits[*].name IS localized per ?language= and is already fetched
+// by RefreshCast, so there is ONE write path (not three) and the side-table
+// only carries names that differ per language. The reader resolves
+// requested-lang -> en-US -> people.original_name -> people.name.
 type PeopleModel struct {
 	ID                 int64          `gorm:"primaryKey;autoIncrement;column:id"`
 	TMDBID             *domain.TMDBID `gorm:"column:tmdb_id"`
@@ -1071,6 +1074,21 @@ type PersonCreditTextModel struct {
 }
 
 func (PersonCreditTextModel) TableName() string { return "person_credits_texts" }
+
+// PeopleTextModel — per-language person DISPLAY name (Story 1083,
+// migration 000035). PK (person_id, language); FK → people(id) ON DELETE
+// CASCADE. people.name stays the language-neutral base/legacy tier; the cast
+// read-path resolves requested-lang → en-US → people.original_name →
+// people.name. Written per call-lang by RefreshCast from the same
+// aggregate_credits[*].name the GetTV(lang) payload already carries.
+type PeopleTextModel struct {
+	PersonID  int64     `gorm:"primaryKey;column:person_id"`
+	Language  string    `gorm:"primaryKey;column:language;type:text"`
+	Name      *string   `gorm:"column:name;type:text"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (PeopleTextModel) TableName() string { return "people_texts" }
 
 // MediaAssetModel is the persistent row for the media_assets table
 // (migration 000024, PRD v4 §6). One row per stored object — the

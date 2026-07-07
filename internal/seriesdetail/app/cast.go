@@ -245,7 +245,7 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 
 	personByID := map[int64]people.Person{}
 	if len(personIDs) > 0 {
-		persons, perr := c.d.People.ListByIDs(ctx, personIDs)
+		persons, perr := c.d.People.ListByIDsWithNameFallback(ctx, personIDs, lang)
 		if perr != nil {
 			return nil, fmt.Errorf("list people: %w", perr)
 		}

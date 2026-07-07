@@ -7,7 +7,7 @@
 //
 //  1. All 32 migrations apply cleanly from an empty DB (no compound
 //     failures, no partial-state crashes).
-//  2. Every name in d1AcceptanceTablesPostgres (55 entries) is present
+//  2. Every name in d1AcceptanceTablesPostgres (56 entries) is present
 //     post-Up on both dialects — and no surprise extras snuck in.
 //  3. No legacy table names survive — admin_users, app_settings,
 //     sync_log, etc. were retired during D-3..D-7; this denylist
@@ -68,7 +68,7 @@ func TestD8_Closure_AllMigrationsApply(t *testing.T) {
 }
 
 // TestD8_Closure_TableInventoryMatches verifies that the live DB after
-// Up() contains exactly the 55 names in d1AcceptanceTablesPostgres.
+// Up() contains exactly the 56 names in d1AcceptanceTablesPostgres.
 // A missing name means a migration regressed; an extra name means a
 // legacy or one-off table snuck back in. ElementsMatch — order-free.
 func TestD8_Closure_TableInventoryMatches(t *testing.T) {
@@ -127,15 +127,15 @@ func TestD8_Closure_NoLegacyTables(t *testing.T) {
 
 // TestD8_Closure_SchemaMigrationsHeadVersion verifies that after a
 // full Up() the golang-migrate tracker table reports the highest
-// expected version (34) with dirty=false. golang-migrate stores a
+// expected version (35) with dirty=false. golang-migrate stores a
 // single "current head" row (not a per-migration history), so the
-// invariant is MAX(version)=34 AND dirty=false. Catches the "I forgot
+// invariant is MAX(version)=35 AND dirty=false. Catches the "I forgot
 // to add the new migration to the embed list" failure mode and the
 // "Up() silently stopped after N" failure mode (which would leave a
 // lower version pinned), plus the "previous run crashed mid-Up"
 // failure mode (dirty=true, blocks subsequent migrations).
 func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
-	const wantHead = 34
+	const wantHead = 35
 
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
 				"read head row from schema_migrations on %s", b.name)
 			assert.Equalf(t, wantHead, head,
 				"schema_migrations.version on %s = %d; want %d "+
-					"(matches the 34 .up.sql files committed in 000001..000034)",
+					"(matches the 35 .up.sql files committed in 000001..000035)",
 				b.name, head, wantHead)
 			assert.Falsef(t, dirty,
 				"schema_migrations.dirty=true on %s — a previous Up() crashed mid-migration; "+

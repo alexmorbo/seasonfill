@@ -1064,7 +1064,7 @@ func (c *Composer) GetCanonicalCast(ctx context.Context, seriesID domain.SeriesI
 	for _, cr := range credits {
 		ids = append(ids, cr.PersonID)
 	}
-	persons, err := c.d.People.ListByIDs(ctx, ids)
+	persons, err := c.d.People.ListByIDsWithNameFallback(ctx, ids, resolveLang(lang))
 	if err != nil {
 		return nil, fmt.Errorf("list people by ids: %w", err)
 	}

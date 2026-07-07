@@ -246,6 +246,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"networks",
 	"origin_releases",
 	"people",
+	"people_texts",
 	"person_biographies",
 	"person_credits",
 	"person_credits_texts",

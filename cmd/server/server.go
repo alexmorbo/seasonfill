@@ -390,6 +390,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		PersonBiographies:  personBiographiesRepo,
 		PersonCredits:      wiring.PersonCreditsRepoAdapter{Inner: personCreditsRepo},
 		PersonCreditsTexts: enrichpersistence.NewPersonCreditsTextsRepository(db), // S-G
+		PeopleTexts:        enrichpersistence.NewPeopleTextsRepository(db),        // Story 1083
 		ColdStartScanner:   coldStartScanner,
 		SeriesStaleScan:    wiring.NewSeriesStaleScanAdapter(seriesRepo),
 		PeopleStaleScan:    wiring.NewPeopleStaleScanAdapter(peopleRepo),

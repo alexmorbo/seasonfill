@@ -140,3 +140,13 @@ type PersonCreditText struct {
 	Language       string
 	CharacterName  *string
 }
+
+// PersonText is one per-language person DISPLAY name row (people_texts,
+// Story 1083). Keyed by the people surrogate id + language. Name is nil-able;
+// a nil/empty value must NOT overwrite an existing stored value
+// (COALESCE-protected upsert), matching PersonCreditText semantics.
+type PersonText struct {
+	PersonID int64
+	Language string
+	Name     *string
+}

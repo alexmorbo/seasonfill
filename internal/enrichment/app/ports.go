@@ -438,6 +438,13 @@ type PersonCreditsTextsPort interface {
 	BatchUpsert(ctx context.Context, texts []people.PersonCreditText) error
 }
 
+// PeopleTextsPort is the per-language person DISPLAY-name write surface
+// (people_texts, Story 1083). Separate from PeopleRepo so only the
+// SeriesWorker (RefreshCast) depends on it. nil-OK on SeriesWorker.Deps.
+type PeopleTextsPort interface {
+	BatchUpsert(ctx context.Context, texts []people.PersonText) error
+}
+
 // ColdStartScanner is the application-layer port for the canonical
 // series-id queries the boot-time backfill + recovery loops consume.
 // Production impl is *SeriesRepository (via wiring adapter); tests pass

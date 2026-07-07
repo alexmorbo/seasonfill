@@ -51,6 +51,10 @@ func (f *fakeCastPeople) ListByIDs(_ context.Context, ids []int64) ([]people.Per
 	return out, nil
 }
 
+func (f *fakeCastPeople) ListByIDsWithNameFallback(ctx context.Context, ids []int64, _ string) ([]people.Person, error) {
+	return f.ListByIDs(ctx, ids)
+}
+
 type fakePersonCredits struct {
 	rows map[int64][]PersonCreditRef
 	err  error

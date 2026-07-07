@@ -85,15 +85,21 @@ type SeriesWorkerDeps struct {
 	// person_credits.character_name. Mirrors the SeasonMediaTexts nil-OK
 	// posture. Production impl is *enrichpersistence.PersonCreditsTextsRepository.
 	PersonCreditsTexts PersonCreditsTextsPort
-	Genres             GenresRepo
-	Keywords           KeywordsRepo
-	Networks           NetworksRepo
-	Companies          CompaniesRepo
-	Videos             VideosRepoPort
-	ContentRatings     ContentRatingsRepoPort
-	ExternalIDs        ExternalIDsRepoPort
-	Recommendations    RecommendationsRepoPort
-	EnrichmentErrors   EnrichmentErrorRepo
+	// PeopleTexts — Story 1083: optional per-language person DISPLAY-name write
+	// port consumed by RefreshCast. nil-OK — when nil, RefreshCast skips the
+	// localized name write and the cast read-path falls back to
+	// people.original_name / people.name. Mirrors the PersonCreditsTexts nil-OK
+	// posture. Production impl is *enrichpersistence.PeopleTextsRepository.
+	PeopleTexts      PeopleTextsPort
+	Genres           GenresRepo
+	Keywords         KeywordsRepo
+	Networks         NetworksRepo
+	Companies        CompaniesRepo
+	Videos           VideosRepoPort
+	ContentRatings   ContentRatingsRepoPort
+	ExternalIDs      ExternalIDsRepoPort
+	Recommendations  RecommendationsRepoPort
+	EnrichmentErrors EnrichmentErrorRepo
 	// RecCanonWriter — Story 571 B-54. A3b RefreshRecommendations calls
 	// UpdateRecCanonMedia after the series_texts.Upsert side-effect to
 	// overwrite each rec child's canon poster_asset + backdrop_asset with

@@ -110,6 +110,48 @@ func (r *PeopleRepository) ListByIDs(ctx context.Context, ids []int64) ([]people
 	return out, nil
 }
 
+// ListByIDsWithNameFallback returns the people rows for ids with the DISPLAY
+// name resolved per Story 1083: requested language → en-US → people.original_name
+// → people.name. Two LEFT JOINs against people_texts + COALESCE, one
+// round-trip. Ordered by id ASC (same as ListByIDs — the cast read path relies
+// on it). Biography is NOT resolved (compact list rows). lang=="" defaults to
+// en-US, collapsing both joins onto the base tier. Missing ids are silently
+// skipped. Mirrors PersonCreditsRepository.ListByMediaWithTextFallback.
+func (r *PeopleRepository) ListByIDsWithNameFallback(ctx context.Context, ids []int64, lang string) ([]people.Person, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if lang == "" {
+		lang = fallbackLanguage
+	}
+	const q = `
+SELECT
+  p.id, p.tmdb_id, p.imdb_id, p.hydration,
+  COALESCE(t_req.name, t_base.name, p.original_name, p.name) AS name,
+  p.original_name, p.gender, p.birthday, p.deathday, p.place_of_birth,
+  p.known_for_department, p.popularity, p.profile_asset,
+  p.enrichment_synced_at, p.created_at, p.updated_at
+FROM people p
+LEFT JOIN people_texts t_req
+  ON t_req.person_id = p.id AND t_req.language = ?
+LEFT JOIN people_texts t_base
+  ON t_base.person_id = p.id AND t_base.language = ?
+WHERE p.id IN ?
+ORDER BY p.id ASC`
+	var models []database.PeopleModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Raw(q, lang, fallbackLanguage, ids).
+		Scan(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("list people by ids (i18n): %w", err)
+	}
+	out := make([]people.Person, 0, len(models))
+	for _, m := range models {
+		out = append(out, toPerson(m))
+	}
+	return out, nil
+}
+
 // Upsert inserts or updates the canon row. Conflict target is the
 // natural key (tmdb_id) when the caller supplies one, otherwise PK
 // (id). Idempotency: a no-op upsert leaves every column byte-equal

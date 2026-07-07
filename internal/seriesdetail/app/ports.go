@@ -190,9 +190,13 @@ type SeriesPeoplePort interface {
 }
 
 // PeoplePort fetches multiple people by id; the composer batches the
-// top-10 person_id list from SeriesPeople into one ListByIDs call.
+// person_id list from SeriesPeople into one call. ListByIDsWithNameFallback
+// (Story 1083) resolves the DISPLAY name per language (requested → en-US →
+// original_name → name) so the cast page localizes person names the same way
+// character names are localized.
 type PeoplePort interface {
 	ListByIDs(ctx context.Context, ids []int64) ([]people.Person, error)
+	ListByIDsWithNameFallback(ctx context.Context, ids []int64, lang string) ([]people.Person, error)
 }
 
 // GenresPort lists genre ids attached to a series + resolves each

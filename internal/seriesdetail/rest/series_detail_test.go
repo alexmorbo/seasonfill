@@ -159,6 +159,9 @@ func (emptyPeople) ListBySeries(_ context.Context, _ domain.SeriesID, _ people.S
 func (emptyPeople) ListByIDs(_ context.Context, _ []int64) ([]people.Person, error) {
 	return nil, nil
 }
+func (emptyPeople) ListByIDsWithNameFallback(_ context.Context, _ []int64, _ string) ([]people.Person, error) {
+	return nil, nil
+}
 
 type emptyTaxRefs struct{}
 

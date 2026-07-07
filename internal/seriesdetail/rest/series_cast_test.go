@@ -39,6 +39,10 @@ func (f castFakePeoplePort) ListByIDs(_ context.Context, ids []int64) ([]people.
 	return out, nil
 }
 
+func (f castFakePeoplePort) ListByIDsWithNameFallback(ctx context.Context, ids []int64, _ string) ([]people.Person, error) {
+	return f.ListByIDs(ctx, ids)
+}
+
 type castFakeSeriesPeople struct {
 	cast []people.SeriesCredit
 	crew []people.SeriesCredit
