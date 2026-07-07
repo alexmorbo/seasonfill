@@ -190,7 +190,10 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 
 	// 1. Stat short-circuit. If the row is already in store, just upsert
 	// the row + return the hash.
-	if info, err := f.store.Stat(ctx, key); err == nil {
+	statStart := f.clock()
+	info, statErr := f.store.Stat(ctx, key)
+	statMS := int(f.clock().Sub(statStart).Milliseconds())
+	if statErr == nil {
 		_ = f.upsert(ctx, media.Asset{
 			Hash:        hash,
 			UpstreamURL: clean,
@@ -200,12 +203,25 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 			Status:      media.StatusStored,
 		}, log)
 		log.DebugContext(ctx, "media.ondemand.stat_hit",
+			slog.Int("stat_ms", statMS),
 			slog.Int("duration_ms", int(f.clock().Sub(start).Milliseconds())))
 		f.clearCooldown(hash)
 		return hash, true
-	} else if !errors.Is(err, mediastore.ErrNotFound) && !errors.Is(err, mediastore.ErrNotSupported) {
+	}
+	// A Stat that exhausted the budget consumed it right here — return
+	// with stage="s3_stat" instead of falling through to limiter.Wait,
+	// which would mislabel a stat-consumed deadline as stage="rate_wait".
+	if errors.Is(statErr, context.DeadlineExceeded) || errors.Is(statErr, context.Canceled) {
+		log.WarnContext(ctx, "media.ondemand.timeout",
+			slog.String("stage", "s3_stat"),
+			slog.Int("stat_ms", statMS))
+		f.markFailed(hash)
+		return "", false
+	}
+	if !errors.Is(statErr, mediastore.ErrNotFound) && !errors.Is(statErr, mediastore.ErrNotSupported) {
 		log.WarnContext(ctx, "media.ondemand.stat_error",
-			slog.String("error", err.Error()))
+			slog.Int("stat_ms", statMS),
+			slog.String("error", statErr.Error()))
 		// Fall through — upstream fetch is the source of truth.
 	}
 
@@ -236,17 +252,22 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 	}
 
 	// 3. HTTP GET.
+	fetchStart := f.clock()
 	body, contentType, err := f.fetchOnce(ctx, clean)
+	fetchMS := int(f.clock().Sub(fetchStart).Milliseconds())
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			log.WarnContext(ctx, "media.ondemand.timeout",
-				slog.String("stage", "http"))
+				slog.String("stage", "http"),
+				slog.Int("stat_ms", statMS),
+				slog.Int("fetch_ms", fetchMS))
 			f.markFailed(hash)
 			return "", false
 		}
 		log.WarnContext(ctx, "media.ondemand.failed",
 			slog.String("error_kind", string(ClassifyFetchError(err))),
 			slog.Int("http_status", HTTPStatus(err)),
+			slog.Int("fetch_ms", fetchMS),
 			slog.String("error", err.Error()))
 		observability.IncMediaFetch("failed", string(ClassifyFetchError(err)))
 		f.markFailed(hash)
@@ -254,10 +275,14 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 	}
 
 	// 4. Put bytes to store.
-	if err := f.store.Put(ctx, key, bytes.NewReader(body), int64(len(body)), contentType); err != nil {
+	putStart := f.clock()
+	putErr := f.store.Put(ctx, key, bytes.NewReader(body), int64(len(body)), contentType)
+	putMS := int(f.clock().Sub(putStart).Milliseconds())
+	if putErr != nil {
 		log.ErrorContext(ctx, "media.ondemand.failed",
 			slog.String("error_kind", string(ErrorKindS3Write)),
-			slog.String("error", err.Error()))
+			slog.Int("put_ms", putMS),
+			slog.String("error", putErr.Error()))
 		observability.IncMediaFetch("failed", string(ErrorKindS3Write))
 		f.markFailed(hash)
 		return "", false
@@ -282,6 +307,9 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 	log.InfoContext(ctx, "media.ondemand.ok",
 		slog.Int("size_bytes", len(body)),
 		slog.String("content_type", contentType),
+		slog.Int("stat_ms", statMS),
+		slog.Int("fetch_ms", fetchMS),
+		slog.Int("put_ms", putMS),
 		slog.Int("duration_ms", int(f.clock().Sub(start).Milliseconds())),
 	)
 	observability.IncMediaFetch("ok", "")

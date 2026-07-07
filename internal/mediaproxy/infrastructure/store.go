@@ -111,12 +111,20 @@ func New(ctx context.Context, cfg Config) (Store, error) {
 		if err := validateS3(cfg.S3); err != nil {
 			return nil, err
 		}
-		return newS3Store(ctx, cfg.S3)
+		s, err := newS3Store(ctx, cfg.S3)
+		if err != nil {
+			return nil, err
+		}
+		return NewMeteredStore(s), nil
 	case ModeFS:
 		if cfg.FSPath == "" {
 			return nil, fmt.Errorf("%w: fs path is empty", ErrInvalidConfig)
 		}
-		return newFSStore(cfg.FSPath)
+		s, err := newFSStore(cfg.FSPath)
+		if err != nil {
+			return nil, err
+		}
+		return NewMeteredStore(s), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown mode %q", ErrInvalidConfig, mode)
 	}
