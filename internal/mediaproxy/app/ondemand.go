@@ -43,6 +43,15 @@ import (
 // SEASONFILL_MEDIA_ONDEMAND_BUDGET via OnDemandDeps.Timeout.
 const onDemandTimeout = 10 * time.Second
 
+// onDemandStatBudget is the DEFAULT short sub-budget for the S3 Stat
+// probe when OnDemandDeps.StatBudget is unset (W19-3a). A HEAD on a
+// MISSING object is pathologically slow on SeaweedFS (~21s: the missing
+// object returns non-cleanly → minio-go retries with backoff), while a
+// HEAD on an existing object is ~5ms. Bounding the Stat with this short
+// sub-context lets a cold poster fall through to the fetch path quickly
+// instead of burning the whole on-demand budget on a doomed HEAD.
+const onDemandStatBudget = 800 * time.Millisecond
+
 // negativeCacheTTL bounds how long a hash stays in the failed-fetch
 // cooldown. The short window matches the fast W19-1 downloader: a
 // pending/failed hash typically heals in seconds, so a long cooldown
@@ -72,19 +81,25 @@ type OnDemandDeps struct {
 	// SEASONFILL_MEDIA_ONDEMAND_BUDGET so the fetcher floor tracks the
 	// handler wall budget and the two never drift apart.
 	Timeout time.Duration
-	Logger  *slog.Logger
-	Clock   func() time.Time
+	// StatBudget bounds the S3 Stat probe with a short sub-context so a
+	// slow HEAD on a missing object doesn't consume the whole on-demand
+	// budget. 0 → onDemandStatBudget (800ms). W19-3a: wired from
+	// SEASONFILL_MEDIA_STAT_BUDGET.
+	StatBudget time.Duration
+	Logger     *slog.Logger
+	Clock      func() time.Time
 }
 
 // onDemandFetcher is the production OnDemandFetcher.
 type onDemandFetcher struct {
-	store   mediastore.Store
-	repo    AssetRepo
-	http    *http.Client
-	limiter *rate.Limiter
-	logger  *slog.Logger
-	clock   func() time.Time
-	timeout time.Duration
+	store      mediastore.Store
+	repo       AssetRepo
+	http       *http.Client
+	limiter    *rate.Limiter
+	logger     *slog.Logger
+	clock      func() time.Time
+	timeout    time.Duration
+	statBudget time.Duration
 
 	negMu    sync.Mutex
 	negUntil map[string]time.Time // asset hash -> retry-after (cooldown)
@@ -108,6 +123,10 @@ func NewOnDemandFetcher(d OnDemandDeps) (OnDemandFetcher, error) {
 	if timeout <= 0 {
 		timeout = onDemandTimeout
 	}
+	statBudget := d.StatBudget
+	if statBudget <= 0 {
+		statBudget = onDemandStatBudget
+	}
 	if d.HTTPClient == nil {
 		d.HTTPClient = &http.Client{Timeout: timeout}
 	}
@@ -118,14 +137,15 @@ func NewOnDemandFetcher(d OnDemandDeps) (OnDemandFetcher, error) {
 		d.Clock = func() time.Time { return time.Now().UTC() }
 	}
 	return &onDemandFetcher{
-		store:    d.Store,
-		repo:     d.Repo,
-		http:     d.HTTPClient,
-		limiter:  d.Limiter,
-		logger:   d.Logger,
-		clock:    d.Clock,
-		timeout:  timeout,
-		negUntil: make(map[string]time.Time),
+		store:      d.Store,
+		repo:       d.Repo,
+		http:       d.HTTPClient,
+		limiter:    d.Limiter,
+		logger:     d.Logger,
+		clock:      d.Clock,
+		timeout:    timeout,
+		statBudget: statBudget,
+		negUntil:   make(map[string]time.Time),
 	}, nil
 }
 
@@ -191,7 +211,9 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 	// 1. Stat short-circuit. If the row is already in store, just upsert
 	// the row + return the hash.
 	statStart := f.clock()
-	info, statErr := f.store.Stat(ctx, key)
+	statCtx, statCancel := context.WithTimeout(ctx, f.statBudget)
+	info, statErr := f.store.Stat(statCtx, key)
+	statCancel()
 	statMS := int(f.clock().Sub(statStart).Milliseconds())
 	if statErr == nil {
 		_ = f.upsert(ctx, media.Asset{
@@ -208,17 +230,29 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 		f.clearCooldown(hash)
 		return hash, true
 	}
-	// A Stat that exhausted the budget consumed it right here — return
-	// with stage="s3_stat" instead of falling through to limiter.Wait,
-	// which would mislabel a stat-consumed deadline as stage="rate_wait".
+	// A Stat that timed out needs care: errors.Is(…, DeadlineExceeded)
+	// fires for BOTH the short stat sub-budget (parent still alive) AND
+	// genuine parent exhaustion, so inspect the PARENT ctx to tell them
+	// apart (W19-3a).
 	if errors.Is(statErr, context.DeadlineExceeded) || errors.Is(statErr, context.Canceled) {
-		log.WarnContext(ctx, "media.ondemand.timeout",
-			slog.String("stage", "s3_stat"),
+		if ctx.Err() != nil {
+			// Parent budget is gone — no time left to fetch. Keep the
+			// W19-M behaviour: return with stage="s3_stat" instead of
+			// falling through to limiter.Wait, which would mislabel a
+			// stat-consumed deadline as stage="rate_wait".
+			log.WarnContext(ctx, "media.ondemand.timeout",
+				slog.String("stage", "s3_stat"),
+				slog.Int("stat_ms", statMS))
+			f.markFailed(hash)
+			return "", false
+		}
+		// Only the short stat sub-budget expired; the parent still has
+		// budget. A slow HEAD on a MISSING object looks exactly like this
+		// (~21s on SeaweedFS), so treat it as a store miss and FALL
+		// THROUGH to the fetch path so the cold poster still fills.
+		log.DebugContext(ctx, "media.ondemand.stat_skip",
 			slog.Int("stat_ms", statMS))
-		f.markFailed(hash)
-		return "", false
-	}
-	if !errors.Is(statErr, mediastore.ErrNotFound) && !errors.Is(statErr, mediastore.ErrNotSupported) {
+	} else if !errors.Is(statErr, mediastore.ErrNotFound) && !errors.Is(statErr, mediastore.ErrNotSupported) {
 		log.WarnContext(ctx, "media.ondemand.stat_error",
 			slog.Int("stat_ms", statMS),
 			slog.String("error", statErr.Error()))

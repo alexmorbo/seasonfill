@@ -314,6 +314,130 @@ func TestOnDemandFetcher_FetchSync_NegativeCache_HealsOnRecovery(t *testing.T) {
 	assert.False(t, impl.inCooldown(hash), "stat-hit path must clear the cooldown")
 }
 
+// statHookStore embeds ondemandFakeStore (for Get/Put/Delete/List) but
+// lets a test drive Stat's behaviour — block on the sub-context, return a
+// deadline error, etc. Used by the W19-3a bounded-stat tests.
+type statHookStore struct {
+	*ondemandFakeStore
+	statFn func(ctx context.Context, key string) (mediastore.ObjectInfo, error)
+}
+
+func (s *statHookStore) Stat(ctx context.Context, key string) (mediastore.ObjectInfo, error) {
+	return s.statFn(ctx, key)
+}
+
+// TestOnDemandFetcher_FetchSync_BoundedStatMiss_FallsThrough — W19-3a: when
+// only the short stat sub-budget expires (Stat blocks past StatBudget) while
+// the PARENT ctx still has budget, the fetcher must NOT give up at the stat
+// stage — it treats the slow HEAD as a store miss and proceeds to fetchOnce,
+// returning the hash on a successful upstream fetch.
+func TestOnDemandFetcher_FetchSync_BoundedStatMiss_FallsThrough(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("hello"))
+	}))
+	defer server.Close()
+
+	store := &statHookStore{ondemandFakeStore: newOndemandFakeStore()}
+	// Stat blocks until the short sub-budget cancels it, then reports the
+	// sub-ctx deadline — exactly how a pathological missing-object HEAD looks.
+	store.statFn = func(ctx context.Context, _ string) (mediastore.ObjectInfo, error) {
+		<-ctx.Done()
+		return mediastore.ObjectInfo{}, ctx.Err()
+	}
+
+	f, err := NewOnDemandFetcher(OnDemandDeps{
+		Store: store, Repo: newOndemandFakeRepo(),
+		HTTPClient: server.Client(),
+		Limiter:    rate.NewLimiter(rate.Inf, 1),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		// Tiny stat budget; the outer on-demand Timeout stays at the 10s
+		// default so the PARENT ctx is alive when the sub-budget expires.
+		StatBudget: 20 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	url := server.URL + "/img.jpg"
+	hash, ok := f.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.True(t, ok, "sub-budget stat miss must fall through to fetch, not give up")
+	assert.Equal(t, HashFromURL(url), hash)
+	assert.Equal(t, int32(1), hits.Load(), "must have performed exactly one upstream fetch")
+}
+
+// TestOnDemandFetcher_FetchSync_StatHitFastPath_NoFetch — W19-3a regression
+// guard: a fast Stat that finds the object still short-circuits (stat_hit),
+// returns the hash, and performs NO upstream fetch even with bounded stat.
+func TestOnDemandFetcher_FetchSync_StatHitFastPath_NoFetch(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("hello"))
+	}))
+	defer server.Close()
+
+	url := server.URL + "/img.jpg"
+	store := &statHookStore{ondemandFakeStore: newOndemandFakeStore()}
+	store.statFn = func(_ context.Context, _ string) (mediastore.ObjectInfo, error) {
+		return mediastore.ObjectInfo{Size: 5, ContentType: "image/jpeg"}, nil
+	}
+
+	f, err := NewOnDemandFetcher(OnDemandDeps{
+		Store: store, Repo: newOndemandFakeRepo(),
+		HTTPClient: server.Client(),
+		Limiter:    rate.NewLimiter(rate.Inf, 1),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		StatBudget: 20 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	hash, ok := f.FetchSync(t.Context(), url, "poster_w342", "jpg")
+	require.True(t, ok, "existing object must serve from the stat short-circuit")
+	assert.Equal(t, HashFromURL(url), hash)
+	assert.Equal(t, int32(0), hits.Load(), "stat hit must not fetch upstream")
+}
+
+// TestOnDemandFetcher_FetchSync_ParentExhausted_StatTimeout — W19-3a: when the
+// PARENT ctx is already past its deadline entering the stat, there is no budget
+// left to fetch, so the fetcher must return failure at the s3_stat stage and
+// must NOT wastefully hit the upstream.
+func TestOnDemandFetcher_FetchSync_ParentExhausted_StatTimeout(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("hello"))
+	}))
+	defer server.Close()
+
+	store := &statHookStore{ondemandFakeStore: newOndemandFakeStore()}
+	store.statFn = func(ctx context.Context, _ string) (mediastore.ObjectInfo, error) {
+		return mediastore.ObjectInfo{}, ctx.Err()
+	}
+
+	f, err := NewOnDemandFetcher(OnDemandDeps{
+		Store: store, Repo: newOndemandFakeRepo(),
+		HTTPClient: server.Client(),
+		Limiter:    rate.NewLimiter(rate.Inf, 1),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		StatBudget: 20 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	// Parent ctx already expired → the floor timeout keeps its dead deadline.
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	_, ok := f.FetchSync(ctx, server.URL+"/img.jpg", "poster_w342", "jpg")
+	assert.False(t, ok, "parent-exhausted stat must return failure at the s3_stat stage")
+	assert.Equal(t, int32(0), hits.Load(), "must not fetch on a dead parent ctx")
+}
+
 func TestOnDemandFetcher_Nil(t *testing.T) {
 	t.Parallel()
 	_, err := NewOnDemandFetcher(OnDemandDeps{}) // empty

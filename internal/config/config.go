@@ -167,14 +167,20 @@ type ExternalServicesEnv struct {
 	// 1.5s floor silently capped the 2s wall budget. 0/unset → 10s
 	// (floored at 1s). Env: SEASONFILL_MEDIA_ONDEMAND_BUDGET (seconds).
 	MediaOnDemandBudget time.Duration
-	OMDBToken           string
-	OMDBProxyURL        string
-	OMDBProxyUser       string
-	OMDBProxyPass       string
-	TVDBToken           string
-	TVDBProxyURL        string
-	TVDBProxyUser       string
-	TVDBProxyPass       string
+	// W19-3a — short sub-budget bounding the on-demand S3 Stat probe. A
+	// HEAD on a MISSING object is pathologically slow on SeaweedFS (~21s),
+	// so this caps the probe and lets a cold poster fall through to the
+	// fetch path quickly. 0/unset → 800ms. Env: SEASONFILL_MEDIA_STAT_BUDGET
+	// (milliseconds).
+	MediaOnDemandStatBudget time.Duration
+	OMDBToken               string
+	OMDBProxyURL            string
+	OMDBProxyUser           string
+	OMDBProxyPass           string
+	TVDBToken               string
+	TVDBProxyURL            string
+	TVDBProxyUser           string
+	TVDBProxyPass           string
 }
 
 // Lookup returns an EnvLookup-shaped closure over the ExternalServicesEnv
@@ -338,18 +344,19 @@ func FromEnv() (*Bootstrap, error) {
 			// regress when this code lands. wiring/enrichment.go logs
 			// a one-shot deprecation warning when only the legacy name
 			// is set.
-			TMDBAPIRPS:             getenvFloat("SEASONFILL_TMDB_API_RPS", getenvFloat("SEASONFILL_TMDB_RPS", 0)),
-			TMDBCDNRPS:             getenvFloat("SEASONFILL_TMDB_CDN_RPS", 0),
-			MediaDownloaderWorkers: getenvInt("SEASONFILL_MEDIA_DOWNLOADER_WORKERS", 0),
-			MediaOnDemandBudget:    mediaOnDemandBudgetFromEnv(),
-			OMDBToken:              os.Getenv("SEASONFILL_OMDB_TOKEN"),
-			OMDBProxyURL:           os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
-			OMDBProxyUser:          os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
-			OMDBProxyPass:          os.Getenv("SEASONFILL_OMDB_PROXY_PASS"),
-			TVDBToken:              os.Getenv("SEASONFILL_TVDB_TOKEN"),
-			TVDBProxyURL:           os.Getenv("SEASONFILL_TVDB_PROXY_URL"),
-			TVDBProxyUser:          os.Getenv("SEASONFILL_TVDB_PROXY_USER"),
-			TVDBProxyPass:          os.Getenv("SEASONFILL_TVDB_PROXY_PASS"),
+			TMDBAPIRPS:              getenvFloat("SEASONFILL_TMDB_API_RPS", getenvFloat("SEASONFILL_TMDB_RPS", 0)),
+			TMDBCDNRPS:              getenvFloat("SEASONFILL_TMDB_CDN_RPS", 0),
+			MediaDownloaderWorkers:  getenvInt("SEASONFILL_MEDIA_DOWNLOADER_WORKERS", 0),
+			MediaOnDemandBudget:     mediaOnDemandBudgetFromEnv(),
+			MediaOnDemandStatBudget: mediaOnDemandStatBudgetFromEnv(),
+			OMDBToken:               os.Getenv("SEASONFILL_OMDB_TOKEN"),
+			OMDBProxyURL:            os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
+			OMDBProxyUser:           os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
+			OMDBProxyPass:           os.Getenv("SEASONFILL_OMDB_PROXY_PASS"),
+			TVDBToken:               os.Getenv("SEASONFILL_TVDB_TOKEN"),
+			TVDBProxyURL:            os.Getenv("SEASONFILL_TVDB_PROXY_URL"),
+			TVDBProxyUser:           os.Getenv("SEASONFILL_TVDB_PROXY_USER"),
+			TVDBProxyPass:           os.Getenv("SEASONFILL_TVDB_PROXY_PASS"),
 		},
 		Enrichment: EnrichmentConfig{
 			ColdStartResweepInterval: coldStartResweepIntervalFromEnv(),
@@ -466,6 +473,26 @@ func mediaOnDemandBudgetFromEnv() time.Duration {
 		return def
 	}
 	d := time.Duration(secs) * time.Second
+	if d < floor {
+		return floor
+	}
+	return d
+}
+
+// mediaOnDemandStatBudgetFromEnv reads SEASONFILL_MEDIA_STAT_BUDGET as an
+// int number of milliseconds (W19-3a). 0 / unset / unparseable → the
+// 800ms default. Floored at 50ms so a misconfiguration cannot collapse
+// the stat probe to zero. This bounds the on-demand S3 Stat sub-context
+// so a slow HEAD on a missing object falls through to the fetch path
+// quickly — see MediaOnDemandStatBudget.
+func mediaOnDemandStatBudgetFromEnv() time.Duration {
+	const def = 800 * time.Millisecond
+	const floor = 50 * time.Millisecond
+	ms := getenvInt("SEASONFILL_MEDIA_STAT_BUDGET", 0)
+	if ms <= 0 {
+		return def
+	}
+	d := time.Duration(ms) * time.Millisecond
 	if d < floor {
 		return floor
 	}
