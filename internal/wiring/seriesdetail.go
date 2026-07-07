@@ -327,7 +327,9 @@ func BuildSeriesDetail(
 		Seasons:              sdSeasonsRepo,
 		Logger:               composerLog,
 		// W18-16: reuse the shipped progressive rating curve for the skeleton gate.
-		SkeletonStale: seriesdetail.TMDBRatingStale,
+		SkeletonStale:    seriesdetail.TMDBRatingStale,
+		MediaPresence:    sdSeriesMediaTextsRepo,       // Story 1081b — same repo that satisfies PosterMarker
+		MediaAbsentStale: seriesdetail.TMDBRatingStale, // reuse the shipped OMDb-style curve (no second curve)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("seriesfreshener probe: %w", err)

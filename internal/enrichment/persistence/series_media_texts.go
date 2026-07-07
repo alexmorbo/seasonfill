@@ -122,6 +122,29 @@ func (r *SeriesMediaTextsRepository) GetPosterAnyLang(ctx context.Context, serie
 	return row.PosterAsset, nil
 }
 
+// PosterMarker reports the per-locale poster presence state the freshener uses
+// to decide an absent-recheck. Returns (absent, checkedAt): absent == true when
+// the (series_id, language) row exists with poster_asset NULL/empty AND
+// poster_checked_at SET (confirmed-absent); checkedAt is that stamp. A present
+// poster, a never-checked row, or no row at all → (false, nil). Story 1081b.
+func (r *SeriesMediaTextsRepository) PosterMarker(ctx context.Context, seriesID domain.SeriesID, language string) (bool, *time.Time, error) {
+	var m database.SeriesMediaTextModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("series_id = ? AND language = ?", seriesID, language).
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil, nil // no row → never checked
+		}
+		return false, nil, fmt.Errorf("poster marker series_media_texts: %w", err)
+	}
+	absent := (m.PosterAsset == nil || *m.PosterAsset == "") && m.PosterCheckedAt != nil
+	if !absent {
+		return false, nil, nil
+	}
+	return true, m.PosterCheckedAt, nil
+}
+
 // ListByIDsWithFallback returns one SeriesMediaText per requested
 // series_id, applying the never-empty poster ladder (requested language →
 // en-US → any-available-language) in at most three round-trips. Mirrors

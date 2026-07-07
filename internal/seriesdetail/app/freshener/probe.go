@@ -69,6 +69,13 @@ type SeasonSyncedAtReader interface {
 	GetEpisodesSyncedAt(ctx context.Context, seriesID domain.SeriesID, seasonNumber int) (*time.Time, error)
 }
 
+// SeriesMediaPresenceReader — narrow port answering "is the localized poster
+// confirmed-absent, and when was it last checked?" for the absent-recheck curve
+// (Story 1081b). Nil disables the re-check (normal media freshness unchanged).
+type SeriesMediaPresenceReader interface {
+	PosterMarker(ctx context.Context, seriesID domain.SeriesID, language string) (absent bool, checkedAt *time.Time, err error)
+}
+
 // DBProbeConfig — dep surface for the production Probe.
 type DBProbeConfig struct {
 	Series               SeriesReader
@@ -104,6 +111,18 @@ type DBProbeConfig struct {
 	// would cycle. Signature is byte-identical to seriesdetail.TMDBRatingStale.
 	// Nil (tests / minimal boot) → flat SectionTTLs fallback on skeleton_synced_at.
 	SkeletonStale func(now time.Time, syncedAt *time.Time, inProduction bool, status *string, lastAir, firstAir *time.Time) bool
+
+	// MediaPresence — optional (Story 1081b). Reads the per-locale poster
+	// presence marker so a confirmed-absent poster re-probes on the geometric
+	// curve. Nil → no absent-recheck (present-media freshness unchanged).
+	MediaPresence SeriesMediaPresenceReader
+
+	// MediaAbsentStale — the OMDb-style progressive curve applied to
+	// poster_checked_at for the absent-recheck. Injected as a func value
+	// (production: seriesdetail.TMDBRatingStale) to avoid the
+	// seriesdetail→freshener import cycle, exactly like SkeletonStale. Nil →
+	// no absent-recheck even if MediaPresence is set.
+	MediaAbsentStale func(now time.Time, syncedAt *time.Time, inProduction bool, status *string, lastAir, firstAir *time.Time) bool
 }
 
 // DBProbe is the production implementation backed by the catalog repositories.
@@ -246,11 +265,37 @@ func (p *DBProbe) IsStale(
 	}
 	verdicts = append(verdicts, recs)
 
-	// SectionMedia: enrichment_media_synced_at; lang-agnostic.
-	verdicts = append(verdicts, ttlSectionVerdict(
+	// SectionMedia: enrichment_media_synced_at; lang-agnostic. Story 1081b —
+	// when the base TTL says Fresh but the REQUESTED-lang poster is
+	// confirmed-absent, re-probe on the OMDb-style geometric curve keyed on
+	// poster_checked_at (2d continuing … 180d cap): as the show ages the
+	// interval organically grows, so we rarely re-hit TMDB for series that will
+	// never get a localized poster but still eventually catch new ones. Marking
+	// SectionMedia Stale re-fires RefreshMediaAssets (which re-stamps
+	// poster_checked_at=now, plain-excluded). Present-media freshness is
+	// untouched — this only escalates an already-Fresh verdict for the absent case.
+	media := ttlSectionVerdict(
 		SectionMedia, canon.EnrichmentMediaSyncedAt, canon.Status,
 		SectionTTLs[SectionMedia], now,
-	))
+	)
+	if !media.Stale && p.cfg.MediaPresence != nil && p.cfg.MediaAbsentStale != nil && !lang.IsZero() {
+		absent, checkedAt, merr := p.cfg.MediaPresence.PosterMarker(ctx, seriesID, lang.Value())
+		switch {
+		case merr != nil:
+			// Fail-open (Radarr lesson) — an IO error must not look Fresh.
+			p.cfg.Logger.WarnContext(ctx, "freshener.probe.media_presence_error",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang.Value()),
+				slog.String("error", merr.Error()),
+			)
+			media.Stale = true
+			media.Reason = "probe_error"
+		case absent && p.cfg.MediaAbsentStale(now, checkedAt, canon.InProduction, canon.Status, canon.LastAirDate, canon.FirstAirDate):
+			media.Stale = true
+			media.Reason = "absent_poster_recheck"
+		}
+	}
+	verdicts = append(verdicts, media)
 
 	// SPARSE season verdicts.
 	for _, n := range seasonNumbers {
