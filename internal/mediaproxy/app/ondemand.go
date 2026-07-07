@@ -5,9 +5,9 @@
 // upserts the media_assets row, returns the sha256 hash. Designed
 // for the page-composer "first-fold" path (hero poster/backdrop, person
 // portrait) so the visited assets land in S3 before the response goes
-// out. Cap'd by the shared CDN rate limiter (Story 346: default 100 rps,
-// see application/media/downloader.go::defaultCDNRateLimitRPS) so a hot
-// page can't hammer TMDB.
+// out. Cap'd by the shared CDN rate limiter, which is uncapped by default
+// (W19-1); SEASONFILL_TMDB_CDN_RPS re-imposes a finite cap so a hot page
+// can't hammer TMDB.
 //
 // Failures and ctx-cancel return ("", false) — the resolver
 // translates that to nil and the frontend falls back to a monogram.
@@ -35,10 +35,13 @@ import (
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
-// onDemandTimeout caps a single FetchSync invocation. Callers may pass
-// a tighter ctx deadline; the http client also enforces this as a hard
-// floor.
-const onDemandTimeout = 1500 * time.Millisecond
+// onDemandTimeout is the DEFAULT floor applied to a single FetchSync
+// invocation when OnDemandDeps.Timeout is unset. W19-1 lifts it 1.5s →
+// 10s so the effective on-demand budget actually reaches 10s (the old
+// 1.5s floor silently capped the handler's larger wall budget — see the
+// contextWithFloorTimeout CEILING semantics). Production wires this from
+// SEASONFILL_MEDIA_ONDEMAND_BUDGET via OnDemandDeps.Timeout.
+const onDemandTimeout = 10 * time.Second
 
 // negativeCacheTTL bounds how long a hash stays in the failed-fetch
 // cooldown. Short enough to self-heal once the store recovers or the
@@ -56,14 +59,19 @@ type OnDemandFetcher interface {
 // OnDemandDeps groups the prod wiring. Mirrors DownloaderDeps so the
 // wiring code can hand the same Store / Repo / HTTPClient. Limiter
 // MUST be the shared *rate.Limiter the Downloader uses (otherwise the
-// CDN cap gets split — Story 346 default 100 rps).
+// CDN cap gets split — uncapped by default as of W19-1).
 type OnDemandDeps struct {
 	Store      mediastore.Store
 	Repo       AssetRepo
 	HTTPClient *http.Client
 	Limiter    *rate.Limiter
-	Logger     *slog.Logger
-	Clock      func() time.Time
+	// Timeout is the per-fetch floor (and default http.Client.Timeout).
+	// 0 → onDemandTimeout (10s). W19-1: wired from
+	// SEASONFILL_MEDIA_ONDEMAND_BUDGET so the fetcher floor tracks the
+	// handler wall budget and the two never drift apart.
+	Timeout time.Duration
+	Logger  *slog.Logger
+	Clock   func() time.Time
 }
 
 // onDemandFetcher is the production OnDemandFetcher.
@@ -74,6 +82,7 @@ type onDemandFetcher struct {
 	limiter *rate.Limiter
 	logger  *slog.Logger
 	clock   func() time.Time
+	timeout time.Duration
 
 	negMu    sync.Mutex
 	negUntil map[string]time.Time // asset hash -> retry-after (cooldown)
@@ -81,8 +90,8 @@ type onDemandFetcher struct {
 
 // NewOnDemandFetcher constructs the prod fetcher. The shared Limiter
 // (the same *rate.Limiter the Downloader holds) is required to keep
-// the global CDN cap intact across sync + async paths (Story 346:
-// default 100 rps).
+// the global CDN cap intact across sync + async paths (uncapped by
+// default as of W19-1).
 func NewOnDemandFetcher(d OnDemandDeps) (OnDemandFetcher, error) {
 	if d.Store == nil {
 		return nil, errors.New("media ondemand: mediastore required")
@@ -93,8 +102,12 @@ func NewOnDemandFetcher(d OnDemandDeps) (OnDemandFetcher, error) {
 	if d.Limiter == nil {
 		return nil, errors.New("media ondemand: limiter required (must share with downloader)")
 	}
+	timeout := d.Timeout
+	if timeout <= 0 {
+		timeout = onDemandTimeout
+	}
 	if d.HTTPClient == nil {
-		d.HTTPClient = &http.Client{Timeout: onDemandTimeout}
+		d.HTTPClient = &http.Client{Timeout: timeout}
 	}
 	if d.Logger == nil {
 		d.Logger = sharedports.DomainLogger(slog.Default(), "enrichment")
@@ -109,6 +122,7 @@ func NewOnDemandFetcher(d OnDemandDeps) (OnDemandFetcher, error) {
 		limiter:  d.Limiter,
 		logger:   d.Logger,
 		clock:    d.Clock,
+		timeout:  timeout,
 		negUntil: make(map[string]time.Time),
 	}, nil
 }
@@ -157,7 +171,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 
 	// Inherit caller deadline; if none, apply onDemandTimeout as a hard
 	// floor so the composer can't accidentally hold the response.
-	ctx, cancel := contextWithFloorTimeout(ctx, onDemandTimeout)
+	ctx, cancel := contextWithFloorTimeout(ctx, f.timeout)
 	defer cancel()
 
 	start := f.clock()

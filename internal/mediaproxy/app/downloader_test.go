@@ -17,6 +17,7 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
@@ -179,10 +180,19 @@ func TestDownloader_RateLimit(t *testing.T) {
 	// Story 346: the default CDN cap moved from 5 rps to 100 rps. This
 	// test explicitly pins 5 rps so the timing assertion stays
 	// meaningful regardless of future default changes.
+	//
+	// W19-1: pin Workers:3 (was the pre-W19-1 default) so this timing
+	// assertion stays valid. The test observes pending-row creation, and
+	// handle() writes the pending row BEFORE hitting the limiter — so
+	// with the new default of 32 workers >= 10 jobs, all rows land up
+	// front and the paced download happens afterward. Pinning 3 workers
+	// (< 10 jobs) restores the channel back-pressure that makes row
+	// creation itself observe the 5 rps cap.
 	d, err := NewDownloader(eq, DownloaderDeps{
 		Store: newFakeStore(), Repo: repo,
 		HTTPClient:      srv.Client(),
 		Logger:          slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Workers:         3,
 		CDNRateLimitRPS: 5,
 	})
 	if err != nil {
@@ -452,42 +462,96 @@ func TestDownloader_LogsFetchFailed_OnStorePutFailure(t *testing.T) {
 	require.Greater(t, metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="failed",error_kind="s3_write_error"}`).Get(), before)
 }
 
-// Story 346 — when CDNRateLimitRPS is left at zero the downloader picks
-// the package default (100 rps). Asserts the limiter's effective rate
-// via Limiter().Limit().
-func TestDownloader_DefaultCDNRate100(t *testing.T) {
+// W19-1 (a) — default worker count is 32; DownloaderDeps.Workers overrides.
+func TestDownloader_WorkerCount(t *testing.T) {
+	newDL := func(workers int) *Downloader {
+		eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+		d, err := NewDownloader(eq, DownloaderDeps{
+			Store:      newFakeStore(),
+			Repo:       newFakeRepo(),
+			HTTPClient: &http.Client{},
+			Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+			Workers:    workers,
+		})
+		require.NoError(t, err)
+		return d
+	}
+
+	// Unset → default 32.
+	require.Equal(t, 32, newDL(0).workers, "unset Workers must default to 32")
+	// Negative → default 32 (defensive).
+	require.Equal(t, 32, newDL(-5).workers, "negative Workers must fall back to default")
+	// Explicit override honoured.
+	require.Equal(t, 8, newDL(8).workers, "explicit Workers must be honoured")
+}
+
+// W19-1 (a) — Start actually spawns d.workers goroutines. We count drain
+// goroutines by feeding exactly N never-completing jobs (server blocks
+// until the test ends) and asserting all N slots become busy at once.
+func TestDownloader_SpawnsWorkerGoroutines(t *testing.T) {
+	const n = 6
+	var inFlight atomic.Int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inFlight.Add(1)
+		<-release // hold the worker until the test releases
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("x"))
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := NewDownloader(eq, DownloaderDeps{
+		Store: newFakeStore(), Repo: newFakeRepo(),
+		HTTPClient: srv.Client(),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Workers:    n,
+	})
+	require.NoError(t, err)
+	ctx := t.Context()
+	d.Start(ctx)
+
+	reqs := make([]EnqueueRequest, n+2) // more jobs than workers
+	for i := range reqs {
+		reqs[i] = EnqueueRequest{UpstreamURL: srv.URL + "/img" + strconv.Itoa(i) + ".jpg", Kind: "poster_w342", Extension: "jpg"}
+	}
+	eq.Enqueue(ctx, reqs)
+
+	// Exactly n workers should be simultaneously blocked in the handler.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if inFlight.Load() == int32(n) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Equal(t, int32(n), inFlight.Load(), "exactly n=%d workers must be draining concurrently", n)
+}
+
+// W19-1 (b) — unset CDNRateLimitRPS → UNCAPPED (rate.Inf). Replaces the
+// pre-W19-1 TestDownloader_DefaultCDNRate100 (which expected 100).
+func TestDownloader_DefaultCDNUnlimited(t *testing.T) {
 	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	d, err := NewDownloader(eq, DownloaderDeps{
 		Store:      newFakeStore(),
 		Repo:       newFakeRepo(),
 		HTTPClient: &http.Client{},
 		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		// CDNRateLimitRPS left at zero — expect default 100.
+		// CDNRateLimitRPS left at zero — expect uncapped.
 	})
 	require.NoError(t, err)
-	got := float64(d.Limiter().Limit())
-	require.InDelta(t, 100.0, got, 0.001, "default CDN rate must be 100 rps")
+	require.Equal(t, rate.Inf, d.Limiter().Limit(), "unset CDN rate must be uncapped (rate.Inf)")
+
+	// rate.Inf never blocks: many Allow() calls succeed instantly.
+	for range 1000 {
+		require.True(t, d.Limiter().Allow(), "rate.Inf limiter must never throttle")
+	}
 }
 
-// Story 346 — DownloaderDeps.CDNRateLimitRPS overrides the default.
-func TestDownloader_CDNRateOverride(t *testing.T) {
-	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	d, err := NewDownloader(eq, DownloaderDeps{
-		Store:           newFakeStore(),
-		Repo:            newFakeRepo(),
-		HTTPClient:      &http.Client{},
-		Logger:          slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		CDNRateLimitRPS: 25,
-	})
-	require.NoError(t, err)
-	got := float64(d.Limiter().Limit())
-	require.InDelta(t, 25.0, got, 0.001, "explicit CDN rate must be honoured")
-}
-
-// Story 346 — negative or zero RPS still collapses to the default
-// (defensive: a config bug must NOT permit a 0-rps limiter, which
-// would block every request).
-func TestDownloader_NegativeRateFallsBack(t *testing.T) {
+// W19-1 (b) — negative CDNRateLimitRPS also collapses to uncapped.
+// Replaces the pre-W19-1 TestDownloader_NegativeRateFallsBack (expected 100).
+func TestDownloader_NegativeRateUnlimited(t *testing.T) {
 	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	d, err := NewDownloader(eq, DownloaderDeps{
 		Store:           newFakeStore(),
@@ -497,6 +561,21 @@ func TestDownloader_NegativeRateFallsBack(t *testing.T) {
 		CDNRateLimitRPS: -1,
 	})
 	require.NoError(t, err)
-	got := float64(d.Limiter().Limit())
-	require.InDelta(t, 100.0, got, 0.001, "negative rate must fall back to default")
+	require.Equal(t, rate.Inf, d.Limiter().Limit(), "negative CDN rate must be uncapped (rate.Inf)")
+}
+
+// W19-1 (b) — a positive CDNRateLimitRPS still imposes a finite cap
+// (rollback path). Keeps burst=1 so steady pacing is exactly rps.
+func TestDownloader_PositiveRateFiniteCap(t *testing.T) {
+	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := NewDownloader(eq, DownloaderDeps{
+		Store:           newFakeStore(),
+		Repo:            newFakeRepo(),
+		HTTPClient:      &http.Client{},
+		Logger:          slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		CDNRateLimitRPS: 25,
+	})
+	require.NoError(t, err)
+	require.InDelta(t, 25.0, float64(d.Limiter().Limit()), 0.001, "explicit finite CDN cap must be honoured")
+	require.NotEqual(t, rate.Inf, d.Limiter().Limit())
 }

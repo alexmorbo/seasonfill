@@ -365,6 +365,7 @@ func BuildEnrichment(
 				Repo:            repos.MediaAssets,
 				HTTPClient:      httpClient,
 				Logger:          enrichmentLog,
+				Workers:         bootstrap.ExternalServices.MediaDownloaderWorkers, // W19-1
 				CDNRateLimitRPS: bootstrap.ExternalServices.TMDBCDNRPS,
 			})
 			if err != nil {
@@ -379,6 +380,7 @@ func BuildEnrichment(
 				Repo:       repos.MediaAssets,
 				HTTPClient: httpClient,
 				Limiter:    mediaDownloader.Limiter(),
+				Timeout:    bootstrap.ExternalServices.MediaOnDemandBudget, // W19-1
 				Logger:     enrichmentLog,
 			})
 			if err != nil {

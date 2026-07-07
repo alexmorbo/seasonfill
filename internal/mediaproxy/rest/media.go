@@ -136,7 +136,7 @@ type MediaHandlerDeps struct {
 	HTTPClient         *http.Client
 	Logger             *slog.Logger
 	NegativeCacheTTL   time.Duration // story 321: 0 → defaultNegativeCacheTTL (60 s)
-	OnDemandWallBudget time.Duration // story 321: 0 → defaultOnDemandWallBudget (2 s)
+	OnDemandWallBudget time.Duration // story 321: 0 → defaultOnDemandWallBudget (10 s, W19-1)
 }
 
 // defaultNegativeCacheTTL is the window after a failed on-demand fetch
@@ -147,9 +147,12 @@ type MediaHandlerDeps struct {
 const defaultNegativeCacheTTL = 60 * time.Second
 
 // defaultOnDemandWallBudget is the per-request budget passed to
-// FetchSync. TMDB-via-VPN p50 ~600 ms; 2 s leaves 2× headroom and stays
-// well under browser image-fetch tolerance.
-const defaultOnDemandWallBudget = 2 * time.Second
+// FetchSync when OnDemandWallBudget is unset. W19-1 lifts it 2s → 10s to
+// match the fetcher floor (both driven by SEASONFILL_MEDIA_ONDEMAND_BUDGET
+// in prod). A browser tolerates a 10s image fetch; the payoff is cold
+// image.tmdb.org assets land on first GET instead of falling to the SVG
+// placeholder.
+const defaultOnDemandWallBudget = 10 * time.Second
 
 // SetOnDemandFetcher late-binds the on-demand fetcher onto an
 // already-constructed handler. Used by cmd/server/main.go: the handler

@@ -404,7 +404,17 @@ them back. No admin action needed; concurrent requests for the same
 missing object collapse into a single upstream call (singleflight).
 Successful recoveries log `media.serve.lost_object_recovered` at WARN —
 a heartbeat to alert on if the rate is unexpectedly high.
-Mass refills are bounded by `SEASONFILL_TMDB_CDN_RPS` (default `100`).
+
+**Media fetch tuning (W19-1).** Cold-series media fills are **uncapped by
+default** — `image.tmdb.org` is Cloudflare-backed with no published per-IP
+limit, so seasonfill downloads with a wide worker pool and no self-imposed
+rate cap. Three env knobs allow rollback without a rebuild:
+
+| Env | Default | Effect |
+|-----|---------|--------|
+| `SEASONFILL_MEDIA_DOWNLOADER_WORKERS` | `32` | Downloader drain-goroutine pool size. |
+| `SEASONFILL_TMDB_CDN_RPS` | unset → **uncapped** (`rate.Inf`) | Set a positive value to re-impose a finite CDN rate cap. |
+| `SEASONFILL_MEDIA_ONDEMAND_BUDGET` | `10` (seconds, floor 1 s) | Single source of truth for the on-demand fetch budget — drives BOTH the handler wall budget and the fetcher floor timeout. |
 
 **Capacity planning.** ~5–10 MiB per fully-hydrated series. Budget
 ~10 GiB per 1 000 series. No built-in GC yet — the bucket only grows.

@@ -103,10 +103,11 @@ func BuildMedia(
 	// pending hashes serve the embedded SVG placeholder — visually stable
 	// while the media pipeline boots.
 	handler := mediaproxyrest.NewMediaHandler(mediaproxyrest.MediaHandlerDeps{
-		Store:           store,
-		Repo:            assetsRepo,
-		PendingResolver: assetsRepo, // story 320: satisfies GetSourceURLByHash
-		Logger:          log,
+		Store:              store,
+		Repo:               assetsRepo,
+		PendingResolver:    assetsRepo, // story 320: satisfies GetSourceURLByHash
+		Logger:             log,
+		OnDemandWallBudget: bootCfg.ExternalServices.MediaOnDemandBudget, // W19-1
 		// OnDemandFetcher: late-bound in server.go (story 321 wiring).
 	})
 

@@ -18,19 +18,14 @@ import (
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
-// downloaderWorkers is the goroutine count drainig the jobs channel —
-// PRD §6.6 pins it at 3 (more would smother the limiter; fewer would
-// leave the channel backlogged behind slow upstreams).
-const downloaderWorkers = 3
-
-// defaultCDNRateLimitRPS is the Story 346 default cap for image.tmdb.org
-// fetches. Was a hardcoded 5 rps (PRD §6.6) — the CDN is Cloudflare-backed
-// with no published per-IP limit, so the old cap throttled a hot Series
-// Detail page (~20 first-fold assets) to a 4 s blocking window behind the
-// pre-warm queue. 100 rps keeps the burst bounded but lets a hot page
-// land sub-second. Override via DownloaderDeps.CDNRateLimitRPS (production
-// wiring threads bootstrap.ExternalServices.TMDBCDNRPS into the field).
-const defaultCDNRateLimitRPS = 100.0
+// defaultDownloaderWorkers is the goroutine count draining the jobs
+// channel when DownloaderDeps.Workers is unset. W19-1 lifts this from a
+// hardcoded 3 to a BOLD 32: image.tmdb.org is Cloudflare-backed with no
+// published per-IP limit, so a wide worker pool clears a cold-series
+// media backlog in seconds instead of minutes. Env-tunable for rollback
+// via SEASONFILL_MEDIA_DOWNLOADER_WORKERS (threaded through
+// DownloaderDeps.Workers by wiring/enrichment.go).
+const defaultDownloaderWorkers = 32
 
 // downloadTimeout is the per-request http.Client timeout. 5s matches
 // PRD §10.4.8 TMDB API timeout (one TLS-handshake budget).
@@ -73,6 +68,7 @@ type Downloader struct {
 	limiter  *rate.Limiter
 	logger   *slog.Logger
 	clock    func() time.Time
+	workers  int
 	wg       sync.WaitGroup
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -82,16 +78,22 @@ type Downloader struct {
 // http.DefaultClient — but production wiring MUST pass the TMDB
 // proxied client (see §7 and the story's TMDB proxy decision).
 //
-// Story 346: CDNRateLimitRPS is the image-CDN rps cap (image.tmdb.org).
-// 0 → defaultCDNRateLimitRPS (100). Production wiring threads
-// bootstrap.ExternalServices.TMDBCDNRPS through this field; tests can
-// override to assert burst semantics.
+// Workers is the drain-goroutine count; 0 → defaultDownloaderWorkers (32).
+// Threaded from SEASONFILL_MEDIA_DOWNLOADER_WORKERS (W19-1).
+//
+// CDNRateLimitRPS is the image-CDN rps cap (image.tmdb.org). <=0 →
+// UNCAPPED (rate.Inf) as of W19-1 — the CDN has no per-IP limit and the
+// old 100 rps self-throttle stalled cold fills. A positive value
+// re-imposes a finite cap (rollback via SEASONFILL_TMDB_CDN_RPS). The
+// on-demand fetcher shares this limiter, so the cap (or lack of it)
+// applies to both sync + async paths.
 type DownloaderDeps struct {
 	Store           mediastore.Store
 	Repo            AssetRepo
 	HTTPClient      *http.Client
 	Logger          *slog.Logger
 	Clock           func() time.Time
+	Workers         int
 	CDNRateLimitRPS float64
 }
 
@@ -116,19 +118,32 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 	if deps.Clock == nil {
 		deps.Clock = func() time.Time { return time.Now().UTC() }
 	}
-	rps := deps.CDNRateLimitRPS
-	if rps <= 0 {
-		rps = defaultCDNRateLimitRPS
+	workers := deps.Workers
+	if workers <= 0 {
+		workers = defaultDownloaderWorkers
 	}
+
+	// W19-1: <=0 rps → uncapped. image.tmdb.org is Cloudflare-backed with
+	// no published per-IP budget; rate.Inf never blocks Wait(). A positive
+	// value re-imposes a finite steady-rate cap (burst=1 keeps the exact
+	// pacing the rollback cap is meant to enforce).
+	var limiter *rate.Limiter
+	if deps.CDNRateLimitRPS <= 0 {
+		limiter = rate.NewLimiter(rate.Inf, 1)
+	} else {
+		limiter = rate.NewLimiter(rate.Limit(deps.CDNRateLimitRPS), 1)
+	}
+
 	return &Downloader{
 		jobs:    eq.Channel(),
 		dedup:   eq.dedup,
 		store:   deps.Store,
 		repo:    deps.Repo,
 		http:    deps.HTTPClient,
-		limiter: rate.NewLimiter(rate.Limit(rps), 1),
+		limiter: limiter,
 		logger:  deps.Logger,
 		clock:   deps.Clock,
+		workers: workers,
 		stopCh:  make(chan struct{}),
 	}, nil
 }
@@ -136,7 +151,7 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 // Start spawns the worker goroutines. Idempotent against a re-call
 // (the wg.Add path is guarded by the closed stopCh).
 func (d *Downloader) Start(ctx context.Context) {
-	for i := range downloaderWorkers {
+	for i := range d.workers {
 		d.wg.Add(1)
 		go d.runWorker(ctx, i)
 	}
@@ -152,8 +167,8 @@ func (d *Downloader) Close() {
 
 // Limiter returns the shared *rate.Limiter the Downloader uses. The
 // on-demand fetcher (Story 316) must share the limiter so the CDN cap
-// applies across both the sync + async paths. Story 346: the cap is now
-// configurable (DownloaderDeps.CDNRateLimitRPS, default 100 rps).
+// applies across both the sync + async paths. W19-1: uncapped by default;
+// SEASONFILL_TMDB_CDN_RPS re-imposes a finite cap.
 func (d *Downloader) Limiter() *rate.Limiter { return d.limiter }
 
 func (d *Downloader) runWorker(ctx context.Context, idx int) {

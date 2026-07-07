@@ -150,20 +150,31 @@ type ExternalServicesEnv struct {
 	// SEASONFILL_TMDB_RPS for one release.
 	//
 	// TMDBCDNRPS: image CDN cap consumed by the media downloader and
-	// the on-demand fetcher. 0 or unset → application/media default
-	// (100). The CDN is Cloudflare-backed with no published per-IP
-	// limit; the cap exists only to bound a runaway worker pool.
+	// the on-demand fetcher. 0 or unset → UNCAPPED (rate.Inf) as of
+	// W19-1; the CDN is Cloudflare-backed with no published per-IP
+	// limit. A positive value re-imposes a finite cap (rollback).
 	// Env: SEASONFILL_TMDB_CDN_RPS.
-	TMDBAPIRPS    float64
-	TMDBCDNRPS    float64
-	OMDBToken     string
-	OMDBProxyURL  string
-	OMDBProxyUser string
-	OMDBProxyPass string
-	TVDBToken     string
-	TVDBProxyURL  string
-	TVDBProxyUser string
-	TVDBProxyPass string
+	TMDBAPIRPS float64
+	TMDBCDNRPS float64
+	// W19-1 — media downloader worker count (image.tmdb.org drain pool).
+	// 0 or unset → application/media default (32). Env:
+	// SEASONFILL_MEDIA_DOWNLOADER_WORKERS.
+	MediaDownloaderWorkers int
+	// W19-1 — on-demand media fetch budget. Single source of truth for
+	// BOTH the handler's per-request wall budget (rest/media.go) AND the
+	// fetcher's internal floor timeout (app/ondemand.go); driving both
+	// from one value structurally prevents the pre-W19-1 drift where the
+	// 1.5s floor silently capped the 2s wall budget. 0/unset → 10s
+	// (floored at 1s). Env: SEASONFILL_MEDIA_ONDEMAND_BUDGET (seconds).
+	MediaOnDemandBudget time.Duration
+	OMDBToken           string
+	OMDBProxyURL        string
+	OMDBProxyUser       string
+	OMDBProxyPass       string
+	TVDBToken           string
+	TVDBProxyURL        string
+	TVDBProxyUser       string
+	TVDBProxyPass       string
 }
 
 // Lookup returns an EnvLookup-shaped closure over the ExternalServicesEnv
@@ -327,16 +338,18 @@ func FromEnv() (*Bootstrap, error) {
 			// regress when this code lands. wiring/enrichment.go logs
 			// a one-shot deprecation warning when only the legacy name
 			// is set.
-			TMDBAPIRPS:    getenvFloat("SEASONFILL_TMDB_API_RPS", getenvFloat("SEASONFILL_TMDB_RPS", 0)),
-			TMDBCDNRPS:    getenvFloat("SEASONFILL_TMDB_CDN_RPS", 0),
-			OMDBToken:     os.Getenv("SEASONFILL_OMDB_TOKEN"),
-			OMDBProxyURL:  os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
-			OMDBProxyUser: os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
-			OMDBProxyPass: os.Getenv("SEASONFILL_OMDB_PROXY_PASS"),
-			TVDBToken:     os.Getenv("SEASONFILL_TVDB_TOKEN"),
-			TVDBProxyURL:  os.Getenv("SEASONFILL_TVDB_PROXY_URL"),
-			TVDBProxyUser: os.Getenv("SEASONFILL_TVDB_PROXY_USER"),
-			TVDBProxyPass: os.Getenv("SEASONFILL_TVDB_PROXY_PASS"),
+			TMDBAPIRPS:             getenvFloat("SEASONFILL_TMDB_API_RPS", getenvFloat("SEASONFILL_TMDB_RPS", 0)),
+			TMDBCDNRPS:             getenvFloat("SEASONFILL_TMDB_CDN_RPS", 0),
+			MediaDownloaderWorkers: getenvInt("SEASONFILL_MEDIA_DOWNLOADER_WORKERS", 0),
+			MediaOnDemandBudget:    mediaOnDemandBudgetFromEnv(),
+			OMDBToken:              os.Getenv("SEASONFILL_OMDB_TOKEN"),
+			OMDBProxyURL:           os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
+			OMDBProxyUser:          os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
+			OMDBProxyPass:          os.Getenv("SEASONFILL_OMDB_PROXY_PASS"),
+			TVDBToken:              os.Getenv("SEASONFILL_TVDB_TOKEN"),
+			TVDBProxyURL:           os.Getenv("SEASONFILL_TVDB_PROXY_URL"),
+			TVDBProxyUser:          os.Getenv("SEASONFILL_TVDB_PROXY_USER"),
+			TVDBProxyPass:          os.Getenv("SEASONFILL_TVDB_PROXY_PASS"),
 		},
 		Enrichment: EnrichmentConfig{
 			ColdStartResweepInterval: coldStartResweepIntervalFromEnv(),
@@ -430,6 +443,25 @@ func coldStartResweepIntervalFromEnv() time.Duration {
 	const def = 60 * time.Second
 	const floor = 5 * time.Second
 	secs := getenvInt("SEASONFILL_ENRICHMENT_COLDSTART_RESWEEP_SECONDS", 0)
+	if secs <= 0 {
+		return def
+	}
+	d := time.Duration(secs) * time.Second
+	if d < floor {
+		return floor
+	}
+	return d
+}
+
+// mediaOnDemandBudgetFromEnv reads SEASONFILL_MEDIA_ONDEMAND_BUDGET as an
+// int number of seconds (W19-1). 0 / unset / unparseable → the 10s
+// default. Floored at 1s so a misconfiguration cannot collapse the
+// on-demand fetch window. This single value drives BOTH the handler wall
+// budget and the fetcher floor timeout — see MediaOnDemandBudget.
+func mediaOnDemandBudgetFromEnv() time.Duration {
+	const def = 10 * time.Second
+	const floor = 1 * time.Second
+	secs := getenvInt("SEASONFILL_MEDIA_ONDEMAND_BUDGET", 0)
 	if secs <= 0 {
 		return def
 	}
