@@ -367,6 +367,7 @@ func BuildEnrichment(
 				Logger:          enrichmentLog,
 				Workers:         bootstrap.ExternalServices.MediaDownloaderWorkers, // W19-1
 				CDNRateLimitRPS: bootstrap.ExternalServices.TMDBCDNRPS,
+				StatBudget:      bootstrap.ExternalServices.MediaOnDemandStatBudget, // W19-3b (same env as on-demand)
 			})
 			if err != nil {
 				return nil, fmt.Errorf("media downloader: %w", err)

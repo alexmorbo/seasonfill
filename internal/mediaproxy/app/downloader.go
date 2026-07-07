@@ -60,18 +60,19 @@ var ErrAssetNotFound = errors.New("media: asset not found")
 // against the Enqueuer's channel + dedup set so completion clears
 // the in-flight mark.
 type Downloader struct {
-	jobs     <-chan job
-	dedup    *inflightSet
-	store    mediastore.Store
-	repo     AssetRepo
-	http     *http.Client
-	limiter  *rate.Limiter
-	logger   *slog.Logger
-	clock    func() time.Time
-	workers  int
-	wg       sync.WaitGroup
-	stopOnce sync.Once
-	stopCh   chan struct{}
+	jobs       <-chan job
+	dedup      *inflightSet
+	store      mediastore.Store
+	repo       AssetRepo
+	http       *http.Client
+	limiter    *rate.Limiter
+	logger     *slog.Logger
+	clock      func() time.Time
+	workers    int
+	statBudget time.Duration
+	wg         sync.WaitGroup
+	stopOnce   sync.Once
+	stopCh     chan struct{}
 }
 
 // DownloaderDeps is the explicit dep bundle. http=nil falls back to
@@ -95,6 +96,12 @@ type DownloaderDeps struct {
 	Clock           func() time.Time
 	Workers         int
 	CDNRateLimitRPS float64
+	// StatBudget bounds the async pre-warm S3 Stat probe with a short
+	// sub-context so a slow HEAD on a MISSING object (~6-21s on SeaweedFS,
+	// minio-go retries) doesn't pin a worker. 0 → onDemandStatBudget
+	// (800ms). W19-3b: wired from the SAME SEASONFILL_MEDIA_STAT_BUDGET as
+	// the on-demand fetcher (one env drives both paths).
+	StatBudget time.Duration
 }
 
 // NewDownloader wires the consumer against the Enqueuer's channel +
@@ -122,6 +129,13 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 	if workers <= 0 {
 		workers = defaultDownloaderWorkers
 	}
+	// W19-3b: bound the pre-warm Stat with the SAME 800ms sub-budget the
+	// on-demand fetcher uses (onDemandStatBudget) so a slow/missing HEAD
+	// falls through to the download path instead of pinning a worker.
+	statBudget := deps.StatBudget
+	if statBudget <= 0 {
+		statBudget = onDemandStatBudget
+	}
 
 	// W19-1: <=0 rps → uncapped. image.tmdb.org is Cloudflare-backed with
 	// no published per-IP budget; rate.Inf never blocks Wait(). A positive
@@ -135,16 +149,17 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 	}
 
 	return &Downloader{
-		jobs:    eq.Channel(),
-		dedup:   eq.dedup,
-		store:   deps.Store,
-		repo:    deps.Repo,
-		http:    deps.HTTPClient,
-		limiter: limiter,
-		logger:  deps.Logger,
-		clock:   deps.Clock,
-		workers: workers,
-		stopCh:  make(chan struct{}),
+		jobs:       eq.Channel(),
+		dedup:      eq.dedup,
+		store:      deps.Store,
+		repo:       deps.Repo,
+		http:       deps.HTTPClient,
+		limiter:    limiter,
+		logger:     deps.Logger,
+		clock:      deps.Clock,
+		workers:    workers,
+		statBudget: statBudget,
+		stopCh:     make(chan struct{}),
 	}, nil
 }
 
@@ -213,7 +228,16 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 	//    want to ensure the media_assets row exists with
 	//    status=stored (the row could be missing after a failed
 	//    deploy that bypassed the row write).
-	if info, err := d.store.Stat(ctx, key); err == nil {
+	// W19-3b: bound the Stat with a short sub-context. A HEAD on a MISSING
+	// object is pathologically slow on SeaweedFS (~6-21s: minio-go retries
+	// the non-clean miss with backoff), which would pin a worker. Treating
+	// a timed-out HEAD as a miss lets the job fall through to the download
+	// path quickly. statCancel MUST always run before the branches.
+	statCtx, statCancel := context.WithTimeout(ctx, d.statBudget)
+	info, err := d.store.Stat(statCtx, key)
+	statCancel()
+	switch {
+	case err == nil:
 		_ = d.upsertRow(ctx, media.Asset{
 			Hash:        j.Hash,
 			UpstreamURL: j.UpstreamURL,
@@ -226,7 +250,14 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 			slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
 		)
 		return
-	} else if !errors.Is(err, mediastore.ErrNotFound) && !errors.Is(err, mediastore.ErrNotSupported) {
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+		// The short stat sub-budget expired (or ctx cancelled). A slow HEAD
+		// on a MISSING object looks exactly like this, so treat it as a
+		// store miss and FALL THROUGH to the download path — do NOT return
+		// early and do NOT escalate to the stat_error warn below.
+		jlog.DebugContext(ctx, "media.prewarm.stat_skip",
+			slog.Int("stat_ms", int(d.clock().Sub(start).Milliseconds())))
+	case !errors.Is(err, mediastore.ErrNotFound) && !errors.Is(err, mediastore.ErrNotSupported):
 		// Stat returned an unexpected error — log + fall through to
 		// the download path; the upstream fetch is the source of
 		// truth and a successful Put will mask the Stat blip.

@@ -462,6 +462,101 @@ func TestDownloader_LogsFetchFailed_OnStorePutFailure(t *testing.T) {
 	require.Greater(t, metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="failed",error_kind="s3_write_error"}`).Get(), before)
 }
 
+// statHookStore embeds *fakeStore (for Get/Put/Delete/List/Stat baseline)
+// but overrides Stat so a test can drive it — block on the sub-context,
+// return a deadline error, etc. Mirrors the on-demand test's statHookStore.
+type dlStatHookStore struct {
+	*fakeStore
+	statFn func(ctx context.Context, key string) (mediastore.ObjectInfo, error)
+}
+
+func (s *dlStatHookStore) Stat(ctx context.Context, key string) (mediastore.ObjectInfo, error) {
+	return s.statFn(ctx, key)
+}
+
+// W19-3b — a Stat that blocks past the short StatBudget (exactly how a
+// pathological missing-object HEAD looks on SeaweedFS) must NOT pin the
+// worker: the sub-context cancels it, the job treats it as a store miss and
+// falls through to the download path (fetch → Put → row stored).
+func TestDownloader_BoundedStatMiss_FallsThroughToDownload(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("DOWNLOADED"))
+	}))
+	defer srv.Close()
+
+	store := &dlStatHookStore{fakeStore: newFakeStore()}
+	// Stat blocks until the short sub-budget cancels it, then reports the
+	// sub-ctx deadline — the doomed-HEAD signature we bound against.
+	store.statFn = func(ctx context.Context, _ string) (mediastore.ObjectInfo, error) {
+		<-ctx.Done()
+		return mediastore.ObjectInfo{}, ctx.Err()
+	}
+
+	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	repo := newFakeRepo()
+	d, err := NewDownloader(eq, DownloaderDeps{
+		Store: store, Repo: repo,
+		HTTPClient: srv.Client(),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		// Tiny stat budget so the doomed HEAD is bounded quickly.
+		StatBudget: 20 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	d.Start(ctx)
+	url := srv.URL + "/abc.jpg"
+	eq.Enqueue(ctx, []EnqueueRequest{{UpstreamURL: url, Kind: "poster_w342", Extension: "jpg"}})
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if a, err := repo.Get(ctx, HashFromURL(url)); err == nil && a.Status == media.StatusStored {
+			cancel()
+			eq.Close()
+			d.Close()
+			require.Equal(t, int32(1), hits.Load(), "bounded-stat miss must fall through to exactly one upstream fetch")
+			key := mediastore.Key(url, "jpg")
+			store.mu.Lock()
+			_, stored := store.bytes[key]
+			store.mu.Unlock()
+			require.True(t, stored, "bytes must be Put to the store after fall-through")
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	eq.Close()
+	d.Close()
+	t.Fatal("timed out — bounded-stat miss did not fall through to download (worker likely pinned)")
+}
+
+// W19-3b (b) — the StatBudget default is the shared 800ms on-demand const.
+func TestDownloader_DefaultStatBudget(t *testing.T) {
+	eq := NewEnqueuer(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	d, err := NewDownloader(eq, DownloaderDeps{
+		Store:      newFakeStore(),
+		Repo:       newFakeRepo(),
+		HTTPClient: &http.Client{},
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		// StatBudget left at zero — expect the shared onDemandStatBudget.
+	})
+	require.NoError(t, err)
+	require.Equal(t, onDemandStatBudget, d.statBudget, "unset StatBudget must default to onDemandStatBudget (800ms)")
+
+	// Negative also collapses to the default (defensive).
+	d2, err := NewDownloader(eq, DownloaderDeps{
+		Store: newFakeStore(), Repo: newFakeRepo(),
+		HTTPClient: &http.Client{},
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		StatBudget: -1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, onDemandStatBudget, d2.statBudget, "negative StatBudget must fall back to default")
+}
+
 // W19-1 (a) — default worker count is 32; DownloaderDeps.Workers overrides.
 func TestDownloader_WorkerCount(t *testing.T) {
 	newDL := func(workers int) *Downloader {
