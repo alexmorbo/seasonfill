@@ -56,6 +56,11 @@ type SeriesPort interface {
 // projection).
 type PersonCreditsPort interface {
 	ListByPerson(ctx context.Context, personID int64) ([]PersonCreditRef, error)
+	// ListByPersons is the batched sibling — returns a map keyed by person_id;
+	// a person with no credits is absent from the map. Story 1070 collapses the
+	// cast composer's in_library Pass-1 N+1 into one round-trip. ListByPerson is
+	// retained for the (currently unused) single-probe path + existing fakes.
+	ListByPersons(ctx context.Context, personIDs []int64) (map[int64][]PersonCreditRef, error)
 }
 
 // PersonCreditRef is the projection the H-1 cast composer reads

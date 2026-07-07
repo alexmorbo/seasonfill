@@ -210,13 +210,18 @@ func (r *Resolver) Resolve(ctx context.Context, rawPath *string, size, kind stri
 			slog.String("source_url", url),
 			slog.String("error", err.Error()))
 	}
-	ext := appmedia.ExtractExt(*rawPath)
+	return r.resolveMiss(ctx, url, *rawPath, kind, unified)
+}
+
+// resolveMiss runs the post-lookup miss path shared by Resolve and ResolveBatch.
+// url is the already-built CDN URL (non-empty); rawPath is the original path
+// (for the extension); unified is the loaded flag snapshot. Byte-identical to the
+// inline miss tail Resolve carried pre-1070: unified → eager content-hash +
+// EnsurePending (+ async enqueue), sentinel on EnsurePending failure; legacy →
+// async enqueue + nil.
+func (r *Resolver) resolveMiss(ctx context.Context, url, rawPath, kind string, unified bool) *string {
+	ext := appmedia.ExtractExt(rawPath)
 	if unified {
-		// Miss — mint the eager content-hash + EnsurePending so the
-		// handler can recover on the user's GET /api/v1/media/:hash.
-		// Mirrors the ResolveSync story-320 eager-hash path. On
-		// EnsurePending failure, fall back to sentinel (better than
-		// nil; the FE renders the SVG placeholder).
 		eagerHash := appmedia.HashFromURL(url)
 		if perr := r.lookup.EnsurePending(ctx, eagerHash, url, kind); perr != nil {
 			r.logger.DebugContext(ctx, "media_resolver.ensure_pending_failed",
@@ -231,9 +236,102 @@ func (r *Resolver) Resolve(ctx context.Context, rawPath *string, size, kind stri
 		r.enqueueAsync(ctx, url, kind, ext)
 		return &eagerHash
 	}
-	// Legacy flag-off path: async enqueue + nil.
 	r.enqueueAsync(ctx, url, kind, ext)
 	return nil
+}
+
+// ResolveBatch is the batched sibling of Resolve: it resolves a slice of raw TMDB
+// image paths → wire hashes using ONE HashForSourceURLs IN-query for the warm
+// hits, then applies the per-item miss path (identical to Resolve) only to the
+// URLs that missed. The returned slice is index-aligned with rawPaths — out[i] is
+// exactly what Resolve(ctx, rawPaths[i], size, kind) would have returned
+// (nil/empty rawPath, empty-URL, hit, and miss all behave identically). The only
+// difference is round-trip count: 1 batched lookup instead of len(rawPaths).
+//
+// When the lookup does not implement BatchHashLookupPort (NewNopResolver,
+// sequential-only fakes), ResolveBatch transparently falls back to per-item
+// Resolve so callers never need to branch.
+//
+// Story 1070 — collapses the cast composer's ~407 sequential HashForSourceURL
+// portrait resolves into one query on the warm path.
+func (r *Resolver) ResolveBatch(ctx context.Context, rawPaths []*string, size, kind string) []*string {
+	out := make([]*string, len(rawPaths))
+	if r == nil || r.lookup == nil {
+		return out // all nil — matches Resolve's nil-lookup contract
+	}
+	batcher, ok := r.lookup.(BatchHashLookupPort)
+	if !ok {
+		for i := range rawPaths {
+			out[i] = r.Resolve(ctx, rawPaths[i], size, kind)
+		}
+		return out
+	}
+	unified := r.unifiedResolve.Load()
+
+	// Pass 1 — build each index's URL, handle the nil/empty + empty-URL
+	// short-circuits inline (identical to Resolve), collect URLs needing lookup.
+	builtURLs := make([]*string, len(rawPaths)) // nil = short-circuited at this index
+	lookupURLs := make([]string, 0, len(rawPaths))
+	for i, rp := range rawPaths {
+		if rp == nil || *rp == "" {
+			if unified {
+				r.emitSentinel(ctx, "nil_path", kind, "")
+				h := appmedia.SentinelMissingHash
+				out[i] = &h
+			}
+			continue
+		}
+		url := appmedia.BuildTMDBImageURL(size, *rp)
+		if url == "" {
+			if unified {
+				r.emitSentinel(ctx, "empty_url", kind, *rp)
+				h := appmedia.SentinelMissingHash
+				out[i] = &h
+			}
+			continue
+		}
+		u := url
+		builtURLs[i] = &u
+		lookupURLs = append(lookupURLs, url)
+	}
+
+	// Pass 2 — one batched lookup for every non-short-circuited URL.
+	var hits map[string]string
+	if len(lookupURLs) > 0 {
+		h, err := batcher.HashForSourceURLs(ctx, lookupURLs)
+		if err != nil {
+			// Batch failed — degrade to per-item Resolve for the entries that
+			// needed a lookup (each re-issues its own HashForSourceURL + miss
+			// path), so behaviour still matches Resolve. Short-circuited entries
+			// keep the out[i] already set above.
+			r.logger.DebugContext(ctx, "media_resolver.batch_lookup_error",
+				slog.String("kind", kind),
+				slog.String("error", err.Error()))
+			for i, rp := range rawPaths {
+				if builtURLs[i] == nil {
+					continue
+				}
+				out[i] = r.Resolve(ctx, rp, size, kind)
+			}
+			return out
+		}
+		hits = h
+	}
+
+	// Pass 3 — hits mapped back by index; misses fall to the shared miss path.
+	for i := range rawPaths {
+		if builtURLs[i] == nil {
+			continue // nil/empty/empty-url already resolved in Pass 1
+		}
+		url := *builtURLs[i]
+		if hash, hok := hits[url]; hok && hash != "" {
+			hh := hash
+			out[i] = &hh
+			continue
+		}
+		out[i] = r.resolveMiss(ctx, url, *rawPaths[i], kind, unified)
+	}
+	return out
 }
 
 // ResolveSync is the first-fold variant — on lookup miss, synchronously

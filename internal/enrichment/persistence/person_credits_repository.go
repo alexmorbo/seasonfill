@@ -78,6 +78,46 @@ func (r *PersonCreditsRepository) ListByPerson(ctx context.Context, personID int
 	return models, nil
 }
 
+// ListByPersons is the batched sibling of ListByPerson: it returns every credit
+// row for the given personIDs in ONE `person_id IN (?)` query, grouped into a map
+// keyed by person_id. Within each person the rows keep ListByPerson's
+// (year DESC NULLS LAST, title ASC) ordering. A personID with no credits is
+// simply absent from the map. Empty input returns an empty map + nil (no query).
+// De-dupes personIDs (and drops zero ids) before the IN clause.
+//
+// Story 1070 — collapses the cast composer's in_library-probe Pass 1 N+1 (one
+// ListByPerson per unique person) into a single round-trip.
+func (r *PersonCreditsRepository) ListByPersons(ctx context.Context, personIDs []int64) (map[int64][]PersonCredit, error) {
+	out := make(map[int64][]PersonCredit, len(personIDs))
+	seen := make(map[int64]struct{}, len(personIDs))
+	deduped := make([]int64, 0, len(personIDs))
+	for _, id := range personIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		deduped = append(deduped, id)
+	}
+	if len(deduped) == 0 {
+		return out, nil
+	}
+	var models []database.PersonCreditModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("person_id IN ?", deduped).
+		Order("person_id ASC, year DESC, title ASC").
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("list person_credits by persons: %w", err)
+	}
+	for _, m := range models {
+		out[m.PersonID] = append(out[m.PersonID], m)
+	}
+	return out, nil
+}
+
 // ListByPersonWithTextFallback returns every credit row for personID with
 // character_name resolved per S-G: requested language → en-US → base
 // person_credits.character_name. Mirrors ListByMediaWithTextFallback (two

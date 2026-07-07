@@ -63,6 +63,20 @@ func (f castFakePersonCredits) ListByPerson(_ context.Context, personID int64) (
 	return f.rows[personID], nil
 }
 
+func (f castFakePersonCredits) ListByPersons(_ context.Context, personIDs []int64) (map[int64][]seriesdetail.PersonCreditRef, error) {
+	out := make(map[int64][]seriesdetail.PersonCreditRef, len(personIDs))
+	for _, pid := range personIDs {
+		refs, err := f.ListByPerson(context.Background(), pid)
+		if err != nil {
+			return nil, err
+		}
+		if len(refs) > 0 {
+			out[pid] = refs
+		}
+	}
+	return out, nil
+}
+
 type castFakeEpisodesCount struct {
 	count int
 }

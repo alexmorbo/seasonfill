@@ -28,3 +28,19 @@ type HashLookupPort interface {
 	HashForSourceURL(ctx context.Context, sourceURL string) (string, error)
 	EnsurePending(ctx context.Context, hash, sourceURL, kind string) error
 }
+
+// BatchHashLookupPort is the batched sibling of HashForSourceURL: it resolves a
+// SET of source URLs → their stored sha256 hashes in one round-trip. The returned
+// map is keyed by source URL and carries ONLY the stored hits — a URL absent from
+// the map is a miss (the resolver handles it exactly as HashForSourceURL's
+// ErrNotFound). Production impl:
+// enrichpersistence.MediaAssetsRepository.HashForSourceURLs.
+//
+// Optional: Resolver.ResolveBatch type-asserts its lookup to this interface and
+// transparently falls back to per-item Resolve when the concrete lookup does not
+// implement it (NewNopResolver, sequential-only test fakes), so ResolveBatch is
+// always safe to call. This keeps the existing two-method HashLookupPort (and
+// its many test fakes) unbroken.
+type BatchHashLookupPort interface {
+	HashForSourceURLs(ctx context.Context, urls []string) (map[string]string, error)
+}

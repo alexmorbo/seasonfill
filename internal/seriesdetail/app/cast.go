@@ -265,27 +265,22 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 	// to 2.
 	inLibraryCache := make(map[int64]bool, len(personIDs))
 	if len(personIDs) > 0 {
-		// Pass 1: per-person credits (one ListByPerson query per unique
-		// person — these stay since person_credits is keyed on person_id
-		// and the batch alternative would be a wider IN(?) scan with
-		// looser locality). Collect every TMDB media id that has
-		// media_type='tv' AND tmdb_media_id != 0 — those are the
-		// candidates we need canon rows for.
+		// Pass 1: batched per-person credits (Story 1070 — one person_id IN(?)
+		// query replaces the former one-ListByPerson-per-unique-person N+1).
+		// Collect every TMDB media id with media_type='tv' AND tmdb_media_id != 0.
 		tmdbIDSet := make(map[domain.TMDBID]struct{})
-		creditsByPerson := make(map[int64][]PersonCreditRef, len(personIDs))
-		for _, pid := range personIDs {
-			credits, perr := c.d.PersonCredits.ListByPerson(ctx, pid)
-			if perr != nil {
-				if !errors.Is(perr, ports.ErrNotFound) {
-					c.d.Logger.WarnContext(ctx, "cast_in_library_probe_failed",
-						slog.Int64("person_id", pid),
-						slog.Int64("series_id", int64(seriesID)),
-						slog.String("code", sharedErrors.ErrorCode(perr)),
-						slog.String("error", perr.Error()))
-				}
-				continue
-			}
-			creditsByPerson[pid] = credits
+		creditsByPerson, perr := c.d.PersonCredits.ListByPersons(ctx, personIDs)
+		if perr != nil {
+			// Degraded posture identical to Pass 2/3: log once, continue with an
+			// empty map so every person resolves in_library=false rather than 5xx.
+			c.d.Logger.WarnContext(ctx, "cast_in_library_probe_failed",
+				slog.Int("person_ids", len(personIDs)),
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("code", sharedErrors.ErrorCode(perr)),
+				slog.String("error", perr.Error()))
+			creditsByPerson = nil
+		}
+		for _, credits := range creditsByPerson {
 			for _, pc := range credits {
 				if pc.MediaType != "tv" {
 					continue
@@ -411,12 +406,25 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 	})
 	out.Crew = crew
 
-	// Story 312: cast + crew profile assets.
+	// Story 312 + 1070: cast + crew profile assets. ResolveBatch collapses the
+	// former per-member HashForSourceURL N+1 into one source_url IN(?) query on
+	// the warm path; index-aligned output preserves ordering and per-item
+	// semantics (nil/empty → monogram/sentinel, miss → eager-hash) exactly.
+	castPaths := make([]*string, len(out.Cast))
 	for i := range out.Cast {
-		out.Cast[i].Person.ProfileAsset = c.d.MediaResolver.Resolve(ctx, out.Cast[i].Person.ProfileAsset, "w185", "profile_w185")
+		castPaths[i] = out.Cast[i].Person.ProfileAsset
 	}
+	castHashes := c.d.MediaResolver.ResolveBatch(ctx, castPaths, "w185", "profile_w185")
+	for i := range out.Cast {
+		out.Cast[i].Person.ProfileAsset = castHashes[i]
+	}
+	crewPaths := make([]*string, len(out.Crew))
 	for i := range out.Crew {
-		out.Crew[i].Person.ProfileAsset = c.d.MediaResolver.Resolve(ctx, out.Crew[i].Person.ProfileAsset, "w185", "profile_w185")
+		crewPaths[i] = out.Crew[i].Person.ProfileAsset
+	}
+	crewHashes := c.d.MediaResolver.ResolveBatch(ctx, crewPaths, "w185", "profile_w185")
+	for i := range out.Crew {
+		out.Crew[i].Person.ProfileAsset = crewHashes[i]
 	}
 
 	out.SyncedAt = c.d.Now()

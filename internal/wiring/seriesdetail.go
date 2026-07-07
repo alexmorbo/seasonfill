@@ -30,6 +30,11 @@ import (
 // PersonEnqueuerHolder is filled with the dispatcher once enrichment
 // boots.
 
+// Story 1070 — MediaAssetsRepository must satisfy the optional batch lookup so
+// Resolver.ResolveBatch takes the one-query path in production (not the per-item
+// fallback). A compile break here means the batched repo method drifted.
+var _ media.BatchHashLookupPort = (*enrichpersistence.MediaAssetsRepository)(nil)
+
 // SeriesDetailBundle groups the Story 215 (G-1) / 216 (H-1) / 217 (H-2) /
 // 218 (E-2) series-detail components constructed at boot. Returned by
 // BuildSeriesDetail. Threaded into:

@@ -43,6 +43,37 @@ func (f *fakeMediaLookup) EnsurePending(ctx context.Context, hash, sourceURL, ki
 	return f.ensureErr
 }
 
+// HashForSourceURLs makes fakeMediaLookup a BatchHashLookupPort so ResolveBatch
+// exercises its one-query path. Mirrors HashForSourceURL's byURL/err semantics;
+// ONLY hits appear in the map.
+func (f *fakeMediaLookup) HashForSourceURLs(_ context.Context, urls []string) (map[string]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[string]string, len(urls))
+	for _, u := range urls {
+		if u == "" {
+			continue
+		}
+		if h, ok := f.byURL[u]; ok {
+			out[u] = h
+		}
+	}
+	return out, nil
+}
+
+// seqOnlyLookup implements HashLookupPort but NOT BatchHashLookupPort — exercises
+// ResolveBatch's per-item fallback.
+type seqOnlyLookup struct{ byURL map[string]string }
+
+func (s seqOnlyLookup) HashForSourceURL(_ context.Context, url string) (string, error) {
+	if h, ok := s.byURL[url]; ok {
+		return h, nil
+	}
+	return "", ports.ErrNotFound
+}
+func (s seqOnlyLookup) EnsurePending(_ context.Context, _, _, _ string) error { return nil }
+
 func silentResolverLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
@@ -424,4 +455,101 @@ func TestResolver_SentinelEmitCounter_EnsurePendingFailureReason(t *testing.T) {
 	if after := sentinelEmitCounter("ensure_pending_failed", "poster_w342").Get(); after != before+1 {
 		t.Fatalf("ensure_pending_failed counter: want +1 (%d), got %d", before+1, after)
 	}
+}
+
+// --- Story 1070: ResolveBatch parity ---
+
+func TestResolver_ResolveBatch_MatchesResolve(t *testing.T) {
+	var ha = "aa" + "00000000000000000000000000000000000000000000000000000000000000"[:62]
+	var hb = "bb" + "00000000000000000000000000000000000000000000000000000000000000"[:62]
+	byURL := map[string]string{
+		"https://image.tmdb.org/t/p/w185/a.jpg": ha,
+		"https://image.tmdb.org/t/p/w185/b.jpg": hb,
+	}
+	// Two resolvers with the SAME lookup data — one drives Resolve (oracle),
+	// one drives ResolveBatch. Keep unified=false so misses → nil (deterministic).
+	oracle := NewResolver(&fakeMediaLookup{byURL: byURL}, nil, nil, silentResolverLogger())
+	batch := NewResolver(&fakeMediaLookup{byURL: byURL}, nil, nil, silentResolverLogger())
+
+	pa, pb, pmiss, pempty := "/a.jpg", "/b.jpg", "/zzz.jpg", ""
+	in := []*string{&pa, nil, &pb, &pmiss, &pempty, &pa}
+
+	want := make([]*string, len(in))
+	for i, rp := range in {
+		want[i] = oracle.Resolve(context.Background(), rp, "w185", "profile_w185")
+	}
+	got := batch.ResolveBatch(context.Background(), in, "w185", "profile_w185")
+
+	require.Len(t, got, len(want))
+	for i := range want {
+		if want[i] == nil {
+			assert.Nil(t, got[i], "index %d", i)
+			continue
+		}
+		require.NotNil(t, got[i], "index %d", i)
+		assert.Equal(t, *want[i], *got[i], "index %d", i)
+	}
+	// Explicit: hits resolved, order preserved.
+	require.NotNil(t, got[0])
+	assert.Equal(t, ha, *got[0])
+	assert.Nil(t, got[1]) // nil path (legacy flag) → nil
+	require.NotNil(t, got[2])
+	assert.Equal(t, hb, *got[2])
+	assert.Nil(t, got[3]) // miss (legacy flag) → nil
+	assert.Nil(t, got[4]) // empty path → nil
+	assert.Equal(t, ha, *got[5])
+}
+
+func TestResolver_ResolveBatch_NopLookup_AllNil(t *testing.T) {
+	r := NewNopResolver()
+	p := "/a.jpg"
+	got := r.ResolveBatch(context.Background(), []*string{&p, nil}, "w185", "profile_w185")
+	require.Len(t, got, 2)
+	assert.Nil(t, got[0])
+	assert.Nil(t, got[1])
+}
+
+func TestResolver_ResolveBatch_FallbackWhenNotBatcher(t *testing.T) {
+	var ha = "aa" + "00000000000000000000000000000000000000000000000000000000000000"[:62]
+	r := NewResolver(seqOnlyLookup{byURL: map[string]string{
+		"https://image.tmdb.org/t/p/w185/a.jpg": ha,
+	}}, nil, nil, silentResolverLogger())
+	p, miss := "/a.jpg", "/z.jpg"
+	got := r.ResolveBatch(context.Background(), []*string{&p, &miss}, "w185", "profile_w185")
+	require.Len(t, got, 2)
+	require.NotNil(t, got[0])
+	assert.Equal(t, ha, *got[0])
+	assert.Nil(t, got[1]) // legacy-flag miss via per-item Resolve fallback
+}
+
+func TestResolver_ResolveBatch_UnifiedParity(t *testing.T) {
+	var ha = "aa" + "00000000000000000000000000000000000000000000000000000000000000"[:62]
+	byURL := map[string]string{"https://image.tmdb.org/t/p/w185/a.jpg": ha}
+	// unified=true: nil path → sentinel, miss → eager hash. Assert ResolveBatch
+	// matches Resolve index-for-index AND fires the SAME EnsurePending set.
+	oLookup := &fakeMediaLookup{byURL: byURL}
+	bLookup := &fakeMediaLookup{byURL: byURL}
+	oracle := NewResolver(oLookup, nil, nil, silentResolverLogger())
+	oracle.SetUnifiedResolve(true)
+	batch := NewResolver(bLookup, nil, nil, silentResolverLogger())
+	batch.SetUnifiedResolve(true)
+
+	pa, pmiss := "/a.jpg", "/miss.jpg"
+	in := []*string{&pa, nil, &pmiss}
+
+	want := make([]*string, len(in))
+	for i, rp := range in {
+		want[i] = oracle.Resolve(context.Background(), rp, "w185", "profile_w185")
+	}
+	got := batch.ResolveBatch(context.Background(), in, "w185", "profile_w185")
+	require.Len(t, got, len(want))
+	for i := range want {
+		require.NotNil(t, got[i], "index %d unified: every entry emits a hash", i)
+		require.NotNil(t, want[i], "index %d oracle", i)
+		assert.Equal(t, *want[i], *got[i], "index %d", i)
+	}
+	// The miss (index 2) drives EnsurePending on both; same source URL set.
+	require.Len(t, bLookup.ensureCalls, len(oLookup.ensureCalls))
+	require.Len(t, bLookup.ensureCalls, 1)
+	assert.Equal(t, oLookup.ensureCalls[0].sourceURL, bLookup.ensureCalls[0].sourceURL)
 }

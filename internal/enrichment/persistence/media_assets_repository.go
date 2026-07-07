@@ -115,6 +115,56 @@ func (r *MediaAssetsRepository) HashForSourceURL(ctx context.Context, sourceURL 
 	return hash, nil
 }
 
+// HashForSourceURLs is the batched sibling of HashForSourceURL: it resolves many
+// source_urls → sha256 hashes in ONE `source_url IN (?) AND status='stored'`
+// query. Returns a map keyed by source_url carrying ONLY the stored hits — a
+// miss (no row, or a row whose status != 'stored') is simply absent from the
+// map, mirroring HashForSourceURL's ErrNotFound. Empty / all-empty input returns
+// an empty map + nil (no query fired). Duplicate and empty urls are de-duped
+// before the IN clause. Reads the same unique idx_media_assets_source_url the
+// single-row variant uses, so each url maps to at most one row.
+//
+// Story 1070 — collapses the cast composer's per-portrait HashForSourceURL N+1
+// (one query per cast/crew member) into a single round-trip on the warm path.
+func (r *MediaAssetsRepository) HashForSourceURLs(ctx context.Context, urls []string) (map[string]string, error) {
+	out := make(map[string]string, len(urls))
+	seen := make(map[string]struct{}, len(urls))
+	deduped := make([]string, 0, len(urls))
+	for _, u := range urls {
+		if u == "" {
+			continue
+		}
+		if _, ok := seen[u]; ok {
+			continue
+		}
+		seen[u] = struct{}{}
+		deduped = append(deduped, u)
+	}
+	if len(deduped) == 0 {
+		return out, nil
+	}
+	type row struct {
+		SourceURL string `gorm:"column:source_url"`
+		Hash      string `gorm:"column:hash"`
+	}
+	var rows []row
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("media_assets").
+		Select("source_url, hash").
+		Where("source_url IN ? AND status = ?", deduped, string(media.StatusStored)).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("hash for source_urls: %w", err)
+	}
+	for _, rw := range rows {
+		if rw.Hash == "" {
+			continue
+		}
+		out[rw.SourceURL] = rw.Hash
+	}
+	return out, nil
+}
+
 // EnsurePending writes a media_assets row keyed by hash with status='pending',
 // source_url, kind, created_at=now — IFF the row doesn't already exist.
 // Idempotent: ON CONFLICT (hash) DO NOTHING — an existing row's status (which

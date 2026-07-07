@@ -378,3 +378,75 @@ func TestMediaAssetsRepository_GetSourceURLByHash(t *testing.T) {
 		})
 	}
 }
+
+// TestMediaAssetsRepository_HashForSourceURLs_BatchMatchesLoop proves the
+// batched IN-query (Story 1070) returns exactly the map the per-item
+// HashForSourceURL loop would build (stored hits only; pending/absent miss),
+// and that de-dupe + empty-input short-circuit hold.
+func TestMediaAssetsRepository_HashForSourceURLs_BatchMatchesLoop(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewMediaAssetsRepository(db)
+
+			// Two stored, one pending (miss), one never-inserted (miss).
+			stored := map[string]string{
+				"https://image.tmdb.org/t/p/w185/a.jpg": "aa" + strings.Repeat("0", 62),
+				"https://image.tmdb.org/t/p/w185/b.jpg": "bb" + strings.Repeat("0", 62),
+			}
+			for url, hash := range stored {
+				require.NoError(t, repo.Upsert(ctx, media.Asset{
+					Hash: hash, UpstreamURL: url, Kind: "profile_w185",
+					Status: media.StatusStored, ContentType: "image/jpeg", Size: 10,
+				}))
+			}
+			pendingURL := "https://image.tmdb.org/t/p/w185/c.jpg"
+			require.NoError(t, repo.Upsert(ctx, media.Asset{
+				Hash: "cc" + strings.Repeat("0", 62), UpstreamURL: pendingURL,
+				Kind: "profile_w185", Status: media.StatusPending,
+			}))
+			missingURL := "https://image.tmdb.org/t/p/w185/z.jpg"
+
+			all := []string{
+				"https://image.tmdb.org/t/p/w185/a.jpg",
+				"https://image.tmdb.org/t/p/w185/b.jpg",
+				pendingURL, missingURL,
+				"https://image.tmdb.org/t/p/w185/a.jpg", // duplicate
+				"",                                      // empty — skipped
+			}
+
+			// Oracle: per-item HashForSourceURL (ErrNotFound → absent).
+			want := map[string]string{}
+			for _, u := range all {
+				if u == "" {
+					continue
+				}
+				h, err := repo.HashForSourceURL(ctx, u)
+				if err != nil {
+					require.True(t, errors.Is(err, ports.ErrNotFound), "unexpected err for %s: %v", u, err)
+					continue
+				}
+				want[u] = h
+			}
+
+			got, err := repo.HashForSourceURLs(ctx, all)
+			require.NoError(t, err)
+			assert.Equal(t, want, got, "batched map must equal the per-item loop result")
+			// Explicit invariants.
+			assert.Equal(t, stored["https://image.tmdb.org/t/p/w185/a.jpg"], got["https://image.tmdb.org/t/p/w185/a.jpg"])
+			assert.NotContains(t, got, pendingURL, "pending (non-stored) row must miss")
+			assert.NotContains(t, got, missingURL, "absent row must miss")
+
+			// Empty / all-empty input → empty map, nil error, no query.
+			empty, err := repo.HashForSourceURLs(ctx, nil)
+			require.NoError(t, err)
+			assert.Empty(t, empty)
+			empty2, err := repo.HashForSourceURLs(ctx, []string{"", ""})
+			require.NoError(t, err)
+			assert.Empty(t, empty2)
+		})
+	}
+}

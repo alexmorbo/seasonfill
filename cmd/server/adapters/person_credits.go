@@ -40,6 +40,28 @@ func (a PersonCreditsAdapter) ListByPerson(ctx context.Context, personID int64) 
 	return out, nil
 }
 
+// ListByPersons implements seriesdetail.PersonCreditsPort's batched probe. One
+// person_id IN(?) query in the repo; the adapter projects each row down to the
+// composer-internal PersonCreditRef shape (media_type + tmdb_media_id).
+func (a PersonCreditsAdapter) ListByPersons(ctx context.Context, personIDs []int64) (map[int64][]seriesdetail.PersonCreditRef, error) {
+	grouped, err := a.R.ListByPersons(ctx, personIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64][]seriesdetail.PersonCreditRef, len(grouped))
+	for pid, rows := range grouped {
+		refs := make([]seriesdetail.PersonCreditRef, 0, len(rows))
+		for _, pc := range rows {
+			refs = append(refs, seriesdetail.PersonCreditRef{
+				MediaType:   pc.MediaType,
+				TMDBMediaID: pc.TMDBMediaID,
+			})
+		}
+		out[pid] = refs
+	}
+	return out, nil
+}
+
 // PersonCreditsReaderAdapter projects PersonCreditsRepository onto
 // the H-2 PersonCreditsReader port. The repository's ListByPerson
 // returns []PersonCreditModel; the adapter converts to

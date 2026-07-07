@@ -148,6 +148,76 @@ func TestPersonCreditsRepository_ListByPerson(t *testing.T) {
 	}
 }
 
+// TestPersonCreditsRepository_ListByPersons_BatchMatchesLoop proves the batched
+// person_id IN(?) query (Story 1070) returns exactly the per-person grouping the
+// ListByPerson loop would build — including each group's (year DESC, title ASC)
+// order — with no-credit persons absent and duplicate ids de-duped.
+func TestPersonCreditsRepository_ListByPersons_BatchMatchesLoop(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			peopleRepo := NewPeopleRepository(db)
+			// Distinct TMDBIDs — samplePerson without one collapses both to a
+			// single person row on Upsert (see ListByMedia test).
+			person1 := samplePerson("Person One")
+			person1.TMDBID = ptrTMDBID(70001)
+			p1, err := peopleRepo.Upsert(ctx, person1)
+			require.NoError(t, err)
+			person2 := samplePerson("Person Two")
+			person2.TMDBID = ptrTMDBID(70002)
+			p2, err := peopleRepo.Upsert(ctx, person2)
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			// person 1 → 2 credits (year 2020 "B Show" + year 2022 "A Show"),
+			// person 2 → 1 credit, person 3 (p1+p2+100000) → 0 (never inserted).
+			c1a := samplePersonCredit(p1, "c1a", "B Show", 11)
+			c1a.Year = new(2020)
+			c1b := samplePersonCredit(p1, "c1b", "A Show", 12)
+			c1b.Year = new(2022)
+			c2a := samplePersonCredit(p2, "c2a", "Film", 21)
+			c2a.MediaType = "movie"
+			c2a.Year = new(2019)
+			_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{c1a, c1b, c2a})
+			require.NoError(t, err)
+
+			noCreditID := p1 + p2 + 100000         // never has credits
+			ids := []int64{p1, p2, noCreditID, p1} // includes a duplicate + a no-credit person
+
+			// Oracle: per-person ListByPerson (inline dedupe, keep self-contained).
+			seen := map[int64]struct{}{}
+			want := map[int64][]PersonCredit{}
+			for _, pid := range ids {
+				if _, ok := seen[pid]; ok {
+					continue
+				}
+				seen[pid] = struct{}{}
+				rows, lerr := repo.ListByPerson(ctx, pid)
+				require.NoError(t, lerr)
+				if len(rows) > 0 {
+					want[pid] = rows
+				}
+			}
+
+			got, err := repo.ListByPersons(ctx, ids)
+			require.NoError(t, err)
+			assert.Equal(t, want, got, "batched grouping must equal the per-person loop (incl. per-person order)")
+			assert.NotContains(t, got, noCreditID, "person with no credits must be absent")
+			// year DESC parity: person 1 yields "A Show" (2022) before "B Show" (2020).
+			require.Len(t, got[p1], 2)
+			assert.Equal(t, "A Show", got[p1][0].Title)
+			assert.Equal(t, "B Show", got[p1][1].Title)
+
+			empty, err := repo.ListByPersons(ctx, nil)
+			require.NoError(t, err)
+			assert.Empty(t, empty)
+		})
+	}
+}
+
 // TestPersonCreditsRepository_ListByMedia covers the reverse lookup
 // "who from my library appears in this TMDB title?".
 func TestPersonCreditsRepository_ListByMedia(t *testing.T) {
