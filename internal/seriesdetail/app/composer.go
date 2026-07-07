@@ -770,7 +770,7 @@ func (c *Composer) resolveAssets(ctx context.Context, d *Detail) {
 	for i := range d.Seasons {
 		// S-E3a — season poster raw path staged onto SeasonDetail.PosterAsset
 		// from season_media_texts (canon season poster removed).
-		d.Seasons[i].PosterAsset = r.Resolve(ctx, d.Seasons[i].PosterAsset, "w154", "season_poster_w154")
+		d.Seasons[i].PosterAsset = r.Resolve(ctx, d.Seasons[i].PosterAsset, "w342", "season_poster_w342")
 		for j := range d.Seasons[i].Episodes {
 			d.Seasons[i].Episodes[j].Canon.StillAsset = r.Resolve(ctx, d.Seasons[i].Episodes[j].Canon.StillAsset, "w300", "still_w300")
 		}
@@ -1000,7 +1000,7 @@ func (c *Composer) GetCanonicalSeasons(ctx context.Context, seriesID domain.Seri
 	// never blocked on a per-asset sync fetch budget.
 	if c.d.MediaResolver != nil {
 		for i := range out {
-			out[i].PosterAsset = c.d.MediaResolver.Resolve(ctx, out[i].PosterAsset, "w154", "season_poster_w154")
+			out[i].PosterAsset = c.d.MediaResolver.Resolve(ctx, out[i].PosterAsset, "w342", "season_poster_w342")
 			for j := range out[i].Episodes {
 				out[i].Episodes[j].Canon.StillAsset = c.d.MediaResolver.Resolve(ctx, out[i].Episodes[j].Canon.StillAsset, "w300", "still_w300")
 			}

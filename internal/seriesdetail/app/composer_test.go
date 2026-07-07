@@ -734,7 +734,7 @@ func TestComposer_ResolveAssets_SeasonPosterRegression(t *testing.T) {
 	}
 	const hashA = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{
-		"https://image.tmdb.org/t/p/w154/seasonA.jpg": hashA,
+		"https://image.tmdb.org/t/p/w342/seasonA.jpg": hashA,
 	}}
 	resolver := media.NewResolver(lookup, nil, nil, newSilentLogger())
 	c := NewComposer(Deps{MediaResolver: resolver})
@@ -963,7 +963,7 @@ func TestComposer_GetCanonicalSeasons_AsyncSeasonPoster(t *testing.T) {
 	}}
 	const hashHit = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	lookup := &fakeMediaLookupIntegration{byURL: map[string]string{
-		"https://image.tmdb.org/t/p/w154/seasonHit.jpg": hashHit,
+		"https://image.tmdb.org/t/p/w342/seasonHit.jpg": hashHit,
 		// seasonMiss.jpg intentionally absent — async Resolve returns nil.
 	}}
 	deps.MediaResolver = media.NewResolver(lookup, nil, nil, newSilentLogger())

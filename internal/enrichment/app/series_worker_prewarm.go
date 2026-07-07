@@ -18,7 +18,7 @@ func composePrewarmAssets(canon series.Canon, m mappedPayload, tv *tmdb.TVRespon
 		sizeBackdropHero = "w1280"
 		sizeLogoNetwork  = "w185"
 		sizeProfileCast  = "w185"
-		sizeSeasonPoster = "w154"
+		sizeSeasonPoster = "w342"
 		sizeStillEpisode = "w300"
 	)
 	reqs := make([]MediaPrewarmRequest, 0, 32)
@@ -83,7 +83,7 @@ func composePrewarmAssets(canon series.Canon, m mappedPayload, tv *tmdb.TVRespon
 				continue
 			}
 			pp := tv.Seasons[i].PosterPath
-			push(sizeSeasonPoster, &pp, "season_poster_w154")
+			push(sizeSeasonPoster, &pp, "season_poster_w342")
 		}
 	}
 

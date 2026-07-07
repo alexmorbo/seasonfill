@@ -855,7 +855,7 @@ func (w *SeriesWorker) mapAllForLanguage(tv *tmdb.TVResponse, seasons map[int]*t
 	// Pre-warm payload — PRD §6.4. Build full image URLs from the
 	// raw TMDB paths the mapper persisted on canon entities. Order:
 	// poster (w342 grid + w780 hero), backdrop w1280, network logos
-	// w185, top-10 cast profiles w185, season posters w154, one
+	// w185, top-10 cast profiles w185, season posters w342, one
 	// trailer thumbnail (best-effort YouTube hqdefault).
 	out.PrewarmAssets = composePrewarmAssets(canon, out, tv)
 	return out
