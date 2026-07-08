@@ -2071,6 +2071,12 @@ export const en = {
       backToSeries: '← {{title}}',
       searchPlaceholder: 'Search by name, character or job…',
       searchClear: 'Clear search',
+      sort: {
+        label: 'Sort',
+        episodes: 'By episode count',
+        credit: 'By billing order',
+        name: 'By name (A–Z)',
+      },
       tabs: {
         cast: 'Cast',
         crew: 'Crew',

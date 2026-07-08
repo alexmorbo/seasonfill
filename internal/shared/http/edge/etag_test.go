@@ -271,3 +271,30 @@ func TestEtagMatches(t *testing.T) {
 		})
 	}
 }
+
+func TestETagMiddleware_CastLimitChangesValidator(t *testing.T) {
+	stamp := time.Unix(1_700_000_000, 0).UTC()
+	reader := &fakeSyncedAt{stamp: &stamp}
+	var called bool
+	r := newETagEngine(t, "/series/:id/cast", reader, &called)
+
+	etagFor := func(url string) string {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+		r.ServeHTTP(w, req)
+		return w.Header().Get("ETag")
+	}
+
+	full := etagFor("/series/42/cast?lang=ru")
+	lim8 := etagFor("/series/42/cast?lang=ru&limit=8")
+	lim200 := etagFor("/series/42/cast?lang=ru&limit=200")
+	zero := etagFor("/series/42/cast?lang=ru&limit=0")
+
+	require.NotEmpty(t, full)
+	assert.NotEqual(t, full, lim8, "?limit=8 MUST NOT share the full-page ETag (304 body mismatch)")
+	assert.NotEqual(t, lim8, lim200, "distinct limits must yield distinct validators")
+	assert.Equal(t, full, zero, "limit=0 is the full page — same validator as absent")
+	// The full-page cast key keeps its historic shape (no -lim suffix).
+	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast"`, stamp.Unix()), full)
+	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast-lim8"`, stamp.Unix()), lim8)
+}

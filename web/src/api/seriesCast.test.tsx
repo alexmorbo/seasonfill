@@ -47,9 +47,25 @@ describe('useSeriesCast', () => {
     expect(mockApi).not.toHaveBeenCalled();
   });
 
-  it('exposes a stable query key', () => {
-    expect(seriesCastQueryKey(42, 'en-US')).toEqual([
-      'series-cast', 42, 'en-US',
-    ]);
+  it('exposes a stable query key including the limit', () => {
+    expect(seriesCastQueryKey(42, 'en-US')).toEqual(['series-cast', 42, 'en-US', 0]);
+    expect(seriesCastQueryKey(42, 'en-US', 8)).toEqual(['series-cast', 42, 'en-US', 8]);
+  });
+
+  it('appends &limit to the URL when a positive limit is given', async () => {
+    mockApi.mockResolvedValueOnce({ cast: [], crew: [], total_episode_count: 0 });
+    const { result } = renderHook(
+      () => useSeriesCast({ seriesId: 42, lang: 'en-US', limit: 8 }),
+      { wrapper: wrapper() },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockApi).toHaveBeenCalledWith('/series/42/cast?lang=en-US&limit=8');
+  });
+
+  it('omits limit from the URL when 0/undefined (full page)', async () => {
+    mockApi.mockResolvedValueOnce({ cast: [], crew: [] });
+    renderHook(() => useSeriesCast({ seriesId: 42, lang: 'en-US', limit: 0 }), { wrapper: wrapper() });
+    await waitFor(() => expect(mockApi).toHaveBeenCalled());
+    expect(mockApi).toHaveBeenCalledWith('/series/42/cast?lang=en-US');
   });
 });

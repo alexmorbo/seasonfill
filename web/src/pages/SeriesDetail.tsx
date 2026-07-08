@@ -77,8 +77,11 @@ export function SeriesDetail() {
   const overviewData = overviewQ.data?.overview;
 
   // C3b — cast strip loads from /series/:id/cast; adaptCast renames
-  // tmdb_id → tmdb_person_id for the /person link guard.
-  const castQ = useSeriesCast({ seriesId, ...(lang ? { lang } : {}) });
+  // tmdb_id → tmdb_person_id for the /person link guard. Story 1087a —
+  // request only the 8 the strip shows (top-N by episode_count on the BE);
+  // the full /cast page uses a separate query key (no limit) so it still
+  // loads the complete list.
+  const castQ = useSeriesCast({ seriesId, ...(lang ? { lang } : {}), limit: 8 });
   const cast = useMemo(() => adaptCast(castQ.data?.cast), [castQ.data?.cast]);
 
   // C3b — seasons summary loads from /series/:id/seasons; per-season episode

@@ -1054,9 +1054,9 @@ func (c *Composer) GetCanonicalCast(ctx context.Context, seriesID domain.SeriesI
 	if err != nil {
 		return nil, fmt.Errorf("list series_people: %w", err)
 	}
-	if len(credits) > limit {
-		credits = credits[:limit]
-	}
+	// Story 1087a — top-N by episode_count DESC (nulls last), matching the
+	// in-library CastComposer.Get + FE CastStrip. Was credit_order truncation.
+	credits = selectTopCastByEpisodeCount(credits, limit)
 	if len(credits) == 0 {
 		return []CastDetail{}, nil
 	}

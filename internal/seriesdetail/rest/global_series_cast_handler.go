@@ -97,6 +97,10 @@ func (h *GlobalSeriesCastHandler) Get(c *gin.Context) {
 	}
 	seriesID := domain.SeriesID(parsedID)
 	lang := strings.TrimSpace(c.Query("lang"))
+	// Story 1087a — optional ?limit=N. 0 (absent/invalid/<=0) means the full
+	// cast page: the fallback path then defaults to CastFullPageDefaultLimit
+	// (200) below, preserving Story 541 behaviour.
+	limit := parseCastLimit(c)
 
 	ctx := c.Request.Context()
 	preferred, ok, err := resolvePreferredCacheEntry(ctx, h.cacheLookup, seriesID)
@@ -109,11 +113,16 @@ func (h *GlobalSeriesCastHandler) Get(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series not in any library"})
 			return
 		}
-		// Story 541 — pass the full-cast-page default (200) so the cast
-		// PAGE returns the full DB list. The hero-carousel inside
-		// /series/:id keeps CastDefaultLimit=10 via Composer.loadTopCast
-		// — distinct UX surface.
-		cast, ferr := h.tmdbFallback.GetCanonicalCast(ctx, seriesID, lang, seriesdetail.CastFullPageDefaultLimit)
+		// Story 541 + 1087a — absent ?limit keeps the full-page default (200)
+		// so the cast PAGE returns the full DB list; an explicit ?limit=N caps
+		// it (top-N by episode_count, applied inside GetCanonicalCast). The
+		// hero-carousel inside /series/:id keeps CastDefaultLimit=10 via
+		// Composer.loadTopCast — distinct UX surface.
+		fallbackLimit := limit
+		if fallbackLimit <= 0 {
+			fallbackLimit = seriesdetail.CastFullPageDefaultLimit
+		}
+		cast, ferr := h.tmdbFallback.GetCanonicalCast(ctx, seriesID, lang, fallbackLimit)
 		if ferr != nil {
 			if errors.Is(ferr, ports.ErrNotFound) {
 				c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "series_not_found"})

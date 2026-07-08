@@ -85,7 +85,18 @@ func ETagMiddleware(reader SectionSyncedAtReader, logger *slog.Logger) gin.Handl
 		if section == sectionSeason {
 			tag = fmt.Sprintf("season:%d", seasonNumber)
 		}
-		serverETag := fmt.Sprintf(`W/"%d-%d-%s-%s"`, int64(seriesID), syncedAt.Unix(), lang, tag)
+		key := fmt.Sprintf("%d-%d-%s-%s", int64(seriesID), syncedAt.Unix(), lang, tag)
+		// Story 1087a — the cast endpoint takes an optional ?limit=N that
+		// changes the response cardinality. Fold it into the ETag key so
+		// ?limit=8 and the full page never share a 304. Only the cast section
+		// carries a limit; absent/invalid/<=0 collapse to the un-suffixed
+		// full-page key (must match the handler's parseCastLimit normalization).
+		if section == sectionCast {
+			if n, lerr := strconv.Atoi(strings.TrimSpace(c.Query("limit"))); lerr == nil && n > 0 {
+				key = fmt.Sprintf("%s-lim%d", key, n)
+			}
+		}
+		serverETag := fmt.Sprintf(`W/"%s"`, key)
 
 		if etagMatches(c.GetHeader("If-None-Match"), serverETag) {
 			c.Status(http.StatusNotModified) // 304, no body

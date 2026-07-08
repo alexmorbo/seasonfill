@@ -120,10 +120,14 @@ func NewCastComposer(d CastDeps) *CastComposer {
 }
 
 // Get returns the full cast & crew payload for the
-// (instance, sonarr_series_id) pair. `lang` defaults to "en-US"
-// when empty — currently only echoed on the response (cast list
-// has no per-language fields in v1); reserved for H-2 parity.
-func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID, lang string) (*CastPage, error) {
+// (instance, sonarr_series_id) pair. `lang` defaults to "en-US" when empty.
+//
+// Story 1087a — `limit`: when > 0, the cast list is reduced to the top-N rows
+// by episode_count DESC (nulls last) BEFORE the person/in-library batches, so
+// the detail-page strip (CastStrip, top-8 by episode_count) and this endpoint
+// agree on which N are "main" cast. limit <= 0 returns the full list in the
+// repository's default credit_order ASC order. Crew is never capped.
+func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID, lang string, limit int) (*CastPage, error) {
 	lang = resolveLang(lang)
 	start := c.d.Now()
 
@@ -214,6 +218,13 @@ func (c *CastComposer) Get(ctx context.Context, instanceName domain.InstanceName
 	castCredits, err := c.d.SeriesPeople.ListBySeries(ctx, seriesID, people.SeriesCreditCast, lang)
 	if err != nil {
 		return nil, fmt.Errorf("list cast: %w", err)
+	}
+	// Story 1087a — optional top-N cap. Applied here (before the person +
+	// in_library batches at Step 6/7) so those batches only touch the N rows
+	// we will actually return. Reorders to episode_count DESC (nulls last);
+	// limit <= 0 leaves castCredits in credit_order ASC.
+	if limit > 0 {
+		castCredits = selectTopCastByEpisodeCount(castCredits, limit)
 	}
 
 	// Step 5 — load crew (kind='crew'). Same repository call.
@@ -481,6 +492,38 @@ func derefStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// selectTopCastByEpisodeCount returns a COPY of credits reduced to the top
+// `limit` rows by EpisodeCount DESC, with nil counts sorted last. The sort is
+// stable, so within an equal episode_count the incoming (credit_order ASC)
+// order is preserved. limit <= 0 (or an empty slice) returns credits
+// unchanged. Mirrors the FE CastStrip preview ordering (#1075) so the
+// detail-page strip and the BE agree on which N are the "main" cast.
+// Shared by CastComposer.Get (in-library) and Composer.GetCanonicalCast
+// (TMDB-only fallback).
+func selectTopCastByEpisodeCount(credits []people.SeriesCredit, limit int) []people.SeriesCredit {
+	if limit <= 0 || len(credits) == 0 {
+		return credits
+	}
+	sorted := make([]people.SeriesCredit, len(credits))
+	copy(sorted, credits)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return episodeCountOrNeg(sorted[i].EpisodeCount) > episodeCountOrNeg(sorted[j].EpisodeCount)
+	})
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
+	}
+	return sorted
+}
+
+// episodeCountOrNeg maps a nil episode count to -1 so nulls sort after every
+// real count (>= 0) in a DESC ordering — identical to the FE's `?? -1`.
+func episodeCountOrNeg(v *int) int {
+	if v == nil {
+		return -1
+	}
+	return *v
 }
 
 // buildSeriesSummary projects a canon row onto the cast-page hero

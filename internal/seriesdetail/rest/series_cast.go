@@ -29,6 +29,20 @@ func NewSeriesCastHandler(composer *seriesdetail.CastComposer, logger *slog.Logg
 	return &SeriesCastHandler{composer: composer, logger: logger}
 }
 
+// parseCastLimit reads the optional ?limit=N query param shared by the
+// /series/:id/cast handlers. Absent, non-numeric, or <=0 ⇒ 0 (unlimited =
+// full cast page). MUST stay in lockstep with the ETag middleware's own
+// limit parse (internal/shared/http/edge/etag.go) — the two packages cannot
+// import each other (edge -> seriesdetailrest cycle), so the parse is
+// duplicated intentionally. Story 1087a.
+func parseCastLimit(c *gin.Context) int {
+	n, err := strconv.Atoi(strings.TrimSpace(c.Query("limit")))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
 // DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.
 func (h *SeriesCastHandler) Get(c *gin.Context) {
 	name := c.Param("name")
@@ -40,9 +54,10 @@ func (h *SeriesCastHandler) Get(c *gin.Context) {
 	}
 	sonarrID := domain.SonarrSeriesID(parsedID)
 	lang := strings.TrimSpace(c.Query("lang"))
+	limit := parseCastLimit(c) // Story 1087a — optional cast cap; 0 = full page.
 
 	ctx := c.Request.Context()
-	detail, err := h.composer.Get(ctx, domain.InstanceName(name), sonarrID, lang)
+	detail, err := h.composer.Get(ctx, domain.InstanceName(name), sonarrID, lang, limit)
 	if err != nil {
 		_ = c.Error(err)
 		return

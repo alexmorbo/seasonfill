@@ -199,7 +199,7 @@ func TestCastComposer_HappyPath_FullCastCrew(t *testing.T) {
 	cache.byCanon[300] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 7, SeriesID: seriesIDPtr(300)}}
 
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Equal(t, 3, len(d.Cast))
 	require.Equal(t, 2, len(d.Crew))
@@ -232,11 +232,61 @@ func TestCastComposer_CastSortedByCreditOrder(t *testing.T) {
 		castCredit(4, nil, "ch", nil),
 	}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Equal(t, []int64{2, 3, 1, 4}, []int64{
 		d.Cast[0].Person.ID, d.Cast[1].Person.ID, d.Cast[2].Person.ID, d.Cast[3].Person.ID,
 	})
+}
+
+func TestCastComposer_Get_LimitReturnsTopNByEpisodeCount(t *testing.T) {
+	t.Parallel()
+	deps, _, _, sp, persons, _, _ := castBaseDeps(t)
+	// credit_order ASC but non-monotonic episode_count, so the top-N by
+	// episode_count is NOT the first-N by billing order — proves the sort key.
+	seedPerson(persons, 1, "P1", tmdbIDPtr(1001))
+	seedPerson(persons, 2, "P2", tmdbIDPtr(1002))
+	seedPerson(persons, 3, "P3", tmdbIDPtr(1003))
+	seedPerson(persons, 4, "P4", tmdbIDPtr(1004))
+	seedPerson(persons, 5, "P5", tmdbIDPtr(1005))
+	sp.cast = []people.SeriesCredit{
+		castCredit(1, new(0), "c1", new(2)),
+		castCredit(2, new(1), "c2", new(9)),
+		castCredit(3, new(2), "c3", new(5)),
+		castCredit(4, new(3), "c4", nil), // null episode_count → sorts last
+		castCredit(5, new(4), "c5", new(7)),
+	}
+	c := NewCastComposer(deps)
+
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 3)
+	require.NoError(t, err)
+	require.Len(t, d.Cast, 3, "limit=3 must cap the cast list")
+	// episode_count DESC: 9 (id2), 7 (id5), 5 (id3). null (id4) + 2 (id1) excluded.
+	require.Equal(t, int64(2), d.Cast[0].Person.ID)
+	require.Equal(t, int64(5), d.Cast[1].Person.ID)
+	require.Equal(t, int64(3), d.Cast[2].Person.ID)
+}
+
+func TestCastComposer_Get_ZeroLimitReturnsFullListInCreditOrder(t *testing.T) {
+	t.Parallel()
+	deps, _, _, sp, persons, _, _ := castBaseDeps(t)
+	seedPerson(persons, 1, "P1", tmdbIDPtr(1001))
+	seedPerson(persons, 2, "P2", tmdbIDPtr(1002))
+	seedPerson(persons, 3, "P3", tmdbIDPtr(1003))
+	sp.cast = []people.SeriesCredit{
+		castCredit(1, new(0), "c1", new(2)),
+		castCredit(2, new(1), "c2", new(9)),
+		castCredit(3, new(2), "c3", new(5)),
+	}
+	c := NewCastComposer(deps)
+
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
+	require.NoError(t, err)
+	require.Len(t, d.Cast, 3)
+	// limit<=0 preserves the repository credit_order ASC order (no reordering).
+	require.Equal(t, int64(1), d.Cast[0].Person.ID)
+	require.Equal(t, int64(2), d.Cast[1].Person.ID)
+	require.Equal(t, int64(3), d.Cast[2].Person.ID)
 }
 
 func TestCastComposer_CrewGroupedByDepartmentThenName(t *testing.T) {
@@ -253,7 +303,7 @@ func TestCastComposer_CrewGroupedByDepartmentThenName(t *testing.T) {
 		crewCredit(4, "Directing", "Director", nil),
 	}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Equal(t, 4, len(d.Crew))
 	// Expected sorted: (Directing, A) id=2, (Directing, M) id=4,
@@ -275,7 +325,7 @@ func TestCastComposer_DuplicateCrewJobsPreserved(t *testing.T) {
 		crewCredit(1, "Directing", "Director", new(2)),
 	}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(d.Crew), "two rows for same person preserved")
 	// Sort: Directing before Production.
@@ -294,7 +344,7 @@ func TestCastComposer_TotalEpisodeCount_HappyAndZeroFallback(t *testing.T) {
 		deps, _, _, _, _, _, counts := castBaseDeps(t)
 		counts.counts[42] = 62
 		c := NewCastComposer(deps)
-		d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+		d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 		require.NoError(t, err)
 		require.Equal(t, 62, d.TotalEpisodeCount)
 	})
@@ -302,7 +352,7 @@ func TestCastComposer_TotalEpisodeCount_HappyAndZeroFallback(t *testing.T) {
 		deps, _, _, _, _, _, counts := castBaseDeps(t)
 		counts.err = errors.New("boom")
 		c := NewCastComposer(deps)
-		d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+		d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 		require.NoError(t, err)
 		require.Equal(t, 0, d.TotalEpisodeCount)
 	})
@@ -312,7 +362,7 @@ func TestCastComposer_404_MissingCache(t *testing.T) {
 	t.Parallel()
 	deps, _, _, _, _, _, _ := castBaseDeps(t)
 	c := NewCastComposer(deps)
-	_, err := c.Get(context.Background(), "alpha", 999, "en-US")
+	_, err := c.Get(context.Background(), "alpha", 999, "en-US", 0)
 	require.ErrorIs(t, err, ports.ErrNotFound)
 }
 
@@ -323,7 +373,7 @@ func TestCastComposer_404_NilSeriesIDInCache(t *testing.T) {
 		InstanceName: "alpha", SonarrSeriesID: 2, SeriesID: nil,
 	}
 	c := NewCastComposer(deps)
-	_, err := c.Get(context.Background(), "alpha", 2, "en-US")
+	_, err := c.Get(context.Background(), "alpha", 2, "en-US", 0)
 	require.ErrorIs(t, err, ports.ErrNotFound)
 }
 
@@ -334,7 +384,7 @@ func TestCastComposer_CanonMissingPropagates(t *testing.T) {
 		InstanceName: "alpha", SonarrSeriesID: 3, SeriesID: seriesIDPtr(999),
 	}
 	c := NewCastComposer(deps)
-	_, err := c.Get(context.Background(), "alpha", 3, "en-US")
+	_, err := c.Get(context.Background(), "alpha", 3, "en-US", 0)
 	require.Error(t, err)
 	// fakeSeries.Get → ports.ErrNotFound for unknown id; composer wraps
 	// but the sentinel propagates via errors.Is.
@@ -353,7 +403,7 @@ func TestCastComposer_SelfLinkSuppression(t *testing.T) {
 	_ = canon
 	_ = cache
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(d.Cast))
 	require.False(t, d.Cast[0].InLibrary, "person only on current series → no self-link")
@@ -369,7 +419,7 @@ func TestCastComposer_PersonRowMissing_SkippedGracefully(t *testing.T) {
 		castCredit(9, new(1), "ch", nil),
 	}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(d.Cast), "missing person row → that entry skipped")
 	require.Equal(t, int64(1), d.Cast[0].Person.ID)
@@ -405,7 +455,7 @@ func TestCastComposer_SeriesSummary_HappyPath(t *testing.T) {
 		"https://image.tmdb.org/t/p/w342/poster.jpg": wantHash,
 	}}, nil, nil, newSilentLogger())
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Equal(t, "The Last of Us", d.Summary.Title)
 	require.NotNil(t, d.Summary.PosterAsset)
@@ -431,7 +481,7 @@ func TestCastComposer_Hero_TitleFromSeriesTexts_EnUSFallback(t *testing.T) {
 			seriesTextKey(42, "en-US"): {SeriesID: 42, Language: "en-US", Title: new("English Title")},
 		}}
 		c := NewCastComposer(deps)
-		d, err := c.Get(context.Background(), "alpha", 1, "ru-RU")
+		d, err := c.Get(context.Background(), "alpha", 1, "ru-RU", 0)
 		require.NoError(t, err)
 		require.Equal(t, "English Title", d.Summary.Title,
 			"series_texts en-US fallback wins over canon OriginalTitle")
@@ -442,7 +492,7 @@ func TestCastComposer_Hero_TitleFromSeriesTexts_EnUSFallback(t *testing.T) {
 		canon.rows[42] = series.Canon{ID: 42, OriginalTitle: new("Only Original"), TMDBID: tmdbIDPtr(100)}
 		deps.SeriesTexts = &fakeSeriesTexts{rows: map[string]series.SeriesText{}}
 		c := NewCastComposer(deps)
-		d, err := c.Get(context.Background(), "alpha", 1, "ru-RU")
+		d, err := c.Get(context.Background(), "alpha", 1, "ru-RU", 0)
 		require.NoError(t, err)
 		require.Equal(t, "Only Original", d.Summary.Title,
 			"no series_texts row → canon OriginalTitle fallback")
@@ -479,7 +529,7 @@ func TestCastComposer_SeriesSummary_StatusFallbacks(t *testing.T) {
 				InProduction:  tc.inProduction,
 			}
 			c := NewCastComposer(deps)
-			d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+			d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, d.Summary.Status)
 		})
@@ -494,7 +544,7 @@ func TestCastComposer_SeriesSummary_NilYears(t *testing.T) {
 		OriginalTitle: new("Stub series"),
 	}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Nil(t, d.Summary.FirstAiredYear)
 	require.Nil(t, d.Summary.LastAiredYear)
@@ -517,7 +567,7 @@ func TestCastComposer_SeriesSummary_FirstAiredYearFromFirstAirDate(t *testing.T)
 		FirstAirDate:  &fad,
 	}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.NotNil(t, d.Summary.FirstAiredYear)
 	require.Equal(t, 2022, *d.Summary.FirstAiredYear)
@@ -566,7 +616,7 @@ func TestCastComposer_Get_ResolvesSummaryAndProfileAssets(t *testing.T) {
 	}}, nil, nil, newSilentLogger())
 
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.NotNil(t, d.Summary.PosterAsset)
 	require.Equal(t, hashPoster, *d.Summary.PosterAsset)
@@ -654,7 +704,7 @@ func TestCastComposer_InLibraryBatchedAcrossCast(t *testing.T) {
 	cache.byCanon[200] = []series.CacheEntry{{InstanceName: "alpha", SonarrSeriesID: 5, SeriesID: seriesIDPtr(200)}}
 
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Len(t, d.Cast, 3)
 	require.True(t, d.Cast[0].InLibrary, "Person A has TMDB 200 hit")
@@ -670,7 +720,7 @@ func TestCastComposer_InLibrarySelfSuppressed_Batched(t *testing.T) {
 	// TMDB 100 → current series id 42; pass 3 must drop it before cache lookup.
 	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 100}}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Len(t, d.Cast, 1)
 	require.False(t, d.Cast[0].InLibrary, "self-link must be suppressed in batch path")
@@ -713,7 +763,7 @@ func TestCastComposer_InLibrarySeriesBatchFailure(t *testing.T) {
 	credits.rows[2] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 300}}
 	deps.Series = &failingListByTMDBIDsSeries{inner: canon, err: errors.New("series batch down")}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err, "series batch failure must NOT propagate — response ships degraded")
 	require.Len(t, d.Cast, 2)
 	require.False(t, d.Cast[0].InLibrary)
@@ -729,7 +779,7 @@ func TestCastComposer_InLibraryCacheBatchFailure(t *testing.T) {
 	canon.rows[200] = series.Canon{ID: 200, OriginalTitle: new("GoT"), TMDBID: tmdbIDPtr(200)}
 	cache.listErr = errors.New("cache batch down")
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err, "cache batch failure must NOT propagate")
 	require.Len(t, d.Cast, 1)
 	require.False(t, d.Cast[0].InLibrary)
@@ -743,7 +793,7 @@ func TestCastComposer_InLibraryZeroTMDBIDsIgnored(t *testing.T) {
 	// Only credit has TMDBMediaID=0 — must NOT trigger a canon lookup.
 	credits.rows[1] = []PersonCreditRef{{MediaType: "tv", TMDBMediaID: 0}}
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Len(t, d.Cast, 1)
 	require.False(t, d.Cast[0].InLibrary, "TMDBMediaID=0 must be ignored")
@@ -777,7 +827,7 @@ func TestCastComposer_QueryCountBudget(t *testing.T) {
 	deps.SeriesCacheLookup = cc
 
 	c := NewCastComposer(deps)
-	d, err := c.Get(context.Background(), "alpha", 1, "en-US")
+	d, err := c.Get(context.Background(), "alpha", 1, "en-US", 0)
 	require.NoError(t, err)
 	require.Len(t, d.Cast, 5)
 	for _, ent := range d.Cast {
@@ -802,7 +852,7 @@ func TestCastComposer_ServedLanguage(t *testing.T) {
 		deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
 			SeriesID: 42, Language: "en-US", Title: new("The Last of Us"),
 		}}
-		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU")
+		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU", 0)
 		require.NoError(t, err)
 		require.Equal(t, "en-US", out.ServedLanguage)
 	})
@@ -813,7 +863,7 @@ func TestCastComposer_ServedLanguage(t *testing.T) {
 		deps.SeriesTexts = &fakeSkSeriesTexts{row: series.SeriesText{
 			SeriesID: 42, Language: "ru-RU", Title: new("Одни из нас"),
 		}}
-		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU")
+		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU", 0)
 		require.NoError(t, err)
 		require.Equal(t, "ru-RU", out.ServedLanguage)
 	})
@@ -822,7 +872,7 @@ func TestCastComposer_ServedLanguage(t *testing.T) {
 		t.Parallel()
 		deps, _, _, _, _, _, _ := castBaseDeps(t)
 		// SeriesTexts unwired → hero title falls to canon.OriginalTitle.
-		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU")
+		out, err := NewCastComposer(deps).Get(context.Background(), "alpha", 1, "ru-RU", 0)
 		require.NoError(t, err)
 		require.Empty(t, out.ServedLanguage)
 	})

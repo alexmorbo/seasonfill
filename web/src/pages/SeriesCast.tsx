@@ -34,6 +34,38 @@ function filterCrew(crew: readonly CrewPageMember[], q: string): readonly CrewPa
   );
 }
 
+export type CastSort = 'episodes' | 'credit' | 'name';
+
+// sortCast returns a NEW array sorted per the selected option. Decorated with
+// the original index so every branch is a stable sort (equal keys keep the
+// server order — credit_order ASC). Story 1087a.
+function sortCast(cast: readonly CastPageMember[], sortBy: CastSort): readonly CastPageMember[] {
+  const decorated = cast.map((m, i) => ({ m, i }));
+  decorated.sort((a, b) => {
+    switch (sortBy) {
+      case 'episodes': {
+        // episode_count DESC, nulls last (matches the detail-page strip).
+        const d = (b.m.episode_count ?? -1) - (a.m.episode_count ?? -1);
+        return d !== 0 ? d : a.i - b.i;
+      }
+      case 'credit': {
+        // credit_order ASC, nulls last = the server default order.
+        const ao = a.m.credit_order ?? Number.MAX_SAFE_INTEGER;
+        const bo = b.m.credit_order ?? Number.MAX_SAFE_INTEGER;
+        const d = ao - bo;
+        return d !== 0 ? d : a.i - b.i;
+      }
+      case 'name': {
+        const d = (a.m.name ?? '').localeCompare(b.m.name ?? '', 'ru');
+        return d !== 0 ? d : a.i - b.i;
+      }
+      default:
+        return a.i - b.i;
+    }
+  });
+  return decorated.map((d) => d.m);
+}
+
 export function SeriesCast() {
   const { t, i18n } = useTranslation();
   // Story 495 / N-1e §A1: URL is global — `:instance` segment is gone.
@@ -42,6 +74,9 @@ export function SeriesCast() {
   const seriesId = id ? Number(id) : undefined;
   const lang = i18n.resolvedLanguage;
   const [query, setQuery] = useState('');
+  // Story 1087a — client-side cast sort. Default = episode_count DESC, matching
+  // the detail-page preview strip. Crew is not re-sorted (kept in server order).
+  const [sortBy, setSortBy] = useState<CastSort>('episodes');
 
   const result = useSeriesCast({
     seriesId,
@@ -51,7 +86,8 @@ export function SeriesCast() {
   const cast = useMemo<readonly CastPageMember[]>(() => data?.cast ?? [], [data?.cast]);
   const crew = useMemo<readonly CrewPageMember[]>(() => data?.crew ?? [], [data?.crew]);
 
-  const filteredCast = useMemo(() => filterCast(cast, query), [cast, query]);
+  const sortedCast = useMemo(() => sortCast(cast, sortBy), [cast, sortBy]);
+  const filteredCast = useMemo(() => filterCast(sortedCast, query), [sortedCast, query]);
   const filteredCrew = useMemo(() => filterCrew(crew, query), [crew, query]);
 
   useSetPageTitle(t('seriesDetail.castPage.pageTitle'));
@@ -127,7 +163,28 @@ export function SeriesCast() {
             crewCount={crew.length}
           />
 
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <label className="flex items-center gap-2 text-[12.5px] text-tx-muted">
+              <span className="shrink-0">{t('seriesDetail.castPage.sort.label')}</span>
+              <select
+                data-testid="cast-sort"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as CastSort)}
+                aria-label={t('seriesDetail.castPage.sort.label')}
+                className="h-9 rounded-md border border-border-subtle bg-bg-surface px-2.5 text-[12.5px] text-tx-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <option value="episodes" data-testid="cast-sort-option-episodes">
+                  {t('seriesDetail.castPage.sort.episodes')}
+                </option>
+                <option value="credit" data-testid="cast-sort-option-credit">
+                  {t('seriesDetail.castPage.sort.credit')}
+                </option>
+                <option value="name" data-testid="cast-sort-option-name">
+                  {t('seriesDetail.castPage.sort.name')}
+                </option>
+              </select>
+            </label>
+
             <div className="relative w-full max-w-[320px]">
               <Input
                 value={query}

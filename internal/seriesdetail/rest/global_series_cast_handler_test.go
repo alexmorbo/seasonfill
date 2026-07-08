@@ -302,3 +302,42 @@ func TestGlobalSeriesCastHandler_FallbackPassesFullPageLimit(t *testing.T) {
 	assert.Equal(t, seriesdetail.CastFullPageDefaultLimit, spy.gotLimit,
 		"Story 541 — full cast page MUST pass 200 to the fallback, not 0")
 }
+
+func TestGlobalSeriesCastHandler_FallbackForwardsExplicitLimit(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	cache := &stubGlobalCastCacheLookup{entries: nil} // no library → fallback path
+	spy := &spyCastFallback{out: &seriesdetail.CastFallbackResult{
+		SeriesID: 25551, Lang: "en-US",
+		Cast: []seriesdetail.CastDetail{}, Degraded: []string{},
+	}}
+	h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, spy, quietLoggerCastWrapper())
+	r := gin.New()
+	r.GET("/api/v1/series/:id/cast", h.Get)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/25551/cast?limit=8", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 8, spy.gotLimit, "explicit ?limit=8 must be forwarded to the fallback")
+}
+
+func TestGlobalSeriesCastHandler_FallbackIgnoresInvalidLimit(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	for _, q := range []string{"?limit=0", "?limit=-3", "?limit=abc", ""} {
+		cache := &stubGlobalCastCacheLookup{entries: nil}
+		spy := &spyCastFallback{out: &seriesdetail.CastFallbackResult{
+			SeriesID: 25551, Lang: "en-US",
+			Cast: []seriesdetail.CastDetail{}, Degraded: []string{},
+		}}
+		h := seriesdetailrest.NewGlobalSeriesCastHandler(nil, cache, spy, quietLoggerCastWrapper())
+		r := gin.New()
+		r.GET("/api/v1/series/:id/cast", h.Get)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/25551/cast"+q, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, seriesdetail.CastFullPageDefaultLimit, spy.gotLimit,
+			"invalid/absent limit %q must default to full page (200)", q)
+	}
+}

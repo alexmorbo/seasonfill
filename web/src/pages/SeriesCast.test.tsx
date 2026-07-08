@@ -56,8 +56,53 @@ const fullFixture = {
   ],
 };
 
+const sortFixture = {
+  instance: 'alpha',
+  series_id: 42,
+  sonarr_series_id: 1,
+  synced_at: new Date().toISOString(),
+  total_episode_count: 62,
+  series_summary: { title: 'X', status: 'continuing' },
+  cast: [
+    // name Zoe, credit 0, eps 2
+    { person_id: 1, tmdb_id: 100, name: 'Zoe Alpha', character_name: 'A', episode_count: 2, credit_order: 0 },
+    // name Amy, credit 1, eps 9  → episodes-sort first, name-sort first, credit-sort second
+    { person_id: 2, tmdb_id: 200, name: 'Amy Beta', character_name: 'B', episode_count: 9, credit_order: 1 },
+    // name Mike, credit 2, eps 5
+    { person_id: 3, tmdb_id: 300, name: 'Mike Gamma', character_name: 'C', episode_count: 5, credit_order: 2 },
+  ],
+  crew: [],
+};
+
+function tmdbOrder(): string[] {
+  return screen.getAllByTestId('cast-grid-card').map((c) => c.getAttribute('data-tmdb-id') ?? '');
+}
+
 describe('<SeriesCast />', () => {
   beforeEach(() => mockApi.mockReset());
+
+  it('defaults to episode-count DESC ordering', async () => {
+    mockApi.mockResolvedValueOnce(sortFixture);
+    renderRoute('/series/42/cast');
+    await waitFor(() => expect(screen.getByTestId('cast-grid')).toBeInTheDocument());
+    expect(tmdbOrder()).toEqual(['200', '300', '100']); // 9, 5, 2
+  });
+
+  it('re-sorts by billing order (credit_order ASC) from the dropdown', async () => {
+    mockApi.mockResolvedValueOnce(sortFixture);
+    renderRoute('/series/42/cast');
+    await waitFor(() => expect(screen.getByTestId('cast-grid')).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId('cast-sort'), { target: { value: 'credit' } });
+    expect(tmdbOrder()).toEqual(['100', '200', '300']); // credit 0,1,2
+  });
+
+  it('re-sorts by name (A–Z) from the dropdown', async () => {
+    mockApi.mockResolvedValueOnce(sortFixture);
+    renderRoute('/series/42/cast');
+    await waitFor(() => expect(screen.getByTestId('cast-grid')).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId('cast-sort'), { target: { value: 'name' } });
+    expect(tmdbOrder()).toEqual(['200', '300', '100']); // Amy, Mike, Zoe
+  });
 
   it('renders skeleton while loading', () => {
     mockApi.mockReturnValueOnce(new Promise(() => {}));

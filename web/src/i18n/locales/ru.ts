@@ -2069,6 +2069,12 @@ export const ru: Translations = {
       backToSeries: '← {{title}}',
       searchPlaceholder: 'Поиск по имени, роли или должности…',
       searchClear: 'Очистить поиск',
+      sort: {
+        label: 'Сортировка',
+        episodes: 'По кол-ву эпизодов',
+        credit: 'По порядку в титрах',
+        name: 'По имени А-Я',
+      },
       tabs: {
         cast: 'Актёры',
         crew: 'Команда',
