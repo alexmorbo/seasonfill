@@ -301,3 +301,59 @@ func TestFromEnv_EnrichmentRefreshIntervalFloorAndDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 30*time.Minute, cfg.Enrichment.EnrichmentRefreshInterval)
 }
+
+func TestFromEnv_MediaServeGetBudgetDefaults(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 1500*time.Millisecond, cfg.ExternalServices.MediaServeGetBudget)
+	assert.Equal(t, 24, cfg.ExternalServices.MediaS3ReadInflight)
+	assert.Equal(t, 12, cfg.ExternalServices.MediaS3WriteInflight)
+}
+
+func TestFromEnv_MediaServeGetBudgetParsedAndFloor(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+
+	// Explicit ms value.
+	t.Setenv("SEASONFILL_MEDIA_SERVE_GET_BUDGET", "3000")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 3000*time.Millisecond, cfg.ExternalServices.MediaServeGetBudget)
+
+	// Below the 100ms floor collapses UP to 100ms.
+	t.Setenv("SEASONFILL_MEDIA_SERVE_GET_BUDGET", "10")
+	cfg, err = FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 100*time.Millisecond, cfg.ExternalServices.MediaServeGetBudget)
+
+	// Zero → default.
+	t.Setenv("SEASONFILL_MEDIA_SERVE_GET_BUDGET", "0")
+	cfg, err = FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 1500*time.Millisecond, cfg.ExternalServices.MediaServeGetBudget)
+
+	// Garbage → default.
+	t.Setenv("SEASONFILL_MEDIA_SERVE_GET_BUDGET", "notanint")
+	cfg, err = FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 1500*time.Millisecond, cfg.ExternalServices.MediaServeGetBudget)
+}
+
+func TestFromEnv_MediaS3InflightParsedAndDefault(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+
+	t.Setenv("SEASONFILL_MEDIA_S3_READ_INFLIGHT", "40")
+	t.Setenv("SEASONFILL_MEDIA_S3_WRITE_INFLIGHT", "8")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 40, cfg.ExternalServices.MediaS3ReadInflight)
+	assert.Equal(t, 8, cfg.ExternalServices.MediaS3WriteInflight)
+
+	// Negative / unparseable → defaults (getenvInt floors <=0 to def).
+	t.Setenv("SEASONFILL_MEDIA_S3_READ_INFLIGHT", "-5")
+	t.Setenv("SEASONFILL_MEDIA_S3_WRITE_INFLIGHT", "notanint")
+	cfg, err = FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 24, cfg.ExternalServices.MediaS3ReadInflight)
+	assert.Equal(t, 12, cfg.ExternalServices.MediaS3WriteInflight)
+}

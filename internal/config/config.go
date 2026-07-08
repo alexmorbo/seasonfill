@@ -206,14 +206,27 @@ type ExternalServicesEnv struct {
 	// fetch path quickly. 0/unset → 800ms. Env: SEASONFILL_MEDIA_STAT_BUDGET
 	// (milliseconds).
 	MediaOnDemandStatBudget time.Duration
-	OMDBToken               string
-	OMDBProxyURL            string
-	OMDBProxyUser           string
-	OMDBProxyPass           string
-	TVDBToken               string
-	TVDBProxyURL            string
-	TVDBProxyUser           string
-	TVDBProxyPass           string
+	// Story 1099 — serve-path S3 Get sub-budget. Bounds ONLY the
+	// interactive GET /media/{hash} store.Get so a saturated store fails
+	// fast into the SVG placeholder instead of hanging on minio's retry
+	// stack. 0/unset → 1500ms (floored at 100ms). Env:
+	// SEASONFILL_MEDIA_SERVE_GET_BUDGET (milliseconds).
+	MediaServeGetBudget time.Duration
+	// Story 1099 — bounded S3 in-flight caps (read/write split) enforced by
+	// the meteredStore semaphores. Reads (Get/Stat) and writes (Put) have
+	// independent ceilings so a downloader Put flood can never starve
+	// interactive Gets. 0/unset/negative → 24 (read) / 12 (write). Envs:
+	// SEASONFILL_MEDIA_S3_READ_INFLIGHT, SEASONFILL_MEDIA_S3_WRITE_INFLIGHT.
+	MediaS3ReadInflight  int
+	MediaS3WriteInflight int
+	OMDBToken            string
+	OMDBProxyURL         string
+	OMDBProxyUser        string
+	OMDBProxyPass        string
+	TVDBToken            string
+	TVDBProxyURL         string
+	TVDBProxyUser        string
+	TVDBProxyPass        string
 }
 
 // Lookup returns an EnvLookup-shaped closure over the ExternalServicesEnv
@@ -382,6 +395,9 @@ func FromEnv() (*Bootstrap, error) {
 			MediaDownloaderWorkers:  getenvInt("SEASONFILL_MEDIA_DOWNLOADER_WORKERS", 0),
 			MediaOnDemandBudget:     mediaOnDemandBudgetFromEnv(),
 			MediaOnDemandStatBudget: mediaOnDemandStatBudgetFromEnv(),
+			MediaServeGetBudget:     mediaServeGetBudgetFromEnv(),
+			MediaS3ReadInflight:     getenvInt("SEASONFILL_MEDIA_S3_READ_INFLIGHT", 24),
+			MediaS3WriteInflight:    getenvInt("SEASONFILL_MEDIA_S3_WRITE_INFLIGHT", 12),
 			OMDBToken:               os.Getenv("SEASONFILL_OMDB_TOKEN"),
 			OMDBProxyURL:            os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
 			OMDBProxyUser:           os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
@@ -552,6 +568,25 @@ func mediaOnDemandStatBudgetFromEnv() time.Duration {
 	const def = 800 * time.Millisecond
 	const floor = 50 * time.Millisecond
 	ms := getenvInt("SEASONFILL_MEDIA_STAT_BUDGET", 0)
+	if ms <= 0 {
+		return def
+	}
+	d := time.Duration(ms) * time.Millisecond
+	if d < floor {
+		return floor
+	}
+	return d
+}
+
+// mediaServeGetBudgetFromEnv reads SEASONFILL_MEDIA_SERVE_GET_BUDGET as an
+// int number of milliseconds (Story 1099). 0 / unset / unparseable → the
+// 1500ms default. Floored at 100ms so a misconfiguration cannot collapse
+// the serve Get window. Bounds ONLY the interactive serve-path store.Get —
+// see MediaServeGetBudget.
+func mediaServeGetBudgetFromEnv() time.Duration {
+	const def = 1500 * time.Millisecond
+	const floor = 100 * time.Millisecond
+	ms := getenvInt("SEASONFILL_MEDIA_SERVE_GET_BUDGET", 0)
 	if ms <= 0 {
 		return def
 	}

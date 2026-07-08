@@ -20,23 +20,81 @@ const (
 	opList   = "list"
 )
 
+// Story 1099 — bounded S3 in-flight caps. Read (Get/Stat) and write (Put)
+// have independent ceilings so a downloader Put flood can never starve
+// interactive serve Gets. A cap <=0 passed to NewMeteredStore normalizes to
+// these defaults so a zero-value Config (and the tests that build the
+// decorator directly) never deadlock on a nil/zero-capacity channel.
+const (
+	defaultReadInflight  = 24
+	defaultWriteInflight = 12
+	// readAcquireBudget bounds how long a Get/Stat waits for a read slot
+	// before degrading. It sits inside the handler's serve-Get budget, so a
+	// serve-budget expiry (getCtx.Done) preempts it.
+	readAcquireBudget = 500 * time.Millisecond
+)
+
+// errReadInflightTimeout is returned by Get/Stat when the read-inflight
+// semaphore cannot be acquired within readAcquireBudget. It is deliberately
+// NEITHER ErrNotFound NOR ErrNotSupported (and does not wrap them) so the
+// serve handler (Story 1099 Fix B) degrades to the SVG placeholder rather
+// than treating it as a lost object (which would trigger a refetch).
+var errReadInflightTimeout = errors.New("mediastore: read in-flight limit acquire timeout")
+
 // meteredStore wraps a Store and emits per-operation metrics (request
 // outcome, latency, HTTP status, bytes, in-flight) for every call while
-// delegating unchanged to the inner backend. It is transparent to all
-// callers — the returned readers, infos, and errors are passed through
-// untouched.
+// delegating unchanged to the inner backend. Story 1099 adds two buffered
+// semaphores (readSem, writeSem) that bound concurrent Get/Stat and Put
+// against the shared minio client. It is transparent to all callers — the
+// returned readers, infos, and errors are passed through untouched.
 type meteredStore struct {
-	inner Store
+	inner    Store
+	readSem  chan struct{}
+	writeSem chan struct{}
 }
 
-// NewMeteredStore decorates inner with metric instrumentation. Used by
-// New to wrap the s3 and fs backends; the null store is left unwrapped
-// (its ErrNotSupported no-ops carry no operational signal).
-func NewMeteredStore(inner Store) Store {
-	return &meteredStore{inner: inner}
+// NewMeteredStore decorates inner with metric instrumentation and bounded
+// in-flight semaphores. readCap/writeCap <=0 normalize to the package
+// defaults. Used by New to wrap the s3 and fs backends; the null store is
+// left unwrapped (its ErrNotSupported no-ops carry no operational signal).
+func NewMeteredStore(inner Store, readCap, writeCap int) Store {
+	if readCap <= 0 {
+		readCap = defaultReadInflight
+	}
+	if writeCap <= 0 {
+		writeCap = defaultWriteInflight
+	}
+	return &meteredStore{
+		inner:    inner,
+		readSem:  make(chan struct{}, readCap),
+		writeSem: make(chan struct{}, writeCap),
+	}
 }
+
+// acquireRead takes a read slot with a bounded wait. ctx cancellation (the
+// serve budget or a client abort) preempts the wait and is returned verbatim;
+// readAcquireBudget expiry returns errReadInflightTimeout and records the
+// acquire-timeout metric. Returns nil only when a slot was acquired — the
+// caller MUST releaseRead on that (and only that) path.
+func (m *meteredStore) acquireRead(ctx context.Context, op string) error {
+	select {
+	case m.readSem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(readAcquireBudget):
+		observability.IncS3AcquireTimeout(op)
+		return errReadInflightTimeout
+	}
+}
+
+func (m *meteredStore) releaseRead() { <-m.readSem }
 
 func (m *meteredStore) Get(ctx context.Context, key string) (io.ReadCloser, ObjectInfo, error) {
+	if err := m.acquireRead(ctx, opGet); err != nil {
+		return nil, ObjectInfo{}, err
+	}
+	defer m.releaseRead()
 	observability.IncS3Inflight(opGet)
 	defer observability.DecS3Inflight(opGet)
 	start := time.Now()
@@ -50,6 +108,14 @@ func (m *meteredStore) Get(ctx context.Context, key string) (io.ReadCloser, Obje
 }
 
 func (m *meteredStore) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
+	// Write slot: block until free, but honor ctx so a shutting-down
+	// downloader never hangs forever on a saturated semaphore.
+	select {
+	case m.writeSem <- struct{}{}:
+		defer func() { <-m.writeSem }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	observability.IncS3Inflight(opPut)
 	defer observability.DecS3Inflight(opPut)
 	start := time.Now()
@@ -63,6 +129,10 @@ func (m *meteredStore) Put(ctx context.Context, key string, r io.Reader, size in
 }
 
 func (m *meteredStore) Stat(ctx context.Context, key string) (ObjectInfo, error) {
+	if err := m.acquireRead(ctx, opStat); err != nil {
+		return ObjectInfo{}, err
+	}
+	defer m.releaseRead()
 	observability.IncS3Inflight(opStat)
 	defer observability.DecS3Inflight(opStat)
 	start := time.Now()

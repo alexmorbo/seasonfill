@@ -64,14 +64,25 @@ type stubStore struct {
 	body  map[string][]byte
 	ct    map[string]string
 	calls atomic.Int32
+
+	// Story 1099 test hooks (zero-value = original behavior).
+	getErr   error // if non-nil, Get returns this error (store-unavailable / cancel injection)
+	getBlock bool  // if true, Get blocks on ctx.Done() then returns ctx.Err() (budget injection)
 }
 
 func newStubStore() *stubStore { return &stubStore{body: map[string][]byte{}, ct: map[string]string{}} }
 
 func (s *stubStore) Get(ctx context.Context, key string) (io.ReadCloser, mediastore.ObjectInfo, error) {
 	s.calls.Add(1)
+	if s.getBlock {
+		<-ctx.Done()
+		return nil, mediastore.ObjectInfo{}, ctx.Err()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.getErr != nil {
+		return nil, mediastore.ObjectInfo{}, s.getErr
+	}
 	b, ok := s.body[key]
 	if !ok {
 		return nil, mediastore.ObjectInfo{}, mediastore.ErrNotFound
@@ -797,5 +808,86 @@ func TestMedia_NormalHashServesOnHEAD(t *testing.T) {
 	}
 	if got := rr.Header().Get("ETag"); got != `"`+hash+`"` {
 		t.Fatalf("ETag want %q, got %q", `"`+hash+`"`, got)
+	}
+}
+
+// Story 1099 Fix B — a non-NotFound store error on a status='stored' row
+// (saturation timeout / 5xx) must degrade to the SVG placeholder (200), NOT
+// the former 502 "media load failed". This is the exact branch that 502'd.
+func TestMedia_StoreErrorServesPlaceholderNot502(t *testing.T) {
+	h, repo, store := newHandler(t)
+	url := "https://image.tmdb.org/t/p/w342/store-err.jpg"
+	hash := hashOf(url)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", ContentType: "image/jpeg", Size: 3, Status: media.StatusStored})
+	store.getErr = errors.New("s3 saturated: connection reset by peer")
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 placeholder (never 502), got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("expected X-Media-Placeholder=1 on store-unavailable degrade")
+	}
+	if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/svg+xml") {
+		t.Fatalf("want image/svg+xml, got %q", got)
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("want Cache-Control no-store (self-heals on re-request), got %q", got)
+	}
+	if !strings.Contains(rr.Body.String(), "<svg") {
+		t.Fatalf("expected SVG body, got %q", rr.Body.String()[:min(120, rr.Body.Len())])
+	}
+}
+
+// Story 1099 Fix B / F-10 — a context.Canceled from store.Get is a client
+// abort; the handler must write NOTHING (no placeholder body, no headers),
+// because nobody is receiving the response.
+func TestMedia_StoreContextCanceledWritesNothing(t *testing.T) {
+	h, repo, store := newHandler(t)
+	url := "https://image.tmdb.org/t/p/w342/client-abort.jpg"
+	hash := hashOf(url)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", ContentType: "image/jpeg", Size: 3, Status: media.StatusStored})
+	store.getErr = context.Canceled
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+
+	if rr.Header().Get("X-Media-Placeholder") != "" {
+		t.Fatal("client-abort (context.Canceled) must NOT render a placeholder")
+	}
+	if rr.Body.Len() != 0 {
+		t.Fatalf("client-abort must write no body, got %q", rr.Body.String())
+	}
+}
+
+// Story 1099 Fix D — the serve-path Get respects the sub-budget: a store
+// that blocks until its ctx is cancelled must degrade to the placeholder at
+// ~serveGetBudget, not hang for minio-scale retries.
+func TestMedia_ServeGetSubBudgetDegradesPromptly(t *testing.T) {
+	h, repo, store := newHandler(t)
+	h.serveGetBudget = 50 * time.Millisecond // in-package test can set the unexported field
+	url := "https://image.tmdb.org/t/p/w342/slow-store.jpg"
+	hash := hashOf(url)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", ContentType: "image/jpeg", Size: 3, Status: media.StatusStored})
+	store.getBlock = true // blocks on ctx.Done() → getCtx deadline fires at 50ms
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	start := time.Now()
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+	elapsed := time.Since(start)
+
+	if elapsed > 2*time.Second {
+		t.Fatalf("serve hung %s past the %s budget", elapsed, h.serveGetBudget)
+	}
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 placeholder after budget expiry, got %d", rr.Code)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("expected placeholder header after serve-budget expiry")
 	}
 }

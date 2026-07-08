@@ -19,6 +19,7 @@ import (
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	media "github.com/alexmorbo/seasonfill/internal/mediaproxy/domain"
 	mediastore "github.com/alexmorbo/seasonfill/internal/mediaproxy/infrastructure"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
@@ -120,6 +121,7 @@ type MediaHandler struct {
 	ondemandFetcher    MediaOnDemandSyncFetcher // story 321 — may be nil
 	negativeCacheTTL   time.Duration            // story 321 — failed-at re-attempt window
 	ondemandWallBudget time.Duration            // story 321 — per-request budget for FetchSync
+	serveGetBudget     time.Duration            // story 1099 — serve-path store.Get sub-budget
 	http               *http.Client
 	cache              *byteCappedLRU
 	sf                 singleflight.Group
@@ -139,6 +141,7 @@ type MediaHandlerDeps struct {
 	Logger             *slog.Logger
 	NegativeCacheTTL   time.Duration // story 321: 0 → defaultNegativeCacheTTL (60 s)
 	OnDemandWallBudget time.Duration // story 321: 0 → defaultOnDemandWallBudget (10 s, W19-1)
+	ServeGetBudget     time.Duration // story 1099: 0 → defaultServeGetBudget (1500 ms)
 }
 
 // defaultNegativeCacheTTL is the window after a failed on-demand fetch
@@ -155,6 +158,12 @@ const defaultNegativeCacheTTL = 60 * time.Second
 // image.tmdb.org assets land on first GET instead of falling to the SVG
 // placeholder.
 const defaultOnDemandWallBudget = 10 * time.Second
+
+// defaultServeGetBudget bounds the serve-path store.Get (Story 1099 Fix D).
+// When the store saturates/blips, the Get fails fast at this deadline into
+// the SVG placeholder instead of hanging on minio-go's multi-second retry
+// stack. Override via SEASONFILL_MEDIA_SERVE_GET_BUDGET (ms).
+const defaultServeGetBudget = 1500 * time.Millisecond
 
 // SetOnDemandFetcher late-binds the on-demand fetcher onto an
 // already-constructed handler. Used by cmd/server/main.go: the handler
@@ -204,6 +213,10 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 	if wall <= 0 {
 		wall = defaultOnDemandWallBudget
 	}
+	serveBudget := d.ServeGetBudget
+	if serveBudget <= 0 {
+		serveBudget = defaultServeGetBudget
+	}
 	return &MediaHandler{
 		store:              d.Store,
 		repo:               d.Repo,
@@ -211,6 +224,7 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 		ondemandFetcher:    d.OnDemandFetcher,
 		negativeCacheTTL:   negTTL,
 		ondemandWallBudget: wall,
+		serveGetBudget:     serveBudget,
 		http:               httpClient,
 		cache:              newByteCappedLRU(mediaCacheMaxBytes),
 		logger:             logger,
@@ -316,10 +330,23 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 	// 3. mediastore Get. Lost object → refetch under singleflight.
 	entry, served, err := h.loadFromStoreOrRefetch(ctx, asset)
 	if err != nil {
-		h.logger.WarnContext(ctx, "media.serve.load_failed",
+		// Client aborted (nav away, tab close) → request/getCtx is Canceled;
+		// nobody is waiting for a body, so skip the placeholder write. A
+		// serve-budget expiry is DeadlineExceeded (NOT Canceled) and
+		// correctly falls through to the degrade path below.
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		// Story 1099 Fix B: store unavailable (saturation timeout / 5xx /
+		// serve-Get budget expiry). Degrade to the SVG placeholder (200,
+		// no-store) instead of a user-visible 502 "media load failed". The
+		// no-store header makes the browser re-request, self-healing once
+		// load drops.
+		h.logger.WarnContext(ctx, "media.serve.store_degraded",
 			slog.String("hash", hash),
 			slog.String("error", err.Error()))
-		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "media load failed"})
+		observability.IncMediaServeDegraded("store_unavailable")
+		h.writePlaceholder(c, hash, "store_unavailable")
 		return
 	}
 
@@ -342,7 +369,16 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 // label ("store" / "upstream"). Singleflight is keyed on the hash so
 // two concurrent first-requests dedup to one upstream fetch.
 func (h *MediaHandler) loadFromStoreOrRefetch(ctx context.Context, asset media.Asset) (mediaCacheEntry, string, error) {
-	rc, info, err := h.store.Get(ctx, mediastore.Key(asset.UpstreamURL, extFromContentType(asset.ContentType)))
+	// Story 1099 Fix D: bound ONLY the serve-path Get with an explicit
+	// sub-budget so a saturated store fails fast into the placeholder
+	// instead of hanging on minio's multi-second retry stack. The body is
+	// fully drained (io.ReadAll) before this function returns, so getCtx —
+	// which the minio ReadCloser streams under — stays live for the read;
+	// cancel fires only on return. The singleflight refetch leg below
+	// deliberately uses the PARENT ctx, not getCtx.
+	getCtx, cancel := context.WithTimeout(ctx, h.serveGetBudget)
+	defer cancel()
+	rc, info, err := h.store.Get(getCtx, mediastore.Key(asset.UpstreamURL, extFromContentType(asset.ContentType)))
 	if err == nil {
 		defer func() { _ = rc.Close() }()
 		body, rerr := io.ReadAll(rc)
@@ -359,7 +395,7 @@ func (h *MediaHandler) loadFromStoreOrRefetch(ctx context.Context, asset media.A
 		return mediaCacheEntry{}, "", err
 	}
 
-	// Lost object — singleflight refetch from upstream.
+	// Lost object — singleflight refetch from upstream (PARENT ctx).
 	sfRes, sfErr, _ := h.sf.Do(asset.Hash, func() (any, error) {
 		return h.refetchAndStore(ctx, asset)
 	})

@@ -66,8 +66,25 @@ func TestS3MetricConstants_NotEmpty(t *testing.T) {
 		MetricS3ResponseCodeTotal,
 		MetricS3BytesTotal,
 		MetricS3Inflight,
+		MetricMediaServeDegradedTotal,
+		MetricS3AcquireTimeoutTotal,
 	} {
 		require.NotEmpty(t, c)
-		assert.Contains(t, c, "seasonfill_s3_")
+		assert.Contains(t, c, "seasonfill_")
 	}
+}
+
+func TestIncMediaServeDegraded_RegistersAndIncrements(t *testing.T) {
+	IncMediaServeDegraded("store_unavailable")
+	IncMediaServeDegraded("store_unavailable")
+	body := writeAndRead(t)
+	assert.Contains(t, body, `seasonfill_media_serve_degraded_total{reason="store_unavailable"} 2`)
+}
+
+func TestIncS3AcquireTimeout_RegistersAndIncrements(t *testing.T) {
+	IncS3AcquireTimeout("get")
+	IncS3AcquireTimeout("stat")
+	body := writeAndRead(t)
+	assert.Contains(t, body, `seasonfill_s3_acquire_timeout_total{op="get"} 1`)
+	assert.Contains(t, body, `seasonfill_s3_acquire_timeout_total{op="stat"} 1`)
 }

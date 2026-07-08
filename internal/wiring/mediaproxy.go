@@ -90,7 +90,9 @@ func BuildMedia(
 			Region:    bootCfg.MediaStore.S3.Region,
 			UseSSL:    bootCfg.MediaStore.S3.UseSSL,
 		},
-		FSPath: bootCfg.MediaStore.FSPath,
+		FSPath:        bootCfg.MediaStore.FSPath,
+		ReadInflight:  bootCfg.ExternalServices.MediaS3ReadInflight,
+		WriteInflight: bootCfg.ExternalServices.MediaS3WriteInflight,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mediastore: %w", err)
@@ -108,6 +110,7 @@ func BuildMedia(
 		PendingResolver:    assetsRepo, // story 320: satisfies GetSourceURLByHash
 		Logger:             log,
 		OnDemandWallBudget: bootCfg.ExternalServices.MediaOnDemandBudget, // W19-1
+		ServeGetBudget:     bootCfg.ExternalServices.MediaServeGetBudget, // story 1099 Fix D
 		// OnDemandFetcher: late-bound in server.go (story 321 wiring).
 	})
 

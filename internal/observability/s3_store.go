@@ -22,6 +22,9 @@ const (
 	MetricS3ResponseCodeTotal = `seasonfill_s3_response_code_total`
 	MetricS3BytesTotal        = `seasonfill_s3_bytes_total`
 	MetricS3Inflight          = `seasonfill_s3_inflight`
+	// Story 1099 — degrade + acquire-timeout observability.
+	MetricMediaServeDegradedTotal = `seasonfill_media_serve_degraded_total`
+	MetricS3AcquireTimeoutTotal   = `seasonfill_s3_acquire_timeout_total`
 )
 
 // IncS3Request bumps the per-(op,outcome) request counter.
@@ -57,4 +60,19 @@ func IncS3Inflight(op string) {
 // start of an op so it fires on every return path).
 func DecS3Inflight(op string) {
 	metrics.GetOrCreateGauge(`seasonfill_s3_inflight{op="`+op+`"}`, nil).Add(-1)
+}
+
+// IncMediaServeDegraded bumps the per-reason counter for a media serve
+// request that degraded to the SVG placeholder because the store was
+// unavailable (Story 1099 Fix B). reason is a fixed literal from the
+// handler ("store_unavailable") — no injection surface.
+func IncMediaServeDegraded(reason string) {
+	metrics.GetOrCreateCounter(`seasonfill_media_serve_degraded_total{reason="` + reason + `"}`).Inc()
+}
+
+// IncS3AcquireTimeout bumps the per-op counter for a read-inflight
+// semaphore acquire that timed out (Story 1099 Fix C). op is a fixed
+// literal from the meteredStore (get/stat).
+func IncS3AcquireTimeout(op string) {
+	metrics.GetOrCreateCounter(`seasonfill_s3_acquire_timeout_total{op="` + op + `"}`).Inc()
 }

@@ -81,6 +81,11 @@ type Config struct {
 	Mode   Mode
 	S3     S3Config
 	FSPath string
+	// Story 1099 — S3 in-flight caps enforced by the meteredStore
+	// semaphores (read = Get/Stat, write = Put). <=0 → package default
+	// (24 read / 12 write). Ignored for ModeOff (null store is unwrapped).
+	ReadInflight  int
+	WriteInflight int
 }
 
 // S3Config carries the minio-go connection parameters. UseSSL=true
@@ -115,7 +120,7 @@ func New(ctx context.Context, cfg Config) (Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		return NewMeteredStore(s), nil
+		return NewMeteredStore(s, cfg.ReadInflight, cfg.WriteInflight), nil
 	case ModeFS:
 		if cfg.FSPath == "" {
 			return nil, fmt.Errorf("%w: fs path is empty", ErrInvalidConfig)
@@ -124,7 +129,7 @@ func New(ctx context.Context, cfg Config) (Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		return NewMeteredStore(s), nil
+		return NewMeteredStore(s, cfg.ReadInflight, cfg.WriteInflight), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown mode %q", ErrInvalidConfig, mode)
 	}
