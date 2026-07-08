@@ -1098,6 +1098,20 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, pcRows); err != nil {
 			return nil, series.Canon{}, fmt.Errorf("batch upsert person_credits (tv): %w", err)
 		}
+		// W110-3 (F-01): this person_credits(tv) write is the ONLY place the
+		// full canon-sync / HandleForced heal walk rewrites cast ordering
+		// (credit_order + last_appearance_season — #1090/#1091/#1094).
+		// RefreshCast is the only OTHER writer that stamps
+		// enrichment_cast_synced_at, so WITHOUT this bump the cast-section
+		// ETag (etag_freshness_adapter sectionStamp "cast") keeps 304'ing the
+		// pre-heal order until an unrelated on-view RefreshCast happens to
+		// fire. Stamp INSIDE the len>0 guard and AFTER BatchUpsert succeeds so
+		// a no-op pass (finalCredits==0) never bumps the clock. Atomic with the
+		// write above: applyAllForLanguage runs the whole sequence in one tx.
+		now := w.deps.Clock()
+		if err := w.deps.Series.MarkCastSynced(txCtx, seriesID, now); err != nil {
+			return nil, series.Canon{}, fmt.Errorf("mark cast synced (heal): %w", err)
+		}
 	}
 	if droppedCredits > 0 {
 		log.WarnContext(txCtx, "enrichment.series.handle.credits_dropped",

@@ -1637,3 +1637,60 @@ func TestSeriesWorker_ForceTreatsAsFirstHydration(t *testing.T) {
 	assert.Equal(t, expected, getSeason,
 		"force=true must fetch ALL seasons (firstHydration semantics) — old seasons would be skipped without the fix")
 }
+
+// TestSeriesWorker_HealWalk_StampsCastSyncedOnCreditWrite is the W110-3 (F-01)
+// regression: the full canon-sync season-walk rewrites person_credits cast
+// ordering (credit_order + last_appearance_season, #1090/#1091) and MUST also
+// bump enrichment_cast_synced_at, otherwise the cast-section ETag 304's the
+// pre-heal order until an unrelated RefreshCast fires. minimalTV() carries one
+// aggregate-credits cast member, so finalCredits>0 and the guarded stamp runs.
+func TestSeriesWorker_HealWalk_StampsCastSyncedOnCreditWrite(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	seasons := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasons)
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+
+	calls := f.rec.list()
+	// The cast-ordering write happened...
+	require.True(t, hasCall(calls, "PersonCredits.BatchUpsert"),
+		"heal walk must write person_credits(tv)")
+	// ...so the cast freshness clock MUST be bumped in the same tx.
+	assert.True(t, hasCall(calls, "Series.MarkCastSynced"),
+		"W110-3: heal walk that rewrites cast ordering must bump enrichment_cast_synced_at")
+
+	// The column the ETag adapter reads is now populated on the persisted row.
+	persisted := f.series.rows[1]
+	require.NotNil(t, persisted.EnrichmentCastSyncedAt,
+		"enrichment_cast_synced_at must be stamped so the cast ETag revalidates to 200")
+	assert.Equal(t,
+		time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
+		persisted.EnrichmentCastSyncedAt.UTC(),
+		"stamp must use the injected Clock")
+}
+
+// TestSeriesWorker_HealWalk_NoCredits_DoesNotStampCast pins the over-stamp
+// guard: when there are no resolvable cast/crew credits (finalCredits==0) the
+// person_credits(tv) write is skipped, so enrichment_cast_synced_at must NOT be
+// bumped — a spurious bump would falsely invalidate a correct cached cast body.
+func TestSeriesWorker_HealWalk_NoCredits_DoesNotStampCast(t *testing.T) {
+	t.Parallel()
+	tv := minimalTV()
+	tv.AggregateCredits = nil // resolveSeriesCreditsWithPersonID -> nil,0
+	seasons := map[int]*tmdb.SeasonResponse{1: minimalSeason()}
+	f := newWorkerFixture(t, tv, seasons)
+	tmdbID := domain.TMDBID(42)
+	f.seedCanon(1, &tmdbID)
+
+	require.NoError(t, f.worker.Handle(context.Background(), 1))
+
+	calls := f.rec.list()
+	assert.False(t, hasCall(calls, "Series.MarkCastSynced"),
+		"W110-3 over-stamp guard: no credit write => no cast stamp bump")
+	persisted := f.series.rows[1]
+	assert.Nil(t, persisted.EnrichmentCastSyncedAt,
+		"enrichment_cast_synced_at must stay NULL when no cast ordering was written")
+}
