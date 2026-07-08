@@ -50,7 +50,10 @@ func TestPeopleRepository_UpsertInsertAndGet(t *testing.T) {
 
 			got, err := repo.Get(ctx, id, "en-US")
 			require.NoError(t, err)
-			assert.Equal(t, "Pedro Pascal", got.Name)
+			// Story 1084: Get resolves the DISPLAY name via COALESCE
+			// (people_texts[req]→[en]→original_name→name). With no people_texts
+			// row seeded, it falls back to original_name ("orig: Pedro Pascal").
+			assert.Equal(t, "orig: Pedro Pascal", got.Name)
 			assert.Equal(t, people.HydrationStub, got.Hydration)
 			require.NotNil(t, got.TMDBID)
 			assert.Equal(t, domain.TMDBID(7001), *got.TMDBID)
@@ -183,8 +186,12 @@ func TestPeopleRepository_Upsert_PreservesFullHydration(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, people.HydrationFull, got.Hydration,
 				"stub upsert MUST NOT downgrade a full-hydrated row")
-			assert.Equal(t, "Pascal Updated", got.Name,
-				"non-hydration fields still merge")
+			// Story 1084: Get resolves the display name via COALESCE. No
+			// people_texts row is seeded, so it returns original_name — which
+			// merged from "orig: Pascal" to "orig: Pascal Updated", proving the
+			// stub upsert still applied its non-hydration columns.
+			assert.Equal(t, "orig: Pascal Updated", got.Name,
+				"non-hydration fields still merge (original_name updated)")
 		})
 	}
 }
@@ -414,6 +421,126 @@ func TestPeopleRepository_Upsert_AtomicNoDeadlock_B37(t *testing.T) {
 	}
 	if !sawPostgres {
 		t.Log("postgres backend not available (set SEASONFILL_TEST_POSTGRES_ENABLE=1 to enable); B-37 deadlock repro skipped")
+	}
+}
+
+// TestPeopleRepository_Get_NameFallback — Story 1084 (Phase A). The person-page
+// read (PeopleRepository.Get) must resolve the DISPLAY name via the same 4-tier
+// COALESCE ListByIDsWithNameFallback uses: requested-lang → en-US →
+// people.original_name → people.name. Biography resolution must keep working.
+func TestPeopleRepository_Get_NameFallback(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+
+			// seed installs ONE person (base people.name + original_name) plus any
+			// people_texts rows, and returns the repo + assigned id.
+			seed := func(t *testing.T, baseName string, originalName *string, texts []people.PersonText) (*PeopleRepository, int64) {
+				t.Helper()
+				db := backend.NewDB(t)
+				repo := NewPeopleRepository(db)
+				pid, err := repo.Upsert(ctx, people.Person{
+					Name:         baseName,
+					OriginalName: originalName,
+					Hydration:    people.HydrationStub,
+					TMDBID:       ptrTMDBID(9300),
+				})
+				require.NoError(t, err)
+				require.Greater(t, pid, int64(0))
+				if len(texts) > 0 {
+					for i := range texts {
+						texts[i].PersonID = pid
+					}
+					require.NoError(t, NewPeopleTextsRepository(db).BatchUpsert(ctx, texts))
+				}
+				return repo, pid
+			}
+
+			// Case 1 — lang=ru-RU AND people_texts[ru] present → Cyrillic.
+			t.Run("ru_present_resolves_cyrillic", func(t *testing.T) {
+				repo, pid := seed(t, "Адам Скотт", new("Noah Wyle"), []people.PersonText{
+					{Language: "en-US", Name: new("Noah Wyle")},
+					{Language: "ru-RU", Name: new("Ноа Уайли")},
+				})
+				got, err := repo.Get(ctx, pid, "ru-RU")
+				require.NoError(t, err)
+				assert.Equal(t, "Ноа Уайли", got.Name)
+			})
+
+			// Case 2 — lang=ru-RU AND people_texts[ru] absent → en-US tier.
+			t.Run("ru_absent_falls_back_to_en", func(t *testing.T) {
+				repo, pid := seed(t, "base", new("orig"), []people.PersonText{
+					{Language: "en-US", Name: new("Noah Wyle")},
+				})
+				got, err := repo.Get(ctx, pid, "ru-RU")
+				require.NoError(t, err)
+				assert.Equal(t, "Noah Wyle", got.Name)
+			})
+
+			// Case 3 — no people_texts at all → original_name.
+			t.Run("no_texts_falls_back_to_original_name", func(t *testing.T) {
+				repo, pid := seed(t, "Адам Скотт", new("Noah Wyle"), nil)
+				got, err := repo.Get(ctx, pid, "ru-RU")
+				require.NoError(t, err)
+				assert.Equal(t, "Noah Wyle", got.Name)
+			})
+
+			// Case 4 — lang=en-US → en-US texts row.
+			t.Run("en_us_resolves_en_text", func(t *testing.T) {
+				repo, pid := seed(t, "Адам Скотт", new("Noah Wyle"), []people.PersonText{
+					{Language: "en-US", Name: new("Noah Wyle")},
+					{Language: "ru-RU", Name: new("Ноа Уайли")},
+				})
+				got, err := repo.Get(ctx, pid, "en-US")
+				require.NoError(t, err)
+				assert.Equal(t, "Noah Wyle", got.Name)
+			})
+
+			// Case 5 — lang="" normalises to en-US.
+			t.Run("empty_lang_normalises_to_en", func(t *testing.T) {
+				repo, pid := seed(t, "base", new("orig"), []people.PersonText{
+					{Language: "en-US", Name: new("Noah Wyle")},
+					{Language: "ru-RU", Name: new("Ноа Уайли")},
+				})
+				got, err := repo.Get(ctx, pid, "")
+				require.NoError(t, err)
+				assert.Equal(t, "Noah Wyle", got.Name)
+			})
+
+			// Case 6 — unknown id → ports.ErrNotFound (m.ID==0 guard on Raw().Scan).
+			t.Run("unknown_id_returns_not_found", func(t *testing.T) {
+				repo, _ := seed(t, "x", nil, nil)
+				_, err := repo.Get(ctx, 987654, "ru-RU")
+				require.True(t, errors.Is(err, ports.ErrNotFound))
+			})
+
+			// Biography resolution still works alongside the name COALESCE.
+			t.Run("biography_still_resolves", func(t *testing.T) {
+				db := backend.NewDB(t)
+				repo := NewPeopleRepository(db)
+				pid, err := repo.Upsert(ctx, people.Person{
+					Name:      "Adam Scott",
+					Hydration: people.HydrationStub,
+					TMDBID:    ptrTMDBID(9301),
+				})
+				require.NoError(t, err)
+				require.NoError(t, NewPeopleTextsRepository(db).BatchUpsert(ctx, []people.PersonText{
+					{PersonID: pid, Language: "ru-RU", Name: new("Адам Скотт")},
+				}))
+				require.NoError(t, NewPersonBiographiesRepository(db).Upsert(ctx, people.PersonBiography{
+					PersonID:  pid,
+					Language:  "en-US",
+					Biography: new("An American actor."),
+				}))
+				got, err := repo.Get(ctx, pid, "ru-RU")
+				require.NoError(t, err)
+				assert.Equal(t, "Адам Скотт", got.Name, "name resolves ru")
+				assert.Equal(t, "An American actor.", got.Biography, "bio falls back to en-US")
+				assert.Equal(t, "en-US", got.BiographyLanguage)
+			})
+		})
 	}
 }
 

@@ -324,11 +324,13 @@ func BuildSeriesDetail(
 	// populates them after wireEnrichment returns. Each holder is nil-OK on
 	// EnsureFresh / EnqueueIfStale so cold-boot opens degrade gracefully.
 	onDemandEnricherHolder := adapters.NewOnDemandEnricherHolder(log)
+	sdPeopleTextsRepo := enrichpersistence.NewPeopleTextsRepository(db)
 	seriesFreshenerProbe, err := freshener.NewDBProbe(freshener.DBProbeConfig{
 		Series:               sdSeriesRepo,
 		SeriesTexts:          sdSeriesTextsRepo,
 		EpisodeTextsCoverage: sdEpisodeTextsRepo,
 		SeriesTextsCoverage:  sdSeriesTextsRepo, // Story 566 — reuses SeriesTextsRepository (new RecommendationsCoverage method)
+		PeopleTextsCoverage:  sdPeopleTextsRepo, // Story 1084 — cast people_texts coverage
 		Seasons:              sdSeasonsRepo,
 		Logger:               composerLog,
 		// W18-16: reuse the shipped progressive rating curve for the skeleton gate.

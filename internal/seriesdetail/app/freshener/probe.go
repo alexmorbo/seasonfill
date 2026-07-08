@@ -61,6 +61,23 @@ type SeriesTextsCoverageReader interface {
 	RecommendationsCoverage(ctx context.Context, seriesID domain.SeriesID, language string) (covered, total int, err error)
 }
 
+// PeopleTextsCoverageReader — narrow port answering "what fraction of
+// this series's cast/crew persons have a row in people_texts for this
+// lang?". Story 1084: after people.name is dropped, a ru-view of a
+// series whose people_texts[ru] is empty renders original_name (Latin)
+// until RefreshCast(ru) populates it. Marking SectionCast stale on
+// low coverage lets EnsureFreshScope re-fire RefreshCast per language
+// until the gap closes. Symmetric with SeriesTextsCoverageReader.
+type PeopleTextsCoverageReader interface {
+	// CastNameCoverage returns (covered, total). total = distinct
+	// person_id credited to seriesID (person_credits joined to series on
+	// tmdb_id — the D-7 replacement for series_people). covered = distinct
+	// person_id among those which have a people_texts row with
+	// language == lang AND name IS NOT NULL. Returns (0, 0, nil) when
+	// total == 0 (series has no cast to cover).
+	CastNameCoverage(ctx context.Context, seriesID domain.SeriesID, language string) (covered, total int, err error)
+}
+
 // SeasonSyncedAtReader — narrow port reading
 // seasons.episodes_synced_at for one (seriesID, seasonNumber). Returns
 // (nil, dataports.ErrNotFound) if the season row is absent (caller
@@ -97,6 +114,17 @@ type DBProbeConfig struct {
 	// RecsCoverageMinPct — covered*100 < total*pct → stale. Default 80
 	// (Story 548 baseline; symmetric across coverage checks).
 	RecsCoverageMinPct int
+
+	// PeopleTextsCoverage — optional (Story 1084). Probe checks that the
+	// series's cast/crew persons have people_texts rows in the requested
+	// lang and marks SectionCast Stale when coverage falls below
+	// PeopleCoverageMinPct. Nil disables the check (defensive for
+	// non-prod / minimal wiring).
+	PeopleTextsCoverage PeopleTextsCoverageReader
+
+	// PeopleCoverageMinPct — covered*100 < total*pct → stale. Default 80
+	// (symmetric with the other coverage checks).
+	PeopleCoverageMinPct int
 
 	// Now is the clock injection. nil → time.Now.
 	Now func() time.Time
@@ -144,6 +172,9 @@ func NewDBProbe(cfg DBProbeConfig) (*DBProbe, error) {
 	}
 	if cfg.RecsCoverageMinPct <= 0 || cfg.RecsCoverageMinPct > 100 {
 		cfg.RecsCoverageMinPct = 80
+	}
+	if cfg.PeopleCoverageMinPct <= 0 || cfg.PeopleCoverageMinPct > 100 {
+		cfg.PeopleCoverageMinPct = 80
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -216,9 +247,10 @@ func (p *DBProbe) IsStale(
 	}
 	verdicts = append(verdicts, overview)
 
-	// SectionCast: enrichment_cast_synced_at + missing_lang fallback.
-	// Character names are localized per-language in person_credits_texts
-	// (S-G); the missing_lang probe still drives cast re-fetch per language.
+	// SectionCast: enrichment_cast_synced_at + missing_lang fallback +
+	// people_texts coverage (Story 1084). checkMissingLang catches the
+	// series-level text gap; CastNameCoverage catches the per-person
+	// display-name gap that people.name used to paper over.
 	cast := ttlSectionVerdict(
 		SectionCast, canon.EnrichmentCastSyncedAt, canon.Status,
 		SectionTTLs[SectionCast], now,
@@ -226,6 +258,24 @@ func (p *DBProbe) IsStale(
 	if missing := p.checkMissingLang(ctx, seriesID, lang); missing != "" {
 		cast.Stale = true
 		cast.Reason = missing
+	}
+	if !cast.Stale && p.cfg.PeopleTextsCoverage != nil && !lang.IsZero() {
+		covered, total, cerr := p.cfg.PeopleTextsCoverage.CastNameCoverage(ctx, seriesID, lang.Value())
+		switch {
+		case cerr != nil:
+			// Fail-open (Radarr lesson): an IO error must not look Fresh.
+			p.cfg.Logger.WarnContext(ctx, "freshener.probe.people_coverage_error",
+				slog.Int64("series_id", int64(seriesID)),
+				slog.String("lang", lang.Value()),
+				slog.String("error", cerr.Error()),
+			)
+			cast.Stale = true
+			cast.Reason = "probe_error"
+		case total > 0 && covered*100 < total*p.cfg.PeopleCoverageMinPct:
+			cast.Stale = true
+			cast.Reason = "missing_people_lang"
+		}
+		// total == 0 → intentional no-op: series has no cast to cover.
 	}
 	verdicts = append(verdicts, cast)
 

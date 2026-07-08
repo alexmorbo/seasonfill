@@ -66,6 +66,17 @@ func (s *stubSeriesTextsCoverage) RecommendationsCoverage(_ context.Context, _ d
 	return s.covered, s.total, s.err
 }
 
+type stubPeopleTextsCoverage struct {
+	covered, total int
+	err            error
+	called         bool
+}
+
+func (s *stubPeopleTextsCoverage) CastNameCoverage(_ context.Context, _ domain.SeriesID, _ string) (int, int, error) {
+	s.called = true
+	return s.covered, s.total, s.err
+}
+
 type stubSeasons struct {
 	syncedByNumber map[int]*time.Time
 	notFound       map[int]bool
@@ -776,6 +787,139 @@ func TestProbe_RecommendationsCoverage_ThresholdBoundary(t *testing.T) {
 	v2, err := probeBelow.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
 	require.NoError(t, err)
 	assertVerdict(t, v2, freshener.SectionRecommendations, true, "missing_recs_lang")
+}
+
+// Story 1084 — SectionCast people_texts coverage escalation. Symmetric with
+// the recommendations coverage suite. The canon is fully fresh and the
+// series_texts row matches the requested lang (so checkMissingLang is quiet)
+// EXCEPT the Case-G already-stale scenario.
+func TestDBProbe_SectionCast_PeopleCoverage(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	fresh := now.Add(-time.Hour)
+	status := "Ended"
+	freshCanon := func() catalogseries.Canon {
+		return catalogseries.Canon{
+			Hydration:               catalogseries.HydrationFull,
+			Status:                  &status,
+			EnrichmentTMDBSyncedAt:  &fresh,
+			SkeletonSyncedAt:        &fresh,
+			EnrichmentTextSyncedAt:  &fresh,
+			EnrichmentCastSyncedAt:  &fresh,
+			EnrichmentRecsSyncedAt:  &fresh,
+			EnrichmentMediaSyncedAt: &fresh,
+		}
+	}
+
+	// Case A — coverage 0/10, lang=ru-RU → Stale, missing_people_lang.
+	t.Run("low_coverage_marks_missing_people_lang", func(t *testing.T) {
+		t.Parallel()
+		probe := mustProbe(t, freshener.DBProbeConfig{
+			Series:              &stubSeries{canon: freshCanon()},
+			SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+			Seasons:             &stubSeasons{},
+			PeopleTextsCoverage: &stubPeopleTextsCoverage{covered: 0, total: 10},
+			Now:                 func() time.Time { return now },
+		})
+		verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+		require.NoError(t, err)
+		assertVerdict(t, verdicts, freshener.SectionCast, true, "missing_people_lang")
+	})
+
+	// Case B — coverage 10/10 → not stale from this check.
+	t.Run("full_coverage_fresh", func(t *testing.T) {
+		t.Parallel()
+		probe := mustProbe(t, freshener.DBProbeConfig{
+			Series:              &stubSeries{canon: freshCanon()},
+			SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+			Seasons:             &stubSeasons{},
+			PeopleTextsCoverage: &stubPeopleTextsCoverage{covered: 10, total: 10},
+			Now:                 func() time.Time { return now },
+		})
+		verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+		require.NoError(t, err)
+		assertVerdict(t, verdicts, freshener.SectionCast, false, "fresh")
+	})
+
+	// Case C — total 0 → no-op (series has no cast to cover).
+	t.Run("zero_total_no_op", func(t *testing.T) {
+		t.Parallel()
+		probe := mustProbe(t, freshener.DBProbeConfig{
+			Series:              &stubSeries{canon: freshCanon()},
+			SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+			Seasons:             &stubSeasons{},
+			PeopleTextsCoverage: &stubPeopleTextsCoverage{covered: 0, total: 0},
+			Now:                 func() time.Time { return now },
+		})
+		verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+		require.NoError(t, err)
+		assertVerdict(t, verdicts, freshener.SectionCast, false, "fresh")
+	})
+
+	// Case D — reader error → Stale, probe_error (fail-open).
+	t.Run("reader_error_fail_open", func(t *testing.T) {
+		t.Parallel()
+		probe := mustProbe(t, freshener.DBProbeConfig{
+			Series:              &stubSeries{canon: freshCanon()},
+			SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+			Seasons:             &stubSeasons{},
+			PeopleTextsCoverage: &stubPeopleTextsCoverage{err: errors.New("db boom")},
+			Now:                 func() time.Time { return now },
+		})
+		verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+		require.NoError(t, err)
+		assertVerdict(t, verdicts, freshener.SectionCast, true, "probe_error")
+	})
+
+	// Case E — PeopleTextsCoverage nil → check skipped (back-compat).
+	t.Run("nil_reader_skipped", func(t *testing.T) {
+		t.Parallel()
+		probe := mustProbe(t, freshener.DBProbeConfig{
+			Series:      &stubSeries{canon: freshCanon()},
+			SeriesTexts: &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+			Seasons:     &stubSeasons{},
+			Now:         func() time.Time { return now },
+		})
+		verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+		require.NoError(t, err)
+		assertVerdict(t, verdicts, freshener.SectionCast, false, "fresh")
+	})
+
+	// Case F — lang zero → check skipped.
+	t.Run("zero_lang_skipped", func(t *testing.T) {
+		t.Parallel()
+		cov := &stubPeopleTextsCoverage{covered: 0, total: 10}
+		probe := mustProbe(t, freshener.DBProbeConfig{
+			Series:              &stubSeries{canon: freshCanon()},
+			SeriesTexts:         &stubTexts{row: catalogseries.SeriesText{Language: "ru-RU"}},
+			Seasons:             &stubSeasons{},
+			PeopleTextsCoverage: cov,
+			Now:                 func() time.Time { return now },
+		})
+		verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, ""), nil)
+		require.NoError(t, err)
+		assertVerdict(t, verdicts, freshener.SectionCast, false, "fresh")
+		assert.False(t, cov.called, "empty lang must skip the coverage query")
+	})
+
+	// Case G — cast already stale via checkMissingLang (series_texts row absent):
+	// the coverage guard `!cast.Stale` short-circuits, so CastNameCoverage is
+	// NEVER consulted and the reason stays missing_lang.
+	t.Run("already_stale_coverage_not_consulted", func(t *testing.T) {
+		t.Parallel()
+		cov := &stubPeopleTextsCoverage{covered: 0, total: 10}
+		probe := mustProbe(t, freshener.DBProbeConfig{
+			Series:              &stubSeries{canon: freshCanon()},
+			SeriesTexts:         &stubTexts{err: dataports.ErrNotFound},
+			Seasons:             &stubSeasons{},
+			PeopleTextsCoverage: cov,
+			Now:                 func() time.Time { return now },
+		})
+		verdicts, err := probe.IsStale(context.Background(), 1, mustLang(t, "ru-RU"), nil)
+		require.NoError(t, err)
+		assertVerdict(t, verdicts, freshener.SectionCast, true, "missing_lang")
+		assert.False(t, cov.called, "already-stale cast must not consult people coverage")
+	})
 }
 
 // assertVerdict finds the (single) verdict for section in verdicts and

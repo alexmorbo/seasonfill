@@ -32,22 +32,48 @@ func NewPeopleRepository(db *gorm.DB) *PeopleRepository {
 	return &PeopleRepository{db: db}
 }
 
-// Get fetches by primary key and resolves the biography in the
-// requested language via the shared §5.6 fallback helper. Empty
-// language is normalised to en-US by the helper. Returns
-// ports.ErrNotFound on miss of the person row; a person without any
+// Get fetches by primary key and resolves the DISPLAY name in the
+// requested language via the people_texts fallback (Story 1084):
+//
+//	requested-lang -> en-US -> people.original_name -> people.name
+//
+// then resolves the biography via the shared §5.6 fallback helper.
+// Empty language is normalised to en-US. A person without any
 // biography row returns the Person with empty Biography /
 // BiographyLanguage (NOT an error — stub persons frequently have no
 // biography yet).
 func (r *PeopleRepository) Get(ctx context.Context, id int64, language string) (people.Person, error) {
+	lang := language
+	if lang == "" {
+		lang = fallbackLanguage
+	}
+	// Same COALESCE + double LEFT JOIN as ListByIDsWithNameFallback,
+	// single-row. Selects EVERY people column so toPerson hydrates the
+	// full person-detail projection; only `name` is replaced by the
+	// resolved display name.
+	const q = `
+SELECT
+  p.id, p.tmdb_id, p.imdb_id, p.hydration,
+  COALESCE(t_req.name, t_base.name, p.original_name, p.name) AS name,
+  p.original_name, p.gender, p.birthday, p.deathday, p.place_of_birth,
+  p.known_for_department, p.popularity, p.profile_asset,
+  p.enrichment_synced_at, p.created_at, p.updated_at
+FROM people p
+LEFT JOIN people_texts t_req
+  ON t_req.person_id = p.id AND t_req.language = ?
+LEFT JOIN people_texts t_base
+  ON t_base.person_id = p.id AND t_base.language = ?
+WHERE p.id = ?`
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 	var m database.PeopleModel
-	err := db.Where("id = ?", id).First(&m).Error
+	err := db.Raw(q, lang, fallbackLanguage, id).Scan(&m).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return people.Person{}, ports.ErrNotFound
-		}
 		return people.Person{}, fmt.Errorf("get person: %w", err)
+	}
+	// Raw().Scan does not raise ErrRecordNotFound; a miss yields the
+	// zero model (id == 0). Preserve the ports.ErrNotFound contract.
+	if m.ID == 0 {
+		return people.Person{}, ports.ErrNotFound
 	}
 	person := toPerson(m)
 

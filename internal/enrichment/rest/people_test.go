@@ -40,6 +40,11 @@ type peopleHandlerFakePeople struct {
 	person  dompeople.Person
 	errTMDB error
 	errID   error
+	// namesByLang, when non-nil, makes GetWithBio resolve the DISPLAY name
+	// per requested language (Story 1084 R1→R2 wire contract). A lang with
+	// no entry falls back to fallbackName (the Latin original_name tier).
+	namesByLang  map[string]string
+	fallbackName string
 }
 
 func (f peopleHandlerFakePeople) GetByTMDBID(_ context.Context, _ domain.TMDBID) (dompeople.Person, error) {
@@ -49,11 +54,19 @@ func (f peopleHandlerFakePeople) GetByTMDBID(_ context.Context, _ domain.TMDBID)
 	return f.person, nil
 }
 
-func (f peopleHandlerFakePeople) GetWithBio(_ context.Context, _ int64, _ string) (dompeople.Person, error) {
+func (f peopleHandlerFakePeople) GetWithBio(_ context.Context, _ int64, lang string) (dompeople.Person, error) {
 	if f.errID != nil {
 		return dompeople.Person{}, f.errID
 	}
-	return f.person, nil
+	p := f.person
+	if f.namesByLang != nil {
+		if n, ok := f.namesByLang[lang]; ok {
+			p.Name = n
+		} else {
+			p.Name = f.fallbackName
+		}
+	}
+	return p, nil
 }
 
 type peopleHandlerFakeCredits struct {
@@ -552,4 +565,53 @@ func (r *recordingResolver) Resolve(_ context.Context, rawPath *string, size, _ 
 
 func (r *recordingResolver) ResolveSync(_ context.Context, rawPath *string, size, _ string) *string {
 	return r.resolveOne(rawPath, size)
+}
+
+// TestPeopleHandler_Get_LocalizedName_Story1084 locks the R1→R2 wire contract:
+// PeopleRepository.Get resolves the display name per lang (people_texts →
+// original_name), the use case carries it through GetWithBio, and the handler
+// emits it verbatim on .person.name. Asserts Cyrillic for ru-RU and the Latin
+// original_name fallback when no localized text exists for the requested lang.
+func TestPeopleHandler_Get_LocalizedName_Story1084(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tmdbPersonID := domain.TMDBID(4495)
+	fake := peopleHandlerFakePeople{
+		person: dompeople.Person{
+			ID:        1,
+			TMDBID:    &tmdbPersonID,
+			Hydration: dompeople.HydrationFull,
+			Name:      "Noah Wyle", // bare (GetByTMDBID) value; GetWithBio overrides per-lang
+		},
+		namesByLang:  map[string]string{"ru-RU": "Ноа Уайли", "en-US": "Noah Wyle"},
+		fallbackName: "Noah Wyle",
+	}
+	uc := apppeople.NewUseCase(apppeople.Deps{
+		People:        fake,
+		PersonCredits: peopleHandlerFakeCredits{},
+		SeriesByTMDB:  peopleHandlerFakeSeriesByTMDB{},
+		SeriesCache:   peopleHandlerFakeSeriesCache{},
+		Logger:        handlerTestLogger(),
+	})
+	h := buildHandler(uc)
+	r := gin.New()
+	r.GET("/api/v1/people/:tmdbId", h.Get)
+
+	get := func(t *testing.T, lang string) dto.PersonDetailResponse {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/people/4495?lang="+lang, nil)
+		r.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var body dto.PersonDetailResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		return body
+	}
+
+	// ru-RU → Cyrillic localized name.
+	ru := get(t, "ru-RU")
+	assert.Equal(t, "Ноа Уайли", ru.Person.Name)
+
+	// A lang with no localized text → Latin original_name fallback.
+	de := get(t, "de-DE")
+	assert.Equal(t, "Noah Wyle", de.Person.Name)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // PeopleTextsRepository persists per-language person display names
@@ -69,4 +70,51 @@ func (r *PeopleTextsRepository) BatchUpsert(ctx context.Context, texts []people.
 		return fmt.Errorf("batch upsert people_texts: %w", err)
 	}
 	return nil
+}
+
+// CastNameCoverage returns (covered, total) for Story 1084's SectionCast
+// probe. total = distinct person_id credited to seriesID; covered =
+// distinct person_id among those with a people_texts row (language == lang
+// AND name IS NOT NULL). Mirrors SeriesTextsRepository.RecommendationsCoverage.
+// Returns (0,0,nil) when the series has no cast/crew credits (incl. a
+// Sonarr-orphan series with no TMDB id — the JOIN yields no rows).
+//
+// D-7 (468a) dropped the series_people table: the canonical cast/crew credit
+// surface is now person_credits(media_type='tv', tmdb_media_id=series.tmdb_id),
+// exactly as SeriesPeopleFromPersonCredits resolves it. The coverage query
+// JOINs person_credits back to series on tmdb_id so it accepts the internal
+// seriesID the probe already holds.
+func (r *PeopleTextsRepository) CastNameCoverage(
+	ctx context.Context,
+	seriesID domain.SeriesID,
+	language string,
+) (covered, total int, err error) {
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+
+	// "tv" mirrors tmdb.MediaTypeTV — the media_type PersonWorker stamps for
+	// series credits and the value SeriesPeopleFromPersonCredits filters on.
+	const mediaTypeTV = "tv"
+	base := func() *gorm.DB {
+		return db.
+			Table("person_credits AS pc").
+			Joins("JOIN series s ON s.tmdb_id = pc.tmdb_media_id").
+			Where("s.id = ? AND pc.media_type = ?", seriesID, mediaTypeTV)
+	}
+
+	var totalCnt int64
+	if e := base().Distinct("pc.person_id").Count(&totalCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count cast persons: %w", e)
+	}
+	if totalCnt == 0 {
+		return 0, 0, nil
+	}
+
+	var coveredCnt int64
+	if e := base().
+		Joins("JOIN people_texts pt ON pt.person_id = pc.person_id AND pt.language = ? AND pt.name IS NOT NULL", language).
+		Distinct("pc.person_id").
+		Count(&coveredCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count people_texts for cast: %w", e)
+	}
+	return int(coveredCnt), int(totalCnt), nil
 }
