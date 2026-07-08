@@ -133,6 +133,20 @@ type EnrichmentConfig struct {
 	// Default 4 (modestly parallel). Env:
 	// SEASONFILL_ENRICHMENT_SEASON_CONCURRENCY. Same 0→default floor.
 	EnrichmentSeasonConcurrency int
+
+	// EnrichmentRefreshBatchSize is the number of series the background
+	// RefreshScheduler picks per tick (Story 1097). Together with the
+	// tick interval it sets the backfill drain rate = batch × (1/interval).
+	// Default 50 (the pre-1097 hardcoded value). Env:
+	// SEASONFILL_ENRICHMENT_REFRESH_BATCH_SIZE. getenvInt floors 0/negative/
+	// unparseable → default, so a bad env can never stall the sweep.
+	EnrichmentRefreshBatchSize int
+
+	// EnrichmentRefreshInterval is the cadence of the background
+	// RefreshScheduler tick (Story 1097). Default 30m (the pre-1097
+	// hardcoded value). Env: SEASONFILL_ENRICHMENT_REFRESH_INTERVAL_SECONDS
+	// (integer seconds, floored at 60s; 0 / unset / unparseable → default).
+	EnrichmentRefreshInterval time.Duration
 }
 
 // ExternalServicesEnv carries the env-only overrides for the three
@@ -391,6 +405,11 @@ func FromEnv() (*Bootstrap, error) {
 			EnrichmentSeriesWorkers:     getenvInt("SEASONFILL_ENRICHMENT_SERIES_WORKERS", 2),
 			EnrichmentPersonWorkers:     getenvInt("SEASONFILL_ENRICHMENT_PERSON_WORKERS", 1),
 			EnrichmentSeasonConcurrency: getenvInt("SEASONFILL_ENRICHMENT_SEASON_CONCURRENCY", 4),
+			// Story 1097 — background refresh drain levers. batch_size is a
+			// plain getenvInt (0/negative → 50 default); the interval uses the
+			// integer-SECONDS helper below.
+			EnrichmentRefreshBatchSize: getenvInt("SEASONFILL_ENRICHMENT_REFRESH_BATCH_SIZE", 50),
+			EnrichmentRefreshInterval:  refreshIntervalFromEnv(),
 		},
 		Discovery: DiscoveryConfig{
 			// Story 568 A2 — default ON. The chart values.yaml pins the
@@ -476,6 +495,24 @@ func coldStartResweepIntervalFromEnv() time.Duration {
 	const def = 60 * time.Second
 	const floor = 5 * time.Second
 	secs := getenvInt("SEASONFILL_ENRICHMENT_COLDSTART_RESWEEP_SECONDS", 0)
+	if secs <= 0 {
+		return def
+	}
+	d := time.Duration(secs) * time.Second
+	if d < floor {
+		return floor
+	}
+	return d
+}
+
+// refreshIntervalFromEnv reads SEASONFILL_ENRICHMENT_REFRESH_INTERVAL_SECONDS
+// as an int number of seconds (Story 1097). 0 / unset / unparseable → the
+// 30m default. Floored at 60s so a misconfigured tiny interval cannot turn
+// the background refresh sweep into a tick-storm against the worker + TMDB.
+func refreshIntervalFromEnv() time.Duration {
+	const def = 30 * time.Minute
+	const floor = 60 * time.Second
+	secs := getenvInt("SEASONFILL_ENRICHMENT_REFRESH_INTERVAL_SECONDS", 0)
 	if secs <= 0 {
 		return def
 	}

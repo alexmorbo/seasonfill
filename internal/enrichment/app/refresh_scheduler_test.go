@@ -16,16 +16,18 @@ import (
 )
 
 type fakeRefreshPicker struct {
-	mu    sync.Mutex
-	rows  []RefreshCandidate
-	err   error
-	calls int
+	mu       sync.Mutex
+	rows     []RefreshCandidate
+	err      error
+	calls    int
+	gotLimit int // captures the limit arg of the last PickRefreshCandidates call
 }
 
-func (f *fakeRefreshPicker) PickRefreshCandidates(_ context.Context, _ time.Time, _ enrichdomain.RefreshTTL, _ int) ([]RefreshCandidate, error) {
+func (f *fakeRefreshPicker) PickRefreshCandidates(_ context.Context, _ time.Time, _ enrichdomain.RefreshTTL, limit int) ([]RefreshCandidate, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.gotLimit = limit
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -292,6 +294,47 @@ func TestNewRefreshScheduler_DefaultsApply(t *testing.T) {
 	assert.Equal(t, enrichdomain.DefaultRefreshTTL(), s.deps.TTL)
 	assert.NotNil(t, s.deps.Metrics)
 	assert.NotNil(t, s.deps.Logger)
+}
+
+// Story 1097 — BatchSize threads into the picker's limit arg so the
+// operator can tune the backfill drain rate via env.
+func TestRefreshScheduler_BatchSizeThreadsIntoPickerLimit(t *testing.T) {
+	t.Parallel()
+	picker := &fakeRefreshPicker{}
+	worker := &fakeRefreshWorker{errs: map[int64]error{}}
+	s, err := NewRefreshScheduler(RefreshSchedulerDeps{
+		Picker:    picker,
+		Worker:    worker,
+		BatchSize: 150,
+		TTL:       enrichdomain.DefaultRefreshTTL(),
+		Metrics:   newRecRefreshMetrics(),
+		Logger:    slog.New(slog.NewTextHandler(refreshTestWriter(t), nil)),
+		Clock:     func() time.Time { return time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC) },
+	})
+	require.NoError(t, err)
+	s.Tick(context.Background())
+	assert.Equal(t, 1, picker.calls)
+	assert.Equal(t, 150, picker.gotLimit, "configured BatchSize must reach PickRefreshCandidates limit")
+}
+
+// The <=0 safety fallback stays in place (defense in depth) even though the
+// config default is already 50 — a nil/zero BatchSize dep floors to 50.
+func TestRefreshScheduler_BatchSizeZeroFallsBackTo50(t *testing.T) {
+	t.Parallel()
+	picker := &fakeRefreshPicker{}
+	worker := &fakeRefreshWorker{errs: map[int64]error{}}
+	s, err := NewRefreshScheduler(RefreshSchedulerDeps{
+		Picker:    picker,
+		Worker:    worker,
+		BatchSize: 0,
+		Metrics:   newRecRefreshMetrics(),
+		Logger:    slog.New(slog.NewTextHandler(refreshTestWriter(t), nil)),
+		Clock:     func() time.Time { return time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC) },
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 50, s.deps.BatchSize)
+	s.Tick(context.Background())
+	assert.Equal(t, 50, picker.gotLimit)
 }
 
 // refreshTLogger is a tiny shim that routes slog through t.Log so failing

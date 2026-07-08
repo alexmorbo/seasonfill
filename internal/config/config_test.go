@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -240,4 +241,63 @@ func TestFromEnv_EnrichmentWorkerZeroFallsBackToDefault(t *testing.T) {
 	assert.GreaterOrEqual(t, cfg.Enrichment.EnrichmentSeriesWorkers, 1)
 	assert.GreaterOrEqual(t, cfg.Enrichment.EnrichmentPersonWorkers, 1)
 	assert.GreaterOrEqual(t, cfg.Enrichment.EnrichmentSeasonConcurrency, 1)
+}
+
+// Story 1097 — background refresh drain levers (batch_size + interval).
+func TestFromEnv_EnrichmentRefreshDefaults(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 50, cfg.Enrichment.EnrichmentRefreshBatchSize)
+	assert.Equal(t, 30*time.Minute, cfg.Enrichment.EnrichmentRefreshInterval)
+}
+
+func TestFromEnv_EnrichmentRefreshParsed(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_ENRICHMENT_REFRESH_BATCH_SIZE", "150")
+	t.Setenv("SEASONFILL_ENRICHMENT_REFRESH_INTERVAL_SECONDS", "600")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 150, cfg.Enrichment.EnrichmentRefreshBatchSize)
+	assert.Equal(t, 10*time.Minute, cfg.Enrichment.EnrichmentRefreshInterval)
+}
+
+// getenvInt floors 0/negative/unparseable to the batch default (50, >=1),
+// so a bad batch env can never stall the sweep.
+func TestFromEnv_EnrichmentRefreshBatchZeroFallsBackToDefault(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_ENRICHMENT_REFRESH_BATCH_SIZE", "0")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 50, cfg.Enrichment.EnrichmentRefreshBatchSize)
+	assert.GreaterOrEqual(t, cfg.Enrichment.EnrichmentRefreshBatchSize, 1)
+
+	t.Setenv("SEASONFILL_ENRICHMENT_REFRESH_BATCH_SIZE", "notanint")
+	cfg, err = FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 50, cfg.Enrichment.EnrichmentRefreshBatchSize)
+}
+
+// The interval env is integer SECONDS, floored at 60s; 0 / unset /
+// unparseable → the 30m default.
+func TestFromEnv_EnrichmentRefreshIntervalFloorAndDefault(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+
+	// Below the 60s floor collapses UP to 60s.
+	t.Setenv("SEASONFILL_ENRICHMENT_REFRESH_INTERVAL_SECONDS", "10")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 60*time.Second, cfg.Enrichment.EnrichmentRefreshInterval)
+
+	// Zero / negative → 30m default.
+	t.Setenv("SEASONFILL_ENRICHMENT_REFRESH_INTERVAL_SECONDS", "0")
+	cfg, err = FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Minute, cfg.Enrichment.EnrichmentRefreshInterval)
+
+	// Garbage → 30m default.
+	t.Setenv("SEASONFILL_ENRICHMENT_REFRESH_INTERVAL_SECONDS", "notanint")
+	cfg, err = FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Minute, cfg.Enrichment.EnrichmentRefreshInterval)
 }

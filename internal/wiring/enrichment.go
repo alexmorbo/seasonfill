@@ -763,10 +763,11 @@ func BuildEnrichment(
 	var refreshScheduler *appenrich.RefreshScheduler
 	if repos.RefreshPicker != nil {
 		rs, err := appenrich.NewRefreshScheduler(appenrich.RefreshSchedulerDeps{
-			Picker:  repos.RefreshPicker,
-			Worker:  seriesWorkerForceAdapter{inner: worker},
-			Metrics: observability.NewEnrichmentRefreshMetrics(),
-			Logger:  enrichmentLog,
+			Picker:    repos.RefreshPicker,
+			Worker:    seriesWorkerForceAdapter{inner: worker},
+			BatchSize: bootstrap.Enrichment.EnrichmentRefreshBatchSize,
+			Metrics:   observability.NewEnrichmentRefreshMetrics(),
+			Logger:    enrichmentLog,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("wire refresh scheduler: %w", err)

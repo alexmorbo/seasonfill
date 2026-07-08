@@ -774,7 +774,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		refreshLog := sharedports.DomainLogger(log, "enrichment")
 		lifecycle.Go(rootCtx, "refresh-scheduler", func(ctx context.Context) {
 			loops.RunRefresh(ctx, enrichBundle.RefreshScheduler,
-				loops.DefaultRefreshInterval, refreshLog)
+				bootCfg.Enrichment.EnrichmentRefreshInterval, refreshLog)
 		})
 	}
 
