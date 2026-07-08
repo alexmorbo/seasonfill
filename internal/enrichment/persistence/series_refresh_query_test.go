@@ -446,6 +446,107 @@ func TestSeriesRepository_PickRefreshCandidates_LastAppearanceHeal(t *testing.T)
 	}
 }
 
+// TestSeriesRepository_PickRefreshCandidates_LastAppearanceHealNonLibrary
+// covers #1094: the #1090b null-heal OR-branch now rides on tiers 2
+// (NORMAL / discovery) and 3 (COLD / neither) as well, so the ~8368
+// non-library series whose media_type='tv' person_credits are all NULL
+// last_appearance_season heal promptly instead of never (the branch used
+// to live inside the HOT tier only, which is gated on series_cache).
+//
+//	(a) NORMAL (discovery, not library) all-NULL tv rows, synced 12h ago
+//	    → heal-picked at tier=NORMAL (would fail pre-#1094),
+//	(b) COLD (neither cache nor discovery) all-NULL tv rows, synced 12h ago
+//	    → heal-picked at tier=COLD (would fail pre-#1094),
+//	(c) non-library series with a non-NULL last_appearance_season → skipped,
+//	(d) non-library series with zero tv-row credits → skipped,
+//	(e) non-library all-NULL series stamped < 6h ago → skipped (cooldown).
+//
+// Every heal fixture is synced 12h ago — TTL-fresh for BOTH the 14d NORMAL
+// and 30d COLD TTLs yet past the 6h heal cooldown — so the ONLY branch that
+// can select it is the null-heal OR (isolates the new clause; a normal
+// staleness pick is impossible).
+func TestSeriesRepository_PickRefreshCandidates_LastAppearanceHealNonLibrary(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+			twelveHoursAgo := now.Add(-12 * time.Hour) // TTL-fresh (< 14d/30d) AND past the 6h heal cooldown
+			oneHourAgo := now.Add(-1 * time.Hour)      // TTL-fresh BUT inside the 6h heal cooldown
+
+			// seedNonLib upserts a series but does NOT seed series_cache, so it
+			// is never HOT. When discovery is true it is put in discovery_lists
+			// (→ tier 2 NORMAL); otherwise it is neither (→ tier 3 COLD).
+			seedNonLib := func(title string, tmdbID int64, syncedAt *time.Time, discovery bool, position int) domain.SeriesID {
+				t.Helper()
+				c := sampleCanon(title)
+				c.TMDBID = ptrTMDBID(int(tmdbID))
+				c.TVDBID = ptrTVDBID(int(tmdbID + 100000))
+				c.IMDBID = nil
+				c.EnrichmentTMDBSyncedAt = syncedAt
+				id, err := repo.Upsert(ctx, c)
+				require.NoError(t, err)
+				if discovery {
+					seedDiscoveryListsRow(t, db, id, position)
+				}
+				return id
+			}
+
+			// N — NORMAL (discovery), all-NULL tv rows, synced 12h ago → PICKED.
+			idN := seedNonLib("N-normal-heal", 7001, &twelveHoursAgo, true, 1)
+			pN := seedPersonRow(t, db, 8001)
+			seedPersonCreditTV(t, db, pN, 7001, "cr-n1", nil)
+			seedPersonCreditTV(t, db, pN, 7001, "cr-n2", nil)
+
+			// C — COLD (neither), all-NULL tv rows, synced 12h ago → PICKED.
+			idC := seedNonLib("C-cold-heal", 7002, &twelveHoursAgo, false, 0)
+			pC := seedPersonRow(t, db, 8002)
+			seedPersonCreditTV(t, db, pC, 7002, "cr-c1", nil)
+
+			// H — NORMAL, one tv row already healed → NOT picked (TTL-fresh).
+			idH := seedNonLib("H-normal-healed", 7003, &twelveHoursAgo, true, 2)
+			pH := seedPersonRow(t, db, 8003)
+			seedPersonCreditTV(t, db, pH, 7003, "cr-h1", nil)
+			seedPersonCreditTV(t, db, pH, 7003, "cr-h2", new(4))
+
+			// Z — COLD, zero tv-row credits → NOT picked (TTL-fresh, no heal).
+			idZ := seedNonLib("Z-cold-no-tv", 7004, &twelveHoursAgo, false, 0)
+
+			// D — NORMAL, all-NULL tv rows BUT synced 1h ago → NOT picked (cooldown).
+			idD := seedNonLib("D-normal-cooldown", 7005, &oneHourAgo, true, 3)
+			pD := seedPersonRow(t, db, 8005)
+			seedPersonCreditTV(t, db, pD, 7005, "cr-d1", nil)
+
+			rows, err := repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 50)
+			require.NoError(t, err)
+
+			picked := make(map[domain.SeriesID]RefreshCandidate, len(rows))
+			for _, r := range rows {
+				picked[r.SeriesID] = r
+			}
+
+			// (a) NORMAL heal pick — would NOT be selected before #1094.
+			require.Contains(t, picked, idN, "NORMAL all-NULL tv-row series must be heal-picked (tier 2)")
+			assert.Equal(t, enrichment.RefreshTierNormal, picked[idN].Tier)
+
+			// (b) COLD heal pick — would NOT be selected before #1094.
+			require.Contains(t, picked, idC, "COLD all-NULL tv-row series must be heal-picked (tier 3)")
+			assert.Equal(t, enrichment.RefreshTierCold, picked[idC].Tier)
+
+			// (c) already healed → not picked.
+			assert.NotContains(t, picked, idH, "non-library series with a non-NULL last_appearance_season must not be re-picked")
+			// (d) zero tv rows → not picked.
+			assert.NotContains(t, picked, idZ, "non-library series with zero tv-row credits must never enter the heal branch")
+			// (e) inside 6h cooldown → not picked.
+			assert.NotContains(t, picked, idD, "non-library all-NULL series stamped < 6h ago must wait out the heal cooldown")
+		})
+	}
+}
+
 // TestSeriesRepository_PickRefreshCandidates_DefaultLimit asserts the
 // limit <= 0 sentinel falls back to 50 rather than disabling the
 // query budget entirely.

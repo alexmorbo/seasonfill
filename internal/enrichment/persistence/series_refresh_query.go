@@ -56,12 +56,15 @@ type RefreshCandidate struct {
 // lives INSIDE the HOT branch, so it inherits tmdb_id IS NOT NULL and
 // the series_cache scope — tmdb-less Sonarr stubs are never selected.
 //
-// #1090b — the HOT branch ALSO selects a library series that has
-// media_type='tv' person_credits rows but NONE carries a non-NULL
-// last_appearance_season, so the #1090 aggregate_credits backfill lands
-// promptly instead of waiting up to a week for the 7d TTL. Two bounds
-// keep a genuinely-unfillable series (crew-only / specials-only cast,
-// whose tv rows stay NULL forever) from re-picking every tick:
+// #1090b — ALL THREE tiers select a series that has media_type='tv'
+// person_credits rows but NONE carries a non-NULL last_appearance_season,
+// so the #1090 aggregate_credits backfill lands promptly instead of
+// waiting up to the per-tier TTL. The predicate was originally HOT-only
+// (#1094: only ~121 library series ever healed while ~8368 non-library
+// NORMAL/COLD series never did), so the identical null-heal OR-branch now
+// rides on tiers 2 and 3 as well. Two bounds keep a genuinely-unfillable
+// series (crew-only / specials-only cast, whose tv rows stay NULL forever)
+// from re-picking every tick:
 //  1. EXISTS a media_type='tv' row (tmdb_media_id = s.tmdb_id) — a
 //     no-cast / TMDB-fallback series has zero tv rows and never enters
 //     the branch;
@@ -71,9 +74,9 @@ type RefreshCandidate struct {
 //     is ineligible for 6h → worst-case re-pick once/6h, not once/tick.
 //
 // A fillable series self-clears after one heal (≥1 tv row gains a
-// non-NULL value → the NOT EXISTS fails). Heal picks ride as normal HOT
-// picks (tier=1); the scheduler runs HandleForced's full all-seasons
-// aggregate_credits for every HOT pick, so no new signal field is needed.
+// non-NULL value → the NOT EXISTS fails). Heal picks ride as normal picks
+// within their tier; the scheduler runs HandleForced's full all-seasons
+// aggregate_credits for every pick, so no new signal field is needed.
 //
 // The query is one UNION ALL'd round-trip so the LIMIT applies across
 // the priority-ordered union, NOT per-tier — which is the desired
@@ -149,7 +152,18 @@ SELECT * FROM (
   SELECT s.id, 2, s.enrichment_tmdb_synced_at, 0
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
-     AND (s.enrichment_tmdb_synced_at IS NULL OR s.enrichment_tmdb_synced_at < ?)
+     AND (
+           s.enrichment_tmdb_synced_at IS NULL
+        OR s.enrichment_tmdb_synced_at < ?
+        OR (s.enrichment_tmdb_synced_at < ?
+            AND EXISTS (
+              SELECT 1 FROM person_credits pc
+               WHERE pc.media_type = 'tv' AND pc.tmdb_media_id = s.tmdb_id)
+            AND NOT EXISTS (
+              SELECT 1 FROM person_credits pc2
+               WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
+                 AND pc2.last_appearance_season IS NOT NULL))
+         )
      AND NOT EXISTS (
        SELECT 1 FROM series_cache sc
         WHERE sc.series_id = s.id AND sc.deleted_at IS NULL)
@@ -163,7 +177,18 @@ SELECT * FROM (
   SELECT s.id, 3, s.enrichment_tmdb_synced_at, 0
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
-     AND (s.enrichment_tmdb_synced_at IS NULL OR s.enrichment_tmdb_synced_at < ?)
+     AND (
+           s.enrichment_tmdb_synced_at IS NULL
+        OR s.enrichment_tmdb_synced_at < ?
+        OR (s.enrichment_tmdb_synced_at < ?
+            AND EXISTS (
+              SELECT 1 FROM person_credits pc
+               WHERE pc.media_type = 'tv' AND pc.tmdb_media_id = s.tmdb_id)
+            AND NOT EXISTS (
+              SELECT 1 FROM person_credits pc2
+               WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
+                 AND pc2.last_appearance_season IS NOT NULL))
+         )
      AND NOT EXISTS (
        SELECT 1 FROM series_cache sc
         WHERE sc.series_id = s.id AND sc.deleted_at IS NULL)
@@ -194,8 +219,8 @@ LIMIT ?
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Raw(sqlTmpl,
 			hotCutoff, hotCutoff, posterGuardCutoff, healGuardCutoff, errSrc,
-			normalCutoff, errSrc,
-			coldCutoff, errSrc,
+			normalCutoff, healGuardCutoff, errSrc,
+			coldCutoff, healGuardCutoff, errSrc,
 			nullSentinel, limit,
 		).Scan(&rows).Error
 	if err != nil {
