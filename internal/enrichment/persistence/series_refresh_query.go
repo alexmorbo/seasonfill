@@ -56,15 +56,36 @@ type RefreshCandidate struct {
 // lives INSIDE the HOT branch, so it inherits tmdb_id IS NOT NULL and
 // the series_cache scope — tmdb-less Sonarr stubs are never selected.
 //
+// #1090b — the HOT branch ALSO selects a library series that has
+// media_type='tv' person_credits rows but NONE carries a non-NULL
+// last_appearance_season, so the #1090 aggregate_credits backfill lands
+// promptly instead of waiting up to a week for the 7d TTL. Two bounds
+// keep a genuinely-unfillable series (crew-only / specials-only cast,
+// whose tv rows stay NULL forever) from re-picking every tick:
+//  1. EXISTS a media_type='tv' row (tmdb_media_id = s.tmdb_id) — a
+//     no-cast / TMDB-fallback series has zero tv rows and never enters
+//     the branch;
+//  2. a dedicated 6-hour cooldown
+//     (enrichment_tmdb_synced_at < now-6h). HandleForced stamps
+//     enrichment_tmdb_synced_at=now, so a just-healed-still-NULL series
+//     is ineligible for 6h → worst-case re-pick once/6h, not once/tick.
+//
+// A fillable series self-clears after one heal (≥1 tv row gains a
+// non-NULL value → the NOT EXISTS fails). Heal picks ride as normal HOT
+// picks (tier=1); the scheduler runs HandleForced's full all-seasons
+// aggregate_credits for every HOT pick, so no new signal field is needed.
+//
 // The query is one UNION ALL'd round-trip so the LIMIT applies across
 // the priority-ordered union, NOT per-tier — which is the desired
 // budget behaviour ("drain hot first, then normal, then cold").
 //
 // Portable across Postgres + SQLite: literal '1970-01-01' for NULL
-// sentinel ordering, no array_agg, no JSON aggregation. The terminal-
+// sentinel ordering, literal 'tv' discriminator, EXISTS/NOT EXISTS only
+// (no array_agg, no JSON aggregation, no dialect casts). The terminal-
 // failure guard is the same NOT EXISTS shape `ListStaleForTMDB` ships
 // today (see series_repository.go:391-401) and travels through the
-// same `enrichment_errors_pk_lookup` index.
+// same `enrichment_errors_pk_lookup` index; the null-heal EXISTS pair
+// travels through the person_credits_media index (media_type,tmdb_media_id).
 func (r *SeriesRepository) PickRefreshCandidates(
 	ctx context.Context,
 	now time.Time,
@@ -81,6 +102,13 @@ func (r *SeriesRepository) PickRefreshCandidates(
 	// 15 minutes may be mid-Handle (poster seed not yet committed) — do
 	// not yank it into a concurrent refresh.
 	posterGuardCutoff := now.UTC().Add(-15 * time.Minute)
+	// #1090b null-heal cooldown: HandleForced stamps
+	// enrichment_tmdb_synced_at=now on every heal, so this 6h backoff
+	// bounds a genuinely-unfillable series (all tv rows stay NULL) to at
+	// most one re-pick per 6h instead of once per 30-min tick. Comfortably
+	// longer than the tick; short enough that the library (synced across
+	// the last 7d) drains on the first ticks.
+	healGuardCutoff := now.UTC().Add(-6 * time.Hour)
 
 	const errSrc = "tmdb_series"
 	const sqlTmpl = `
@@ -101,6 +129,14 @@ SELECT * FROM (
             AND NOT EXISTS (
               SELECT 1 FROM series_media_texts smt
                WHERE smt.series_id = s.id AND smt.poster_asset IS NOT NULL))
+        OR (s.enrichment_tmdb_synced_at < ?
+            AND EXISTS (
+              SELECT 1 FROM person_credits pc
+               WHERE pc.media_type = 'tv' AND pc.tmdb_media_id = s.tmdb_id)
+            AND NOT EXISTS (
+              SELECT 1 FROM person_credits pc2
+               WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
+                 AND pc2.last_appearance_season IS NOT NULL))
          )
      AND EXISTS (
        SELECT 1 FROM series_cache sc
@@ -157,7 +193,7 @@ LIMIT ?
 	var rows []row
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Raw(sqlTmpl,
-			hotCutoff, hotCutoff, posterGuardCutoff, errSrc,
+			hotCutoff, hotCutoff, posterGuardCutoff, healGuardCutoff, errSrc,
 			normalCutoff, errSrc,
 			coldCutoff, errSrc,
 			nullSentinel, limit,

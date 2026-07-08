@@ -306,6 +306,146 @@ func TestSeriesRepository_PickRefreshCandidates_LimitAppliesAcrossUnion(t *testi
 	}
 }
 
+// seedPersonRow inserts one people row (canon person) and returns its
+// surrogate id, so #1090b heal tests can hang media_type='tv'
+// person_credits off a real FK target (person_credits.person_id →
+// people.id is NoAction, enforced at commit on Postgres). Name is the
+// read-only projection (people.name dropped in 000037); we set
+// original_name instead.
+func seedPersonRow(t *testing.T, db *gorm.DB, tmdbID int) int64 {
+	t.Helper()
+	p := database.PeopleModel{
+		TMDBID:       ptrTMDBID(tmdbID),
+		Hydration:    "stub",
+		OriginalName: new("Person " + string(rune('A'+tmdbID%26))),
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	require.NoError(t, db.Create(&p).Error)
+	return p.ID
+}
+
+// seedPersonCreditTV inserts one media_type='tv' person_credits row
+// linking (personID) to a series via tmdb_media_id = series.tmdb_id.
+// lastApp nil → NULL last_appearance_season (unhealed); non-nil → healed.
+// creditID must be unique per (personID, tmdb_credit_id).
+func seedPersonCreditTV(t *testing.T, db *gorm.DB, personID int64, tmdbMediaID int, creditID string, lastApp *int) {
+	t.Helper()
+	row := database.PersonCreditModel{
+		PersonID:             personID,
+		TMDBCreditID:         creditID,
+		MediaType:            "tv",
+		TMDBMediaID:          tmdbMediaID,
+		Title:                "Heal Series",
+		Kind:                 "cast",
+		LastAppearanceSeason: lastApp,
+		CreatedAt:            time.Now().UTC(),
+		UpdatedAt:            time.Now().UTC(),
+	}
+	require.NoError(t, db.Create(&row).Error)
+}
+
+// TestSeriesRepository_PickRefreshCandidates_LastAppearanceHeal covers the
+// #1090b HOT null-heal branch: a TTL-fresh library series whose
+// media_type='tv' person_credits are all NULL last_appearance_season is
+// re-picked so the #1090 backfill lands, while the branch stays bounded —
+//
+//	(a) heal-picks an all-NULL tv-row library series (synced > 6h ago),
+//	(b) skips a series that already has a non-NULL last_appearance_season,
+//	(c) skips a series with zero tv-row credits (no infinite loop),
+//	(d) skips an all-NULL series stamped < 6h ago (heal cooldown),
+//	(e) no regression: the W17-1 poster-heal pick still fires as before.
+//
+// Every heal-candidate carries a poster and is TTL-fresh, so the ONLY
+// branch that can select it is the null-heal OR (isolates the new clause).
+func TestSeriesRepository_PickRefreshCandidates_LastAppearanceHeal(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+			twelveHoursAgo := now.Add(-12 * time.Hour) // TTL-fresh (< 7d) AND past the 6h heal cooldown
+			oneHourAgo := now.Add(-1 * time.Hour)      // TTL-fresh BUT inside the 6h heal cooldown
+
+			seedLib := func(title string, tmdbID int64, syncedAt *time.Time, sonarrID domain.SonarrSeriesID) domain.SeriesID {
+				t.Helper()
+				c := sampleCanon(title)
+				c.TMDBID = ptrTMDBID(int(tmdbID))
+				c.TVDBID = ptrTVDBID(int(tmdbID + 100000))
+				c.IMDBID = nil
+				c.EnrichmentTMDBSyncedAt = syncedAt
+				id, err := repo.Upsert(ctx, c)
+				require.NoError(t, err)
+				seedSeriesCacheRow(t, db, id, "main", sonarrID, false)
+				// Poster present so the W17-1 poster branch never selects it —
+				// the null-heal OR is the only candidate branch.
+				seedSeriesMediaTextRow(t, db, id, "en-US", "/posters/"+title+".jpg")
+				return id
+			}
+
+			// A — all-NULL tv rows, synced 12h ago → PICKED via null-heal.
+			idA := seedLib("A-heal-null", 5001, &twelveHoursAgo, 5001)
+			pA := seedPersonRow(t, db, 6001)
+			seedPersonCreditTV(t, db, pA, 5001, "cr-a1", nil)
+			seedPersonCreditTV(t, db, pA, 5001, "cr-a2", nil)
+
+			// B — one tv row already has last_appearance_season → NOT picked.
+			idB := seedLib("B-healed", 5002, &twelveHoursAgo, 5002)
+			pB := seedPersonRow(t, db, 6002)
+			seedPersonCreditTV(t, db, pB, 5002, "cr-b1", nil)
+			seedPersonCreditTV(t, db, pB, 5002, "cr-b2", new(3))
+
+			// C — zero tv-row credits → NOT picked (excludes fallback/no-cast).
+			idC := seedLib("C-no-tv-rows", 5003, &twelveHoursAgo, 5003)
+
+			// D — all-NULL tv rows BUT synced 1h ago (inside 6h cooldown) → NOT picked.
+			idD := seedLib("D-cooldown", 5004, &oneHourAgo, 5004)
+			pD := seedPersonRow(t, db, 6004)
+			seedPersonCreditTV(t, db, pD, 5004, "cr-d1", nil)
+
+			// P — W17-1 regression sentinel: TTL-fresh (1h ago), NO poster,
+			// no credits → PICKED via the poster branch, missing_poster=true.
+			cP := sampleCanon("P-poster")
+			cP.TMDBID = ptrTMDBID(5005)
+			cP.TVDBID = ptrTVDBID(105005)
+			cP.IMDBID = nil
+			cP.EnrichmentTMDBSyncedAt = &oneHourAgo
+			idP, err := repo.Upsert(ctx, cP)
+			require.NoError(t, err)
+			seedSeriesCacheRow(t, db, idP, "main", 5005, false)
+
+			rows, err := repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 50)
+			require.NoError(t, err)
+
+			picked := make(map[domain.SeriesID]RefreshCandidate, len(rows))
+			for _, r := range rows {
+				picked[r.SeriesID] = r
+			}
+
+			// (a) all-NULL, past cooldown → picked as a normal HOT pick (tier=1),
+			// NOT attributed missing_poster (it has a poster).
+			require.Contains(t, picked, idA, "all-NULL tv-row library series must be heal-picked")
+			assert.Equal(t, enrichment.RefreshTierHot, picked[idA].Tier)
+			assert.False(t, picked[idA].MissingPoster, "heal pick with a poster is not a poster pick")
+
+			// (b) already healed → not picked.
+			assert.NotContains(t, picked, idB, "series with a non-NULL last_appearance_season must not be re-picked")
+			// (c) zero tv rows → not picked.
+			assert.NotContains(t, picked, idC, "series with zero tv-row credits must never enter the heal branch")
+			// (d) inside 6h cooldown → not picked (bounds genuinely-unfillable series).
+			assert.NotContains(t, picked, idD, "all-NULL series stamped < 6h ago must wait out the heal cooldown")
+
+			// (e) W17-1 poster-heal still fires unchanged.
+			require.Contains(t, picked, idP, "W17-1 poster-less library series must still be picked")
+			assert.True(t, picked[idP].MissingPoster, "poster pick must still carry missing_poster")
+		})
+	}
+}
+
 // TestSeriesRepository_PickRefreshCandidates_DefaultLimit asserts the
 // limit <= 0 sentinel falls back to 50 rather than disabling the
 // query budget entirely.
