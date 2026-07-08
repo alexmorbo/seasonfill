@@ -1225,21 +1225,23 @@ func (a PersonCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []peo
 	rows := make([]database.PersonCreditModel, 0, len(credits))
 	for _, c := range credits {
 		rows = append(rows, database.PersonCreditModel{
-			PersonID:      c.PersonID,
-			TMDBCreditID:  c.TMDBCreditID,
-			MediaType:     c.MediaType,
-			TMDBMediaID:   int(c.TMDBMediaID),
-			Title:         c.Title,
-			OriginalTitle: c.OriginalTitle,
-			Year:          yearFromReleaseDate(c.ReleaseDate),
-			CharacterName: c.CharacterName,
-			Kind:          string(c.Kind),
-			Department:    c.Department,
-			Job:           c.Job,
-			PosterPath:    c.PosterAsset,
-			VoteAverage:   c.TMDBRating,
-			TMDBVotes:     c.TMDBVotes,
-			EpisodeCount:  c.EpisodeCount,
+			PersonID:             c.PersonID,
+			TMDBCreditID:         c.TMDBCreditID,
+			MediaType:            c.MediaType,
+			TMDBMediaID:          int(c.TMDBMediaID),
+			Title:                c.Title,
+			OriginalTitle:        c.OriginalTitle,
+			Year:                 yearFromReleaseDate(c.ReleaseDate),
+			CharacterName:        c.CharacterName,
+			Kind:                 string(c.Kind),
+			Department:           c.Department,
+			Job:                  c.Job,
+			PosterPath:           c.PosterAsset,
+			VoteAverage:          c.TMDBRating,
+			TMDBVotes:            c.TMDBVotes,
+			EpisodeCount:         c.EpisodeCount,
+			CreditOrder:          c.CreditOrder,
+			LastAppearanceSeason: c.LastAppearanceSeason,
 		})
 	}
 	return a.Inner.BatchUpsert(ctx, rows)
