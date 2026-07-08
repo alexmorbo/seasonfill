@@ -48,14 +48,14 @@ export function CastGrid({ cast, totalEpisodeCount, className }: CastGridProps) 
         className,
       )}
     >
-      {cast.map((m) => {
+      {cast.map((m, i) => {
         const src = mediaUrl(m.profile_asset);
         const name = m.name ?? '';
         const character = m.character_name ?? '';
         const episodes = m.episode_count ?? 0;
         const tmdb = m.tmdb_id;
         const badge = CAST_BADGES_ENABLED ? deriveRoleBadge(episodes, totalEpisodeCount) : null;
-        const key = m.person_id ?? m.tmdb_id ?? `${name}-${character}`;
+        const key = `${m.person_id ?? m.tmdb_id ?? name}-${character}-${i}`;
 
         const inner = (
           <div className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-border-subtle bg-bg-surface hover:border-border-strong transition-colors">
