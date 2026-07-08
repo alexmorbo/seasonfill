@@ -115,6 +115,15 @@ type EnrichmentConfig struct {
 	// hash for every call so the frontend has a stable visual slot.
 	MediaUnifiedResolve bool
 
+	// SkeletonColdMediaSeed (W110-2) gates the synchronous cold poster-presence
+	// seed in the skeleton composer. DEFAULT ON; env
+	// SEASONFILL_SKELETON_COLD_MEDIA_SEED is a kill-switch — "false"/"0"/"no"/
+	// "off" reverts to the legacy sentinel-on-cold + self-heal-on-refresh path.
+	// When ON, the first open of a (series,lang) pair whose requested-lang
+	// series_media_texts poster presence is unknown runs a forced SectionSkeleton
+	// seed so the first paint carries a real/eager poster hash, not the sentinel.
+	SkeletonColdMediaSeed bool
+
 	// EnrichmentSeriesWorkers is the number of concurrent series-hydration
 	// goroutines the dispatcher spawns. Story 1096 — env-tunable so the
 	// operator can raise concurrency toward the 50 rps TMDB cap without a
@@ -413,7 +422,8 @@ func FromEnv() (*Bootstrap, error) {
 			// kill-switch. Pinning "true" in chart values.yaml would
 			// defeat that, so leave the env unset in production and let
 			// the code default win.
-			MediaUnifiedResolve: getenvBool("SEASONFILL_MEDIA_UNIFIED_RESOLVE", true),
+			MediaUnifiedResolve:   getenvBool("SEASONFILL_MEDIA_UNIFIED_RESOLVE", true),
+			SkeletonColdMediaSeed: getenvBool("SEASONFILL_SKELETON_COLD_MEDIA_SEED", true),
 			// Story 1096 — worker/concurrency knobs. getenvInt returns the
 			// default when the env is unset OR parses to <=0, so env=0/negative
 			// naturally falls back to the >=1 default (no explicit clamp needed

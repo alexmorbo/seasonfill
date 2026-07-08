@@ -188,6 +188,29 @@ func TestFromEnv_MediaUnifiedResolve_GarbageFallsBackToDefault(t *testing.T) {
 		"unparseable env must fall back to default-on")
 }
 
+// W110-2 — SEASONFILL_SKELETON_COLD_MEDIA_SEED default-on + kill-switch.
+func TestFromEnv_SkeletonColdMediaSeed_DefaultsTrue(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	// SEASONFILL_SKELETON_COLD_MEDIA_SEED deliberately unset.
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.True(t, cfg.Enrichment.SkeletonColdMediaSeed,
+		"unset SEASONFILL_SKELETON_COLD_MEDIA_SEED must default to true (W110-2)")
+}
+
+func TestFromEnv_SkeletonColdMediaSeed_KillSwitchFalse(t *testing.T) {
+	for _, v := range []string{"false", "0", "no", "off"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+			t.Setenv("SEASONFILL_SKELETON_COLD_MEDIA_SEED", v)
+			cfg, err := FromEnv()
+			require.NoError(t, err)
+			assert.False(t, cfg.Enrichment.SkeletonColdMediaSeed,
+				"kill-switch %q must flip SkeletonColdMediaSeed off", v)
+		})
+	}
+}
+
 func TestFromEnv_WebhookBaseURL_Set(t *testing.T) {
 	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
 	t.Setenv("SEASONFILL_WEBHOOK_BASE_URL", "  https://sf.example/  ")

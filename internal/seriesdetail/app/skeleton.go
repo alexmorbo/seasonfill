@@ -150,6 +150,15 @@ type SkeletonDeps struct {
 	MediaResolver     *media.Resolver
 	Logger            *slog.Logger
 	Now               func() time.Time
+
+	// ColdMediaSeed (W110-2) gates the synchronous cold poster-presence seed.
+	// Default ON in production (config SEASONFILL_SKELETON_COLD_MEDIA_SEED,
+	// default true); the struct zero value is false so unit tests that don't
+	// wire a media-texts port or opt in stay seed-free. When true and the
+	// requested-lang series_media_texts poster presence is UNKNOWN, Compose
+	// runs a forced SectionSkeleton seed before the hero errgroup so the first
+	// paint carries a real/eager poster hash instead of the sentinel.
+	ColdMediaSeed bool
 }
 
 // SkeletonComposer builds the above-fold canon document. Testable in
@@ -236,6 +245,36 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 		)
 	}
 
+	// W110-2 — poster-flicker cold seed. Independent of the cold-gate above: a
+	// HydrationFull series with a fresh SkeletonSyncedAt has cold==false, so the
+	// ModeSync skeleton call never ran (or ran force=false → Probe-gated no-op)
+	// and the requested-lang series_media_texts row was never seeded. buildHero
+	// would then read a nil posterPath → ResolveSync's nil-path branch returns
+	// the sentinel placeholder on the FIRST paint (the bug). When the row's
+	// poster presence is UNKNOWN (no row, or a row with neither PosterAsset set
+	// nor PosterCheckedAt stamped) we force a SYNCHRONOUS SectionSkeleton seed:
+	// HandleForcedLang upserts series_media_texts{lang} with poster_checked_at
+	// stamped (strict pick for a non-base lang writes an ABSENCE row on a
+	// genuine miss), so buildHero then resolves either the localized poster
+	// (present) or the stable original via GetPosterAnyLang (confirmed-absent) —
+	// a non-nil path, eager-hashed, FINAL (no later swap; #1081 preserved).
+	// force=true bypasses the Probe TTL (whose verdict carries no per-lang
+	// poster-presence signal); posterPresenceUnknown IS that presence check, so
+	// no unrelated section is force-run. Kill-switch:
+	// SEASONFILL_SKELETON_COLD_MEDIA_SEED=false (ColdMediaSeed==false) skips the
+	// blocking seed. First-open cost: +~1 GetTV (~1.5s under contention) on the
+	// FIRST view of each (series,lang) pair only; warm views pay nothing.
+	if sc.d.ColdMediaSeed && sc.d.Freshener != nil && sc.d.SeriesMediaTexts != nil &&
+		sc.posterPresenceUnknown(ctx, seriesID, langStr) {
+		_, _ = sc.d.Freshener.EnsureFreshScope(
+			ctx, seriesID, langStr,
+			[]freshener.Section{freshener.SectionSkeleton},
+			nil,  // seasonNumbers — hero renders no season episodes
+			true, // force — bypass Probe TTL; posterPresenceUnknown is the gate
+			ModeSync,
+		)
+	}
+
 	dto := SkeletonDTO{SeriesID: seriesID, Lang: lang}
 	dto.SyncedAt = canon.UpdatedAt // W18-16: no longer churns — gate refreshes only on real staleness
 	dto.ExternalLinks = buildExternalLinks(canon)
@@ -263,6 +302,29 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 
 	dto.Degraded = sc.computeDegraded(canon, freshen, dto.ServedLanguage, langStr)
 	return dto, nil
+}
+
+// posterPresenceUnknown reports whether the requested-lang series_media_texts
+// poster presence is UNKNOWN — i.e. buildHero would leave posterPath nil and
+// ResolveSync would emit the sentinel. Mirrors buildHero's own marker switch
+// (skeleton.go:391-400):
+//   - present          (PosterAsset set)          → KNOWN.
+//   - confirmed-absent (PosterCheckedAt stamped)  → KNOWN (GetPosterAnyLang serves it).
+//   - never-checked / no row                      → UNKNOWN (the bug — needs a seed).
+//
+// Any repo error (ErrNotFound = no row, or a transient failure) is treated as
+// UNKNOWN: the worst case is one extra GetTV on a cold DB blip, gated by the
+// kill-switch and the cold-only first-open path. Called ONCE per compose,
+// synchronously before the hero errgroup, so buildHero re-reads the seeded row
+// race-free.
+func (sc *SkeletonComposer) posterPresenceUnknown(ctx context.Context, seriesID domain.SeriesID, langStr string) bool {
+	row, err := sc.d.SeriesMediaTexts.Get(ctx, seriesID, langStr)
+	if err != nil {
+		return true // no usable row (ErrNotFound / transient) → presence unknown
+	}
+	present := row.PosterAsset != nil && *row.PosterAsset != ""
+	checked := row.PosterCheckedAt != nil
+	return !present && !checked
 }
 
 func (sc *SkeletonComposer) buildHero(ctx context.Context, dto *SkeletonDTO, canon series.Canon, seriesID domain.SeriesID, langStr string, langTag values.LanguageTag) error {

@@ -292,7 +292,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	mediaAssetsRepo := mediaBundle.AssetsRepo
 	mediaHandler := mediaBundle.Handler
 
-	seriesDetailBundle, err := wiring.BuildSeriesDetail(persistence, sonarrBundle, mediaBundle, scanBundle.GrabRepo, scanUC, bootCfg.Enrichment.MediaUnifiedResolve, log)
+	seriesDetailBundle, err := wiring.BuildSeriesDetail(persistence, sonarrBundle, mediaBundle, scanBundle.GrabRepo, scanUC, bootCfg.Enrichment.MediaUnifiedResolve, bootCfg.Enrichment.SkeletonColdMediaSeed, log)
 	if err != nil {
 		return nil, err
 	}

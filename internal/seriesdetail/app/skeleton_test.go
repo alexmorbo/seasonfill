@@ -235,6 +235,57 @@ func (s *spyFreshener) EnsureFresh(context.Context, domain.SeriesID, string) Fre
 	return s.result
 }
 
+// seedingFreshener simulates the production freshener's HandleForcedLang seed:
+// on a force=true ModeSync SectionSkeleton dispatch it invokes onSeed (the test
+// wires this to mutate the media-texts fake, mirroring the series_media_texts
+// {lang} upsert with poster_checked_at). All calls are recorded so tests can
+// assert whether/how the seed fired.
+type seedingFreshener struct {
+	calls  []freshenCall
+	result FreshenResult
+	onSeed func()
+}
+
+func (s *seedingFreshener) EnsureFreshScope(_ context.Context, _ domain.SeriesID, lang string, sections []freshener.Section, _ []int, force bool, mode EnsureFreshMode) (FreshenResult, error) {
+	s.calls = append(s.calls, freshenCall{sections: sections, lang: lang, force: force, mode: mode})
+	if s.onSeed != nil && force && mode == ModeSync &&
+		len(sections) == 1 && sections[0] == freshener.SectionSkeleton {
+		s.onSeed()
+	}
+	return s.result, nil
+}
+
+func (s *seedingFreshener) EnsureFresh(context.Context, domain.SeriesID, string) FreshenResult {
+	return s.result
+}
+
+// forcedSkeletonSeeds counts the W110-2 seed dispatches (force=true, ModeSync,
+// exactly [SectionSkeleton]).
+func (s *seedingFreshener) forcedSkeletonSeeds() int {
+	n := 0
+	for _, c := range s.calls {
+		if c.force && c.mode == ModeSync && len(c.sections) == 1 && c.sections[0] == freshener.SectionSkeleton {
+			n++
+		}
+	}
+	return n
+}
+
+// seedCallIndex returns the index of the (single) forced SectionSkeleton seed
+// call; fails the test if there is not exactly one.
+func (s *seedingFreshener) seedCallIndex(t *testing.T) int {
+	t.Helper()
+	idx := -1
+	for i, c := range s.calls {
+		if c.force && c.mode == ModeSync && len(c.sections) == 1 && c.sections[0] == freshener.SectionSkeleton {
+			require.Equal(t, -1, idx, "more than one forced skeleton seed")
+			idx = i
+		}
+	}
+	require.NotEqual(t, -1, idx, "no forced skeleton seed call recorded")
+	return idx
+}
+
 // --- helpers ---
 
 func skBaseCanon() series.Canon {
@@ -810,6 +861,160 @@ func TestSkeletonComposer_PosterMarker_RowExistsNeverChecked_NilPoster(t *testin
 	require.NoError(t, err)
 	require.True(t, dto.Hero.PosterAsset.IsZero(),
 		"never-checked row (both nil) must render nil — the any-lang recovery tier is confirmed-absent-only")
+}
+
+// --- W110-2 — cold poster-presence seed ---
+
+// coldSeedDeps builds skeleton deps wired for the W110-2 seed: a mutable
+// media-texts fake + a seedingFreshener + ColdMediaSeed enabled + an eager
+// unified resolver (nil path → sentinel; non-nil → eager hash).
+func coldSeedDeps(t *testing.T, mt *fakeSkMediaTexts, sf *seedingFreshener, enabled bool) SkeletonDeps {
+	t.Helper()
+	deps, _, lookup := skBaseDeps(skBaseCanon())
+	lookup.rows = []series.CacheEntry{{InstanceName: "homelab"}}
+	res := skEagerResolver()
+	res.SetUnifiedResolve(true)
+	deps.MediaResolver = res
+	deps.SeriesMediaTexts = mt
+	deps.Freshener = sf
+	deps.ColdMediaSeed = enabled
+	return deps
+}
+
+// Cold-unknown series (no requested-lang row) → the forced seed writes the
+// localized poster, so the FIRST compose serves the REAL ru poster, never the
+// sentinel. Asserts the seed dispatch shape too.
+func TestSkeletonComposer_ColdUnknownPoster_SeedWritesLocalized_NoSentinel(t *testing.T) {
+	t.Parallel()
+	mt := &fakeSkMediaTexts{err: dataports.ErrNotFound} // never-checked at first
+	sf := &seedingFreshener{}
+	sf.onSeed = func() {
+		// HandleForcedLang wrote the ru row with a present poster.
+		mt.err = nil
+		mt.row = series.SeriesMediaText{
+			SeriesID: 42, Language: "ru-RU",
+			PosterAsset:     new("/ru.jpg"),
+			PosterCheckedAt: new(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)),
+		}
+	}
+	sc := NewSkeletonComposer(coldSeedDeps(t, mt, sf, true))
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Equal(t, 1, sf.forcedSkeletonSeeds(), "exactly one forced SectionSkeleton seed on cold-unknown")
+	require.Equal(t, skEagerHash("/ru.jpg", "w342"), dto.Hero.PosterAsset.Value(),
+		"first paint must carry the real localized poster")
+	require.NotEqual(t, appmedia.SentinelMissingHash, dto.Hero.PosterAsset.Value(),
+		"cold-unknown must NOT serve the sentinel on first paint")
+	// Seed dispatch shape.
+	require.Equal(t, "ru-RU", sf.calls[sf.seedCallIndex(t)].lang)
+}
+
+// Cold-unknown series with NO localized poster → the seed writes a confirmed-
+// absent row; buildHero then serves the stable original via GetPosterAnyLang —
+// still non-nil, still not the sentinel (no en→ru swap since it's now
+// confirmed-absent).
+func TestSkeletonComposer_ColdUnknownPoster_SeedWritesAbsent_ServesOriginal(t *testing.T) {
+	t.Parallel()
+	mt := &fakeSkMediaTexts{err: dataports.ErrNotFound, posterAny: new("/en.jpg")}
+	sf := &seedingFreshener{}
+	sf.onSeed = func() {
+		mt.err = nil
+		mt.row = series.SeriesMediaText{
+			SeriesID: 42, Language: "ru-RU",
+			PosterAsset:     nil, // strict miss → absence row
+			PosterCheckedAt: new(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)),
+		}
+	}
+	sc := NewSkeletonComposer(coldSeedDeps(t, mt, sf, true))
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Equal(t, 1, sf.forcedSkeletonSeeds())
+	require.Equal(t, skEagerHash("/en.jpg", "w342"), dto.Hero.PosterAsset.Value(),
+		"confirmed-absent after seed → stable original via GetPosterAnyLang")
+	require.NotEqual(t, appmedia.SentinelMissingHash, dto.Hero.PosterAsset.Value())
+}
+
+// Warm/present path: a requested-lang row already carries a poster → NO seed
+// dispatched, poster unchanged.
+func TestSkeletonComposer_WarmPresentPoster_NoSeed(t *testing.T) {
+	t.Parallel()
+	mt := &fakeSkMediaTexts{row: series.SeriesMediaText{
+		SeriesID: 42, Language: "ru-RU", PosterAsset: new("/ru.jpg"),
+	}}
+	sf := &seedingFreshener{}
+	sf.onSeed = func() { t.Fatal("seed must not fire when poster is present") }
+	sc := NewSkeletonComposer(coldSeedDeps(t, mt, sf, true))
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Equal(t, 0, sf.forcedSkeletonSeeds(), "present poster → no forced seed")
+	require.Equal(t, skEagerHash("/ru.jpg", "w342"), dto.Hero.PosterAsset.Value())
+}
+
+// Confirmed-absent path: PosterCheckedAt stamped, PosterAsset nil → presence is
+// KNOWN (absent) → NO seed; GetPosterAnyLang serves the original.
+func TestSkeletonComposer_ConfirmedAbsentPoster_NoSeed(t *testing.T) {
+	t.Parallel()
+	checkedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	mt := &fakeSkMediaTexts{
+		row: series.SeriesMediaText{
+			SeriesID: 42, Language: "ru-RU",
+			PosterAsset:     nil,
+			PosterCheckedAt: &checkedAt,
+		},
+		posterAny: new("/en.jpg"),
+	}
+	sf := &seedingFreshener{}
+	sf.onSeed = func() { t.Fatal("seed must not fire when presence is confirmed-absent") }
+	sc := NewSkeletonComposer(coldSeedDeps(t, mt, sf, true))
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Equal(t, 0, sf.forcedSkeletonSeeds())
+	require.Equal(t, skEagerHash("/en.jpg", "w342"), dto.Hero.PosterAsset.Value())
+}
+
+// Kill-switch OFF: cold-unknown series → NO seed dispatched, poster falls back
+// to the pre-W110-2 sentinel (self-heals on refresh via the async widen).
+func TestSkeletonComposer_KillSwitchOff_NoSeed_Sentinel(t *testing.T) {
+	t.Parallel()
+	mt := &fakeSkMediaTexts{err: dataports.ErrNotFound}
+	sf := &seedingFreshener{}
+	sf.onSeed = func() { t.Fatal("seed must not fire when ColdMediaSeed is disabled") }
+	sc := NewSkeletonComposer(coldSeedDeps(t, mt, sf, false)) // kill-switch OFF
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Equal(t, 0, sf.forcedSkeletonSeeds(), "kill-switch off → no forced seed")
+	require.Equal(t, appmedia.SentinelMissingHash, dto.Hero.PosterAsset.Value(),
+		"disabled → legacy sentinel-on-cold behavior preserved")
+}
+
+// Genuinely art-less series: the seed writes a confirmed-absent row AND no poster
+// exists in any language (GetPosterAnyLang → nil) → the hero stays the sentinel/
+// monogram. The seed must NOT fabricate a false poster.
+func TestSkeletonComposer_ArtlessSeries_SeedWritesAbsence_StillSentinel(t *testing.T) {
+	t.Parallel()
+	mt := &fakeSkMediaTexts{err: dataports.ErrNotFound, posterAny: nil}
+	sf := &seedingFreshener{}
+	sf.onSeed = func() {
+		mt.err = nil
+		mt.row = series.SeriesMediaText{
+			SeriesID: 42, Language: "ru-RU",
+			PosterAsset:     nil,
+			PosterCheckedAt: new(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)),
+		}
+		// posterAny stays nil — no art anywhere.
+	}
+	sc := NewSkeletonComposer(coldSeedDeps(t, mt, sf, true))
+	dto, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+
+	require.Equal(t, 1, sf.forcedSkeletonSeeds())
+	require.Equal(t, appmedia.SentinelMissingHash, dto.Hero.PosterAsset.Value(),
+		"no art anywhere → sentinel/monogram, never a fabricated poster")
 }
 
 // W16-3 — network & production-company logos must be resolved through the

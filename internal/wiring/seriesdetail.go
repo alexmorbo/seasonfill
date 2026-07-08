@@ -236,6 +236,7 @@ func BuildSeriesDetail(
 	grabRepo *grabpersistence.GrabRepository, // Story 577 — grab history source
 	scanUC *scan.UseCase, // Story 577 — sonarr_sync trigger source
 	unifiedResolve bool,
+	coldMediaSeed bool, // W110-2 — cold poster-presence seed kill-switch
 	log *slog.Logger,
 ) (*SeriesDetailBundle, error) {
 	db := persistence.DB
@@ -511,6 +512,7 @@ func BuildSeriesDetail(
 		Freshener:         seriesFreshenerHolder,
 		MediaResolver:     mediaResolver,
 		Logger:            composerLog,
+		ColdMediaSeed:     coldMediaSeed,
 	})
 
 	globalComposerUC, err := seriesdetail.NewGlobalComposerUseCase(seriesdetail.GlobalComposerDeps{
