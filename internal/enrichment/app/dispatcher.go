@@ -49,6 +49,13 @@ type Workers struct {
 	// Nil-OK (production-only feature for the cold-start gauge;
 	// tests that don't care leave it nil).
 	OnSeriesComplete func(id int64)
+	// SeriesWorkers / PersonWorkers — Story 1096. Number of concurrent
+	// series / person goroutines Start spawns. 0/negative → clamped to 1
+	// inside Start (defensive; the config layer already floors to the >=1
+	// default). Pre-1096 these were hardcoded 2 / 1; the operator now tunes
+	// them via SEASONFILL_ENRICHMENT_{SERIES,PERSON}_WORKERS. OMDb stays 1.
+	SeriesWorkers int
+	PersonWorkers int
 }
 
 // jobHandler is the internal, priority-aware handler shape the worker loop
@@ -95,22 +102,28 @@ func (d *DispatcherImpl) Start(parent context.Context) {
 	d.cancel = cancel
 	d.mu.Unlock()
 
-	// Two series goroutines. Series/person handlers are lifted to the
-	// priority-aware jobHandler shape (priority discarded — no lane).
+	// Series goroutines. Story 1096 — count is configurable; clamp at 1
+	// defensively so a mis-set 0/negative never disables the pool.
+	// Series/person handlers are lifted to the priority-aware jobHandler
+	// shape (priority discarded — no lane).
+	seriesWorkers := max(d.workers.SeriesWorkers, 1)
+	personWorkers := max(d.workers.PersonWorkers, 1)
 	seriesH := liftIDHandler(d.workers.SeriesHandler)
-	for i := range 2 {
+	for i := range seriesWorkers {
 		idx := i
 		d.wg.Go(func() {
 			d.loop(ctx, EntitySeries, idx, seriesH)
 		})
 	}
-	// One person goroutine — placeholder until 212 lands the real
-	// handler. PersonHandler nil → loop logs "not implemented"
-	// per-dequeue.
+	// Person goroutines. Story 1096 — count is configurable (default 1).
+	// PersonHandler nil → loop logs "not implemented" per-dequeue.
 	personH := liftIDHandler(d.workers.PersonHandler)
-	d.wg.Go(func() {
-		d.loop(ctx, EntityPerson, 0, personH)
-	})
+	for i := range personWorkers {
+		idx := i
+		d.wg.Go(func() {
+			d.loop(ctx, EntityPerson, idx, personH)
+		})
+	}
 	// 213 (D-1): one OMDb goroutine. The shared queue's cross-kind
 	// drain in loop() guarantees an OMDb goroutine waking on a
 	// series job re-enqueues it. With 2× series + 1× person + 1×
@@ -122,8 +135,8 @@ func (d *DispatcherImpl) Start(parent context.Context) {
 		d.loop(ctx, EntityOMDb, 0, d.workers.OMDbHandler)
 	})
 	d.logger.InfoContext(ctx, "enrichment.dispatcher.started",
-		slog.Int("series_workers", 2),
-		slog.Int("person_workers", 1),
+		slog.Int("series_workers", seriesWorkers),
+		slog.Int("person_workers", personWorkers),
 		slog.Int("omdb_workers", 1),
 	)
 }

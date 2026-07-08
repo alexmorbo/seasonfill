@@ -202,3 +202,42 @@ func TestFromEnv_WebhookBaseURL_UnsetEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "", cfg.HTTP.WebhookBaseURL)
 }
+
+// Story 1096 — enrichment worker/concurrency knobs.
+func TestFromEnv_EnrichmentWorkerDefaults(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 2, cfg.Enrichment.EnrichmentSeriesWorkers)
+	assert.Equal(t, 1, cfg.Enrichment.EnrichmentPersonWorkers)
+	assert.Equal(t, 4, cfg.Enrichment.EnrichmentSeasonConcurrency)
+}
+
+func TestFromEnv_EnrichmentWorkerParsed(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_ENRICHMENT_SERIES_WORKERS", "6")
+	t.Setenv("SEASONFILL_ENRICHMENT_PERSON_WORKERS", "3")
+	t.Setenv("SEASONFILL_ENRICHMENT_SEASON_CONCURRENCY", "8")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 6, cfg.Enrichment.EnrichmentSeriesWorkers)
+	assert.Equal(t, 3, cfg.Enrichment.EnrichmentPersonWorkers)
+	assert.Equal(t, 8, cfg.Enrichment.EnrichmentSeasonConcurrency)
+}
+
+// getenvInt floors 0/negative/unparseable to the default, so a bad env can
+// never disable a worker (all defaults are >=1).
+func TestFromEnv_EnrichmentWorkerZeroFallsBackToDefault(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_ENRICHMENT_SERIES_WORKERS", "0")
+	t.Setenv("SEASONFILL_ENRICHMENT_PERSON_WORKERS", "-4")
+	t.Setenv("SEASONFILL_ENRICHMENT_SEASON_CONCURRENCY", "notanint")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 2, cfg.Enrichment.EnrichmentSeriesWorkers)
+	assert.Equal(t, 1, cfg.Enrichment.EnrichmentPersonWorkers)
+	assert.Equal(t, 4, cfg.Enrichment.EnrichmentSeasonConcurrency)
+	assert.GreaterOrEqual(t, cfg.Enrichment.EnrichmentSeriesWorkers, 1)
+	assert.GreaterOrEqual(t, cfg.Enrichment.EnrichmentPersonWorkers, 1)
+	assert.GreaterOrEqual(t, cfg.Enrichment.EnrichmentSeasonConcurrency, 1)
+}

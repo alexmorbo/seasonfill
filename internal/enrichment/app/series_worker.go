@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
@@ -130,6 +133,12 @@ type SeriesWorkerDeps struct {
 	OMDbBudget OMDbBudget
 	Logger     *slog.Logger
 	Clock      func() time.Time // injected for tests; defaults to time.Now
+
+	// SeasonConcurrency bounds the per-language parallel GetSeason fan-out
+	// in refreshOneLanguage (Story 1096, Fix B). <1 → clamped to 1 at the
+	// use site (sequential — matches pre-1096 behaviour). Production wiring
+	// threads config.Enrichment.EnrichmentSeasonConcurrency (default 4).
+	SeasonConcurrency int
 
 	// Probe — A2: optional per-section freshness probe consumed by the
 	// narrow refresh methods (RefreshSeriesText, RefreshCast) when
@@ -534,16 +543,34 @@ func (w *SeriesWorker) refreshOneLanguage(
 	// ALL seasons — otherwise old seasons (>365d) stay in en-US forever
 	// when ru-RU is requested on an already-hydrated series.
 	firstHydration := canon.EnrichmentTMDBSyncedAt == nil || force
+	// Story 1096 (Fix B): bounded-parallel per-season fetch. The global
+	// TMDB token-bucket limiter still serialises to 50 rps + adaptive
+	// pause; fanning the loop out just fills the in-flight budget up to
+	// SeasonConcurrency instead of one season at a time. seasonNeedsFetch
+	// gating (incl. the season-0 skip on refresh) is preserved verbatim.
+	seasonConcurrency := max(w.deps.SeasonConcurrency, 1)
 	seasonResponses := make(map[int]*tmdb.SeasonResponse, len(tv.Seasons))
+	var seasonMu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(seasonConcurrency)
 	for _, s := range tv.Seasons {
 		if !seasonNeedsFetch(s, firstHydration) {
 			continue
 		}
-		sr, err := w.deps.TMDB.GetSeason(ctx, int64(*canon.TMDBID), s.SeasonNumber, lang)
-		if err != nil {
-			return fmt.Errorf("GetSeason(%d,%s): %w", s.SeasonNumber, lang, err)
-		}
-		seasonResponses[s.SeasonNumber] = sr
+		s := s
+		g.Go(func() error {
+			sr, err := w.deps.TMDB.GetSeason(gctx, int64(*canon.TMDBID), s.SeasonNumber, lang)
+			if err != nil {
+				return fmt.Errorf("GetSeason(%d,%s): %w", s.SeasonNumber, lang, err)
+			}
+			seasonMu.Lock()
+			seasonResponses[s.SeasonNumber] = sr
+			seasonMu.Unlock()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
 	// 3b. Map outside the tx, using THIS language for text-bearing

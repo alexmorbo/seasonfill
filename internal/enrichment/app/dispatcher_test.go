@@ -1,6 +1,7 @@
 package enrichment
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -298,4 +299,73 @@ func TestDispatcher_OMDbHandlerReceivesPriority(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for cold OMDb job")
 	}
+}
+
+// Story 1096 (Fix A): Start must spawn the configured number of series
+// goroutines. We enqueue N distinct ids into a handler that blocks on a
+// gate; if N handlers enter concurrently, the pool has >=N workers.
+func TestDispatcher_SeriesWorkersConcurrency(t *testing.T) {
+	t.Parallel()
+	const n = 4
+	var inFlight atomic.Int64
+	gate := make(chan struct{})
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error {
+			inFlight.Add(1)
+			<-gate
+			return nil
+		},
+		SeriesWorkers: n,
+		PersonWorkers: 1,
+	}, quietLogger())
+	ctx := t.Context()
+	d.Start(ctx)
+	defer func() { close(gate); d.Close() }()
+
+	for i := int64(1); i <= n; i++ {
+		d.Enqueue(EntitySeries, i, PriorityHot)
+	}
+	// All n handlers must be in-flight simultaneously — only possible with
+	// n series goroutines.
+	waitFor(t, 2*time.Second, func() bool { return inFlight.Load() == int64(n) })
+	assert.Equal(t, int64(n), inFlight.Load())
+}
+
+// A 0/negative worker count must clamp to 1 (never disable the pool).
+func TestDispatcher_SeriesWorkersClampAtOne(t *testing.T) {
+	t.Parallel()
+	var seen atomic.Int64
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error {
+			seen.Store(id)
+			return nil
+		},
+		SeriesWorkers: 0, // must clamp to 1, not disable
+		PersonWorkers: -3,
+	}, quietLogger())
+	ctx := t.Context()
+	d.Start(ctx)
+	defer d.Close()
+	d.Enqueue(EntitySeries, 99, PriorityHot)
+	waitFor(t, time.Second, func() bool { return seen.Load() == 99 })
+}
+
+// The started log must report the ACTUAL configured counts (pre-1096 it
+// printed hardcoded 2/1).
+func TestDispatcher_StartedLogReportsConfiguredCounts(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error { return nil },
+		SeriesWorkers: 5,
+		PersonWorkers: 3,
+	}, logger)
+	ctx := t.Context()
+	d.Start(ctx)
+	defer d.Close()
+
+	require.Contains(t, buf.String(), "enrichment.dispatcher.started")
+	assert.Contains(t, buf.String(), `"series_workers":5`)
+	assert.Contains(t, buf.String(), `"person_workers":3`)
 }

@@ -480,7 +480,9 @@ func BuildEnrichment(
 		MediaResolver:  mediaResolver,  // E-1 A4: shared *media.Resolver instance
 		Dispatcher:     holder,
 		OMDbBudget:     omdbBudget, // W18-8: non-consuming Cold-budget pre-check
-		Logger:         enrichmentLog,
+		// Story 1096 (Fix B): bounded-parallel per-season GetSeason fan-out.
+		SeasonConcurrency: bootstrap.Enrichment.EnrichmentSeasonConcurrency,
+		Logger:            enrichmentLog,
 	})
 	if err != nil {
 		return nil, err
@@ -577,6 +579,9 @@ func BuildEnrichment(
 		// itself short-circuits to "handler_nil" when the holder is
 		// empty (OMDb disabled at boot, awaiting operator enable).
 		OMDbHandler: omdbWorkerHandle,
+		// Story 1096 (Fix A): env-configurable series/person pool sizes.
+		SeriesWorkers: bootstrap.Enrichment.EnrichmentSeriesWorkers,
+		PersonWorkers: bootstrap.Enrichment.EnrichmentPersonWorkers,
 	}, enrichmentLog)
 	holder.set(dispatcher)
 

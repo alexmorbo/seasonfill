@@ -114,6 +114,25 @@ type EnrichmentConfig struct {
 	// (the default), MediaResolver.Resolve emits a real or sentinel
 	// hash for every call so the frontend has a stable visual slot.
 	MediaUnifiedResolve bool
+
+	// EnrichmentSeriesWorkers is the number of concurrent series-hydration
+	// goroutines the dispatcher spawns. Story 1096 — env-tunable so the
+	// operator can raise concurrency toward the 50 rps TMDB cap without a
+	// rebuild. Default 2 (the pre-1096 hardcoded value). Env:
+	// SEASONFILL_ENRICHMENT_SERIES_WORKERS. getenvInt floors 0/negative/
+	// unparseable → default, so a bad env can never disable the worker.
+	EnrichmentSeriesWorkers int
+
+	// EnrichmentPersonWorkers is the number of concurrent person-hydration
+	// goroutines. Story 1096 — default 1 (pre-1096 hardcoded value). Env:
+	// SEASONFILL_ENRICHMENT_PERSON_WORKERS. Same 0→default floor as above.
+	EnrichmentPersonWorkers int
+
+	// EnrichmentSeasonConcurrency bounds the per-language parallel
+	// GetSeason fan-out inside the series worker (Story 1096, Fix B).
+	// Default 4 (modestly parallel). Env:
+	// SEASONFILL_ENRICHMENT_SEASON_CONCURRENCY. Same 0→default floor.
+	EnrichmentSeasonConcurrency int
 }
 
 // ExternalServicesEnv carries the env-only overrides for the three
@@ -365,6 +384,13 @@ func FromEnv() (*Bootstrap, error) {
 			// defeat that, so leave the env unset in production and let
 			// the code default win.
 			MediaUnifiedResolve: getenvBool("SEASONFILL_MEDIA_UNIFIED_RESOLVE", true),
+			// Story 1096 — worker/concurrency knobs. getenvInt returns the
+			// default when the env is unset OR parses to <=0, so env=0/negative
+			// naturally falls back to the >=1 default (no explicit clamp needed
+			// here; the dispatcher/series-worker also defensively clamp at use).
+			EnrichmentSeriesWorkers:     getenvInt("SEASONFILL_ENRICHMENT_SERIES_WORKERS", 2),
+			EnrichmentPersonWorkers:     getenvInt("SEASONFILL_ENRICHMENT_PERSON_WORKERS", 1),
+			EnrichmentSeasonConcurrency: getenvInt("SEASONFILL_ENRICHMENT_SEASON_CONCURRENCY", 4),
 		},
 		Discovery: DiscoveryConfig{
 			// Story 568 A2 — default ON. The chart values.yaml pins the
