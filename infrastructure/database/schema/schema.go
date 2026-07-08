@@ -1003,7 +1003,8 @@ func addPeople(s *atlasschema.Schema, d Dialect) {
 }
 
 // buildPeopleTable returns the canonical `people` table — 15 cols + 2
-// indexes (partial unique on tmdb_id; plain on imdb_id).
+// indexes (partial unique on tmdb_id; plain on imdb_id). people.name was
+// dropped in migration 000037 (Story 1084b) — was 16 cols before that.
 //
 // Greenfield deviation from legacy 000027: gender is `integer` (was
 // smallint) — portable to SQLite without Atlas-side dialect mapping.
@@ -1019,7 +1020,8 @@ func buildPeopleTable(d Dialect) *atlasschema.Table {
 	hydration := atlasschema.NewStringColumn("hydration", "text").
 		SetNull(false).
 		SetDefault(&atlasschema.Literal{V: "'stub'"})
-	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
+	// name column dropped (Story 1084b, migration 000037) — moved to
+	// people_texts (000035); base fallback is original_name.
 	originalName := atlasschema.NewNullStringColumn("original_name", "text")
 	gender := atlasschema.NewNullIntColumn("gender", "integer")
 	birthday := dateColumn(d, "birthday")
@@ -1037,7 +1039,7 @@ func buildPeopleTable(d Dialect) *atlasschema.Table {
 
 	return atlasschema.NewTable("people").
 		AddColumns(
-			id, tmdbID, imdbID, hydration, name, originalName, gender,
+			id, tmdbID, imdbID, hydration, originalName, gender,
 			birthday, deathday, placeOfBirth, knownForDept, popularity,
 			profileAsset, enrichmentSyncedAt, createdAt, updatedAt,
 		).
@@ -1146,11 +1148,11 @@ func buildPersonCreditsTextsTable(d Dialect, personCreditsTable *atlasschema.Tab
 //	         updated_at timestamptz NOT NULL DEFAULT now()
 //	FK person_id → people(id) ON DELETE CASCADE
 //
-// Per-language person DISPLAY name. people.name STAYS as the
-// language-neutral base/legacy tier (last-writer-wins); the cast reader
-// resolves requested-lang → en-US → people.original_name → people.name.
-// CASCADE (not the i18nTextTable NO ACTION default) because a texts row
-// is meaningless once its person row is gone.
+// Per-language person DISPLAY name. The terminal people.name tier was
+// dropped in migration 000037 (Story 1084b); the cast reader now resolves
+// requested-lang → en-US → people.original_name. CASCADE (not the
+// i18nTextTable NO ACTION default) because a texts row is meaningless
+// once its person row is gone.
 func buildPeopleTextsTable(d Dialect, peopleTable *atlasschema.Table) *atlasschema.Table {
 	personID := fkColumn(d, "person_id", false /* not null */)
 	language := atlasschema.NewStringColumn("language", "text").SetNull(false)

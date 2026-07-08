@@ -64,14 +64,17 @@ func TestD3_PeopleEnrichmentSyncedAtRoundTrip(t *testing.T) {
 }
 
 // insertPeopleStubSQL returns an INSERT statement for the people table
-// targeting (id, name) with hydration defaulted to 'stub'. Driver-aware
+// targeting (id, original_name) with hydration defaulted to 'stub'.
+// people.name was dropped in migration 000037 (Story 1084b) —
+// original_name is the surviving language-neutral column; m.Up() runs to
+// head, so this always exercises the current schema. Driver-aware
 // placeholders.
 func insertPeopleStubSQL(driver string) string {
 	if driver == "postgres" {
-		return `INSERT INTO people (id, name, hydration, created_at, updated_at)
+		return `INSERT INTO people (id, original_name, hydration, created_at, updated_at)
 		        VALUES ($1, $2, 'stub', now(), now())`
 	}
-	return `INSERT INTO people (id, name, hydration, created_at, updated_at)
+	return `INSERT INTO people (id, original_name, hydration, created_at, updated_at)
 	        VALUES (?, ?, 'stub', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
 }
 

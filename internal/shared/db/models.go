@@ -755,30 +755,38 @@ func (SeasonStatModel) TableName() string { return "season_stats" }
 // if a future TVDB-sourced credit lands without a TMDB id) still
 // fit. Hydration is text(stub|full); defaults to 'stub' on insert.
 //
-// Name + OriginalName intentionally stay on this entity (localized
-// display name now lives in the people_texts i18n table, migration
-// 000035) for the DISPLAY name only.
-// people.name stays as the language-neutral base/legacy tier (last-writer-wins);
-// people.original_name is the western-actor en-US fallback. Story 1083
-// re-evaluated the prior "do not add a people_names table" note: TMDB
-// aggregate_credits[*].name IS localized per ?language= and is already fetched
-// by RefreshCast, so there is ONE write path (not three) and the side-table
-// only carries names that differ per language. The reader resolves
-// requested-lang -> en-US -> people.original_name -> people.name.
+// people.name was DROPPED in migration 000037 (Story 1084b). The
+// resolution chain is now people_texts[req] -> people_texts[en] ->
+// original_name. OriginalName is the western-actor en-US fallback,
+// still a real column. Name is a transient read-only projection —
+// see its field doc below.
 type PeopleModel struct {
-	ID                 int64          `gorm:"primaryKey;autoIncrement;column:id"`
-	TMDBID             *domain.TMDBID `gorm:"column:tmdb_id"`
-	IMDBID             *string        `gorm:"column:imdb_id;type:text;index:people_imdb_id"`
-	Hydration          string         `gorm:"column:hydration;type:text;not null;default:'stub'"`
-	Name               string         `gorm:"column:name;type:text;not null"`
-	OriginalName       *string        `gorm:"column:original_name;type:text"`
-	Gender             *int           `gorm:"column:gender"`
-	Birthday           *time.Time     `gorm:"column:birthday"`
-	Deathday           *time.Time     `gorm:"column:deathday"`
-	PlaceOfBirth       *string        `gorm:"column:place_of_birth;type:text"`
-	KnownForDepartment *string        `gorm:"column:known_for_department;type:text"`
-	Popularity         *float64       `gorm:"column:popularity"`
-	ProfileAsset       *string        `gorm:"column:profile_asset;type:text"`
+	ID        int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	TMDBID    *domain.TMDBID `gorm:"column:tmdb_id"`
+	IMDBID    *string        `gorm:"column:imdb_id;type:text;index:people_imdb_id"`
+	Hydration string         `gorm:"column:hydration;type:text;not null;default:'stub'"`
+	// Name is a TRANSIENT display field (Story 1084b dropped the
+	// people.name column in migration 000037). Tagged `gorm:"->"`
+	// (read-only): GORM never includes it in INSERT/UPDATE column
+	// lists (there is no `name` column to write), but Raw().Scan
+	// still populates it by column name — unlike `gorm:"-"`, which
+	// removes the field from GORM's schema entirely and silently
+	// leaves it zero-valued even when the raw query aliases a `name`
+	// column (verified empirically; `gorm:"-"` does NOT work here).
+	// The raw COALESCE queries in PeopleRepository.Get /
+	// ListByIDsWithNameFallback alias their resolved display name as
+	// `name`, which scans into this field. Per-lang display names
+	// live in people_texts; the language-neutral fallback is
+	// original_name.
+	Name               string     `gorm:"->"`
+	OriginalName       *string    `gorm:"column:original_name;type:text"`
+	Gender             *int       `gorm:"column:gender"`
+	Birthday           *time.Time `gorm:"column:birthday"`
+	Deathday           *time.Time `gorm:"column:deathday"`
+	PlaceOfBirth       *string    `gorm:"column:place_of_birth;type:text"`
+	KnownForDepartment *string    `gorm:"column:known_for_department;type:text"`
+	Popularity         *float64   `gorm:"column:popularity"`
+	ProfileAsset       *string    `gorm:"column:profile_asset;type:text"`
 	// EnrichmentSyncedAt — D-3 (migration 000014) per-person TMDB
 	// enrichment freshness column. NULL = never enriched. Set by
 	// PersonWorker on success; replaces the legacy sync_log(tmdb_person,
@@ -1081,9 +1089,9 @@ func (PersonCreditTextModel) TableName() string { return "person_credits_texts" 
 
 // PeopleTextModel — per-language person DISPLAY name (Story 1083,
 // migration 000035). PK (person_id, language); FK → people(id) ON DELETE
-// CASCADE. people.name stays the language-neutral base/legacy tier; the cast
-// read-path resolves requested-lang → en-US → people.original_name →
-// people.name. Written per call-lang by RefreshCast from the same
+// CASCADE. The terminal people.name tier was dropped in migration 000037
+// (Story 1084b); the cast read-path now resolves requested-lang → en-US →
+// people.original_name. Written per call-lang by RefreshCast from the same
 // aggregate_credits[*].name the GetTV(lang) payload already carries.
 type PeopleTextModel struct {
 	PersonID  int64     `gorm:"primaryKey;column:person_id"`

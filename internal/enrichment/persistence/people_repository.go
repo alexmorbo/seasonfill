@@ -33,9 +33,10 @@ func NewPeopleRepository(db *gorm.DB) *PeopleRepository {
 }
 
 // Get fetches by primary key and resolves the DISPLAY name in the
-// requested language via the people_texts fallback (Story 1084):
+// requested language via the people_texts fallback (Story 1084; the
+// terminal people.name tier was dropped in 000037 — Story 1084b):
 //
-//	requested-lang -> en-US -> people.original_name -> people.name
+//	requested-lang -> en-US -> people.original_name
 //
 // then resolves the biography via the shared §5.6 fallback helper.
 // Empty language is normalised to en-US. A person without any
@@ -54,7 +55,7 @@ func (r *PeopleRepository) Get(ctx context.Context, id int64, language string) (
 	const q = `
 SELECT
   p.id, p.tmdb_id, p.imdb_id, p.hydration,
-  COALESCE(t_req.name, t_base.name, p.original_name, p.name) AS name,
+  COALESCE(t_req.name, t_base.name, p.original_name) AS name,
   p.original_name, p.gender, p.birthday, p.deathday, p.place_of_birth,
   p.known_for_department, p.popularity, p.profile_asset,
   p.enrichment_synced_at, p.created_at, p.updated_at
@@ -138,11 +139,12 @@ func (r *PeopleRepository) ListByIDs(ctx context.Context, ids []int64) ([]people
 
 // ListByIDsWithNameFallback returns the people rows for ids with the DISPLAY
 // name resolved per Story 1083: requested language → en-US → people.original_name
-// → people.name. Two LEFT JOINs against people_texts + COALESCE, one
-// round-trip. Ordered by id ASC (same as ListByIDs — the cast read path relies
-// on it). Biography is NOT resolved (compact list rows). lang=="" defaults to
-// en-US, collapsing both joins onto the base tier. Missing ids are silently
-// skipped. Mirrors PersonCreditsRepository.ListByMediaWithTextFallback.
+// (the terminal people.name tier was dropped in 000037 — Story 1084b). Two
+// LEFT JOINs against people_texts + COALESCE, one round-trip. Ordered by id
+// ASC (same as ListByIDs — the cast read path relies on it). Biography is NOT
+// resolved (compact list rows). lang=="" defaults to en-US, collapsing both
+// joins onto the base tier. Missing ids are silently skipped. Mirrors
+// PersonCreditsRepository.ListByMediaWithTextFallback.
 func (r *PeopleRepository) ListByIDsWithNameFallback(ctx context.Context, ids []int64, lang string) ([]people.Person, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -153,7 +155,7 @@ func (r *PeopleRepository) ListByIDsWithNameFallback(ctx context.Context, ids []
 	const q = `
 SELECT
   p.id, p.tmdb_id, p.imdb_id, p.hydration,
-  COALESCE(t_req.name, t_base.name, p.original_name, p.name) AS name,
+  COALESCE(t_req.name, t_base.name, p.original_name) AS name,
   p.original_name, p.gender, p.birthday, p.deathday, p.place_of_birth,
   p.known_for_department, p.popularity, p.profile_asset,
   p.enrichment_synced_at, p.created_at, p.updated_at
@@ -336,7 +338,7 @@ func (r *PeopleRepository) BatchUpsert(ctx context.Context, persons []people.Per
 func peopleUpdateCols() []string {
 	return []string{
 		"tmdb_id", "imdb_id",
-		"hydration", "name", "original_name",
+		"hydration", "original_name",
 		"gender", "birthday", "deathday",
 		"place_of_birth", "known_for_department",
 		"popularity", "profile_asset",
@@ -432,13 +434,19 @@ func (r *PeopleRepository) ListStaleForTMDB(ctx context.Context, ttl time.Durati
 	return ids, nil
 }
 
+// toPerson is NOT read from a `name` column (Story 1084b dropped
+// people.name in migration 000037). Get / ListByIDsWithNameFallback
+// overwrite m.Name via the COALESCE alias in their raw queries
+// (PeopleModel.Name is `gorm:"->"` — read-only, still scanned by
+// column name from Raw().Scan, never written by Create/Save);
+// GetByTMDBID / ListByIDs are non-display paths and leave it empty.
 func toPerson(m database.PeopleModel) people.Person {
 	return people.Person{
 		ID:                 m.ID,
 		TMDBID:             m.TMDBID,
 		IMDBID:             m.IMDBID,
 		Hydration:          people.Hydration(m.Hydration),
-		Name:               m.Name,
+		Name:               m.Name, // still valid — Raw().Scan fills the aliased `name` column
 		OriginalName:       m.OriginalName,
 		Gender:             m.Gender,
 		Birthday:           m.Birthday,
@@ -455,11 +463,13 @@ func toPerson(m database.PeopleModel) people.Person {
 
 func fromPerson(p people.Person) database.PeopleModel {
 	return database.PeopleModel{
-		ID:                 p.ID,
-		TMDBID:             p.TMDBID,
-		IMDBID:             p.IMDBID,
-		Hydration:          string(p.Hydration),
-		Name:               p.Name,
+		ID:        p.ID,
+		TMDBID:    p.TMDBID,
+		IMDBID:    p.IMDBID,
+		Hydration: string(p.Hydration),
+		// Name dropped (Story 1084b — people.name removed in migration
+		// 000037; per-lang display names live in people_texts, base
+		// fallback in original_name).
 		OriginalName:       p.OriginalName,
 		Gender:             p.Gender,
 		Birthday:           p.Birthday,

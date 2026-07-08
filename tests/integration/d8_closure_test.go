@@ -127,15 +127,15 @@ func TestD8_Closure_NoLegacyTables(t *testing.T) {
 
 // TestD8_Closure_SchemaMigrationsHeadVersion verifies that after a
 // full Up() the golang-migrate tracker table reports the highest
-// expected version (36) with dirty=false. golang-migrate stores a
+// expected version (37) with dirty=false. golang-migrate stores a
 // single "current head" row (not a per-migration history), so the
-// invariant is MAX(version)=36 AND dirty=false. Catches the "I forgot
+// invariant is MAX(version)=37 AND dirty=false. Catches the "I forgot
 // to add the new migration to the embed list" failure mode and the
 // "Up() silently stopped after N" failure mode (which would leave a
 // lower version pinned), plus the "previous run crashed mid-Up"
 // failure mode (dirty=true, blocks subsequent migrations).
 func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
-	const wantHead = 36
+	const wantHead = 37
 
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
 				"read head row from schema_migrations on %s", b.name)
 			assert.Equalf(t, wantHead, head,
 				"schema_migrations.version on %s = %d; want %d "+
-					"(matches the 36 .up.sql files committed in 000001..000036)",
+					"(matches the 37 .up.sql files committed in 000001..000037)",
 				b.name, head, wantHead)
 			assert.Falsef(t, dirty,
 				"schema_migrations.dirty=true on %s — a previous Up() crashed mid-migration; "+

@@ -27,19 +27,22 @@ func TestD14a_PeopleMigrationRoundTrip(t *testing.T) {
 			// UP — applies 000001..000005 in sequence.
 			require.NoError(t, m.Up())
 
-			// Seed: insert a person row.
+			// Seed: insert a person row. people.name was dropped in migration
+			// 000037 (Story 1084b) — original_name is the surviving
+			// language-neutral column m.Up() runs to head, so this always
+			// exercises the current schema, not just 000001..000005.
 			personName := "d1-4a-" + uuid.NewString()
 			var personID int64
 			switch b.name {
 			case "postgres":
 				row := db.QueryRowContext(ctx,
-					`INSERT INTO people (hydration, name, created_at, updated_at)
+					`INSERT INTO people (hydration, original_name, created_at, updated_at)
 					 VALUES ($1, $2, now(), now()) RETURNING id`,
 					"stub", personName)
 				require.NoError(t, row.Scan(&personID))
 			case "sqlite":
 				res, err := db.ExecContext(ctx,
-					`INSERT INTO people (hydration, name, created_at, updated_at)
+					`INSERT INTO people (hydration, original_name, created_at, updated_at)
 					 VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 					"stub", personName)
 				require.NoError(t, err)

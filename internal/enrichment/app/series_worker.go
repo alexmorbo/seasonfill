@@ -88,7 +88,8 @@ type SeriesWorkerDeps struct {
 	// PeopleTexts — Story 1083: optional per-language person DISPLAY-name write
 	// port consumed by RefreshCast. nil-OK — when nil, RefreshCast skips the
 	// localized name write and the cast read-path falls back to
-	// people.original_name / people.name. Mirrors the PersonCreditsTexts nil-OK
+	// people.original_name (the terminal people.name tier was dropped in
+	// migration 000037 — Story 1084b). Mirrors the PersonCreditsTexts nil-OK
 	// posture. Production impl is *enrichpersistence.PeopleTextsRepository.
 	PeopleTexts      PeopleTextsPort
 	Genres           GenresRepo

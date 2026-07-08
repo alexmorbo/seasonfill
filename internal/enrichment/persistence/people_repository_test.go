@@ -50,8 +50,9 @@ func TestPeopleRepository_UpsertInsertAndGet(t *testing.T) {
 
 			got, err := repo.Get(ctx, id, "en-US")
 			require.NoError(t, err)
-			// Story 1084: Get resolves the DISPLAY name via COALESCE
-			// (people_texts[req]→[en]→original_name→name). With no people_texts
+			// Story 1084 (Phase B, migration 000037 dropped the terminal
+			// people.name tier): Get resolves the DISPLAY name via COALESCE
+			// (people_texts[req]→[en]→original_name). With no people_texts
 			// row seeded, it falls back to original_name ("orig: Pedro Pascal").
 			assert.Equal(t, "orig: Pedro Pascal", got.Name)
 			assert.Equal(t, people.HydrationStub, got.Hydration)
@@ -122,7 +123,13 @@ func TestPeopleRepository_GetByTMDBID(t *testing.T) {
 
 			got, err := repo.GetByTMDBID(ctx, 7001)
 			require.NoError(t, err)
-			assert.Equal(t, "Cillian Murphy", got.Name)
+			// Story 1084b: GetByTMDBID is a non-display path (no COALESCE
+			// projection) — people.name was dropped in 000037, so the
+			// transient (gorm:"->") Name field is left empty here. Callers
+			// needing the display name use Get / ListByIDsWithNameFallback.
+			assert.Empty(t, got.Name)
+			require.NotNil(t, got.OriginalName)
+			assert.Equal(t, "orig: Cillian Murphy", *got.OriginalName)
 
 			_, err = repo.GetByTMDBID(ctx, 9999)
 			assert.True(t, errors.Is(err, ports.ErrNotFound))
@@ -435,7 +442,9 @@ func TestPeopleRepository_Get_NameFallback(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 
-			// seed installs ONE person (base people.name + original_name) plus any
+			// seed installs ONE person via Upsert (the passed baseName goes through
+			// the domain Person.Name guard but is NOT persisted post-000037 —
+			// PeopleModel.Name is gorm:"->" read-only) plus original_name plus any
 			// people_texts rows, and returns the repo + assigned id.
 			seed := func(t *testing.T, baseName string, originalName *string, texts []people.PersonText) (*PeopleRepository, int64) {
 				t.Helper()
@@ -514,6 +523,24 @@ func TestPeopleRepository_Get_NameFallback(t *testing.T) {
 				repo, _ := seed(t, "x", nil, nil)
 				_, err := repo.Get(ctx, 987654, "ru-RU")
 				require.True(t, errors.Is(err, ports.ErrNotFound))
+			})
+
+			// Case 7 — Phase B (Story 1084b, migration 000037): people.name is
+			// physically gone. No people_texts, original_name present → Name
+			// resolves to original_name via the 3-tier COALESCE (the terminal
+			// p.name tier no longer exists). Also asserts the underlying `people`
+			// table has no `name` column, proving this exercises the post-drop
+			// schema and not just the reader's fallback logic.
+			t.Run("phase_b_column_dropped_original_name_fallback", func(t *testing.T) {
+				repo, pid := seed(t, "Noah Wyle", new("Noah Wyle"), nil)
+				got, err := repo.Get(ctx, pid, "ru-RU")
+				require.NoError(t, err)
+				assert.Equal(t, "Noah Wyle", got.Name)
+
+				sqlDB, err := repo.db.DB()
+				require.NoError(t, err)
+				_, err = sqlDB.ExecContext(ctx, "SELECT name FROM people LIMIT 1")
+				require.Error(t, err, "people.name column must not exist post-000037")
 			})
 
 			// Biography resolution still works alongside the name COALESCE.

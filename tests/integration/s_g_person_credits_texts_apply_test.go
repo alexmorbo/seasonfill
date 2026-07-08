@@ -14,12 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// insertPersonSQL targets original_name — people.name was dropped in
+// migration 000037 (Story 1084b); original_name is the surviving
+// language-neutral column and these tests just need a valid person row.
 func insertPersonSQL(driver string) string {
 	switch driver {
 	case "postgres":
-		return `INSERT INTO people (name, hydration) VALUES ($1, 'stub') RETURNING id`
+		return `INSERT INTO people (original_name, hydration) VALUES ($1, 'stub') RETURNING id`
 	case "sqlite":
-		return `INSERT INTO people (name, hydration) VALUES (?, 'stub') RETURNING id`
+		return `INSERT INTO people (original_name, hydration) VALUES (?, 'stub') RETURNING id`
 	}
 	return ""
 }

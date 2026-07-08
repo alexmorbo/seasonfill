@@ -11,9 +11,10 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
-// TestPeopleRepository_ListByIDsWithNameFallback_D0 — Story 1083 reader suite.
-// Exercises the requested-lang → en-US → original_name → name fallback against a
-// real DB (SQLite + testcontainers Postgres) via two LEFT JOINs + COALESCE.
+// TestPeopleRepository_ListByIDsWithNameFallback_D0 — Story 1083 reader suite,
+// updated for Story 1084b (migration 000037 dropped the terminal people.name
+// tier). Exercises the requested-lang → en-US → original_name fallback against
+// a real DB (SQLite + testcontainers Postgres) via two LEFT JOINs + COALESCE.
 func TestPeopleRepository_ListByIDsWithNameFallback_D0(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
@@ -21,9 +22,11 @@ func TestPeopleRepository_ListByIDsWithNameFallback_D0(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 
-			// seed installs ONE person with the given base people.name +
-			// original_name, plus any people_texts rows in seedTexts. Returns the
-			// repo + the assigned person id.
+			// seed installs ONE person via Upsert with the given baseName (passed
+			// through the domain Person.Name guard but NOT persisted post-000037 —
+			// PeopleModel.Name is gorm:"->" read-only) + original_name, plus any
+			// people_texts rows in seedTexts. Returns the repo + the assigned
+			// person id.
 			seed := func(t *testing.T, baseName string, originalName *string, seedTexts []people.PersonText) (*PeopleRepository, int64) {
 				t.Helper()
 				db := backend.NewDB(t)
@@ -93,13 +96,18 @@ func TestPeopleRepository_ListByIDsWithNameFallback_D0(t *testing.T) {
 				assert.Equal(t, "Adam Scott", rows[0].Name)
 			})
 
-			// Case E — no texts rows AND original_name NULL → people.name (base).
-			t.Run("no_texts_null_original_falls_back_to_name", func(t *testing.T) {
+			// Case E — Phase B (Story 1084b, migration 000037): no texts rows AND
+			// original_name NULL → resolves to "" (the terminal people.name tier
+			// was dropped in 000037; there is no further fallback). The seed's
+			// baseName is never persisted post-drop (PeopleModel.Name is
+			// `gorm:"->"` read-only), so this asserts the 3-tier COALESCE
+			// terminal behavior directly.
+			t.Run("no_texts_null_original_resolves_empty_post_drop", func(t *testing.T) {
 				repo, pid := seed(t, "Only Name", nil, nil)
 				rows, err := repo.ListByIDsWithNameFallback(ctx, []int64{pid}, "ru-RU")
 				require.NoError(t, err)
 				require.Len(t, rows, 1)
-				assert.Equal(t, "Only Name", rows[0].Name)
+				assert.Empty(t, rows[0].Name)
 			})
 
 			// Case F — lang=="" defaults to the en-US tier.
