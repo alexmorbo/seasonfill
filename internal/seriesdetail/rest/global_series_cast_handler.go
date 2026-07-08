@@ -136,7 +136,10 @@ func (h *GlobalSeriesCastHandler) Get(c *gin.Context) {
 			slog.String("lang", lang),
 			slog.Int("cast_count", len(cast.Cast)),
 			slog.Int("degraded_count", len(cast.Degraded)))
-		c.JSON(http.StatusOK, toSeriesCastResponseFromFallback(cast))
+		respFallback := toSeriesCastResponseFromFallback(cast)
+		// Story 1087b — same server-side sort as the in-library path.
+		sortCastMembers(respFallback.Cast, parseCastSort(c), respFallback.Lang)
+		c.JSON(http.StatusOK, respFallback)
 		return
 	}
 	if h.inner == nil {

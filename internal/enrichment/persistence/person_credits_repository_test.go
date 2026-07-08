@@ -478,3 +478,39 @@ func TestPersonCreditsRepository_BatchUpsert_BatchSize_PostgresProtocolSafe(t *t
 		})
 	}
 }
+
+// TestPersonCreditsRepository_CreditOrder_PersistAndCoalesce proves the
+// Story 1087b column round-trips (migration + model + read SELECT) and that
+// the COALESCE-guarded OnConflict preserves the series-worker billing order
+// when a later order-less person-worker row re-upserts the same natural key.
+func TestPersonCreditsRepository_CreditOrder_PersistAndCoalesce(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Billing Order"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			// series-worker style row: carries a billing order.
+			seriesRow := samplePersonCredit(personID, "credit-order", "Show", 900)
+			seriesRow.CreditOrder = new(5)
+			_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+			require.NoError(t, err)
+
+			// person-worker style row: SAME natural key, NO order (must not clobber).
+			personRow := samplePersonCredit(personID, "credit-order", "Show", 900)
+			personRow.CreditOrder = nil
+			_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+			require.NoError(t, err)
+
+			rows, err := repo.ListByMediaWithTextFallback(ctx, "tv", 900, "en-US")
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			require.NotNil(t, rows[0].CreditOrder, "COALESCE must preserve the series-worker order")
+			assert.Equal(t, 5, *rows[0].CreditOrder)
+		})
+	}
+}

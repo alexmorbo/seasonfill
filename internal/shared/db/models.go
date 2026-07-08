@@ -1066,6 +1066,7 @@ type PersonCreditModel struct {
 	VoteAverage   *float64  `gorm:"column:vote_average"`
 	TMDBVotes     *int      `gorm:"column:tmdb_votes"`
 	EpisodeCount  *int      `gorm:"column:episode_count"`
+	CreditOrder   *int      `gorm:"column:credit_order"`
 	CreatedAt     time.Time `gorm:"column:created_at;not null"`
 	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
 }

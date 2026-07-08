@@ -1219,9 +1219,9 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 // fills it later from /person/{id}/tv_credits payload.
 //
 // Crew rows preserve Department / Job; cast rows preserve
-// CharacterName + EpisodeCount. CreditOrder is dropped — the
-// person_credits table has no series-side billing index (the cast
-// list is ordered by person_id ASC on the read path).
+// CharacterName + EpisodeCount. CreditOrder is mapped straight
+// through from the TMDB aggregate_credits billing order (Story
+// 1087b) so downstream credit-order sorts have a stable index.
 func mapSeriesCreditsToPersonCredits(
 	creds []people.SeriesCredit,
 	tv *tmdb.TVResponse,
@@ -1244,6 +1244,7 @@ func mapSeriesCreditsToPersonCredits(
 			Department:    cr.Department,
 			Job:           cr.Job,
 			EpisodeCount:  cr.EpisodeCount,
+			CreditOrder:   cr.CreditOrder, // Story 1087b — aggregate_credits billing order.
 		})
 	}
 	return out

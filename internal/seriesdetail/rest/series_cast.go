@@ -62,7 +62,11 @@ func (h *SeriesCastHandler) Get(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	c.JSON(http.StatusOK, toSeriesCastResponse(detail))
+	resp := toSeriesCastResponse(detail)
+	// Story 1087b — server-side cast sort (?sort=episodes|credit|name; default
+	// episodes). resp.Lang is the resolved BCP-47 tag used for name collation.
+	sortCastMembers(resp.Cast, parseCastSort(c), resp.Lang)
+	c.JSON(http.StatusOK, resp)
 }
 
 // toSeriesCastResponse projects the composer's domain object onto

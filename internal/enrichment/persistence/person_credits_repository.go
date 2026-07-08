@@ -139,7 +139,7 @@ SELECT
   pc.title, pc.original_title, pc.year,
   COALESCE(t_req.character_name, t_base.character_name, pc.character_name) AS character_name,
   pc.kind, pc.department, pc.job, pc.poster_path, pc.vote_average,
-  pc.tmdb_votes, pc.episode_count, pc.created_at, pc.updated_at
+  pc.tmdb_votes, pc.episode_count, pc.credit_order, pc.created_at, pc.updated_at
 FROM person_credits pc
 LEFT JOIN person_credits_texts t_req
   ON t_req.person_credit_id = pc.id AND t_req.language = ?
@@ -200,7 +200,7 @@ SELECT
   pc.title, pc.original_title, pc.year,
   COALESCE(t_req.character_name, t_base.character_name, pc.character_name) AS character_name,
   pc.kind, pc.department, pc.job, pc.poster_path, pc.vote_average,
-  pc.tmdb_votes, pc.episode_count, pc.created_at, pc.updated_at
+  pc.tmdb_votes, pc.episode_count, pc.credit_order, pc.created_at, pc.updated_at
 FROM person_credits pc
 LEFT JOIN person_credits_texts t_req
   ON t_req.person_credit_id = pc.id AND t_req.language = ?
@@ -328,12 +328,26 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 			{Name: "person_id"},
 			{Name: "tmdb_credit_id"},
 		},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"media_type", "tmdb_media_id",
-			"title", "original_title", "year",
-			"character_name", "kind", "department", "job",
-			"poster_path", "vote_average", "tmdb_votes", "episode_count",
-			"updated_at",
+		DoUpdates: clause.Assignments(map[string]any{
+			"media_type":     gorm.Expr("excluded.media_type"),
+			"tmdb_media_id":  gorm.Expr("excluded.tmdb_media_id"),
+			"title":          gorm.Expr("excluded.title"),
+			"original_title": gorm.Expr("excluded.original_title"),
+			"year":           gorm.Expr("excluded.year"),
+			"character_name": gorm.Expr("excluded.character_name"),
+			"kind":           gorm.Expr("excluded.kind"),
+			"department":     gorm.Expr("excluded.department"),
+			"job":            gorm.Expr("excluded.job"),
+			"poster_path":    gorm.Expr("excluded.poster_path"),
+			"vote_average":   gorm.Expr("excluded.vote_average"),
+			"tmdb_votes":     gorm.Expr("excluded.tmdb_votes"),
+			"episode_count":  gorm.Expr("excluded.episode_count"),
+			// Story 1087b — COALESCE-guard billing order: the series-worker
+			// aggregate_credits write is the ONLY source of credit_order; a
+			// later person-worker tv_credits write (order-less) on the same
+			// (person_id, tmdb_credit_id) must not null it out.
+			"credit_order": gorm.Expr("COALESCE(excluded.credit_order, person_credits.credit_order)"),
+			"updated_at":   gorm.Expr("excluded.updated_at"),
 		}),
 	}).CreateInBatches(&models, 1000).Error
 	if err != nil {

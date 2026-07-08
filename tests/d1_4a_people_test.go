@@ -60,14 +60,16 @@ func TestD14a_PeopleColumnCount(t *testing.T) {
 	}
 }
 
-// TestD14a_PersonCreditsColumnCount — 18 cols (id + person_id + 14 data + created_at + updated_at).
+// TestD14a_PersonCreditsColumnCount — 19 cols (id + person_id + 15 data + created_at + updated_at).
+// The 15th data column `credit_order` (TMDB billing order, nullable) was
+// added in migration 000038 (story 1087b); previously 18 cols.
 func TestD14a_PersonCreditsColumnCount(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			tbl := mustTable(t, schema.Schema(d), "person_credits")
-			if got, want := len(tbl.Columns), 18; got != want {
+			if got, want := len(tbl.Columns), 19; got != want {
 				t.Errorf("person_credits col count = %d, want %d", got, want)
 			}
 		})

@@ -56,23 +56,35 @@ const fullFixture = {
   ],
 };
 
-const sortFixture = {
+// Story 1087b-1 — sorting is now server-side. The BE returns the cast already
+// ordered per `?sort=`; the FE renders that order verbatim (no client re-sort).
+// These three actors, ordered per each sort key the server would apply:
+const zoe = { person_id: 1, tmdb_id: 100, name: 'Zoe Alpha', character_name: 'A', episode_count: 2, credit_order: 0 };
+const amy = { person_id: 2, tmdb_id: 200, name: 'Amy Beta', character_name: 'B', episode_count: 9, credit_order: 1 };
+const mike = { person_id: 3, tmdb_id: 300, name: 'Mike Gamma', character_name: 'C', episode_count: 5, credit_order: 2 };
+
+const sortBase = {
   instance: 'alpha',
   series_id: 42,
   sonarr_series_id: 1,
   synced_at: new Date().toISOString(),
   total_episode_count: 62,
   series_summary: { title: 'X', status: 'continuing' },
-  cast: [
-    // name Zoe, credit 0, eps 2
-    { person_id: 1, tmdb_id: 100, name: 'Zoe Alpha', character_name: 'A', episode_count: 2, credit_order: 0 },
-    // name Amy, credit 1, eps 9  → episodes-sort first, name-sort first, credit-sort second
-    { person_id: 2, tmdb_id: 200, name: 'Amy Beta', character_name: 'B', episode_count: 9, credit_order: 1 },
-    // name Mike, credit 2, eps 5
-    { person_id: 3, tmdb_id: 300, name: 'Mike Gamma', character_name: 'C', episode_count: 5, credit_order: 2 },
-  ],
   crew: [],
 };
+
+// Mock the BE sort: return the cast pre-ordered by whichever `sort=` the URL
+// carries, mirroring the server contract the FE now depends on.
+function mockServerSortedCast() {
+  mockApi.mockImplementation((path: string) => {
+    const p = path ?? '';
+    let cast: unknown[];
+    if (p.includes('sort=credit')) cast = [zoe, amy, mike]; // credit 0,1,2 → 100,200,300
+    else if (p.includes('sort=name')) cast = [amy, mike, zoe]; // Amy,Mike,Zoe → 200,300,100
+    else cast = [amy, mike, zoe]; // episodes DESC 9,5,2 → 200,300,100
+    return Promise.resolve({ ...sortBase, cast });
+  });
+}
 
 function tmdbOrder(): string[] {
   return screen.getAllByTestId('cast-grid-card').map((c) => c.getAttribute('data-tmdb-id') ?? '');
@@ -81,27 +93,30 @@ function tmdbOrder(): string[] {
 describe('<SeriesCast />', () => {
   beforeEach(() => mockApi.mockReset());
 
-  it('defaults to episode-count DESC ordering', async () => {
-    mockApi.mockResolvedValueOnce(sortFixture);
+  it('defaults to the episodes sort and renders the server order', async () => {
+    mockServerSortedCast();
     renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-grid')).toBeInTheDocument());
-    expect(tmdbOrder()).toEqual(['200', '300', '100']); // 9, 5, 2
+    expect(tmdbOrder()).toEqual(['200', '300', '100']); // server episodes order
+    expect(mockApi).toHaveBeenCalledWith(expect.not.stringContaining('sort='));
   });
 
-  it('re-sorts by billing order (credit_order ASC) from the dropdown', async () => {
-    mockApi.mockResolvedValueOnce(sortFixture);
+  it('refetches with sort=credit from the dropdown and renders the server order', async () => {
+    mockServerSortedCast();
     renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-grid')).toBeInTheDocument());
     fireEvent.change(screen.getByTestId('cast-sort'), { target: { value: 'credit' } });
-    expect(tmdbOrder()).toEqual(['100', '200', '300']); // credit 0,1,2
+    await waitFor(() => expect(tmdbOrder()).toEqual(['100', '200', '300']));
+    expect(mockApi).toHaveBeenCalledWith(expect.stringContaining('sort=credit'));
   });
 
-  it('re-sorts by name (A–Z) from the dropdown', async () => {
-    mockApi.mockResolvedValueOnce(sortFixture);
+  it('refetches with sort=name from the dropdown and renders the server order', async () => {
+    mockServerSortedCast();
     renderRoute('/series/42/cast');
     await waitFor(() => expect(screen.getByTestId('cast-grid')).toBeInTheDocument());
     fireEvent.change(screen.getByTestId('cast-sort'), { target: { value: 'name' } });
-    expect(tmdbOrder()).toEqual(['200', '300', '100']); // Amy, Mike, Zoe
+    await waitFor(() => expect(tmdbOrder()).toEqual(['200', '300', '100'])); // server name order
+    expect(mockApi).toHaveBeenCalledWith(expect.stringContaining('sort=name'));
   });
 
   it('renders skeleton while loading', () => {

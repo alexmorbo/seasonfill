@@ -123,12 +123,17 @@ type PersonCredit struct {
 	Department    *string
 	Job           *string
 	EpisodeCount  *int
-	ReleaseDate   *time.Time
-	PosterAsset   *string
-	TMDBRating    *float64
-	TMDBVotes     *int
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// CreditOrder is the TMDB billing order for a SERIES-level cast row
+	// (aggregate_credits[*].order). nil for movie / person-worker /
+	// episode-level rows (TMDB /person tv_credits carries no reliable
+	// order). The cast page sorts NULLS LAST. Story 1087b.
+	CreditOrder *int
+	ReleaseDate *time.Time
+	PosterAsset *string
+	TMDBRating  *float64
+	TMDBVotes   *int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // PersonCreditText is one per-language cast character-name row

@@ -1051,10 +1051,9 @@ func buildPeopleTable(d Dialect) *atlasschema.Table {
 		)
 }
 
-// buildPersonCreditsTable returns person_credits — 18 cols + 3 indexes
+// buildPersonCreditsTable returns person_credits — 19 cols + 3 indexes
 // + FK person_id → people(id) NoAction. PRD §5.3 row "person_credits"
-// + legacy 000027/000030 + 000038 (department/original_title/tmdb_votes
-// addition).
+// + legacy 000027/000030 + 000038 (credit_order billing addition).
 //
 // Greenfield deviation from legacy: department/original_title use `text`
 // (legacy used varchar(64)/varchar(255) — N/A on SQLite, redundant on
@@ -1076,6 +1075,7 @@ func buildPersonCreditsTable(d Dialect, peopleTable *atlasschema.Table) *atlassc
 	voteAverage := atlasschema.NewNullFloatColumn("vote_average", "double precision")
 	tmdbVotes := atlasschema.NewNullIntColumn("tmdb_votes", "integer")
 	episodeCount := atlasschema.NewNullIntColumn("episode_count", "integer")
+	creditOrder := atlasschema.NewNullIntColumn("credit_order", "integer")
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
@@ -1083,7 +1083,7 @@ func buildPersonCreditsTable(d Dialect, peopleTable *atlasschema.Table) *atlassc
 		AddColumns(
 			id, personID, tmdbCreditID, mediaType, tmdbMediaID, title,
 			originalTitle, year, characterName, kind, department, job,
-			posterPath, voteAverage, tmdbVotes, episodeCount,
+			posterPath, voteAverage, tmdbVotes, episodeCount, creditOrder,
 			createdAt, updatedAt,
 		).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).

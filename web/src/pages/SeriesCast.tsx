@@ -8,7 +8,12 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
-import { useSeriesCast, type CastPageMember, type CrewPageMember } from '@/api/seriesCast';
+import {
+  useSeriesCast,
+  type CastPageMember,
+  type CrewPageMember,
+  type CastSort,
+} from '@/api/seriesCast';
 import { degradedIncludes } from '@/api/series';
 import { CompactHero } from '@/components/cast-page/CompactHero';
 import { CastGrid } from '@/components/cast-page/CastGrid';
@@ -34,38 +39,6 @@ function filterCrew(crew: readonly CrewPageMember[], q: string): readonly CrewPa
   );
 }
 
-export type CastSort = 'episodes' | 'credit' | 'name';
-
-// sortCast returns a NEW array sorted per the selected option. Decorated with
-// the original index so every branch is a stable sort (equal keys keep the
-// server order — credit_order ASC). Story 1087a.
-function sortCast(cast: readonly CastPageMember[], sortBy: CastSort): readonly CastPageMember[] {
-  const decorated = cast.map((m, i) => ({ m, i }));
-  decorated.sort((a, b) => {
-    switch (sortBy) {
-      case 'episodes': {
-        // episode_count DESC, nulls last (matches the detail-page strip).
-        const d = (b.m.episode_count ?? -1) - (a.m.episode_count ?? -1);
-        return d !== 0 ? d : a.i - b.i;
-      }
-      case 'credit': {
-        // credit_order ASC, nulls last = the server default order.
-        const ao = a.m.credit_order ?? Number.MAX_SAFE_INTEGER;
-        const bo = b.m.credit_order ?? Number.MAX_SAFE_INTEGER;
-        const d = ao - bo;
-        return d !== 0 ? d : a.i - b.i;
-      }
-      case 'name': {
-        const d = (a.m.name ?? '').localeCompare(b.m.name ?? '', 'ru');
-        return d !== 0 ? d : a.i - b.i;
-      }
-      default:
-        return a.i - b.i;
-    }
-  });
-  return decorated.map((d) => d.m);
-}
-
 export function SeriesCast() {
   const { t, i18n } = useTranslation();
   // Story 495 / N-1e §A1: URL is global — `:instance` segment is gone.
@@ -74,20 +47,22 @@ export function SeriesCast() {
   const seriesId = id ? Number(id) : undefined;
   const lang = i18n.resolvedLanguage;
   const [query, setQuery] = useState('');
-  // Story 1087a — client-side cast sort. Default = episode_count DESC, matching
-  // the detail-page preview strip. Crew is not re-sorted (kept in server order).
+  // Story 1087b-1 — server-side cast sort. The dropdown drives the `sort` query
+  // param; the BE returns the cast already ordered (default = episode_count
+  // DESC, matching the detail-page preview strip) and the list renders that
+  // order verbatim. Crew is always served in credit order.
   const [sortBy, setSortBy] = useState<CastSort>('episodes');
 
   const result = useSeriesCast({
     seriesId,
     ...(lang ? { lang } : {}),
+    sort: sortBy,
   });
   const data = result.data;
   const cast = useMemo<readonly CastPageMember[]>(() => data?.cast ?? [], [data?.cast]);
   const crew = useMemo<readonly CrewPageMember[]>(() => data?.crew ?? [], [data?.crew]);
 
-  const sortedCast = useMemo(() => sortCast(cast, sortBy), [cast, sortBy]);
-  const filteredCast = useMemo(() => filterCast(sortedCast, query), [sortedCast, query]);
+  const filteredCast = useMemo(() => filterCast(cast, query), [cast, query]);
   const filteredCrew = useMemo(() => filterCrew(crew, query), [crew, query]);
 
   useSetPageTitle(t('seriesDetail.castPage.pageTitle'));

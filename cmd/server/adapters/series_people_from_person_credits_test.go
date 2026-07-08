@@ -148,6 +148,51 @@ func TestSeriesPeopleAdapter_ListBySeries_FiltersByKind(t *testing.T) {
 	}
 }
 
+// TestSeriesPeopleFromPersonCredits_MapsCreditOrder proves the Story 1087b
+// adapter change wires person_credits.credit_order onto SeriesCredit.CreditOrder
+// (previously hard-coded nil), so the server-side "credit" sort has real data.
+func TestSeriesPeopleFromPersonCredits_MapsCreditOrder(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+
+			peopleRepo := enrichpersistence.NewPeopleRepository(db)
+			pcRepo := enrichpersistence.NewPersonCreditsRepository(db)
+
+			actorID, err := peopleRepo.Upsert(ctx, people.Person{
+				Name:      "Billing Actor",
+				Hydration: people.HydrationStub,
+				TMDBID:    tmdbIDPtr(8300),
+			})
+			require.NoError(t, err)
+
+			const tmdbSeriesID = 100300
+			row := seedPersonCreditTV(actorID, "credit-order-1", "Ordered Show", tmdbSeriesID)
+			row.Kind = "cast"
+			order := 4
+			row.CreditOrder = &order
+			_, err = pcRepo.Upsert(ctx, row)
+			require.NoError(t, err)
+
+			reader := stubCanonReader{
+				rows: map[domain.SeriesID]canonView{
+					42: {TMDBID: tmdbIDPtr(tmdbSeriesID)},
+				},
+			}
+			adapter := newSeriesPeopleFromPersonCreditsForTest(pcRepo, reader)
+
+			rows, err := adapter.ListBySeries(ctx, 42, people.SeriesCreditCast, "en-US")
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			require.NotNil(t, rows[0].CreditOrder, "adapter must propagate credit_order (no longer nil)")
+			assert.Equal(t, 4, *rows[0].CreditOrder)
+		})
+	}
+}
+
 // TestSeriesPeopleAdapter_ListBySeries_LocalizesCharacterName covers S-G:
 // with a person_credits_texts row seeded for ru-RU, the adapter propagates
 // lang through ListByMediaWithTextFallback and returns the localized

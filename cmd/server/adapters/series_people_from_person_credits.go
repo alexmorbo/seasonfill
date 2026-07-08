@@ -150,7 +150,7 @@ func (a *SeriesPeopleFromPersonCredits) ListBySeries(
 			CharacterName: r.CharacterName,
 			Department:    r.Department,
 			Job:           r.Job,
-			CreditOrder:   nil, // person_credits has no series-side billing index — read path orders by person_id ASC
+			CreditOrder:   r.CreditOrder, // Story 1087b — billing order from person_credits.credit_order.
 			EpisodeCount:  r.EpisodeCount,
 			CreatedAt:     r.CreatedAt,
 			UpdatedAt:     r.UpdatedAt,

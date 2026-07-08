@@ -95,6 +95,17 @@ func ETagMiddleware(reader SectionSyncedAtReader, logger *slog.Logger) gin.Handl
 			if n, lerr := strconv.Atoi(strings.TrimSpace(c.Query("limit"))); lerr == nil && n > 0 {
 				key = fmt.Sprintf("%s-lim%d", key, n)
 			}
+			// Story 1087b — ?sort= reorders the cast body. Fold non-default
+			// sorts into the key so an If-None-Match for one order never 304s a
+			// differently-ordered body. "episodes" (default) + absent/unknown
+			// collapse to the un-suffixed key (keeps the 1087a full-page ETag
+			// shape) — must match the handler's parseCastSort normalization.
+			switch strings.ToLower(strings.TrimSpace(c.Query("sort"))) {
+			case "credit":
+				key += "-srtcredit"
+			case "name":
+				key += "-srtname"
+			}
 		}
 		serverETag := fmt.Sprintf(`W/"%s"`, key)
 

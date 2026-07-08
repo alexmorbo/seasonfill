@@ -19,7 +19,7 @@ function wrapper() {
 describe('useSeriesCast', () => {
   beforeEach(() => mockApi.mockReset());
 
-  it('builds the URL with seriesId', async () => {
+  it('builds the URL with seriesId and omits sort for the default', async () => {
     mockApi.mockResolvedValueOnce({ cast: [], crew: [], total_episode_count: 0 });
     const { result } = renderHook(
       () => useSeriesCast({ seriesId: 42, lang: 'en-US' }),
@@ -29,7 +29,7 @@ describe('useSeriesCast', () => {
     expect(mockApi).toHaveBeenCalledWith('/series/42/cast?lang=en-US');
   });
 
-  it('omits the lang query string when none provided', async () => {
+  it('omits the lang query string when none provided and omits the default sort', async () => {
     mockApi.mockResolvedValueOnce({ cast: [], crew: [] });
     renderHook(
       () => useSeriesCast({ seriesId: 42 }),
@@ -47,9 +47,12 @@ describe('useSeriesCast', () => {
     expect(mockApi).not.toHaveBeenCalled();
   });
 
-  it('exposes a stable query key including the limit', () => {
-    expect(seriesCastQueryKey(42, 'en-US')).toEqual(['series-cast', 42, 'en-US', 0]);
-    expect(seriesCastQueryKey(42, 'en-US', 8)).toEqual(['series-cast', 42, 'en-US', 8]);
+  it('exposes a stable query key including the limit and sort', () => {
+    expect(seriesCastQueryKey(42, 'en-US')).toEqual(['series-cast', 42, 'en-US', 0, 'episodes']);
+    expect(seriesCastQueryKey(42, 'en-US', 8)).toEqual(['series-cast', 42, 'en-US', 8, 'episodes']);
+    expect(seriesCastQueryKey(42, 'en-US', 0, 'name')).toEqual([
+      'series-cast', 42, 'en-US', 0, 'name',
+    ]);
   });
 
   it('appends &limit to the URL when a positive limit is given', async () => {
@@ -67,5 +70,15 @@ describe('useSeriesCast', () => {
     renderHook(() => useSeriesCast({ seriesId: 42, lang: 'en-US', limit: 0 }), { wrapper: wrapper() });
     await waitFor(() => expect(mockApi).toHaveBeenCalled());
     expect(mockApi).toHaveBeenCalledWith('/series/42/cast?lang=en-US');
+  });
+
+  it('threads the selected sort into the URL', async () => {
+    mockApi.mockResolvedValueOnce({ cast: [], crew: [], total_episode_count: 0 });
+    const { result } = renderHook(
+      () => useSeriesCast({ seriesId: 42, lang: 'en-US', sort: 'credit' }),
+      { wrapper: wrapper() },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockApi).toHaveBeenCalledWith('/series/42/cast?lang=en-US&sort=credit');
   });
 });

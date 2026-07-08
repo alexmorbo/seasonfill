@@ -298,3 +298,34 @@ func TestETagMiddleware_CastLimitChangesValidator(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast"`, stamp.Unix()), full)
 	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast-lim8"`, stamp.Unix()), lim8)
 }
+
+// TestETagMiddleware_CastSortChangesValidator covers Story 1087b: the ?sort=
+// param reorders the cast body, so non-default sorts must fold into the ETag
+// key while the default (episodes / absent) keeps the 1087a un-suffixed shape.
+func TestETagMiddleware_CastSortChangesValidator(t *testing.T) {
+	stamp := time.Unix(1_700_000_000, 0).UTC()
+	reader := &fakeSyncedAt{stamp: &stamp}
+	var called bool
+	r := newETagEngine(t, "/series/:id/cast", reader, &called)
+
+	etagFor := func(url string) string {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+		r.ServeHTTP(w, req)
+		return w.Header().Get("ETag")
+	}
+
+	def := etagFor("/series/42/cast?lang=ru")               // default (episodes)
+	eps := etagFor("/series/42/cast?lang=ru&sort=episodes") // explicit default
+	credit := etagFor("/series/42/cast?lang=ru&sort=credit")
+	name := etagFor("/series/42/cast?lang=ru&sort=name")
+
+	assert.Equal(t, def, eps, "explicit episodes == default (un-suffixed)")
+	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast"`, stamp.Unix()), def,
+		"default cast key keeps the 1087a shape (no -srt suffix)")
+	assert.NotEqual(t, def, credit, "credit sort must not share the default ETag")
+	assert.NotEqual(t, def, name, "name sort must not share the default ETag")
+	assert.NotEqual(t, credit, name, "distinct sorts → distinct validators")
+	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast-srtcredit"`, stamp.Unix()), credit)
+	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast-srtname"`, stamp.Unix()), name)
+}
