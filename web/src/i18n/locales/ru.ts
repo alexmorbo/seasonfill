@@ -2074,6 +2074,7 @@ export const ru: Translations = {
         episodes: 'По кол-ву эпизодов',
         credit: 'По порядку в титрах',
         name: 'По имени А-Я',
+        lastAppearance: 'По последнему сезону',
       },
       tabs: {
         cast: 'Актёры',

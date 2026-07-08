@@ -21,7 +21,7 @@ func (c *Client) GetSeason(ctx context.Context, tvID int64, seasonNumber int, la
 	// same UNION (en,ru,null) the all-langs GetTV path uses so ONE GetSeason
 	// yields posters for every supported language. Both sub-resources ride the
 	// SAME round-trip — no extra TMDB calls.
-	q.Set("append_to_response", "translations,images")
+	q.Set("append_to_response", "translations,images,aggregate_credits")
 	q.Set("include_image_language", includeImageLanguagesAll())
 
 	path := "/tv/" + strconv.FormatInt(tvID, 10) + "/season/" + strconv.Itoa(seasonNumber)

@@ -81,6 +81,7 @@ function mockServerSortedCast() {
     let cast: unknown[];
     if (p.includes('sort=credit')) cast = [zoe, amy, mike]; // credit 0,1,2 → 100,200,300
     else if (p.includes('sort=name')) cast = [amy, mike, zoe]; // Amy,Mike,Zoe → 200,300,100
+    else if (p.includes('sort=last_appearance')) cast = [mike, amy, zoe]; // season DESC → 300,200,100
     else cast = [amy, mike, zoe]; // episodes DESC 9,5,2 → 200,300,100
     return Promise.resolve({ ...sortBase, cast });
   });
@@ -117,6 +118,15 @@ describe('<SeriesCast />', () => {
     fireEvent.change(screen.getByTestId('cast-sort'), { target: { value: 'name' } });
     await waitFor(() => expect(tmdbOrder()).toEqual(['200', '300', '100'])); // server name order
     expect(mockApi).toHaveBeenCalledWith(expect.stringContaining('sort=name'));
+  });
+
+  it('refetches with sort=last_appearance from the dropdown and renders the server order', async () => {
+    mockServerSortedCast();
+    renderRoute('/series/42/cast');
+    await waitFor(() => expect(screen.getByTestId('cast-grid')).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId('cast-sort'), { target: { value: 'last_appearance' } });
+    await waitFor(() => expect(tmdbOrder()).toEqual(['300', '200', '100'])); // server last_appearance order
+    expect(mockApi).toHaveBeenCalledWith(expect.stringContaining('sort=last_appearance'));
   });
 
   it('renders skeleton while loading', () => {

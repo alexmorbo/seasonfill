@@ -175,14 +175,15 @@ func toSeriesCastResponseFromFallback(r *seriesdetail.CastFallbackResult) dto.Se
 	}
 	for _, e := range r.Cast {
 		resp.Cast = append(resp.Cast, dto.CastPageMember{
-			PersonID:      e.Person.ID,
-			TMDBID:        e.Person.TMDBID,
-			Name:          e.Person.Name,
-			ProfileAsset:  e.Person.ProfileAsset,
-			CharacterName: e.Credit.CharacterName,
-			CreditOrder:   e.Credit.CreditOrder,
-			EpisodeCount:  e.Credit.EpisodeCount,
-			InLibrary:     false, // canon-only: no probe (TMDB-only series cannot be in_library)
+			PersonID:             e.Person.ID,
+			TMDBID:               e.Person.TMDBID,
+			Name:                 e.Person.Name,
+			ProfileAsset:         e.Person.ProfileAsset,
+			CharacterName:        e.Credit.CharacterName,
+			CreditOrder:          e.Credit.CreditOrder,
+			EpisodeCount:         e.Credit.EpisodeCount,
+			LastAppearanceSeason: e.Credit.LastAppearanceSeason, // Story 1090 — nil for canon-only TMDB fallback.
+			InLibrary:            false,                         // canon-only: no probe (TMDB-only series cannot be in_library)
 		})
 	}
 	return resp

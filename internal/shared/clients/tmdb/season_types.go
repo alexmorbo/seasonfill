@@ -21,6 +21,13 @@ type SeasonResponse struct {
 	// treat a missing object as empty. Posters only (TMDB season images carry
 	// no backdrops).
 	Images *SeasonImages `json:"images"`
+
+	// append_to_response=aggregate_credits sub-resource (Story 1090). Nilable
+	// — callers MUST treat a missing object as empty. Reuses the TV-level
+	// TVAggregateCredits/TVCastMember shapes (tv_types.go); only Cast[].ID +
+	// the enclosing SeasonNumber are consumed, to compute per-person
+	// max(season_number) for the last_appearance cast sort.
+	AggregateCredits *TVAggregateCredits `json:"aggregate_credits"`
 }
 
 // SeasonEpisode mirrors episodes[*] on the season payload.

@@ -7,10 +7,12 @@ export type CastPageMember = components['schemas']['dto.CastPageMember'];
 export type CrewPageMember = components['schemas']['dto.CrewPageMember'];
 
 // Story 1087b-1 — server-side cast sort. The BE `/cast` endpoint accepts
-// `?sort=episodes|name|credit` (default `episodes`) and sorts + ETag-varies by
-// it, so the FE no longer re-sorts client-side; it just passes the selected
-// key through. (`last_appearance` is deferred to 1087b-2 — BE has no support.)
-export type CastSort = 'episodes' | 'credit' | 'name';
+// `?sort=episodes|name|credit|last_appearance` (default `episodes`) and sorts +
+// ETag-varies by it, so the FE no longer re-sorts client-side; it just passes
+// the selected key through.
+// Story 1090 — `last_appearance` now supported server-side (max real season
+// per person from per-season aggregate_credits).
+export type CastSort = 'episodes' | 'credit' | 'name' | 'last_appearance';
 
 export interface UseSeriesCastParams {
   readonly seriesId: number | undefined;

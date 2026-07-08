@@ -19,9 +19,10 @@ import (
 type castSort string
 
 const (
-	castSortEpisodes castSort = "episodes" // episode_count DESC, nulls last (default; = detail strip)
-	castSortCredit   castSort = "credit"   // credit_order ASC, nulls last
-	castSortName     castSort = "name"     // localized display-name collation ASC
+	castSortEpisodes       castSort = "episodes"        // episode_count DESC, nulls last (default; = detail strip)
+	castSortCredit         castSort = "credit"          // credit_order ASC, nulls last
+	castSortName           castSort = "name"            // localized display-name collation ASC
+	castSortLastAppearance castSort = "last_appearance" // last_appearance_season DESC, nulls last
 )
 
 // parseCastSort reads the optional ?sort= query param. Absent / unknown /
@@ -35,6 +36,8 @@ func parseCastSort(c *gin.Context) castSort {
 		return castSortCredit
 	case string(castSortName):
 		return castSortName
+	case string(castSortLastAppearance):
+		return castSortLastAppearance
 	default:
 		return castSortEpisodes
 	}
@@ -59,6 +62,11 @@ func sortCastMembers(members []dto.CastPageMember, s castSort, lang string) {
 			if d := coll.CompareString(a.Name, b.Name); d != 0 {
 				return d < 0
 			}
+		case castSortLastAppearance:
+			al, bl := lastAppearanceOrNeg(a.LastAppearanceSeason), lastAppearanceOrNeg(b.LastAppearanceSeason)
+			if al != bl {
+				return al > bl // DESC, nulls (-1) last
+			}
 		default: // castSortEpisodes
 			ae, be := episodeCountOrNeg(a.EpisodeCount), episodeCountOrNeg(b.EpisodeCount)
 			if ae != be {
@@ -82,6 +90,15 @@ func creditOrderOrMax(v *int) int {
 // real count (>= 0) in a DESC ordering. Mirrors the composer-side helper of
 // the same name (package seriesdetail) and the FE's `?? -1`.
 func episodeCountOrNeg(v *int) int {
+	if v == nil {
+		return -1
+	}
+	return *v
+}
+
+// lastAppearanceOrNeg maps a nil season to -1 so nulls sort AFTER every real
+// season (>= 1) in a DESC ordering. Story 1090.
+func lastAppearanceOrNeg(v *int) int {
 	if v == nil {
 		return -1
 	}

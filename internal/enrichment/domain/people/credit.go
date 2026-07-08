@@ -63,8 +63,14 @@ type SeriesCredit struct {
 	Job           *string
 	CreditOrder   *int
 	EpisodeCount  *int
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// LastAppearanceSeason is the highest REAL season number (specials
+	// excluded) this person is credited in, from per-season
+	// aggregate_credits. nil until the full refresh season loop populates
+	// it. The cast page's "last_appearance" sort orders DESC nulls-last.
+	// Story 1090.
+	LastAppearanceSeason *int
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // EpisodeCredit is one canonical row of episode-level credits.
@@ -128,12 +134,17 @@ type PersonCredit struct {
 	// episode-level rows (TMDB /person tv_credits carries no reliable
 	// order). The cast page sorts NULLS LAST. Story 1087b.
 	CreditOrder *int
-	ReleaseDate *time.Time
-	PosterAsset *string
-	TMDBRating  *float64
-	TMDBVotes   *int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// LastAppearanceSeason is the highest REAL season number (specials
+	// excluded) this person is credited in, from per-season
+	// aggregate_credits. nil until the full refresh season loop populates
+	// it. The cast page sorts DESC nulls-last. Story 1090.
+	LastAppearanceSeason *int
+	ReleaseDate          *time.Time
+	PosterAsset          *string
+	TMDBRating           *float64
+	TMDBVotes            *int
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // PersonCreditText is one per-language cast character-name row

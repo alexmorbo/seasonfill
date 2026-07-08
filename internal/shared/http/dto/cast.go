@@ -97,6 +97,11 @@ type CastPageMember struct {
 	// The frontend derives Main / Recurring / Guest by comparing
 	// against TotalEpisodeCount.
 	EpisodeCount *int `json:"episode_count,omitempty"`
+	// LastAppearanceSeason is the highest real season number this person
+	// is credited in (per-season aggregate_credits, specials excluded).
+	// nil until the full refresh populates it. The cast page's
+	// "last_appearance" sort orders DESC nulls-last. Story 1090.
+	LastAppearanceSeason *int `json:"last_appearance_season,omitempty"`
 	// InLibrary is true when the person appears as cast or crew
 	// on at least one OTHER series in this seasonfill's library
 	// (any active series_cache row, any instance). Excludes the

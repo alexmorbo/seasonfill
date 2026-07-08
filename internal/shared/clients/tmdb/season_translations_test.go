@@ -64,6 +64,66 @@ func TestGetSeason_RequestsTranslations_Decodes(t *testing.T) {
 	assert.Equal(t, "Season 1", byLang["en"].Data.Name)
 }
 
+// Story 1090 — GetSeason must add aggregate_credits to append_to_response and
+// decode the per-season cast into SeasonResponse.AggregateCredits.Cast so the
+// worker can compute per-person max(season_number) for the last_appearance sort.
+func TestGetSeason_RequestsAggregateCredits_Decodes(t *testing.T) {
+	t.Parallel()
+
+	var seenQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenQuery = r.URL.RawQuery
+		_, _ = io.WriteString(w, `{
+			"id": 3572,
+			"name": "Season 2",
+			"season_number": 2,
+			"episodes": [],
+			"aggregate_credits": {
+				"cast": [
+					{"id": 100, "name": "Actor A", "order": 0, "total_episode_count": 12,
+						"roles": [{"credit_id": "c1", "character": "Hero", "episode_count": 12}]},
+					{"id": 200, "name": "Actor B", "order": 1, "total_episode_count": 3,
+						"roles": [{"credit_id": "c2", "character": "Sidekick", "episode_count": 3}]}
+				],
+				"crew": []
+			}
+		}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := mustNew(t, srv.URL, "test-key")
+	defer c.Close()
+
+	got, err := c.GetSeason(context.Background(), 1396, 2, "en-US")
+	require.NoError(t, err)
+
+	assert.Contains(t, seenQuery, "aggregate_credits",
+		"Story 1090: season request MUST ask for aggregate_credits; got %q", seenQuery)
+
+	require.NotNil(t, got.AggregateCredits)
+	require.Len(t, got.AggregateCredits.Cast, 2)
+	assert.Equal(t, int64(100), got.AggregateCredits.Cast[0].ID)
+	assert.Equal(t, 0, got.AggregateCredits.Cast[0].Order)
+	assert.Equal(t, int64(200), got.AggregateCredits.Cast[1].ID)
+	assert.Equal(t, 1, got.AggregateCredits.Cast[1].Order)
+}
+
+// A season payload without an aggregate_credits sub-resource decodes to a nil
+// AggregateCredits pointer (nilable-object contract) — no panic downstream.
+func TestGetSeason_NoAggregateCredits_NilPointer(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"id":1,"name":"S","season_number":1,"episodes":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, "test-key")
+	defer c.Close()
+
+	got, err := c.GetSeason(context.Background(), 1, 1, "en-US")
+	require.NoError(t, err)
+	assert.Nil(t, got.AggregateCredits)
+}
+
 // A season payload without a translations sub-resource decodes to a nil
 // Translations pointer (nilable-array contract) — no panic downstream.
 func TestGetSeason_NoTranslations_NilPointer(t *testing.T) {

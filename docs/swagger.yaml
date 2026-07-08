@@ -101,6 +101,13 @@ components:
             current series so the "what else are they in?" affordance
             doesn't render a self-link.
           type: boolean
+        last_appearance_season:
+          description: |-
+            LastAppearanceSeason is the highest real season number this person
+            is credited in (per-season aggregate_credits, specials excluded).
+            nil until the full refresh populates it. The cast page's
+            "last_appearance" sort orders DESC nulls-last. Story 1090.
+          type: integer
         name:
           description: |-
             Name is the person's display name (locale-independent —

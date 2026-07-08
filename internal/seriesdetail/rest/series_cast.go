@@ -93,14 +93,15 @@ func toSeriesCastResponse(d *seriesdetail.CastPage) dto.SeriesCastResponse {
 	}
 	for _, e := range d.Cast {
 		resp.Cast = append(resp.Cast, dto.CastPageMember{
-			PersonID:      e.Person.ID,
-			TMDBID:        e.Person.TMDBID,
-			Name:          e.Person.Name,
-			ProfileAsset:  e.Person.ProfileAsset,
-			CharacterName: e.Credit.CharacterName,
-			CreditOrder:   e.Credit.CreditOrder,
-			EpisodeCount:  e.Credit.EpisodeCount,
-			InLibrary:     e.InLibrary,
+			PersonID:             e.Person.ID,
+			TMDBID:               e.Person.TMDBID,
+			Name:                 e.Person.Name,
+			ProfileAsset:         e.Person.ProfileAsset,
+			CharacterName:        e.Credit.CharacterName,
+			CreditOrder:          e.Credit.CreditOrder,
+			EpisodeCount:         e.Credit.EpisodeCount,
+			LastAppearanceSeason: e.Credit.LastAppearanceSeason,
+			InLibrary:            e.InLibrary,
 		})
 	}
 	for _, e := range d.Crew {

@@ -514,3 +514,67 @@ func TestPersonCreditsRepository_CreditOrder_PersistAndCoalesce(t *testing.T) {
 		})
 	}
 }
+
+// TestPersonCreditsRepository_LastAppearanceSeason_MaxMerge proves the Story
+// 1090 column round-trips (migration 000039 + model + read SELECT) and that the
+// portable CASE MAX-merge in OnConflict never regresses a stored value: a lower
+// or NULL re-upload keeps the higher stored season, a NULL stored takes the
+// incoming value, and a higher incoming value wins. Runs on BOTH backends to
+// prove the CASE expression is dialect-portable (GREATEST/MAX would not be).
+func TestPersonCreditsRepository_LastAppearanceSeason_MaxMerge(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Last Appearance"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			upsert := func(t *testing.T, mediaID int, creditID string, season *int) {
+				t.Helper()
+				row := samplePersonCredit(personID, creditID, "Show", mediaID)
+				row.LastAppearanceSeason = season
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{row})
+				require.NoError(t, err)
+			}
+			read := func(t *testing.T, mediaID int) *int {
+				t.Helper()
+				rows, err := repo.ListByMediaWithTextFallback(ctx, "tv", mediaID, "en-US")
+				require.NoError(t, err)
+				require.Len(t, rows, 1)
+				return rows[0].LastAppearanceSeason
+			}
+
+			t.Run("stored 3, current 2 -> stays 3", func(t *testing.T) {
+				upsert(t, 1001, "la-a", new(3))
+				upsert(t, 1001, "la-a", new(2))
+				got := read(t, 1001)
+				require.NotNil(t, got)
+				assert.Equal(t, 3, *got)
+			})
+			t.Run("stored NULL, current 4 -> 4", func(t *testing.T) {
+				upsert(t, 1002, "la-b", nil)
+				upsert(t, 1002, "la-b", new(4))
+				got := read(t, 1002)
+				require.NotNil(t, got)
+				assert.Equal(t, 4, *got)
+			})
+			t.Run("stored 3, current 5 -> 5", func(t *testing.T) {
+				upsert(t, 1003, "la-c", new(3))
+				upsert(t, 1003, "la-c", new(5))
+				got := read(t, 1003)
+				require.NotNil(t, got)
+				assert.Equal(t, 5, *got)
+			})
+			t.Run("stored 3, current NULL -> stays 3", func(t *testing.T) {
+				upsert(t, 1004, "la-d", new(3))
+				upsert(t, 1004, "la-d", nil)
+				got := read(t, 1004)
+				require.NotNil(t, got, "a NULL incoming value must not clobber the stored season")
+				assert.Equal(t, 3, *got)
+			})
+		})
+	}
+}

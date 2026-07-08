@@ -4359,6 +4359,13 @@ export type components = {
              */
             readonly in_library?: boolean;
             /**
+             * @description LastAppearanceSeason is the highest real season number this person
+             *     is credited in (per-season aggregate_credits, specials excluded).
+             *     nil until the full refresh populates it. The cast page's
+             *     "last_appearance" sort orders DESC nulls-last. Story 1090.
+             */
+            readonly last_appearance_season?: number;
+            /**
              * @description Name is the person's display name (locale-independent —
              *     TMDB doesn't translate names reliably, PRD §5.3 row
              *     "people").

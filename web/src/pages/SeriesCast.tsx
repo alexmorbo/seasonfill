@@ -157,6 +157,9 @@ export function SeriesCast() {
                 <option value="name" data-testid="cast-sort-option-name">
                   {t('seriesDetail.castPage.sort.name')}
                 </option>
+                <option value="last_appearance" data-testid="cast-sort-option-last-appearance">
+                  {t('seriesDetail.castPage.sort.lastAppearance')}
+                </option>
               </select>
             </label>
 

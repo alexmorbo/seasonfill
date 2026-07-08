@@ -58,6 +58,17 @@ func TestSortCastMembers(t *testing.T) {
 		sortCastMembers(m, castSortName, "en-US")
 		assert.Equal(t, []int64{2, 4, 3, 1}, ids(m)) // Amy,Bob,Mike,Zoe
 	})
+	t.Run("last_appearance DESC nulls last with person_id tie-break", func(t *testing.T) {
+		m := []dto.CastPageMember{
+			{PersonID: 10, Name: "A", LastAppearanceSeason: new(5)},
+			{PersonID: 20, Name: "B", LastAppearanceSeason: new(2)},
+			{PersonID: 30, Name: "C", LastAppearanceSeason: nil}, // null → last
+			{PersonID: 40, Name: "D", LastAppearanceSeason: new(5)},
+		}
+		sortCastMembers(m, castSortLastAppearance, "en-US")
+		// season 5 (ids 10<40 by tie-break), then 2 (id 20), then nil (id 30).
+		assert.Equal(t, []int64{10, 40, 20, 30}, ids(m))
+	})
 	t.Run("deterministic person_id tie-break", func(t *testing.T) {
 		m := []dto.CastPageMember{
 			castMember(5, "A", new(1), new(3)),
@@ -81,6 +92,8 @@ func TestParseCastSort(t *testing.T) {
 		{"credit", castSortCredit},
 		{"name", castSortName},
 		{"  NAME ", castSortName},
+		{"last_appearance", castSortLastAppearance},
+		{"  Last_Appearance ", castSortLastAppearance},
 	}
 	for _, tc := range cases {
 		c := ginTestContext("/x?sort=" + url.QueryEscape(tc.query))

@@ -105,6 +105,8 @@ func ETagMiddleware(reader SectionSyncedAtReader, logger *slog.Logger) gin.Handl
 				key += "-srtcredit"
 			case "name":
 				key += "-srtname"
+			case "last_appearance":
+				key += "-srtlast"
 			}
 		}
 		serverETag := fmt.Sprintf(`W/"%s"`, key)

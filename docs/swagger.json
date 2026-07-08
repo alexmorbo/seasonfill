@@ -126,6 +126,10 @@
                         "description": "InLibrary is true when the person appears as cast or crew\non at least one OTHER series in this seasonfill's library\n(any active series_cache row, any instance). Excludes the\ncurrent series so the \"what else are they in?\" affordance\ndoesn't render a self-link.",
                         "type": "boolean"
                     },
+                    "last_appearance_season": {
+                        "description": "LastAppearanceSeason is the highest real season number this person\nis credited in (per-season aggregate_credits, specials excluded).\nnil until the full refresh populates it. The cast page's\n\"last_appearance\" sort orders DESC nulls-last. Story 1090.",
+                        "type": "integer"
+                    },
                     "name": {
                         "description": "Name is the person's display name (locale-independent —\nTMDB doesn't translate names reliably, PRD §5.3 row\n\"people\").",
                         "example": "Pedro Pascal",

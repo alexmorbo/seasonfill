@@ -139,7 +139,7 @@ SELECT
   pc.title, pc.original_title, pc.year,
   COALESCE(t_req.character_name, t_base.character_name, pc.character_name) AS character_name,
   pc.kind, pc.department, pc.job, pc.poster_path, pc.vote_average,
-  pc.tmdb_votes, pc.episode_count, pc.credit_order, pc.created_at, pc.updated_at
+  pc.tmdb_votes, pc.episode_count, pc.credit_order, pc.last_appearance_season, pc.created_at, pc.updated_at
 FROM person_credits pc
 LEFT JOIN person_credits_texts t_req
   ON t_req.person_credit_id = pc.id AND t_req.language = ?
@@ -200,7 +200,7 @@ SELECT
   pc.title, pc.original_title, pc.year,
   COALESCE(t_req.character_name, t_base.character_name, pc.character_name) AS character_name,
   pc.kind, pc.department, pc.job, pc.poster_path, pc.vote_average,
-  pc.tmdb_votes, pc.episode_count, pc.credit_order, pc.created_at, pc.updated_at
+  pc.tmdb_votes, pc.episode_count, pc.credit_order, pc.last_appearance_season, pc.created_at, pc.updated_at
 FROM person_credits pc
 LEFT JOIN person_credits_texts t_req
   ON t_req.person_credit_id = pc.id AND t_req.language = ?
@@ -347,7 +347,18 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 			// later person-worker tv_credits write (order-less) on the same
 			// (person_id, tmdb_credit_id) must not null it out.
 			"credit_order": gorm.Expr("COALESCE(excluded.credit_order, person_credits.credit_order)"),
-			"updated_at":   gorm.Expr("excluded.updated_at"),
+			// Story 1090 — MAX-merge last_appearance_season. Portable across
+			// BOTH dialects (GREATEST is PG-only; SQLite scalar MAX(NULL,x)=NULL).
+			// NULL-safe on both sides: a NULL excluded (staged path / non-cast
+			// writer) preserves the stored value; a NULL stored takes excluded;
+			// otherwise the greater wins. Never regresses a higher stored value.
+			"last_appearance_season": gorm.Expr(
+				"CASE " +
+					"WHEN excluded.last_appearance_season IS NULL THEN person_credits.last_appearance_season " +
+					"WHEN person_credits.last_appearance_season IS NULL THEN excluded.last_appearance_season " +
+					"WHEN excluded.last_appearance_season > person_credits.last_appearance_season THEN excluded.last_appearance_season " +
+					"ELSE person_credits.last_appearance_season END"),
+			"updated_at": gorm.Expr("excluded.updated_at"),
 		}),
 	}).CreateInBatches(&models, 1000).Error
 	if err != nil {

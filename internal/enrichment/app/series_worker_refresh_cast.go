@@ -126,7 +126,10 @@ func (w *SeriesWorker) RefreshCast(
 
 		finalCredits, dropped := resolveSeriesCreditsWithPersonID(tv, seriesID, personIDByTMDB)
 		if len(finalCredits) > 0 {
-			pcRows := mapSeriesCreditsToPersonCredits(finalCredits, tv, int64(*canon.TMDBID))
+			// Light refresh path (GetTV only, no season fetch) — no
+			// last_appearance data available; pass nil so the writer's
+			// MAX-merge preserves any stored last_appearance_season. Story 1090.
+			pcRows := mapSeriesCreditsToPersonCredits(finalCredits, tv, int64(*canon.TMDBID), nil)
 			ids, err := w.deps.PersonCredits.BatchUpsert(txCtx, pcRows)
 			if err != nil {
 				return fmt.Errorf("batch upsert person_credits (tv): %w", err)

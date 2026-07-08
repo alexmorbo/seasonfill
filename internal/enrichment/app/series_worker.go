@@ -1022,6 +1022,29 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		}
 	}
 
+	// 6b. Story 1090 — per-person max(season_number) for the last_appearance
+	//     cast sort. Walk each fetched season's aggregate_credits.cast and
+	//     record the highest REAL season (skip season 0 specials) each person
+	//     appears in, keyed by canon person_id (resolved via personIDByTMDB).
+	//     Threaded into the media_type='tv' person_credits write below; the
+	//     writer MAX-merges it against the stored value so an unfetched older
+	//     season on a partial refresh never regresses a higher stored value.
+	lastAppByPerson := make(map[int64]int, len(personIDByTMDB))
+	for _, sr := range seasons {
+		if sr == nil || sr.SeasonNumber == 0 || sr.AggregateCredits == nil {
+			continue
+		}
+		for _, cast := range sr.AggregateCredits.Cast {
+			pid, ok := personIDByTMDB[int(cast.ID)]
+			if !ok || pid == 0 {
+				continue
+			}
+			if sr.SeasonNumber > lastAppByPerson[pid] {
+				lastAppByPerson[pid] = sr.SeasonNumber
+			}
+		}
+	}
+
 	// 7. person_credits (media_type='tv') — re-walk the TV
 	//    aggregate_credits payload to pair each credit row with the
 	//    TMDB person id, then resolve against personIDByTMDB. The
@@ -1044,7 +1067,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		// before invoking applyAll, so the deref is safe. The shape
 		// the port expects ([]people.PersonCredit) is built in-place
 		// by mapSeriesCreditsToPersonCredits.
-		pcRows := mapSeriesCreditsToPersonCredits(finalCredits, tv, int64(*canon.TMDBID))
+		pcRows := mapSeriesCreditsToPersonCredits(finalCredits, tv, int64(*canon.TMDBID), lastAppByPerson)
 		if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, pcRows); err != nil {
 			return nil, series.Canon{}, fmt.Errorf("batch upsert person_credits (tv): %w", err)
 		}
@@ -1226,6 +1249,7 @@ func mapSeriesCreditsToPersonCredits(
 	creds []people.SeriesCredit,
 	tv *tmdb.TVResponse,
 	tmdbMediaID int64,
+	lastAppByPerson map[int64]int,
 ) []people.PersonCredit {
 	title := ""
 	if tv != nil {
@@ -1233,18 +1257,24 @@ func mapSeriesCreditsToPersonCredits(
 	}
 	out := make([]people.PersonCredit, 0, len(creds))
 	for _, cr := range creds {
+		var lastApp *int
+		if v, ok := lastAppByPerson[cr.PersonID]; ok && v > 0 {
+			s := v
+			lastApp = &s
+		}
 		out = append(out, people.PersonCredit{
-			PersonID:      cr.PersonID,
-			MediaType:     tmdb.MediaTypeTV,
-			TMDBMediaID:   tmdbMediaID,
-			TMDBCreditID:  cr.TMDBCreditID,
-			Kind:          cr.Kind,
-			Title:         title,
-			CharacterName: cr.CharacterName,
-			Department:    cr.Department,
-			Job:           cr.Job,
-			EpisodeCount:  cr.EpisodeCount,
-			CreditOrder:   cr.CreditOrder, // Story 1087b — aggregate_credits billing order.
+			PersonID:             cr.PersonID,
+			MediaType:            tmdb.MediaTypeTV,
+			TMDBMediaID:          tmdbMediaID,
+			TMDBCreditID:         cr.TMDBCreditID,
+			Kind:                 cr.Kind,
+			Title:                title,
+			CharacterName:        cr.CharacterName,
+			Department:           cr.Department,
+			Job:                  cr.Job,
+			EpisodeCount:         cr.EpisodeCount,
+			CreditOrder:          cr.CreditOrder, // Story 1087b — aggregate_credits billing order.
+			LastAppearanceSeason: lastApp,        // Story 1090 — max real season the person appears in.
 		})
 	}
 	return out

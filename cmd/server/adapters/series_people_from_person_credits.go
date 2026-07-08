@@ -142,18 +142,19 @@ func (a *SeriesPeopleFromPersonCredits) ListBySeries(
 			continue
 		}
 		out = append(out, people.SeriesCredit{
-			ID:            r.ID,
-			SeriesID:      seriesID,
-			PersonID:      r.PersonID,
-			Kind:          kind,
-			TMDBCreditID:  r.TMDBCreditID,
-			CharacterName: r.CharacterName,
-			Department:    r.Department,
-			Job:           r.Job,
-			CreditOrder:   r.CreditOrder, // Story 1087b — billing order from person_credits.credit_order.
-			EpisodeCount:  r.EpisodeCount,
-			CreatedAt:     r.CreatedAt,
-			UpdatedAt:     r.UpdatedAt,
+			ID:                   r.ID,
+			SeriesID:             seriesID,
+			PersonID:             r.PersonID,
+			Kind:                 kind,
+			TMDBCreditID:         r.TMDBCreditID,
+			CharacterName:        r.CharacterName,
+			Department:           r.Department,
+			Job:                  r.Job,
+			CreditOrder:          r.CreditOrder, // Story 1087b — billing order from person_credits.credit_order.
+			EpisodeCount:         r.EpisodeCount,
+			LastAppearanceSeason: r.LastAppearanceSeason, // Story 1090 — max real season from person_credits.
+			CreatedAt:            r.CreatedAt,
+			UpdatedAt:            r.UpdatedAt,
 		})
 	}
 	return out, nil

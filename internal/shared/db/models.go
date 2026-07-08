@@ -1050,25 +1050,26 @@ func (SeriesRecommendationModel) TableName() string { return "series_recommendat
 // lazily on person-page open. Conversion to a media_assets.hash
 // reference is deferred to a later media-prewarm story.
 type PersonCreditModel struct {
-	ID            int64     `gorm:"primaryKey;autoIncrement;column:id"`
-	PersonID      int64     `gorm:"column:person_id;not null"`
-	TMDBCreditID  string    `gorm:"column:tmdb_credit_id;type:text;not null"`
-	MediaType     string    `gorm:"column:media_type;type:text;not null"`
-	TMDBMediaID   int       `gorm:"column:tmdb_media_id;not null"`
-	Title         string    `gorm:"column:title;type:text;not null"`
-	OriginalTitle *string   `gorm:"column:original_title;type:text"`
-	Year          *int      `gorm:"column:year"`
-	CharacterName *string   `gorm:"column:character_name;type:text"`
-	Kind          string    `gorm:"column:kind;type:text;not null"`
-	Department    *string   `gorm:"column:department;type:text"`
-	Job           *string   `gorm:"column:job;type:text"`
-	PosterPath    *string   `gorm:"column:poster_path;type:text"`
-	VoteAverage   *float64  `gorm:"column:vote_average"`
-	TMDBVotes     *int      `gorm:"column:tmdb_votes"`
-	EpisodeCount  *int      `gorm:"column:episode_count"`
-	CreditOrder   *int      `gorm:"column:credit_order"`
-	CreatedAt     time.Time `gorm:"column:created_at;not null"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;not null"`
+	ID                   int64     `gorm:"primaryKey;autoIncrement;column:id"`
+	PersonID             int64     `gorm:"column:person_id;not null"`
+	TMDBCreditID         string    `gorm:"column:tmdb_credit_id;type:text;not null"`
+	MediaType            string    `gorm:"column:media_type;type:text;not null"`
+	TMDBMediaID          int       `gorm:"column:tmdb_media_id;not null"`
+	Title                string    `gorm:"column:title;type:text;not null"`
+	OriginalTitle        *string   `gorm:"column:original_title;type:text"`
+	Year                 *int      `gorm:"column:year"`
+	CharacterName        *string   `gorm:"column:character_name;type:text"`
+	Kind                 string    `gorm:"column:kind;type:text;not null"`
+	Department           *string   `gorm:"column:department;type:text"`
+	Job                  *string   `gorm:"column:job;type:text"`
+	PosterPath           *string   `gorm:"column:poster_path;type:text"`
+	VoteAverage          *float64  `gorm:"column:vote_average"`
+	TMDBVotes            *int      `gorm:"column:tmdb_votes"`
+	EpisodeCount         *int      `gorm:"column:episode_count"`
+	CreditOrder          *int      `gorm:"column:credit_order"`
+	LastAppearanceSeason *int      `gorm:"column:last_appearance_season"`
+	CreatedAt            time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt            time.Time `gorm:"column:updated_at;not null"`
 }
 
 func (PersonCreditModel) TableName() string { return "person_credits" }

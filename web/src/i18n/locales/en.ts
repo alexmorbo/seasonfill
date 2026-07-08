@@ -2076,6 +2076,7 @@ export const en = {
         episodes: 'By episode count',
         credit: 'By billing order',
         name: 'By name (A–Z)',
+        lastAppearance: 'By latest season',
       },
       tabs: {
         cast: 'Cast',
