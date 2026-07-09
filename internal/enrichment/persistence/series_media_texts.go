@@ -146,25 +146,36 @@ func (r *SeriesMediaTextsRepository) PosterMarker(ctx context.Context, seriesID 
 }
 
 // ListByIDsWithFallback returns one SeriesMediaText per requested
-// series_id, applying the never-empty poster ladder (requested language →
-// en-US → any-available-language) in at most three round-trips. Mirrors
-// SeriesTextsRepository.ListByIDsWithFallback exactly — used by the
-// recommendations read path (584b) and the grid localizer (584b) to
-// localize posters without N+1 SELECTs.
+// series_id, applying a POSTER-PRESENCE ladder (requested language → en-US →
+// any-available-language) in at most three round-trips. Used by the
+// recommendations read path (584b), the grid localizer (584b), the person
+// credits page and the TMDB-fallback recs.
+//
+// Poster-presence semantics (Story 1110) — aligned with GetPosterAnyLang
+// (WHERE poster_asset IS NOT NULL AND <> ”): a tier only SATISFIES an id when
+// the chosen row carries a NON-EMPTY poster_asset. A "confirmed-absent" row
+// (Story 1081b: poster_asset NULL/empty + poster_checked_at SET) is a terminal
+// per-locale state; it must NOT shadow a lower-tier row that HAS a real poster.
+// The old row-presence ladder let a ru-RU confirmed-absent row block the en-US
+// poster, stranding the card on the missing-art sentinel forever.
 //
 // Semantics:
 //   - Empty seriesIDs slice → empty map, nil error (no SQL).
-//   - Series with a row in `lang`          → entry uses that row.
-//   - Series with no `lang` row but en-US  → entry uses en-US row.
-//   - Series with neither, but SOME row    → entry uses the lowest-
-//     language row (ORDER BY language ASC — deterministic).
-//   - Series with zero rows                → key absent (caller keeps canon).
 //   - lang == "" normalises to en-US.
+//   - Requested-lang row WITH a poster        → entry uses that row (satisfied).
+//   - Requested-lang row WITHOUT a poster     → seeded (never dropped), but the
+//     id stays UNSATISFIED so en-US / any-lang can still supply a poster.
+//   - en-US / any-lang row WITH a poster      → OVERWRITES the seeded row and
+//     satisfies the id. A poster-less row of a lower tier only seeds an id that
+//     is otherwise absent from the map (never downgrades a seeded row).
+//   - No poster in ANY language               → the id keeps its best-available
+//     (poster-less) row — its backdrop, if any, survives — and the caller
+//     renders the sentinel legitimately.
+//   - Zero rows for an id                     → key absent (caller keeps canon).
 //
-// W15-2: posters have no original_title analogue, so the any-lang tier is
-// the terminal never-empty guarantee. The pass runs unconditionally after
-// the en-US pass (even when lang == en-US) because a series may hold only
-// a non-en-US poster row.
+// NOTE: no consumer reads BackdropAsset off this result (all four read only
+// PosterAsset), so the poster-first overwrite cannot regress a backdrop; the
+// series-detail hero backdrop uses GetBackdropAnyLang.
 func (r *SeriesMediaTextsRepository) ListByIDsWithFallback(
 	ctx context.Context,
 	seriesIDs []domain.SeriesID,
@@ -181,24 +192,33 @@ func (r *SeriesMediaTextsRepository) ListByIDsWithFallback(
 		ids[i] = int64(id)
 	}
 
+	out := make(map[domain.SeriesID]series.SeriesMediaText, len(seriesIDs))
+	// satisfied[id] is set only once out[id] carries a NON-EMPTY poster. A
+	// seeded backdrop-only / confirmed-absent row leaves the id UNSATISFIED so a
+	// lower tier can still supply a poster-bearing row.
+	satisfied := make(map[domain.SeriesID]struct{}, len(seriesIDs))
+
+	// Primary pass (requested lang). Seed EVERY row so a backdrop-only row is
+	// never lost; mark satisfied only when the row carries a poster.
 	var primary []database.SeriesMediaTextModel
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Where("series_id IN ? AND language = ?", ids, lang).
 		Find(&primary).Error; err != nil {
 		return nil, fmt.Errorf("list series_media_texts by ids (lang=%s): %w", lang, err)
 	}
-	out := make(map[domain.SeriesID]series.SeriesMediaText, len(seriesIDs))
 	for _, m := range primary {
-		out[m.SeriesID] = toSeriesMediaText(m)
+		t := toSeriesMediaText(m)
+		out[t.SeriesID] = t
+		if hasPoster(t) {
+			satisfied[t.SeriesID] = struct{}{}
+		}
 	}
 
+	// en-US pass (skipped when lang == en-US). remaining = ids NOT satisfied
+	// (absent OR seeded-without-poster). A poster-bearing en-US row overwrites +
+	// satisfies; a poster-less en-US row only seeds an id still absent from out.
 	if lang != fallbackLanguage {
-		remaining := make([]int64, 0, len(ids))
-		for _, id := range ids {
-			if _, ok := out[domain.SeriesID(id)]; !ok {
-				remaining = append(remaining, id)
-			}
-		}
+		remaining := unsatisfiedIDs(ids, satisfied)
 		if len(remaining) > 0 {
 			var fallback []database.SeriesMediaTextModel
 			if err := dbFromContext(ctx, r.db).WithContext(ctx).
@@ -207,20 +227,21 @@ func (r *SeriesMediaTextsRepository) ListByIDsWithFallback(
 				return nil, fmt.Errorf("list series_media_texts en-US fallback: %w", err)
 			}
 			for _, m := range fallback {
-				out[m.SeriesID] = toSeriesMediaText(m)
+				t := toSeriesMediaText(m)
+				if hasPoster(t) {
+					out[t.SeriesID] = t
+					satisfied[t.SeriesID] = struct{}{}
+				} else if _, ok := out[t.SeriesID]; !ok {
+					out[t.SeriesID] = t
+				}
 			}
 		}
 	}
 
-	// Third pass (any-lang tier): ids still absent get the lowest-language
-	// row available. ORDER BY language ASC makes the pick deterministic;
-	// the first row seen per id wins.
-	stillMissing := make([]int64, 0, len(ids))
-	for _, id := range ids {
-		if _, ok := out[domain.SeriesID(id)]; !ok {
-			stillMissing = append(stillMissing, id)
-		}
-	}
+	// Any-lang pass. stillMissing = ids NOT satisfied. ORDER BY language ASC
+	// makes the pick deterministic; the FIRST poster-bearing row seen per id
+	// wins. A poster-less row only seeds an id still entirely absent from out.
+	stillMissing := unsatisfiedIDs(ids, satisfied)
 	if len(stillMissing) > 0 {
 		var anyLang []database.SeriesMediaTextModel
 		if err := dbFromContext(ctx, r.db).WithContext(ctx).
@@ -230,12 +251,38 @@ func (r *SeriesMediaTextsRepository) ListByIDsWithFallback(
 			return nil, fmt.Errorf("list series_media_texts any-lang fallback: %w", err)
 		}
 		for _, m := range anyLang {
-			if _, ok := out[m.SeriesID]; !ok {
-				out[m.SeriesID] = toSeriesMediaText(m)
+			t := toSeriesMediaText(m)
+			if _, done := satisfied[t.SeriesID]; done {
+				continue
+			}
+			if hasPoster(t) {
+				out[t.SeriesID] = t
+				satisfied[t.SeriesID] = struct{}{}
+			} else if _, ok := out[t.SeriesID]; !ok {
+				out[t.SeriesID] = t
 			}
 		}
 	}
 	return out, nil
+}
+
+// hasPoster reports whether a media row carries a usable poster_asset
+// (non-nil AND non-empty) — the poster-presence predicate the batch ladder
+// keys on, matching GetPosterAnyLang's WHERE poster_asset IS NOT NULL AND <> ”.
+func hasPoster(t series.SeriesMediaText) bool {
+	return t.PosterAsset != nil && *t.PosterAsset != ""
+}
+
+// unsatisfiedIDs returns the ids whose poster is not yet satisfied (absent from
+// the satisfied set), preserving input order for deterministic query params.
+func unsatisfiedIDs(ids []int64, satisfied map[domain.SeriesID]struct{}) []int64 {
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := satisfied[domain.SeriesID(id)]; !ok {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // Upsert writes a per-language media row by composite PK. Idempotent.

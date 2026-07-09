@@ -15,6 +15,8 @@ import (
 	"log/slog"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	mediaapp "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -278,7 +280,7 @@ func (c *Composer) GetRecommendations(
 		end := min(offset+limit, len(resolved))
 		out.Items = resolved[offset:end]
 		out.HasMore = end < len(resolved)
-		c.resolveRecommendationsMedia(ctx, out.Items, localisedMedia)
+		c.resolveRecommendationsMedia(ctx, out.Items, localisedMedia, lang)
 	}
 
 	c.d.Logger.InfoContext(ctx, "series_recommendations_composed",
@@ -294,15 +296,20 @@ func (c *Composer) GetRecommendations(
 	return out, nil
 }
 
-// resolveRecommendationsMedia mirrors composer.go:896-898 — translates
-// raw TMDB poster paths into media hashes. Story 584b — prefer the
-// per-language series_media_texts raw path (from mediaByID) over canon
-// before resolving; nil map / missing key / nil path keeps canon (today's
-// behavior). Nil-OK resolver short-circuits.
+// resolveRecommendationsMedia mirrors composer.go:896-898 — translates raw TMDB
+// poster paths into media hashes. Story 584b — prefer the per-language
+// series_media_texts raw path (from mediaByID) over canon before resolving; nil
+// map / missing key / nil path keeps the canon (sentinel) behavior.
+//
+// Story 1110 — when a card still resolves to the missing-art sentinel, emit a
+// reason-labeled counter + an Info log so the placeholder cause is observable in
+// prod. CHEAP: the common path (a real hash) does one pointer-deref compare and
+// no logging/labeling.
 func (c *Composer) resolveRecommendationsMedia(
 	ctx context.Context,
 	items []RecommendationDetail,
 	mediaByID map[domain.SeriesID]series.SeriesMediaText,
+	lang string,
 ) {
 	r := c.d.MediaResolver
 	if r == nil {
@@ -311,14 +318,49 @@ func (c *Composer) resolveRecommendationsMedia(
 	for i := range items {
 		// S-E3a — poster raw path comes ONLY from series_media_texts
 		// (lang → en-US); canon carries no poster_asset. A miss → nil →
-		// FE monogram.
+		// sentinel → FE monogram.
 		var raw *string
+		rowPresent := false
+		rawNonEmpty := false
 		if mediaByID != nil {
-			if mt, ok := mediaByID[items[i].Series.ID]; ok && mt.PosterAsset != nil && *mt.PosterAsset != "" {
-				raw = mt.PosterAsset
+			if mt, ok := mediaByID[items[i].Series.ID]; ok {
+				rowPresent = true
+				if mt.PosterAsset != nil && *mt.PosterAsset != "" {
+					raw = mt.PosterAsset
+					rawNonEmpty = true
+				}
 			}
 		}
-		items[i].PosterAsset = r.Resolve(ctx, raw, "w342", "poster_w342")
+		resolved := r.Resolve(ctx, raw, "w342", "poster_w342")
+		items[i].PosterAsset = resolved
+
+		if reason, sentinel := classifyRecPosterSentinel(resolved, rowPresent, rawNonEmpty); sentinel {
+			observability.IncRecPosterSentinel(reason)
+			c.d.Logger.InfoContext(ctx, "rec_poster_sentinel",
+				slog.Int64("series_id", int64(items[i].Series.ID)),
+				slog.String("lang", lang),
+				slog.String("reason", reason))
+		}
+	}
+}
+
+// classifyRecPosterSentinel returns (reason, true) when resolved is the
+// missing-art sentinel hash, else ("", false). Cheap common path: a single
+// nil-check + pointer-deref compare returns immediately when the resolver
+// produced a real hash — no map lookups or string building on the hot path.
+// rowPresent = the series had a series_media_texts entry in the batch map;
+// rawNonEmpty = that entry carried a non-empty poster_asset raw path.
+func classifyRecPosterSentinel(resolved *string, rowPresent, rawNonEmpty bool) (string, bool) {
+	if resolved == nil || *resolved != mediaapp.SentinelMissingHash {
+		return "", false
+	}
+	switch {
+	case rawNonEmpty:
+		return observability.RecPosterSentinelResolverMiss, true
+	case rowPresent:
+		return observability.RecPosterSentinelEmptyPosterRow, true
+	default:
+		return observability.RecPosterSentinelNoRow, true
 	}
 }
 
