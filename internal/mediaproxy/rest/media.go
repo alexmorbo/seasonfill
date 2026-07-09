@@ -247,6 +247,7 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 // @Failure     404   {object}  dto.ErrorResponse  "reserved (handler currently has no 404 paths)"
 // @Router      /media/{hash} [get]
 func (h *MediaHandler) Serve(c *gin.Context) {
+	start := time.Now()
 	hash := c.Param("hash")
 	if !isValidHashHex(hash) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid hash"})
@@ -262,7 +263,7 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 	// freshly-deployed FE doesn't carry a stale ETag past a
 	// resolver flip.
 	if hash == appmedia.SentinelMissingHash {
-		h.writeSentinel(c)
+		h.writeSentinel(c, start)
 		return
 	}
 
@@ -304,7 +305,7 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 			// no-store Cache-Control) keeps the visual stable; because
 			// it is never cached the FE re-requests immediately and by
 			// then the row is pending → on-demand fetch path takes over.
-			h.writePlaceholder(c, hash, "unknown_hash")
+			h.writePlaceholder(c, hash, "unknown_hash", "none", start)
 			return
 		}
 		h.logger.WarnContext(ctx, "media.serve.repo_error",
@@ -320,7 +321,7 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		// plumbed), budget exhaustion, or unrecoverable upstream errors.
 		// Re-reads the asset on hit so the rest of the handler (LRU,
 		// refetch loop) operates on the freshly-stored row.
-		fresh, ok := h.serveOnDemand(c, ctx, hash, asset)
+		fresh, ok := h.serveOnDemand(c, ctx, hash, asset, start)
 		if !ok {
 			return
 		}
@@ -345,8 +346,7 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		h.logger.WarnContext(ctx, "media.serve.store_degraded",
 			slog.String("hash", hash),
 			slog.String("error", err.Error()))
-		observability.IncMediaServeDegraded("store_unavailable")
-		h.writePlaceholder(c, hash, "store_unavailable")
+		h.writePlaceholder(c, hash, "store_unavailable", asset.Status.String(), start)
 		return
 	}
 
@@ -464,11 +464,11 @@ func (h *MediaHandler) refetchAndStore(ctx context.Context, asset media.Asset) (
 // over latching the row into a sticky failure state. Singleflight
 // keyed on the hash collapses concurrent tabs onto a single upstream
 // call.
-func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash string, asset media.Asset) (media.Asset, bool) {
+func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash string, asset media.Asset, start time.Time) (media.Asset, bool) {
 	// Bypass when the wiring isn't there yet — serve the placeholder so
 	// the frontend stays visually stable.
 	if h.ondemandFetcher == nil || h.pendingResolver == nil {
-		h.writePlaceholder(c, hash, "wiring_unavailable")
+		h.writePlaceholder(c, hash, "wiring_unavailable", asset.Status.String(), start)
 		return media.Asset{}, false
 	}
 
@@ -483,7 +483,7 @@ func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash s
 			slog.String("hash", hash),
 			slog.String("error", errString(lerr)),
 		)
-		h.writePlaceholder(c, hash, "no_source_url")
+		h.writePlaceholder(c, hash, "no_source_url", asset.Status.String(), start)
 		return media.Asset{}, false
 	}
 
@@ -529,37 +529,53 @@ func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash s
 	})
 	res, _ := resAny.(sfResult)
 	if !res.ok {
-		h.writePlaceholder(c, hash, "fetch_failed")
+		h.writePlaceholder(c, hash, "fetch_failed", asset.Status.String(), start)
 		return media.Asset{}, false
 	}
 	return res.asset, true
 }
 
-// writePlaceholder serves the embedded SVG with a 5-minute cache window
-// and an X-Media-Placeholder debug header. Reason is logged so we can
-// trace WHY the placeholder fired from logs / NetworkTab.
-func (h *MediaHandler) writePlaceholder(c *gin.Context, hash, reason string) {
+// writePlaceholder serves the embedded SVG with a no-store cache window
+// and an X-Media-Placeholder debug header. It is the single choke point
+// for placeholder observability: every reason is counted once in
+// seasonfill_media_serve_degraded_total{reason=...} and logged at Info
+// with reason, asset_status (media_assets row status, or "none" when no
+// row exists), and elapsed_ms (time since the Serve handler entered) so
+// we can trace WHY + HOW SLOW a placeholder fired from logs / NetworkTab.
+// reason is always a compile-time literal — never the hash — so the
+// metric label cardinality stays bounded.
+func (h *MediaHandler) writePlaceholder(c *gin.Context, hash, reason, assetStatus string, start time.Time) {
+	observability.IncMediaServeDegraded(reason)
 	c.Header("Cache-Control", mediaPlaceholderCacheControl)
 	c.Header("X-Media-Placeholder", "1")
 	c.Data(http.StatusOK, mediaPlaceholderContentType, mediaPlaceholderSVG)
-	h.logger.DebugContext(c.Request.Context(), "media.serve.placeholder",
+	h.logger.InfoContext(c.Request.Context(), "media.serve.placeholder",
 		slog.String("hash", hash),
 		slog.String("reason", reason),
+		slog.String("asset_status", assetStatus),
+		slog.Int64("elapsed_ms", time.Since(start).Milliseconds()),
 	)
 }
 
 // writeSentinel serves the embedded SVG placeholder for the story-347
-// sentinel hash. Distinct from writePlaceholder so logs / NetworkTab
-// can tell the deterministic "no canonical asset" case apart from the
+// sentinel hash. Distinct from writePlaceholder so logs / NetworkTab can
+// tell the deterministic "no canonical asset" case apart from the
 // on-demand-fetch failure path. Cache window is 24h — sentinel hashes
-// never transition, so browsers can hold the response indefinitely
-// (the seed is namespaced "...:v1" so a future rotation is the escape
-// hatch).
-func (h *MediaHandler) writeSentinel(c *gin.Context) {
+// never transition, so browsers can hold the response indefinitely (the
+// seed is namespaced "...:v1" so a future rotation is the escape hatch).
+//
+// Deliberately does NOT bump seasonfill_media_serve_degraded_total: the
+// sentinel is the expected/benign "no source" signal, not a degradation
+// of a real asset, and counting it would swamp the degrade metric with
+// steady-state noise. It keeps its own Info log (with elapsed_ms) +
+// X-Media-Placeholder: sentinel header for separate visibility.
+func (h *MediaHandler) writeSentinel(c *gin.Context, start time.Time) {
 	c.Header("Cache-Control", "public, max-age=86400")
 	c.Header("X-Media-Placeholder", "sentinel")
 	c.Data(http.StatusOK, mediaPlaceholderContentType, mediaPlaceholderSVG)
-	h.logger.DebugContext(c.Request.Context(), "media.serve.sentinel")
+	h.logger.InfoContext(c.Request.Context(), "media.serve.sentinel",
+		slog.Int64("elapsed_ms", time.Since(start).Milliseconds()),
+	)
 }
 
 // extFromSourceURL extracts the lowercase extension from a URL path.
