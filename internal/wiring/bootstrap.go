@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
@@ -102,6 +103,17 @@ func BuildPersistence(
 	}
 	if err := database.Migrate(db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+
+	// M-3 — DB pool + per-repo write-error observability. Registered exactly
+	// once here (the single primary-DB open in the server runtime path).
+	if sqlDB, dbErr := db.DB(); dbErr == nil {
+		observability.RegisterDBPoolMetrics(sqlDB)
+	} else {
+		log.Warn("db pool metrics not registered", slog.String("error", dbErr.Error()))
+	}
+	if err := observability.RegisterDBWriteErrorMetrics(db); err != nil {
+		return nil, fmt.Errorf("register db write-error metrics: %w", err)
 	}
 
 	instanceRepo := catalogpersistence.NewSonarrInstanceRepository(db)
