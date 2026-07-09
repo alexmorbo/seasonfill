@@ -281,11 +281,12 @@ func BuildEnrichment(
 	// so the operator-facing /external-services List + Dashboard banner
 	// surface the invalid-key signal without a pod restart.
 	tmdbFactoryCfg := adapters.TMDBClientFactoryConfig{
-		Language:            tmdb.DefaultLanguage,
-		RPS:                 bootstrap.ExternalServices.TMDBAPIRPS,
-		Logger:              tmdbLog,
-		AuthFailureReporter: extSvcUC,
-		QuotaCounter:        quotaCounter, // B-1 — nil-OK; observability-only (TMDB has no daily cap)
+		Language:               tmdb.DefaultLanguage,
+		RPS:                    bootstrap.ExternalServices.TMDBAPIRPS,
+		InteractiveReserveFrac: bootstrap.ExternalServices.TMDBInteractiveReserveFrac, // W110-5 (F-03)
+		Logger:                 tmdbLog,
+		AuthFailureReporter:    extSvcUC,
+		QuotaCounter:           quotaCounter, // B-1 — nil-OK; observability-only (TMDB has no daily cap)
 	}
 	if enabledAtBoot {
 		var err error
@@ -339,13 +340,14 @@ func BuildEnrichment(
 		// rebuilt by the subscriber because the downloader was
 		// constructed with the SHARED httpClient pointer below.
 		tmdbClient, err = tmdb.New(tmdb.Config{
-			Token:               settings.APIKey,
-			HTTPClient:          httpClient,
-			Language:            tmdbFactoryCfg.Language,
-			RPS:                 tmdbFactoryCfg.RPS,
-			Logger:              tmdbFactoryCfg.Logger,
-			AuthFailureReporter: tmdbFactoryCfg.AuthFailureReporter, // 489 (B-17)
-			QuotaCounter:        tmdbFactoryCfg.QuotaCounter,        // B-1
+			Token:                  settings.APIKey,
+			HTTPClient:             httpClient,
+			Language:               tmdbFactoryCfg.Language,
+			RPS:                    tmdbFactoryCfg.RPS,
+			InteractiveReserveFrac: tmdbFactoryCfg.InteractiveReserveFrac, // W110-5 (F-03)
+			Logger:                 tmdbFactoryCfg.Logger,
+			AuthFailureReporter:    tmdbFactoryCfg.AuthFailureReporter, // 489 (B-17)
+			QuotaCounter:           tmdbFactoryCfg.QuotaCounter,        // B-1
 		})
 		if err != nil {
 			return nil, err

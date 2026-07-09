@@ -380,3 +380,48 @@ func TestFromEnv_MediaS3InflightParsedAndDefault(t *testing.T) {
 	assert.Equal(t, 24, cfg.ExternalServices.MediaS3ReadInflight)
 	assert.Equal(t, 12, cfg.ExternalServices.MediaS3WriteInflight)
 }
+
+// W110-5 (F-03) — SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC parsing + clamp.
+func TestFromEnv_InteractiveReserveFrac_DefaultWhenUnset(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.25, cfg.ExternalServices.TMDBInteractiveReserveFrac, 0.0001,
+		"unset env must fall back to the 0.25 default")
+}
+
+func TestFromEnv_InteractiveReserveFrac_Passthrough(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC", "0.3")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.3, cfg.ExternalServices.TMDBInteractiveReserveFrac, 0.0001,
+		"in-band value must pass through unchanged")
+}
+
+func TestFromEnv_InteractiveReserveFrac_ClampFloor(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC", "0.01")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.05, cfg.ExternalServices.TMDBInteractiveReserveFrac, 0.0001,
+		"sub-floor value must clamp up to 0.05")
+}
+
+func TestFromEnv_InteractiveReserveFrac_ClampCeil(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC", "0.9")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.5, cfg.ExternalServices.TMDBInteractiveReserveFrac, 0.0001,
+		"above-ceil value must clamp down to 0.5")
+}
+
+func TestFromEnv_InteractiveReserveFrac_NegativeToDefault(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC", "-1")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.25, cfg.ExternalServices.TMDBInteractiveReserveFrac, 0.0001,
+		"negative value must fall back to the default")
+}

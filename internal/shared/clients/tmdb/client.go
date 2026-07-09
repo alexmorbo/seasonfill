@@ -120,12 +120,20 @@ type AuthFailureReporter interface {
 // Close() the old Client before swapping in a new one (token /
 // proxy change).
 type Client struct {
-	baseURL      string
-	token        string
-	authFormat   AuthFormat // Story 471 (B-18) — v3 (query) vs v4 (Bearer header).
-	lang         string
-	httpClient   *http.Client
-	limiter      *tokenBucket
+	baseURL    string
+	token      string
+	authFormat AuthFormat // Story 471 (B-18) — v3 (query) vs v4 (Bearer header).
+	lang       string
+	httpClient *http.Client
+	limiter    *tokenBucket
+	// coldGate is the W110-5 (F-03) batch throttle. Batch/background callers
+	// (unmarked ctx) must clear this SECOND bucket — capped at
+	// rps×(1−InteractiveReserveFrac) — before drawing from the shared `limiter`,
+	// so interactive (on-view) callers always retain rps×frac headroom under
+	// batch saturation. Interactive callers skip it entirely. Never paused: the
+	// 429 global pause lives on `limiter`, which both lanes still hit. Immutable
+	// after New; internally concurrency-safe (channel + refill goroutine).
+	coldGate     *tokenBucket
 	logger       *slog.Logger
 	clk          clock.Clock
 	authReporter AuthFailureReporter // Story 489 (B-17) — nil-OK.
@@ -159,8 +167,14 @@ type Config struct {
 	Language   string
 	HTTPClient *http.Client
 	RPS        float64
-	Logger     *slog.Logger
-	Clock      clock.Clock
+	// InteractiveReserveFrac — W110-5 (F-03). Fraction of RPS held exclusively
+	// for interactive (on-view) callers; batch callers are throttled to
+	// rps×(1−frac) via the cold gate. 0/unset → DefaultInteractiveReserveFrac
+	// (0.25); clamped to [0.05, 0.5] by ClampInteractiveReserveFrac.
+	// Env plumbed via SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC.
+	InteractiveReserveFrac float64
+	Logger                 *slog.Logger
+	Clock                  clock.Clock
 	// AuthFailureReporter is the optional 401-callback. Nil-OK — when
 	// nil, doOnce skips reporting. Story 489 (B-17). The reporter must
 	// be safe for concurrent use and non-blocking — see the interface
@@ -209,6 +223,16 @@ func New(cfg Config) (*Client, error) {
 	interval := time.Duration(float64(time.Second) / rps)
 	if interval <= 0 {
 		interval = time.Second
+	}
+	// W110-5 (F-03) — cold gate paces the batch lane at rps×(1−frac) so
+	// interactive callers keep rps×frac of the shared bucket's refill. Both
+	// gates share the same upstream `rps` conceptually: batch clears the cold
+	// gate THEN the shared bucket, so aggregate draw stays ≤ rps.
+	reserveFrac := ClampInteractiveReserveFrac(cfg.InteractiveReserveFrac)
+	batchRPS := rps * (1 - reserveFrac)
+	batchInterval := time.Duration(float64(time.Second) / batchRPS)
+	if batchInterval <= 0 {
+		batchInterval = time.Second
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -259,6 +283,7 @@ func New(cfg Config) (*Client, error) {
 		lang:         lang,
 		httpClient:   clientWithMetrics,
 		limiter:      newTokenBucket(interval, rateLimitBurst, clk),
+		coldGate:     newTokenBucket(batchInterval, rateLimitBurst, clk), // W110-5 (F-03)
 		logger:       logger,
 		clk:          clk,
 		authReporter: cfg.AuthFailureReporter, // 489 (B-17)
@@ -310,7 +335,7 @@ func New(cfg Config) (*Client, error) {
 	return c, nil
 }
 
-// Close stops the rate-limiter refill goroutine and drains the SWR cache.
+// Close stops the rate-limiter refill goroutines and drains the SWR cache.
 // Safe to call multiple times. After Close the client MUST NOT be used; new
 // calls panic on a closed limiter channel.
 func (c *Client) Close() {
@@ -318,6 +343,9 @@ func (c *Client) Close() {
 		c.swr.Close()
 	}
 	c.limiter.Close()
+	if c.coldGate != nil {
+		c.coldGate.Close()
+	}
 }
 
 // do is the public entry point. Every endpoint method calls do; do consults
@@ -338,6 +366,10 @@ func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte,
 // both land here. Returns the response body bytes ready for json.Unmarshal
 // OR an *APIError when the upstream surfaced a structured error payload.
 func (c *Client) doDirect(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	// W110-5 (F-03) — decide the lane ONCE from the caller ctx; retries stay on
+	// the same lane. Interactive (on-view) callers draw from the shared bucket
+	// only; batch/background callers additionally clear the cold gate.
+	interactive := isInteractive(ctx)
 	for attempt := range maxAttempts {
 		// Story 306 — observe wall-clock limiter wait. Always Update,
 		// even on a pre-filled (zero-wait) token; the histogram's p0
@@ -345,9 +377,12 @@ func (c *Client) doDirect(ctx context.Context, path string, query url.Values) ([
 		// the limiter.Wait also blocks on the global pause deadline,
 		// so the wait time now includes both bucket-empty AND
 		// pause-active waits — the operator's "limiter saturation"
-		// dashboard sees both as throughput cost.
+		// dashboard sees both as throughput cost. W110-5: for batch
+		// callers the observed wait now includes the cold-gate throttle
+		// too — the operator's "limiter saturation" dashboard sees the
+		// full throttle cost.
 		waitStart := c.clk.Now()
-		if err := c.limiter.Wait(ctx); err != nil {
+		if err := c.acquire(ctx, interactive); err != nil {
 			return nil, err
 		}
 		observability.ObserveTMDBLimiterWait(c.clk.Now().Sub(waitStart).Seconds())
@@ -399,6 +434,23 @@ func (c *Client) doDirect(ctx context.Context, path string, query url.Values) ([
 	}
 	// Unreachable — the loop above always returns inside.
 	return nil, errors.New("tmdb: retry loop exited without verdict")
+}
+
+// acquire blocks until the caller may issue ONE upstream request. Interactive
+// (on-view) callers draw only from the shared bucket — the full rps, minus
+// whatever batch is concurrently drawing. Batch/background callers must first
+// clear the cold gate (a second bucket throttled to rps×(1−reserveFrac)) so
+// their aggregate draw leaves rps×reserveFrac of shared-bucket refill for
+// interactive. Both lanes then draw from the shared bucket, which is the single
+// rps ceiling AND the 429 global-pause chokepoint — so total draw never exceeds
+// rps and both lanes honour PauseUntil. W110-5 (F-03).
+func (c *Client) acquire(ctx context.Context, interactive bool) error {
+	if !interactive && c.coldGate != nil {
+		if err := c.coldGate.Wait(ctx); err != nil {
+			return err
+		}
+	}
+	return c.limiter.Wait(ctx)
 }
 
 // applyPause hands the Retry-After window to the shared token bucket

@@ -14,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -274,6 +275,13 @@ func (h *SeriesFreshenerHolder) dispatchSync(
 	// composer's degraded[] projection handles partial completions.
 	ctx, cancel := context.WithTimeout(context.Background(), h.cfg.SyncTimeout)
 	defer cancel()
+	// W110-5 (F-03) — this is the on-view path: mark the detached ctx interactive
+	// so the freshener's TMDB calls draw from the FULL rps bucket and keep
+	// headroom under batch-enrichment saturation. The marker rides ctx through
+	// runOne → invokeNarrow → SeriesWorker.Refresh* → TMDBClientHolder →
+	// tmdb.Client.do → doDirect. Batch (enrichment dispatcher) and background
+	// (dispatchAsync / carryOverAsync, SWR revalidate) paths stay UNMARKED.
+	ctx = tmdb.WithInteractive(ctx)
 
 	var wg sync.WaitGroup
 	errCh := make(chan sectionError, len(plan))

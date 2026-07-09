@@ -229,10 +229,14 @@ func BuildOMDbClient(settings infraextsvc.Settings) (*infraomdb.Client, error) {
 // auth failures into the externalservices.UseCase validation cache.
 // Nil-OK; tests skip wiring it.
 type TMDBClientFactoryConfig struct {
-	Language            string
-	RPS                 float64
-	Logger              *slog.Logger
-	AuthFailureReporter tmdb.AuthFailureReporter
+	Language string
+	RPS      float64
+	// InteractiveReserveFrac — W110-5 (F-03). Threaded through every reload
+	// subscriber rebuild so a runtime key/proxy swap preserves the interactive
+	// headroom split. 0 → tmdb default (0.25).
+	InteractiveReserveFrac float64
+	Logger                 *slog.Logger
+	AuthFailureReporter    tmdb.AuthFailureReporter
 	// QuotaCounter is the optional B-1 observability sink. Nil-OK —
 	// when nil, the rebuilt client neither Increments nor publishes
 	// the seasonfill_external_service_quota_used{service="tmdb"} gauge.
@@ -257,13 +261,14 @@ func BuildTMDBClient(settings infraextsvc.Settings, cfg TMDBClientFactoryConfig)
 		return nil, fmt.Errorf("tmdb http client: %w", err)
 	}
 	c, err := tmdb.New(tmdb.Config{
-		Token:               settings.APIKey,
-		HTTPClient:          httpClient,
-		Language:            cfg.Language,
-		RPS:                 cfg.RPS,
-		Logger:              cfg.Logger,
-		AuthFailureReporter: cfg.AuthFailureReporter, // Story 489 (B-17)
-		QuotaCounter:        cfg.QuotaCounter,        // B-1
+		Token:                  settings.APIKey,
+		HTTPClient:             httpClient,
+		Language:               cfg.Language,
+		RPS:                    cfg.RPS,
+		InteractiveReserveFrac: cfg.InteractiveReserveFrac, // W110-5 (F-03)
+		Logger:                 cfg.Logger,
+		AuthFailureReporter:    cfg.AuthFailureReporter, // Story 489 (B-17)
+		QuotaCounter:           cfg.QuotaCounter,        // B-1
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tmdb client: %w", err)

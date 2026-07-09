@@ -198,6 +198,13 @@ type ExternalServicesEnv struct {
 	// Env: SEASONFILL_TMDB_CDN_RPS.
 	TMDBAPIRPS float64
 	TMDBCDNRPS float64
+	// TMDBInteractiveReserveFrac — W110-5 (F-03). Fraction of the TMDB API rps
+	// budget reserved exclusively for interactive (on-view freshener) callers;
+	// batch/background callers are throttled to rps×(1−frac). Env:
+	// SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC. unset/<=0 → default 0.25;
+	// clamped to [0.05, 0.5]. Mirrors tmdb.ClampInteractiveReserveFrac (kept
+	// self-contained here to avoid a config→tmdb import).
+	TMDBInteractiveReserveFrac float64
 	// W19-1 — media downloader worker count (image.tmdb.org drain pool).
 	// 0 or unset → application/media default (32). Env:
 	// SEASONFILL_MEDIA_DOWNLOADER_WORKERS.
@@ -399,22 +406,23 @@ func FromEnv() (*Bootstrap, error) {
 			// regress when this code lands. wiring/enrichment.go logs
 			// a one-shot deprecation warning when only the legacy name
 			// is set.
-			TMDBAPIRPS:              getenvFloat("SEASONFILL_TMDB_API_RPS", getenvFloat("SEASONFILL_TMDB_RPS", 0)),
-			TMDBCDNRPS:              getenvFloat("SEASONFILL_TMDB_CDN_RPS", 0),
-			MediaDownloaderWorkers:  getenvInt("SEASONFILL_MEDIA_DOWNLOADER_WORKERS", 0),
-			MediaOnDemandBudget:     mediaOnDemandBudgetFromEnv(),
-			MediaOnDemandStatBudget: mediaOnDemandStatBudgetFromEnv(),
-			MediaServeGetBudget:     mediaServeGetBudgetFromEnv(),
-			MediaS3ReadInflight:     getenvInt("SEASONFILL_MEDIA_S3_READ_INFLIGHT", 24),
-			MediaS3WriteInflight:    getenvInt("SEASONFILL_MEDIA_S3_WRITE_INFLIGHT", 12),
-			OMDBToken:               os.Getenv("SEASONFILL_OMDB_TOKEN"),
-			OMDBProxyURL:            os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
-			OMDBProxyUser:           os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
-			OMDBProxyPass:           os.Getenv("SEASONFILL_OMDB_PROXY_PASS"),
-			TVDBToken:               os.Getenv("SEASONFILL_TVDB_TOKEN"),
-			TVDBProxyURL:            os.Getenv("SEASONFILL_TVDB_PROXY_URL"),
-			TVDBProxyUser:           os.Getenv("SEASONFILL_TVDB_PROXY_USER"),
-			TVDBProxyPass:           os.Getenv("SEASONFILL_TVDB_PROXY_PASS"),
+			TMDBAPIRPS:                 getenvFloat("SEASONFILL_TMDB_API_RPS", getenvFloat("SEASONFILL_TMDB_RPS", 0)),
+			TMDBCDNRPS:                 getenvFloat("SEASONFILL_TMDB_CDN_RPS", 0),
+			TMDBInteractiveReserveFrac: interactiveReserveFracFromEnv(),
+			MediaDownloaderWorkers:     getenvInt("SEASONFILL_MEDIA_DOWNLOADER_WORKERS", 0),
+			MediaOnDemandBudget:        mediaOnDemandBudgetFromEnv(),
+			MediaOnDemandStatBudget:    mediaOnDemandStatBudgetFromEnv(),
+			MediaServeGetBudget:        mediaServeGetBudgetFromEnv(),
+			MediaS3ReadInflight:        getenvInt("SEASONFILL_MEDIA_S3_READ_INFLIGHT", 24),
+			MediaS3WriteInflight:       getenvInt("SEASONFILL_MEDIA_S3_WRITE_INFLIGHT", 12),
+			OMDBToken:                  os.Getenv("SEASONFILL_OMDB_TOKEN"),
+			OMDBProxyURL:               os.Getenv("SEASONFILL_OMDB_PROXY_URL"),
+			OMDBProxyUser:              os.Getenv("SEASONFILL_OMDB_PROXY_USER"),
+			OMDBProxyPass:              os.Getenv("SEASONFILL_OMDB_PROXY_PASS"),
+			TVDBToken:                  os.Getenv("SEASONFILL_TVDB_TOKEN"),
+			TVDBProxyURL:               os.Getenv("SEASONFILL_TVDB_PROXY_URL"),
+			TVDBProxyUser:              os.Getenv("SEASONFILL_TVDB_PROXY_USER"),
+			TVDBProxyPass:              os.Getenv("SEASONFILL_TVDB_PROXY_PASS"),
 		},
 		Enrichment: EnrichmentConfig{
 			ColdStartResweepInterval: coldStartResweepIntervalFromEnv(),
@@ -499,6 +507,30 @@ func getenvFloat(name string, def float64) float64 {
 		return def
 	}
 	return n
+}
+
+// interactiveReserveFracFromEnv parses SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC
+// (W110-5 / F-03). unset / empty / unparseable / <=0 → default 0.25; otherwise
+// clamped to [0.05, 0.5]. Bounds mirror tmdb.{Default,Min,Max}InteractiveReserveFrac
+// (duplicated here so config carries no config→tmdb import; tmdb.New re-clamps
+// defensively).
+func interactiveReserveFracFromEnv() float64 {
+	const (
+		def   = 0.25
+		floor = 0.05
+		ceil  = 0.5
+	)
+	v := getenvFloat("SEASONFILL_TMDB_INTERACTIVE_RESERVE_FRAC", 0)
+	switch {
+	case v <= 0:
+		return def
+	case v < floor:
+		return floor
+	case v > ceil:
+		return ceil
+	default:
+		return v
+	}
 }
 
 // getenvAllowEmpty returns the value of name if it is explicitly set
