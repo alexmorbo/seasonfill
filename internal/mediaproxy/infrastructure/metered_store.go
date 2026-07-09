@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -94,9 +95,17 @@ func (m *meteredStore) Get(ctx context.Context, key string) (io.ReadCloser, Obje
 	if err := m.acquireRead(ctx, opGet); err != nil {
 		return nil, ObjectInfo{}, err
 	}
-	defer m.releaseRead()
 	observability.IncS3Inflight(opGet)
-	defer observability.DecS3Inflight(opGet)
+	// Story 1111 F-02: the read slot + in-flight gauge must be held for the
+	// WHOLE lifetime of the returned stream — the serve handler drains the body
+	// (io.ReadAll) AFTER Get returns, so releasing on return under-counted
+	// concurrent open S3 streams and let the read semaphore over-admit. release
+	// fires exactly once: on the wrapper's Close (success) or immediately on the
+	// error path below (rc is nil — no body to close).
+	release := func() {
+		observability.DecS3Inflight(opGet)
+		m.releaseRead()
+	}
 	start := time.Now()
 	rc, info, err := m.inner.Get(ctx, key)
 	var n int64
@@ -104,7 +113,27 @@ func (m *meteredStore) Get(ctx context.Context, key string) (io.ReadCloser, Obje
 		n = info.Size
 	}
 	recordS3(opGet, start, err, n)
-	return rc, info, err
+	if err != nil {
+		release()
+		return nil, info, err
+	}
+	return &releaseOnCloseReader{ReadCloser: rc, release: release}, info, nil
+}
+
+// releaseOnCloseReader wraps the inner store's body so the read in-flight slot
+// (and its gauge) is released when the CALLER closes the stream, not when Get
+// returns. Story 1111 F-02. The sync.Once makes a double Close a safe no-op (a
+// second <-readSem would otherwise steal a slot from another reader).
+type releaseOnCloseReader struct {
+	io.ReadCloser
+	once    sync.Once
+	release func()
+}
+
+func (r *releaseOnCloseReader) Close() error {
+	err := r.ReadCloser.Close()
+	r.once.Do(r.release)
+	return err
 }
 
 func (m *meteredStore) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {

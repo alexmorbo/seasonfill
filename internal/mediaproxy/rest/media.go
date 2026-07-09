@@ -331,11 +331,15 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 	// 3. mediastore Get. Lost object → refetch under singleflight.
 	entry, served, err := h.loadFromStoreOrRefetch(ctx, asset)
 	if err != nil {
-		// Client aborted (nav away, tab close) → request/getCtx is Canceled;
-		// nobody is waiting for a body, so skip the placeholder write. A
-		// serve-budget expiry is DeadlineExceeded (NOT Canceled) and
-		// correctly falls through to the degrade path below.
-		if errors.Is(err, context.Canceled) {
+		// Story 1111 F-01: gate the silent return on the CALLER's OWN request
+		// context, NOT on the error value. A context.Canceled surfacing here can
+		// be a FOREIGN cancel — e.g. singleflight handing this waiter the first
+		// caller's cancelled-ctx error — while THIS client is still connected;
+		// mis-reading that as "our client aborted" emitted a bare empty 200. When
+		// our own client is gone nobody is waiting for a body, so skip the write.
+		// Otherwise (foreign cancel, or a serve-budget DeadlineExceeded on the
+		// getCtx child) fall through to the store_unavailable degrade below.
+		if clientGone(c) {
 			return
 		}
 		// Story 1099 Fix B: store unavailable (saturation timeout / 5xx /
@@ -395,9 +399,14 @@ func (h *MediaHandler) loadFromStoreOrRefetch(ctx context.Context, asset media.A
 		return mediaCacheEntry{}, "", err
 	}
 
-	// Lost object — singleflight refetch from upstream (PARENT ctx).
+	// Lost object — singleflight refetch from upstream. Story 1111 F-01:
+	// context.WithoutCancel detaches the SHARED refetch from the first caller's
+	// request ctx so that caller's nav-away cannot cancel (and poison) the
+	// result singleflight hands to every other still-connected waiter. The
+	// refetch still terminates via h.http's own Timeout; only the per-caller
+	// cancellation is dropped.
 	sfRes, sfErr, _ := h.sf.Do(asset.Hash, func() (any, error) {
-		return h.refetchAndStore(ctx, asset)
+		return h.refetchAndStore(context.WithoutCancel(ctx), asset)
 	})
 	if sfErr != nil {
 		return mediaCacheEntry{}, "", sfErr
@@ -529,10 +538,30 @@ func (h *MediaHandler) serveOnDemand(c *gin.Context, ctx context.Context, hash s
 	})
 	res, _ := resAny.(sfResult)
 	if !res.ok {
+		// Story 1111 F-03: a client that navigated away cancels ctx → FetchSync
+		// fails → res.ok=false. That is a client abort, NOT an upstream
+		// degradation: skip both the (unheard) placeholder write AND the
+		// fetch_failed degrade metric so the W110-8 signal keeps distinguishing
+		// real upstream misses from aborts. Return the same (zero,false) the
+		// placeholder path returns so Serve bails cleanly. A genuine upstream
+		// failure/timeout with a LIVE client still counts + serves the placeholder.
+		if clientGone(c) {
+			return media.Asset{}, false
+		}
 		h.writePlaceholder(c, hash, "fetch_failed", asset.Status.String(), start)
 		return media.Asset{}, false
 	}
 	return res.asset, true
+}
+
+// clientGone reports whether the ORIGINAL request context has been cancelled
+// (client navigated away / closed the tab / connection dropped). Story 1111
+// F-01/F-03: the serve + on-demand error branches gate their silent return on
+// THIS — the caller's own liveness — instead of the error value, so a foreign
+// cancel (singleflight cross-attribution, or a budget child-ctx) never
+// suppresses a legitimate degrade for a still-connected client.
+func clientGone(c *gin.Context) bool {
+	return c.Request.Context().Err() != nil
 }
 
 // writePlaceholder serves the embedded SVG with a no-store cache window

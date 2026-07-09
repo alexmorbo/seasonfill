@@ -309,3 +309,59 @@ func TestNewMeteredStore_ZeroCapsNormalize(t *testing.T) {
 	assert.Equal(t, defaultReadInflight, cap(ms.readSem))
 	assert.Equal(t, defaultWriteInflight, cap(ms.writeSem))
 }
+
+// Story 1111 F-02 — the read in-flight slot is held until the returned body is
+// Closed, not until Get returns. Proof: with read cap 1, a second Get cannot
+// acquire while the first rc is still open; after Close it can.
+func TestMeteredStore_Get_HoldsReadSlotUntilClose(t *testing.T) {
+	fake := &meterFakeStore{getInfo: ObjectInfo{Size: 4}}
+	m := NewMeteredStore(fake, 1, 4) // read cap 1
+	ctx := context.Background()
+
+	// First Get takes the only read slot; body NOT yet closed.
+	rc1, _, err := m.Get(ctx, "k")
+	require.NoError(t, err)
+	require.NotNil(t, rc1)
+
+	// Second Get on a short-deadline ctx must fail to acquire — the slot is
+	// still held by the un-Closed rc1 (proves release is deferred to Close, not
+	// Get-return). The deadline (100ms) fires before readAcquireBudget (500ms).
+	dctx, dcancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer dcancel()
+	_, _, err2 := m.Get(dctx, "k")
+	require.Error(t, err2)
+	require.ErrorIs(t, err2, context.DeadlineExceeded)
+
+	// Drain + Close rc1 → releases the read slot.
+	_, _ = io.ReadAll(rc1)
+	require.NoError(t, rc1.Close())
+
+	// Double Close is a safe no-op (sync.Once) — must not over-release the sem.
+	require.NoError(t, rc1.Close())
+
+	// Third Get now acquires immediately (slot was freed exactly once).
+	rc3, _, err3 := m.Get(ctx, "k")
+	require.NoError(t, err3)
+	_ = rc3.Close()
+}
+
+// Story 1111 F-02 — on the Get error path (inner fails, rc nil) the slot is
+// released immediately so it is never leaked.
+func TestMeteredStore_Get_ErrorPathReleasesSlot(t *testing.T) {
+	sentinel := errors.New("inner get boom")
+	fake := &meterFakeStore{getErr: sentinel}
+	m := NewMeteredStore(fake, 1, 4) // read cap 1
+	ctx := context.Background()
+
+	_, _, err := m.Get(ctx, "k")
+	require.ErrorIs(t, err, sentinel)
+
+	// The slot must be free — a follow-up Get acquires without timing out.
+	dctx, dcancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer dcancel()
+	rc, _, err2 := m.Get(dctx, "k2") // this fake still returns the sentinel, but acquire must succeed first
+	if rc != nil {
+		_ = rc.Close()
+	}
+	require.ErrorIs(t, err2, sentinel) // reached inner.Get (acquired) → same error, NOT a deadline
+}

@@ -1326,3 +1326,40 @@ func TestSkeletonComposer_PerLangBackdrop_AnyLangMiss_NilBackdrop(t *testing.T) 
 	require.Equal(t, skEagerHash("/ru.jpg", "w342"), dto.Hero.PosterAsset.Value())
 	require.True(t, dto.Hero.BackdropAsset.IsZero(), "no backdrop anywhere → zero (placeholder)")
 }
+
+// Story 1111 F-04 — posterPresenceUnknown returns true ONLY for a genuine no-row
+// (ErrNotFound). A transient error must NOT be treated as unknown (would force a
+// blocking seed every view). Present/confirmed-absent are KNOWN.
+func TestPosterPresenceUnknown_OnlyNotFoundIsUnknown(t *testing.T) {
+	t.Parallel()
+	mk := func(mt *fakeSkMediaTexts) *SkeletonComposer {
+		return NewSkeletonComposer(SkeletonDeps{SeriesMediaTexts: mt})
+	}
+	checkedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	require.True(t, mk(&fakeSkMediaTexts{err: dataports.ErrNotFound}).
+		posterPresenceUnknown(context.Background(), 42, "ru-RU"), "ErrNotFound → unknown")
+	require.False(t, mk(&fakeSkMediaTexts{err: errors.New("db blip")}).
+		posterPresenceUnknown(context.Background(), 42, "ru-RU"), "transient → NOT unknown (skip seed)")
+	require.False(t, mk(&fakeSkMediaTexts{row: series.SeriesMediaText{PosterAsset: new("/ru.jpg")}}).
+		posterPresenceUnknown(context.Background(), 42, "ru-RU"), "present → known")
+	require.False(t, mk(&fakeSkMediaTexts{row: series.SeriesMediaText{PosterCheckedAt: &checkedAt}}).
+		posterPresenceUnknown(context.Background(), 42, "ru-RU"), "confirmed-absent → known")
+	require.True(t, mk(&fakeSkMediaTexts{row: series.SeriesMediaText{}}).
+		posterPresenceUnknown(context.Background(), 42, "ru-RU"), "never-checked row (both nil) → unknown")
+}
+
+// Story 1111 F-04 — end-to-end: a TRANSIENT media-texts error with ColdMediaSeed
+// ON must NOT dispatch a forced SectionSkeleton seed (pre-fix it did, turning a
+// DB blip into a blocking GetTV per view). Contrast the ErrNotFound cold-unknown
+// tests which DO seed.
+func TestSkeletonComposer_TransientMediaTextsError_NoSeed(t *testing.T) {
+	t.Parallel()
+	mt := &fakeSkMediaTexts{err: errors.New("db connection reset")} // transient, NOT ErrNotFound
+	sf := &seedingFreshener{}
+	sf.onSeed = func() { t.Fatal("transient media-texts error must NOT force a cold seed (F-04)") }
+	sc := NewSkeletonComposer(coldSeedDeps(t, mt, sf, true)) // ColdMediaSeed ON
+	_, err := sc.Compose(context.Background(), 42, mustLangTag(t, "ru-RU"))
+	require.NoError(t, err)
+	require.Equal(t, 0, sf.forcedSkeletonSeeds(), "transient error → no forced SectionSkeleton seed")
+}

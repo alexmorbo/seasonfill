@@ -15,12 +15,12 @@ import (
 	"log/slog"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
-	mediaapp "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // Recommendations is the value object returned by Composer.GetRecommendations.
@@ -351,7 +351,7 @@ func (c *Composer) resolveRecommendationsMedia(
 // rowPresent = the series had a series_media_texts entry in the batch map;
 // rawNonEmpty = that entry carried a non-empty poster_asset raw path.
 func classifyRecPosterSentinel(resolved *string, rowPresent, rawNonEmpty bool) (string, bool) {
-	if resolved == nil || *resolved != mediaapp.SentinelMissingHash {
+	if !media.IsSentinel(resolved) {
 		return "", false
 	}
 	switch {

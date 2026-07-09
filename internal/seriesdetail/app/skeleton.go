@@ -2,6 +2,7 @@ package seriesdetail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain/values"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
@@ -312,15 +314,18 @@ func (sc *SkeletonComposer) Compose(ctx context.Context, seriesID domain.SeriesI
 //   - confirmed-absent (PosterCheckedAt stamped)  → KNOWN (GetPosterAnyLang serves it).
 //   - never-checked / no row                      → UNKNOWN (the bug — needs a seed).
 //
-// Any repo error (ErrNotFound = no row, or a transient failure) is treated as
-// UNKNOWN: the worst case is one extra GetTV on a cold DB blip, gated by the
-// kill-switch and the cold-only first-open path. Called ONCE per compose,
-// synchronously before the hero errgroup, so buildHero re-reads the seeded row
-// race-free.
+// ONLY a genuine no-row (ports.ErrNotFound) is real presence-unknown that a seed
+// can fix. Story 1111 F-04: a TRANSIENT repo error (DB blip, TMDB outage leaving
+// the absence row unwritten) must NOT be treated as unknown — doing so forced a
+// blocking synchronous GetTV seed on EVERY view, burning interactive-lane TMDB
+// budget with no way to self-heal. On a transient error we return false ("not
+// unknown") so the caller skips the forced seed and the legacy Probe-gated path
+// owns freshness. Called ONCE per compose, synchronously before the hero
+// errgroup, so buildHero re-reads any seeded row race-free.
 func (sc *SkeletonComposer) posterPresenceUnknown(ctx context.Context, seriesID domain.SeriesID, langStr string) bool {
 	row, err := sc.d.SeriesMediaTexts.Get(ctx, seriesID, langStr)
 	if err != nil {
-		return true // no usable row (ErrNotFound / transient) → presence unknown
+		return errors.Is(err, ports.ErrNotFound) // no row → unknown; transient → skip seed
 	}
 	present := row.PosterAsset != nil && *row.PosterAsset != ""
 	checked := row.PosterCheckedAt != nil

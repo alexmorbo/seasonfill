@@ -842,25 +842,95 @@ func TestMedia_StoreErrorServesPlaceholderNot502(t *testing.T) {
 	}
 }
 
-// Story 1099 Fix B / F-10 — a context.Canceled from store.Get is a client
-// abort; the handler must write NOTHING (no placeholder body, no headers),
-// because nobody is receiving the response.
-func TestMedia_StoreContextCanceledWritesNothing(t *testing.T) {
+// Story 1111 F-01 — a GENUINE own-client abort (the REQUEST's context is
+// cancelled) must write NOTHING: no placeholder body, no headers, since nobody
+// is receiving the response. The gate is the caller's OWN ctx (clientGone), so
+// this cancels the request ctx rather than relying on a store error value.
+func TestMedia_OwnClientAbortWritesNothing(t *testing.T) {
 	h, repo, store := newHandler(t)
 	url := "https://image.tmdb.org/t/p/w342/client-abort.jpg"
 	hash := hashOf(url)
 	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", ContentType: "image/jpeg", Size: 3, Status: media.StatusStored})
-	store.getErr = context.Canceled
+	store.getErr = context.Canceled // store observes the propagated cancel (non-NotFound → no refetch)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the client has gone away
 
 	r := newRouter(h)
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/media/"+hash, nil))
 
 	if rr.Header().Get("X-Media-Placeholder") != "" {
-		t.Fatal("client-abort (context.Canceled) must NOT render a placeholder")
+		t.Fatal("own-client abort must NOT render a placeholder")
 	}
 	if rr.Body.Len() != 0 {
-		t.Fatalf("client-abort must write no body, got %q", rr.Body.String())
+		t.Fatalf("own-client abort must write no body, got %q", rr.Body.String())
+	}
+}
+
+// Story 1111 F-01 — a FOREIGN context.Canceled reaching the serve error branch
+// (singleflight handing waiter B the first caller A's cancelled-ctx error) while
+// B's OWN client is still connected must NOT silent-return a bare empty 200. It
+// must fall through to the store_unavailable degrade: SVG placeholder, 200 +
+// no-store + X-Media-Placeholder:1 + one degraded count. Pre-fix, line 338's
+// errors.Is(err, context.Canceled) mis-attributed A's cancel to B.
+func TestMedia_ForeignCancelDegradesNotBare200(t *testing.T) {
+	h, repo, store := newHandler(t)
+	url := "https://image.tmdb.org/t/p/w342/foreign-cancel.jpg"
+	hash := hashOf(url)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", ContentType: "image/jpeg", Size: 3, Status: media.StatusStored})
+	// A store error wrapping context.Canceled = the foreign-cancel value a live
+	// waiter would receive. Non-NotFound/NotSupported → no refetch; request LIVE.
+	store.getErr = errors.Join(errors.New("refetch aborted by peer caller"), context.Canceled)
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	before := degradedCounter("store_unavailable")
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/"+hash, nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200 placeholder, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "1" {
+		t.Fatal("foreign-cancel with a live client must render the placeholder, not a bare 200")
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("want Cache-Control no-store, got %q", got)
+	}
+	if rr.Body.Len() == 0 || !strings.Contains(rr.Body.String(), "<svg") {
+		t.Fatalf("foreign-cancel must serve the SVG placeholder body, got %q", rr.Body.String())
+	}
+	if got := degradedCounter("store_unavailable") - before; got != 1 {
+		t.Fatalf("store_unavailable degraded delta want 1, got %d", got)
+	}
+}
+
+// Story 1111 F-03 — when the ON-DEMAND fetch fails because the CLIENT aborted
+// (request ctx cancelled), serveOnDemand must NOT tick the fetch_failed degrade
+// metric nor write the (unheard) placeholder — that pollutes the W110-8 signal
+// distinguishing real upstream misses from client aborts.
+func TestMediaHandler_OnDemand_ClientAbort_NoFetchFailedCount(t *testing.T) {
+	url := "https://image.tmdb.org/t/p/w342/ondemand-abort.jpg"
+	hash := hashOf(url)
+	resolver := newStubPendingResolver()
+	resolver.put(hash, url, "poster_w342", media.StatusPending)
+	fetcher := &stubOnDemand{hashWin: ""} // always misses → FetchSync returns ok=false
+	h, repo, _ := newOnDemandHandler(t, resolver, fetcher)
+	repo.put(media.Asset{Hash: hash, UpstreamURL: url, Kind: "poster_w342", Status: media.StatusPending})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // client gone before the fetch resolves
+
+	r := newRouter(h)
+	rr := httptest.NewRecorder()
+	before := degradedCounter("fetch_failed")
+	r.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/media/"+hash, nil))
+
+	if got := degradedCounter("fetch_failed") - before; got != 0 {
+		t.Fatalf("client-abort must NOT increment fetch_failed degrade, got delta %d", got)
+	}
+	if rr.Header().Get("X-Media-Placeholder") != "" {
+		t.Fatal("client-abort must NOT render a placeholder")
 	}
 }
 
