@@ -67,6 +67,15 @@ func sortCastMembers(members []dto.CastPageMember, s castSort, lang string) {
 			if al != bl {
 				return al > bl // DESC, nulls (-1) last
 			}
+			// Story 1095: within the same last season, rank many-episode main
+			// cast above one-episode guest stars. Secondary key
+			// episode_count DESC, nulls (-1) last (episodeCountOrNeg maps
+			// nil -> -1, so nil sorts AFTER every real count). Falls through to
+			// the shared person_id ASC tie-break below for full ties.
+			ae, be := episodeCountOrNeg(a.EpisodeCount), episodeCountOrNeg(b.EpisodeCount)
+			if ae != be {
+				return ae > be // DESC, nulls (-1) last
+			}
 		default: // castSortEpisodes
 			ae, be := episodeCountOrNeg(a.EpisodeCount), episodeCountOrNeg(b.EpisodeCount)
 			if ae != be {

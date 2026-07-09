@@ -80,6 +80,51 @@ func TestSortCastMembers(t *testing.T) {
 	})
 }
 
+func TestSortCastMembersLastAppearanceEpisodeTiebreak(t *testing.T) {
+	t.Parallel()
+
+	t.Run("same season higher episode_count first", func(t *testing.T) {
+		m := []dto.CastPageMember{
+			{PersonID: 20, Name: "Guest", LastAppearanceSeason: new(5), EpisodeCount: new(1)},
+			{PersonID: 10, Name: "Regular", LastAppearanceSeason: new(5), EpisodeCount: new(50)},
+		}
+		sortCastMembers(m, castSortLastAppearance, "en-US")
+		// same last season 5 → episode_count DESC: 50 before 1.
+		assert.Equal(t, []int64{10, 20}, ids(m))
+	})
+
+	t.Run("nil episode_count sorts after real counts within season", func(t *testing.T) {
+		m := []dto.CastPageMember{
+			{PersonID: 30, Name: "Unknown", LastAppearanceSeason: new(5), EpisodeCount: nil},
+			{PersonID: 20, Name: "Guest", LastAppearanceSeason: new(5), EpisodeCount: new(1)},
+			{PersonID: 10, Name: "Regular", LastAppearanceSeason: new(5), EpisodeCount: new(50)},
+		}
+		sortCastMembers(m, castSortLastAppearance, "en-US")
+		// season 5 → 50, 1, then nil (nulls last).
+		assert.Equal(t, []int64{10, 20, 30}, ids(m))
+	})
+
+	t.Run("full tie falls through to person_id ASC", func(t *testing.T) {
+		m := []dto.CastPageMember{
+			{PersonID: 30, Name: "C", LastAppearanceSeason: new(5), EpisodeCount: new(5)},
+			{PersonID: 15, Name: "A", LastAppearanceSeason: new(5), EpisodeCount: new(5)},
+		}
+		sortCastMembers(m, castSortLastAppearance, "en-US")
+		// same season, same episode_count → lower person_id first.
+		assert.Equal(t, []int64{15, 30}, ids(m))
+	})
+
+	t.Run("primary season key dominates episode_count", func(t *testing.T) {
+		m := []dto.CastPageMember{
+			{PersonID: 20, Name: "Regular", LastAppearanceSeason: new(3), EpisodeCount: new(50)},
+			{PersonID: 10, Name: "Guest", LastAppearanceSeason: new(5), EpisodeCount: new(1)},
+		}
+		sortCastMembers(m, castSortLastAppearance, "en-US")
+		// season 5 (1 ep) still ranks above season 3 (50 eps): primary wins.
+		assert.Equal(t, []int64{10, 20}, ids(m))
+	})
+}
+
 func TestParseCastSort(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
