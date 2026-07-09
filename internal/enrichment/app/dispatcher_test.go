@@ -236,7 +236,7 @@ func TestDispatcher_HandlerPanic_ReleasesDedup(t *testing.T) {
 	// Drain the channel — we don't want the loop to pick it up.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, ok := d.queue.dequeue(ctx)
+	_, ok := d.queue.dequeue(ctx, EntitySeries)
 	require.True(t, ok)
 	// Slot still pinned (release would happen post-handler).
 	d.queue.mu.Lock()
@@ -368,4 +368,70 @@ func TestDispatcher_StartedLogReportsConfiguredCounts(t *testing.T) {
 	require.Contains(t, buf.String(), "enrichment.dispatcher.started")
 	assert.Contains(t, buf.String(), `"series_workers":5`)
 	assert.Contains(t, buf.String(), `"person_workers":3`)
+}
+
+// Story 1104: with per-kind channels a person job must reach the person
+// handler and NEVER the series handler. Dispatcher-level counterpart to
+// TestQueue_DequeueIsPerKind.
+func TestDispatcher_SeriesWorkerNeverRunsPersonJob(t *testing.T) {
+	t.Parallel()
+	var seriesSaw, personSaw atomic.Int64
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(_ context.Context, id int64) error { seriesSaw.Store(id); return nil },
+		PersonHandler: func(_ context.Context, id int64) error { personSaw.Store(id); return nil },
+	}, quietLogger())
+	ctx := t.Context()
+	d.Start(ctx)
+	defer d.Close()
+
+	d.Enqueue(EntityPerson, 321, PriorityHot)
+	waitFor(t, time.Second, func() bool { return personSaw.Load() == 321 })
+	assert.Zero(t, seriesSaw.Load(), "series handler must never run a person job")
+}
+
+// Story 1104: all three pools drain their own kind concurrently. One
+// job of each kind must reach exactly its own handler.
+func TestDispatcher_EachPoolDrainsOnlyItsKind(t *testing.T) {
+	t.Parallel()
+	var s, p, o atomic.Int64
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(_ context.Context, id int64) error { s.Store(id); return nil },
+		PersonHandler: func(_ context.Context, id int64) error { p.Store(id); return nil },
+		OMDbHandler:   func(_ context.Context, id int64, _ Priority) error { o.Store(id); return nil },
+	}, quietLogger())
+	ctx := t.Context()
+	d.Start(ctx)
+	defer d.Close()
+
+	d.Enqueue(EntitySeries, 10, PriorityHot)
+	d.Enqueue(EntityPerson, 20, PriorityHot)
+	d.Enqueue(EntityOMDb, 30, PriorityHot)
+
+	waitFor(t, 2*time.Second, func() bool {
+		return s.Load() == 10 && p.Load() == 20 && o.Load() == 30
+	})
+	assert.Equal(t, int64(10), s.Load())
+	assert.Equal(t, int64(20), p.Load())
+	assert.Equal(t, int64(30), o.Load())
+}
+
+// F-08: a 0/negative PersonWorkers count must clamp to 1 (never disable
+// the person pool). Mirror of TestDispatcher_SeriesWorkersClampAtOne.
+func TestDispatcher_PersonWorkersClampAtOne(t *testing.T) {
+	t.Parallel()
+	var seen atomic.Int64
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(ctx context.Context, id int64) error { return nil },
+		PersonHandler: func(ctx context.Context, id int64) error {
+			seen.Store(id)
+			return nil
+		},
+		SeriesWorkers: -3,
+		PersonWorkers: 0, // must clamp to 1, not disable
+	}, quietLogger())
+	ctx := t.Context()
+	d.Start(ctx)
+	defer d.Close()
+	d.Enqueue(EntityPerson, 77, PriorityHot)
+	waitFor(t, time.Second, func() bool { return seen.Load() == 77 })
 }

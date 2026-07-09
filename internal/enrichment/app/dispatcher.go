@@ -124,11 +124,9 @@ func (d *DispatcherImpl) Start(parent context.Context) {
 			d.loop(ctx, EntityPerson, idx, personH)
 		})
 	}
-	// 213 (D-1): one OMDb goroutine. The shared queue's cross-kind
-	// drain in loop() guarantees an OMDb goroutine waking on a
-	// series job re-enqueues it. With 2× series + 1× person + 1×
-	// OMDb goroutines and 3 EntityKinds the cross-kind spin remains
-	// the known caveat documented in 211 §10.
+	// 213 (D-1): one OMDb goroutine. Story 1104 gave each kind its own
+	// channel pair, so this goroutine drains ONLY EntityOMDb jobs — the
+	// old cross-kind drain / hot-spin caveat (211 §10) is gone.
 	// W18-12 (F-02): OMDbHandler is already the priority-aware shape;
 	// pass it straight through so Job.Priority reaches the closure.
 	d.wg.Go(func() {
@@ -186,26 +184,19 @@ func (d *DispatcherImpl) Close() {
 // loop is one worker's main pump. handler nil → log + release (the
 // person placeholder case). Errors bubble up as slog WARN; the
 // worker NEVER takes the dispatcher down on a handler error.
+//
+// Story 1104: dequeue is per-kind, so a worker only ever receives its
+// own kind's jobs — the previous cross-kind drain branch (which
+// re-enqueued foreign jobs and busy-spun) is deleted.
 func (d *DispatcherImpl) loop(ctx context.Context, kind EntityKind, idx int, handler jobHandler) {
 	log := d.logger.With(
 		slog.String("entity_type", string(kind)),
 		slog.Int("worker_idx", idx),
 	)
 	for {
-		j, ok := d.queue.dequeue(ctx)
+		j, ok := d.queue.dequeue(ctx, kind)
 		if !ok {
 			return
-		}
-		if j.Kind != kind {
-			// Cross-kind drain — re-enqueue + skip. This happens when
-			// the person goroutine wakes on a series job in the queue
-			// (current impl puts both in the same channels; if/when
-			// 212 splits per-kind channels this branch goes away).
-			// Release first so the re-enqueue's dedup check is the
-			// authoritative one.
-			d.queue.release(j.Kind, j.EntityID)
-			d.queue.enqueue(j) //nolint:errcheck // best-effort re-queue
-			continue
 		}
 		// Panic-safe dedup release: a handler that panics MUST NOT
 		// pin the slot forever. Per Critical Decision #2 below.
