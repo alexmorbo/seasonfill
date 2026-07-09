@@ -70,6 +70,7 @@ type Downloader struct {
 	clock      func() time.Time
 	workers    int
 	statBudget time.Duration
+	metrics    *observability.MediaDownloaderMetrics
 	wg         sync.WaitGroup
 	stopOnce   sync.Once
 	stopCh     chan struct{}
@@ -102,6 +103,11 @@ type DownloaderDeps struct {
 	// (800ms). W19-3b: wired from the SAME SEASONFILL_MEDIA_STAT_BUDGET as
 	// the on-demand fetcher (one env drives both paths).
 	StatBudget time.Duration
+	// Metrics is the M-1 saturation adapter (workers/inflight/download
+	// families). nil → the Enqueuer's shared adapter, so depth/capacity
+	// and worker/inflight land on the same global series. Optional
+	// override for tests.
+	Metrics *observability.MediaDownloaderMetrics
 }
 
 // NewDownloader wires the consumer against the Enqueuer's channel +
@@ -137,6 +143,18 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 		statBudget = onDemandStatBudget
 	}
 
+	// M-1: share the Enqueuer's saturation adapter by default (its
+	// capacity gauge is already set) so producer + consumer write one
+	// global series. eq is non-nil (checked above) and eq.metrics is
+	// always built by NewEnqueuer, so this is never nil in production.
+	metricsAdapter := deps.Metrics
+	if metricsAdapter == nil {
+		metricsAdapter = eq.metrics
+	}
+	if metricsAdapter == nil {
+		metricsAdapter = observability.NewMediaDownloaderMetrics()
+	}
+
 	// W19-1: <=0 rps → uncapped. image.tmdb.org is Cloudflare-backed with
 	// no published per-IP budget; rate.Inf never blocks Wait(). A positive
 	// value re-imposes a finite steady-rate cap (burst=1 keeps the exact
@@ -159,6 +177,7 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 		clock:      deps.Clock,
 		workers:    workers,
 		statBudget: statBudget,
+		metrics:    metricsAdapter,
 		stopCh:     make(chan struct{}),
 	}, nil
 }
@@ -166,6 +185,7 @@ func NewDownloader(eq *Enqueuer, deps DownloaderDeps) (*Downloader, error) {
 // Start spawns the worker goroutines. Idempotent against a re-call
 // (the wg.Add path is guarded by the closed stopCh).
 func (d *Downloader) Start(ctx context.Context) {
+	d.metrics.SetWorkers(d.workers)
 	for i := range d.workers {
 		d.wg.Add(1)
 		go d.runWorker(ctx, i)
@@ -199,6 +219,7 @@ func (d *Downloader) runWorker(ctx context.Context, idx int) {
 			if !ok {
 				return
 			}
+			d.metrics.SetQueueDepth(len(d.jobs))
 			d.handle(ctx, log, j)
 		}
 	}
@@ -210,6 +231,19 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 	defer d.dedup.remove(j.Hash)
 
 	start := d.clock()
+	// M-1: in-flight gauge + per-outcome download total/duration. The Dec
+	// and the two labeled emits fire from ONE defer so ALL exit paths
+	// (early returns, panics) are covered. outcome is set by each terminal
+	// branch below; the initial "incomplete" is only recorded on an
+	// unexpected panic before any branch runs.
+	outcome := observability.MediaDownloadOutcomeIncomplete
+	d.metrics.IncInflight()
+	defer func() {
+		d.metrics.DecInflight()
+		d.metrics.IncDownload(outcome)
+		d.metrics.ObserveDownload(outcome, d.clock().Sub(start))
+	}()
+
 	key := mediastore.Key(j.UpstreamURL, j.Extension)
 	jlog := log.With(
 		slog.String("hash", j.Hash),
@@ -249,6 +283,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 		jlog.DebugContext(ctx, "media.prewarm.stat_hit",
 			slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
 		)
+		outcome = observability.MediaDownloadOutcomeStatHit
 		return
 	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
 		// The short stat sub-budget expired (or ctx cancelled). A slow HEAD
@@ -276,6 +311,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 	}, jlog); err != nil {
 		// Row write failed — give up. The next pre-warm pass will
 		// retry.
+		outcome = observability.MediaDownloadOutcomeRowError
 		return
 	}
 
@@ -302,6 +338,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 			slog.String("error", lastErr.Error()),
 		)
 		observability.IncMediaFetch("failed", string(kind))
+		outcome = observability.MediaDownloadOutcomeDownloadError
 		return
 	}
 
@@ -323,6 +360,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 			slog.String("error", err.Error()),
 		)
 		observability.IncMediaFetch("failed", string(ErrorKindS3Write))
+		outcome = observability.MediaDownloadOutcomePutError
 		return
 	}
 
@@ -340,6 +378,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 		// handler's lost-object recovery path will not fire (it
 		// looks at the row, not the store). The next pre-warm pass
 		// will retry the row write.
+		outcome = observability.MediaDownloadOutcomeRowError
 		return
 	}
 
@@ -353,6 +392,7 @@ func (d *Downloader) handle(ctx context.Context, log *slog.Logger, j job) {
 		slog.Int("duration_ms", int(d.clock().Sub(start).Milliseconds())),
 	)
 	observability.IncMediaFetch("ok", "")
+	outcome = observability.MediaDownloadOutcomeSuccess
 }
 
 // downloadWithRetry does one or two HTTP GETs against url and

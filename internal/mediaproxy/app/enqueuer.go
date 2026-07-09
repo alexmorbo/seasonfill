@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -82,6 +83,10 @@ type Enqueuer struct {
 	// drops aggregated into the next emit. nil falls back to per-
 	// drop WARN (legacy behavior) so the type stays test-friendly.
 	warn *warnRate
+	// metrics is the M-1 saturation adapter (queue depth/capacity +
+	// drops). Always non-nil (built in the constructors); shared with
+	// the Downloader so both write the same global series.
+	metrics *observability.MediaDownloaderMetrics
 }
 
 // queueFullWarnWindow is the rate-limit window for the queue_full
@@ -111,11 +116,14 @@ func NewEnqueuer(logger *slog.Logger) *Enqueuer {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
+	m := observability.NewMediaDownloaderMetrics()
+	m.SetQueueCapacity(channelCap)
 	return &Enqueuer{
-		jobs:   make(chan job, channelCap),
-		dedup:  newInflightSet(),
-		logger: logger,
-		warn:   newWarnRate(queueFullWarnWindow, nil),
+		jobs:    make(chan job, channelCap),
+		dedup:   newInflightSet(),
+		logger:  logger,
+		warn:    newWarnRate(queueFullWarnWindow, nil),
+		metrics: m,
 	}
 }
 
@@ -126,11 +134,14 @@ func newEnqueuerForTest(logger *slog.Logger, window time.Duration, nowFn func() 
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "enrichment")
 	}
+	m := observability.NewMediaDownloaderMetrics()
+	m.SetQueueCapacity(channelCap)
 	return &Enqueuer{
-		jobs:   make(chan job, channelCap),
-		dedup:  newInflightSet(),
-		logger: logger,
-		warn:   newWarnRate(window, nowFn),
+		jobs:    make(chan job, channelCap),
+		dedup:   newInflightSet(),
+		logger:  logger,
+		warn:    newWarnRate(window, nowFn),
+		metrics: m,
 	}
 }
 
@@ -164,6 +175,7 @@ func (e *Enqueuer) Enqueue(ctx context.Context, reqs []EnqueueRequest) {
 		}
 		select {
 		case e.jobs <- j:
+			e.metrics.SetQueueDepth(len(e.jobs))
 		default:
 			// Channel full — drop. Removes the dedup mark so a
 			// retry on the next pre-warm pass can still land. B-28
@@ -172,6 +184,8 @@ func (e *Enqueuer) Enqueue(ctx context.Context, reqs []EnqueueRequest) {
 			// per queueFullWarnWindow (30s) with the aggregated
 			// count.
 			e.dedup.remove(hash)
+			e.metrics.IncDrop()
+			e.metrics.SetQueueDepth(len(e.jobs))
 			if e.warn != nil {
 				e.warn.Drop(ctx, e.logger, hash, r.Kind, clean)
 			} else {
