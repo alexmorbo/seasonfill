@@ -24,6 +24,13 @@ type RefreshCandidate struct {
 	Tier          enrichment.RefreshTier
 	SyncedAt      *time.Time
 	MissingPoster bool
+	// Heal is true when the row qualifies for the #1090b null-heal branch
+	// (media_type='tv' person_credits exist for this series but none carries a
+	// non-NULL last_appearance_season, past the 6h cooldown). Non-exclusive of
+	// MissingPoster and of normal picks — an observability signal only. Drives
+	// seasonfill_enrichment_refresh_picked_heal_total so the genuinely-
+	// unfillable (crew-only / specials-only) floor is visible in Grafana.
+	Heal bool
 }
 
 // PickRefreshCandidates returns up to `limit` candidates across all
@@ -117,12 +124,26 @@ func (r *SeriesRepository) PickRefreshCandidates(
 	const sqlTmpl = `
 SELECT * FROM (
   SELECT s.id AS series_id, 1 AS tier, s.enrichment_tmdb_synced_at AS synced_at,
+         -- F-05: this poster-guard label is NOT exclusive of the heal branch
+         -- below — a poster-less, TTL-fresh, all-NULL last_appearance row
+         -- (synced 6h..7d ago) sets BOTH missing_poster=1 here AND heal=1.
+         -- Metrics-only double-attribution; the pick still fires exactly once.
+         -- See seasonfill_enrichment_refresh_picked_{missing_poster,heal}_total.
          CASE WHEN NOT EXISTS (
                 SELECT 1 FROM series_media_texts smt
                  WHERE smt.series_id = s.id AND smt.poster_asset IS NOT NULL)
               AND s.enrichment_tmdb_synced_at IS NOT NULL
               AND s.enrichment_tmdb_synced_at >= ?
-              THEN 1 ELSE 0 END AS missing_poster
+              THEN 1 ELSE 0 END AS missing_poster,
+         CASE WHEN s.enrichment_tmdb_synced_at < ?
+              AND EXISTS (
+                SELECT 1 FROM person_credits pc
+                 WHERE pc.media_type = 'tv' AND pc.tmdb_media_id = s.tmdb_id)
+              AND NOT EXISTS (
+                SELECT 1 FROM person_credits pc2
+                 WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
+                   AND pc2.last_appearance_season IS NOT NULL)
+              THEN 1 ELSE 0 END AS heal
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
      AND (
@@ -149,7 +170,16 @@ SELECT * FROM (
         WHERE ee.entity_type = 'series' AND ee.entity_id = s.id
           AND ee.source = ? AND ee.attempts > 5)
   UNION ALL
-  SELECT s.id, 2, s.enrichment_tmdb_synced_at, 0
+  SELECT s.id, 2, s.enrichment_tmdb_synced_at, 0,
+         CASE WHEN s.enrichment_tmdb_synced_at < ?
+              AND EXISTS (
+                SELECT 1 FROM person_credits pc
+                 WHERE pc.media_type = 'tv' AND pc.tmdb_media_id = s.tmdb_id)
+              AND NOT EXISTS (
+                SELECT 1 FROM person_credits pc2
+                 WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
+                   AND pc2.last_appearance_season IS NOT NULL)
+              THEN 1 ELSE 0 END AS heal
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
      AND (
@@ -174,7 +204,16 @@ SELECT * FROM (
         WHERE ee.entity_type = 'series' AND ee.entity_id = s.id
           AND ee.source = ? AND ee.attempts > 5)
   UNION ALL
-  SELECT s.id, 3, s.enrichment_tmdb_synced_at, 0
+  SELECT s.id, 3, s.enrichment_tmdb_synced_at, 0,
+         CASE WHEN s.enrichment_tmdb_synced_at < ?
+              AND EXISTS (
+                SELECT 1 FROM person_credits pc
+                 WHERE pc.media_type = 'tv' AND pc.tmdb_media_id = s.tmdb_id)
+              AND NOT EXISTS (
+                SELECT 1 FROM person_credits pc2
+                 WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
+                   AND pc2.last_appearance_season IS NOT NULL)
+              THEN 1 ELSE 0 END AS heal
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
      AND (
@@ -214,13 +253,21 @@ LIMIT ?
 		Tier          int             `gorm:"column:tier"`
 		SyncedAt      *time.Time      `gorm:"column:synced_at"`
 		MissingPoster int             `gorm:"column:missing_poster"`
+		Heal          int             `gorm:"column:heal"`
 	}
 	var rows []row
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Raw(sqlTmpl,
-			hotCutoff, hotCutoff, posterGuardCutoff, healGuardCutoff, errSrc,
-			normalCutoff, healGuardCutoff, errSrc,
-			coldCutoff, healGuardCutoff, errSrc,
+			// HOT: missing_poster CASE (hotCutoff), heal CASE (healGuardCutoff),
+			// then WHERE normal (hotCutoff), poster (posterGuardCutoff),
+			// heal (healGuardCutoff), errSrc.
+			hotCutoff, healGuardCutoff, hotCutoff, posterGuardCutoff, healGuardCutoff, errSrc,
+			// NORMAL: heal CASE (healGuardCutoff), WHERE normal (normalCutoff),
+			// heal (healGuardCutoff), errSrc.
+			healGuardCutoff, normalCutoff, healGuardCutoff, errSrc,
+			// COLD: heal CASE (healGuardCutoff), WHERE cold (coldCutoff),
+			// heal (healGuardCutoff), errSrc.
+			healGuardCutoff, coldCutoff, healGuardCutoff, errSrc,
 			nullSentinel, limit,
 		).Scan(&rows).Error
 	if err != nil {
@@ -233,6 +280,7 @@ LIMIT ?
 			Tier:          enrichment.RefreshTier(r.Tier),
 			SyncedAt:      r.SyncedAt,
 			MissingPoster: r.MissingPoster == 1,
+			Heal:          r.Heal == 1,
 		})
 	}
 	return out, nil

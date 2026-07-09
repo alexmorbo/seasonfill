@@ -1369,6 +1369,7 @@ func (a refreshPickerAdapter) PickRefreshCandidates(
 			SeriesID:      int64(r.SeriesID),
 			Tier:          r.Tier,
 			MissingPoster: r.MissingPoster,
+			Heal:          r.Heal,
 		})
 	}
 	return out, nil

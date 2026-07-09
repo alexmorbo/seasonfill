@@ -319,13 +319,21 @@ func TestETagMiddleware_CastSortChangesValidator(t *testing.T) {
 	eps := etagFor("/series/42/cast?lang=ru&sort=episodes") // explicit default
 	credit := etagFor("/series/42/cast?lang=ru&sort=credit")
 	name := etagFor("/series/42/cast?lang=ru&sort=name")
+	last := etagFor("/series/42/cast?lang=ru&sort=last_appearance")
 
 	assert.Equal(t, def, eps, "explicit episodes == default (un-suffixed)")
 	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast"`, stamp.Unix()), def,
 		"default cast key keeps the 1087a shape (no -srt suffix)")
 	assert.NotEqual(t, def, credit, "credit sort must not share the default ETag")
 	assert.NotEqual(t, def, name, "name sort must not share the default ETag")
+	assert.NotEqual(t, def, last, "last_appearance sort must not share the default ETag")
 	assert.NotEqual(t, credit, name, "distinct sorts → distinct validators")
+	assert.NotEqual(t, credit, last, "distinct sorts → distinct validators")
+	assert.NotEqual(t, name, last, "distinct sorts → distinct validators")
 	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast-srtcredit"`, stamp.Unix()), credit)
 	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast-srtname"`, stamp.Unix()), name)
+	// F-06: the last_appearance sort (edge builder etag.go) must fold the
+	// -srtlast suffix. The sort→suffix parse is duplicated in the seriesdetail
+	// rest package (can't import edge), so pin the suffix here to catch drift.
+	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast-srtlast"`, stamp.Unix()), last)
 }

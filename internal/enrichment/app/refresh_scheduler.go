@@ -44,6 +44,13 @@ type RefreshCandidate struct {
 	// gate is a normal HOT pick and carries MissingPoster=false. Drives
 	// the observability signal for the one-shot backfill drain.
 	MissingPoster bool
+	// Heal is true when the picker selected this row via the #1090b
+	// null-heal branch (tv-row person_credits all NULL last_appearance_season).
+	// Non-exclusive of MissingPoster / normal picks. Drives the
+	// seasonfill_enrichment_refresh_picked_heal_total observability signal —
+	// its steady-state rate is the genuinely-unfillable (crew/specials-only)
+	// floor.
+	Heal bool
 }
 
 // RefreshPicker is the port the scheduler depends on. Production
@@ -68,6 +75,10 @@ type RefreshMetrics interface {
 	// selected via the W17-1 poster-guard branch. Lets Grafana watch the
 	// backfill drain toward the tmdb-less floor.
 	IncRefreshPickedMissingPoster()
+	// IncRefreshPickedHeal ticks once per candidate the picker selected via
+	// the #1090b null-heal branch. Its steady-state rate is the genuinely-
+	// unfillable (crew-only / specials-only) floor that re-picks every 6h.
+	IncRefreshPickedHeal()
 }
 
 // noopRefreshMetrics is the zero-value default so an unconfigured
@@ -78,6 +89,7 @@ func (noopRefreshMetrics) IncRefresh(enrichdomain.RefreshTier, string) {}
 func (noopRefreshMetrics) ObserveBatchSize(int)                        {}
 func (noopRefreshMetrics) ObserveTickDuration(time.Duration)           {}
 func (noopRefreshMetrics) IncRefreshPickedMissingPoster()              {}
+func (noopRefreshMetrics) IncRefreshPickedHeal()                       {}
 
 // RefreshSchedulerDeps is the construction surface. Required:
 // Picker, Worker. Logger defaults to ports.DomainLogger(slog.Default(),
@@ -166,25 +178,35 @@ func (s *RefreshScheduler) Tick(ctx context.Context) {
 		return
 	}
 
-	// W17-1 — surface the poster-backfill drain. Count the poster-guard
-	// picks, emit one metric tick + a per-series log line each, so the
-	// operator can watch the 49 stuck library series heal.
+	// W17-1 / #1090b — surface the pick reasons. Count the poster-guard picks
+	// and the null-heal picks, emitting one metric tick + a per-series log line
+	// per reason. A row can qualify for both (F-05 overlap), so each flag is
+	// checked independently — the two counters are intentionally non-exclusive.
 	missingPoster := 0
+	heal := 0
 	for _, c := range candidates {
-		if !c.MissingPoster {
-			continue
+		if c.MissingPoster {
+			missingPoster++
+			s.deps.Metrics.IncRefreshPickedMissingPoster()
+			s.deps.Logger.InfoContext(ctx, "enrichment.refresh.picked",
+				slog.Int64("series_id", c.SeriesID),
+				slog.String("reason", "missing_poster"),
+			)
 		}
-		missingPoster++
-		s.deps.Metrics.IncRefreshPickedMissingPoster()
-		s.deps.Logger.InfoContext(ctx, "enrichment.refresh.picked",
-			slog.Int64("series_id", c.SeriesID),
-			slog.String("reason", "missing_poster"),
-		)
+		if c.Heal {
+			heal++
+			s.deps.Metrics.IncRefreshPickedHeal()
+			s.deps.Logger.InfoContext(ctx, "enrichment.refresh.picked",
+				slog.Int64("series_id", c.SeriesID),
+				slog.String("reason", "heal"),
+			)
+		}
 	}
 
 	s.deps.Logger.InfoContext(ctx, "enrichment.refresh.tick.start",
 		slog.Int("batch_size", len(candidates)),
 		slog.Int("missing_poster", missingPoster),
+		slog.Int("heal", heal),
 	)
 
 	var (

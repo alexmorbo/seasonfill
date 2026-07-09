@@ -51,3 +51,14 @@ func (m *EnrichmentRefreshMetrics) ObserveTickDuration(d time.Duration) {
 func (m *EnrichmentRefreshMetrics) IncRefreshPickedMissingPoster() {
 	metrics.GetOrCreateCounter(`seasonfill_enrichment_refresh_picked_missing_poster_total`).Inc()
 }
+
+// IncRefreshPickedHeal ticks once per candidate the picker selected via the
+// #1090b null-heal branch (a series with media_type='tv' person_credits that
+// all carry a NULL last_appearance_season). No labels — one process-wide
+// counter. rate() over a tick window reads "heal picks per tick"; unlike the
+// poster counter it does NOT flatten to ~0, because genuinely-unfillable series
+// (crew-only / specials-only cast) re-pick every 6h forever — the steady-state
+// rate is the unfillable floor.
+func (m *EnrichmentRefreshMetrics) IncRefreshPickedHeal() {
+	metrics.GetOrCreateCounter(`seasonfill_enrichment_refresh_picked_heal_total`).Inc()
+}

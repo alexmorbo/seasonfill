@@ -66,6 +66,7 @@ type recRefreshMetrics struct {
 	batchSize     int
 	ticks         int
 	missingPoster int
+	heal          int
 }
 
 func newRecRefreshMetrics() *recRefreshMetrics { return &recRefreshMetrics{inc: map[string]int{}} }
@@ -92,6 +93,12 @@ func (r *recRefreshMetrics) IncRefreshPickedMissingPoster() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.missingPoster++
+}
+
+func (r *recRefreshMetrics) IncRefreshPickedHeal() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.heal++
 }
 
 func newRefreshSched(t *testing.T, picker RefreshPicker, worker SeriesForceRefresher, m RefreshMetrics) *RefreshScheduler {
@@ -145,6 +152,25 @@ func TestRefreshScheduler_MissingPosterMetricTicksPerCandidate(t *testing.T) {
 	s.Tick(context.Background())
 
 	assert.Equal(t, 2, m.missingPoster, "one tick per missing-poster candidate")
+}
+
+func TestRefreshScheduler_HealMetricTicksPerCandidate(t *testing.T) {
+	t.Parallel()
+	picker := &fakeRefreshPicker{rows: []RefreshCandidate{
+		{SeriesID: 11, Tier: enrichdomain.RefreshTierHot, Heal: true},
+		{SeriesID: 22, Tier: enrichdomain.RefreshTierNormal, Heal: false},
+		{SeriesID: 33, Tier: enrichdomain.RefreshTierCold, Heal: true},
+		// F-05 overlap: a row can be BOTH a poster pick and a heal pick.
+		{SeriesID: 44, Tier: enrichdomain.RefreshTierHot, MissingPoster: true, Heal: true},
+	}}
+	worker := &fakeRefreshWorker{errs: map[int64]error{}}
+	m := newRecRefreshMetrics()
+	s := newRefreshSched(t, picker, worker, m)
+
+	s.Tick(context.Background())
+
+	assert.Equal(t, 3, m.heal, "one tick per heal candidate")
+	assert.Equal(t, 1, m.missingPoster, "poster counter unaffected by heal flag")
 }
 
 func TestRefreshScheduler_PerSeriesErrorDoesNotAbortBatch(t *testing.T) {

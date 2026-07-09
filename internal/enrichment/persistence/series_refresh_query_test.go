@@ -431,6 +431,8 @@ func TestSeriesRepository_PickRefreshCandidates_LastAppearanceHeal(t *testing.T)
 			require.Contains(t, picked, idA, "all-NULL tv-row library series must be heal-picked")
 			assert.Equal(t, enrichment.RefreshTierHot, picked[idA].Tier)
 			assert.False(t, picked[idA].MissingPoster, "heal pick with a poster is not a poster pick")
+			// F-04: idA is exactly a null-heal pick → Heal flag set.
+			assert.True(t, picked[idA].Heal, "all-NULL tv-row series must carry the heal flag")
 
 			// (b) already healed → not picked.
 			assert.NotContains(t, picked, idB, "series with a non-NULL last_appearance_season must not be re-picked")
@@ -442,6 +444,8 @@ func TestSeriesRepository_PickRefreshCandidates_LastAppearanceHeal(t *testing.T)
 			// (e) W17-1 poster-heal still fires unchanged.
 			require.Contains(t, picked, idP, "W17-1 poster-less library series must still be picked")
 			assert.True(t, picked[idP].MissingPoster, "poster pick must still carry missing_poster")
+			// F-04: idP has zero tv-row credits → never a heal pick.
+			assert.False(t, picked[idP].Heal, "poster-only pick with no tv rows must not carry the heal flag")
 		})
 	}
 }
