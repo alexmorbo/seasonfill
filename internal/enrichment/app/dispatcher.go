@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -208,6 +209,17 @@ func (d *DispatcherImpl) loop(ctx context.Context, kind EntityKind, idx int, han
 // panic surfaces (we re-panic after release) without trapping the
 // (kind, id) slot in the in-flight map.
 func (d *DispatcherImpl) runHandler(ctx context.Context, log *slog.Logger, j Job, handler jobHandler) {
+	// M-2 — per-job RED metrics. Single choke point covering every kind.
+	// result defaults to "error" so a panicking handler is counted as an
+	// error; the deferred close-out below Decrements inflight on EVERY exit
+	// path (success/error/skipped/panic).
+	kindStr := string(j.Kind)
+	start := time.Now()
+	observability.IncEnrichmentJobInflight(kindStr)
+	result := "error"
+	defer func() {
+		observability.ObserveEnrichmentJobDone(kindStr, result, time.Since(start))
+	}()
 	defer func() {
 		d.queue.release(j.Kind, j.EntityID)
 		// 306 — cold-start gauge tick. Fires AFTER release so the
@@ -227,8 +239,8 @@ func (d *DispatcherImpl) runHandler(ctx context.Context, log *slog.Logger, j Job
 			(*cb)(j.EntityID)
 		}
 	}()
-	start := time.Now()
 	if handler == nil {
+		result = "skipped"
 		log.WarnContext(ctx, "enrichment.dispatcher.handler_nil",
 			slog.Int64("entity_id", j.EntityID),
 		)
@@ -244,6 +256,7 @@ func (d *DispatcherImpl) runHandler(ctx context.Context, log *slog.Logger, j Job
 		)
 		return
 	}
+	result = "success"
 	log.InfoContext(ctx, "enrichment.dispatcher.handler_ok",
 		slog.Int64("entity_id", j.EntityID),
 		slog.Int64("duration_ms", dur.Milliseconds()),
