@@ -106,6 +106,7 @@ func NewServer(
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLoggerMiddleware(logger))
+	r.Use(middleware.MetricsMiddleware())
 	r.Use(middleware.ErrorResponseMiddleware(logger))
 
 	// HIGH-S2: bound which proxies' X-Forwarded-For we honor. Default
