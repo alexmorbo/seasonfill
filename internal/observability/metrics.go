@@ -51,6 +51,20 @@ const (
 	MetricTMDBRequestsTotal      = `tmdb_requests_total`
 	MetricTMDBLimiterWaitSeconds = `tmdb_limiter_wait_seconds`
 
+	// Story M-4 — TMDB RED (Rate/Errors/Duration) completion. seasonfill_-
+	// prefixed, emitted from the tmdb client request path ALONGSIDE the legacy
+	// tmdb_* series above (Story 306/313), which stay untouched (live
+	// dashboard). Labels are closed sets:
+	//   - endpoint:     bounded route family from httpx.TMDBEndpointFor
+	//                   (~19 families incl. the "/unknown" fallthrough).
+	//   - status_class: {2xx,4xx,429,5xx,error} — 429 split from 4xx.
+	//   - reason:       {rate_limited,server_error,transport}.
+	//   - lane:         {interactive,batch} (W110-5 priority lanes).
+	MetricTMDBRequestDurationSeconds = `seasonfill_tmdb_request_duration_seconds`
+	MetricTMDBRequestsTotalRED       = `seasonfill_tmdb_requests_total`
+	MetricTMDBRetriesTotal           = `seasonfill_tmdb_retries_total`
+	MetricTMDBLaneWaitSeconds        = `seasonfill_tmdb_lane_wait_seconds`
+
 	// Story 306 — enrichment dispatcher observability.
 	// `enrichment_queue_depth{worker}` is gauge of pending + in-flight
 	// jobs per EntityKind. The dispatcher reads `worker` from the
@@ -332,6 +346,36 @@ func IncTMDBRequest(result string) {
 // calls (the bucket had a pre-filled token) are recorded as 0.
 func ObserveTMDBLimiterWait(seconds float64) {
 	metrics.GetOrCreateHistogram(`tmdb_limiter_wait_seconds`).Update(seconds)
+}
+
+// ObserveTMDBRequestDuration records the real upstream HTTP round-trip
+// (http.Client.Do only — NOT limiter wait, NOT body read) per attempt,
+// labelled by the bounded endpoint family. Story M-4.
+func ObserveTMDBRequestDuration(endpoint string, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_tmdb_request_duration_seconds{endpoint="` + endpoint + `"}`).Update(seconds)
+}
+
+// IncTMDBRequestClass ticks the per-(endpoint,status_class) attempt counter.
+// status_class ∈ {2xx,4xx,429,5xx,error} — closed set (see tmdb.statusClass).
+// Emitted once per HTTP attempt, so a 429→429→200 sequence reads as
+// {429:2, 2xx:1}. Story M-4.
+func IncTMDBRequestClass(endpoint, statusClass string) {
+	metrics.GetOrCreateCounter(`seasonfill_tmdb_requests_total{endpoint="` + endpoint + `",status_class="` + statusClass + `"}`).Inc()
+}
+
+// IncTMDBRetry ticks the per-reason retry counter, once per actual retry in the
+// doDirect loop. reason ∈ {rate_limited,server_error,transport} — closed set
+// (see tmdb.retryReason). Story M-4.
+func IncTMDBRetry(reason string) {
+	metrics.GetOrCreateCounter(`seasonfill_tmdb_retries_total{reason="` + reason + `"}`).Inc()
+}
+
+// ObserveTMDBLaneWait records the limiter wait split by priority lane.
+// lane ∈ {interactive,batch} (W110-5). Same wall-clock value as the legacy
+// tmdb_limiter_wait_seconds, but labelled so the dashboard shows interactive
+// headroom vs batch throttle cost. Story M-4.
+func ObserveTMDBLaneWait(lane string, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_tmdb_lane_wait_seconds{lane="` + lane + `"}`).Update(seconds)
 }
 
 // SetEnrichmentQueueDepth publishes the per-kind queue depth.

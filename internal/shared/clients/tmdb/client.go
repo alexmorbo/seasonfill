@@ -385,7 +385,11 @@ func (c *Client) doDirect(ctx context.Context, path string, query url.Values) ([
 		if err := c.acquire(ctx, interactive); err != nil {
 			return nil, err
 		}
-		observability.ObserveTMDBLimiterWait(c.clk.Now().Sub(waitStart).Seconds())
+		waited := c.clk.Now().Sub(waitStart).Seconds()
+		observability.ObserveTMDBLimiterWait(waited)
+		// M-4 — same wall-clock wait, split by lane {interactive,batch} so the
+		// RED dashboard can show interactive headroom vs batch throttle cost.
+		observability.ObserveTMDBLaneWait(laneName(interactive), waited)
 
 		body, retryWait, rawRetryAfter, err := c.doOnce(ctx, path, query)
 		if err == nil {
@@ -428,6 +432,9 @@ func (c *Client) doDirect(ctx context.Context, path string, query url.Values) ([
 		if retryWait == 0 || attempt == maxAttempts-1 {
 			return nil, err
 		}
+		// M-4 — a retry is now guaranteed (retryWait>0, attempts remain).
+		// Classify the trigger from the same err the retry verdict used.
+		observability.IncTMDBRetry(retryReason(err))
 		if err := c.clk.Sleep(ctx, retryWait); err != nil {
 			return nil, err
 		}
@@ -486,6 +493,53 @@ func isRateLimitedErr(err error) bool {
 	return false
 }
 
+// laneName maps the W110-5 interactive flag to the closed lane label set
+// {interactive,batch} used by seasonfill_tmdb_lane_wait_seconds (M-4).
+func laneName(interactive bool) string {
+	if interactive {
+		return "interactive"
+	}
+	return "batch"
+}
+
+// statusClass buckets an HTTP status code into the closed RED label set
+// {2xx,4xx,429,5xx,error} (M-4). 429 is split from the 4xx family so the
+// operator can alert on rate-limit pushback independently; "error" is the
+// transport/no-response case and is emitted by the caller, never here. 1xx/3xx
+// (which the TMDB JSON API never returns and doOnce treats as terminal) bucket
+// into 4xx to keep the set closed.
+func statusClass(code int) string {
+	switch {
+	case code == http.StatusTooManyRequests:
+		return "429"
+	case code >= 500:
+		return "5xx"
+	case code >= 400:
+		return "4xx"
+	case code >= 200 && code < 300:
+		return "2xx"
+	default:
+		return "4xx"
+	}
+}
+
+// retryReason classifies WHY doDirect is about to retry, for
+// seasonfill_tmdb_retries_total{reason} (M-4). Called ONLY at the retry
+// decision point where retryWait>0 — the only errors reaching it are a 429
+// *APIError, a 5xx *APIError, or a wrapped transport error (terminal 4xx and
+// body-read failures carry retryWait==0 and never retry). reason set:
+// {rate_limited,server_error,transport}.
+func retryReason(err error) string {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.Status == http.StatusTooManyRequests {
+			return "rate_limited"
+		}
+		return "server_error"
+	}
+	return "transport"
+}
+
 // doOnce performs a single HTTP request. Returns (body, 0, 0, nil) on
 // 2xx, (nil, backoff, rawRetryAfter, err) when the caller should retry,
 // or (nil, 0, 0, err) on terminal failure.
@@ -514,12 +568,28 @@ func (c *Client) doOnce(ctx context.Context, path string, query url.Values) ([]b
 	ApplyAuth(req, c.token, c.authFormat)
 	req.Header.Set("Accept", "application/json")
 
+	// M-4 — bounded RED endpoint family for the duration/requests metrics.
+	// Reuses the SAME normaliser the metrics transport uses (httpx), so the
+	// new seasonfill_tmdb_* label matches the legacy external_http series and
+	// stays a closed set of ~19 route families. IDs collapse to {id}/{n};
+	// trending/popular/discover currently fall through to "/unknown".
+	endpoint := httpx.TMDBEndpointFor(req)
+
+	// M-4 — wrap ONLY the transport round-trip (real upstream latency), NOT
+	// the limiter wait (that's lane_wait) and NOT the body read.
+	start := c.clk.Now()
 	resp, err := c.httpClient.Do(req)
+	observability.ObserveTMDBRequestDuration(endpoint, c.clk.Now().Sub(start).Seconds())
 	if err != nil {
-		// Network errors are retryable — treat them as 5xx.
+		// Network errors are retryable — treat them as 5xx. No HTTP response
+		// arrived → status_class "error".
+		observability.IncTMDBRequestClass(endpoint, "error")
 		return nil, expoBackoff(0), 0, fmt.Errorf("tmdb: do request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	// M-4 — one requests_total tick per attempt, classed by the wire status.
+	// The response arrived (status known) even if the body read below fails.
+	observability.IncTMDBRequestClass(endpoint, statusClass(resp.StatusCode))
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
