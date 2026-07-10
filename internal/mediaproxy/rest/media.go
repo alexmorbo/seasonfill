@@ -250,6 +250,7 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 	start := time.Now()
 	hash := c.Param("hash")
 	if !isValidHashHex(hash) {
+		observability.IncMediaServeOutcome("invalid")
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid hash"})
 		return
 	}
@@ -311,6 +312,7 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		h.logger.WarnContext(ctx, "media.serve.repo_error",
 			slog.String("hash", hash),
 			slog.String("error", err.Error()))
+		observability.IncMediaServeOutcome("repo_error")
 		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "media lookup failed"})
 		return
 	}
@@ -575,6 +577,11 @@ func clientGone(c *gin.Context) bool {
 // metric label cardinality stays bounded.
 func (h *MediaHandler) writePlaceholder(c *gin.Context, hash, reason, assetStatus string, start time.Time) {
 	observability.IncMediaServeDegraded(reason)
+	if reason == "store_unavailable" {
+		observability.IncMediaServeOutcome("degraded")
+	} else {
+		observability.IncMediaServeOutcome("placeholder")
+	}
 	c.Header("Cache-Control", mediaPlaceholderCacheControl)
 	c.Header("X-Media-Placeholder", "1")
 	c.Data(http.StatusOK, mediaPlaceholderContentType, mediaPlaceholderSVG)
@@ -602,6 +609,7 @@ func (h *MediaHandler) writeSentinel(c *gin.Context, start time.Time) {
 	c.Header("Cache-Control", "public, max-age=86400")
 	c.Header("X-Media-Placeholder", "sentinel")
 	c.Data(http.StatusOK, mediaPlaceholderContentType, mediaPlaceholderSVG)
+	observability.IncMediaServeOutcome("sentinel")
 	h.logger.InfoContext(c.Request.Context(), "media.serve.sentinel",
 		slog.Int64("elapsed_ms", time.Since(start).Milliseconds()),
 	)
@@ -652,12 +660,17 @@ func (h *MediaHandler) write200(c *gin.Context, entry mediaCacheEntry, etag stri
 	c.Header("ETag", etag)
 	c.Header("Cache-Control", mediaCacheControl)
 	c.Data(http.StatusOK, ct, entry.Bytes)
+	observability.IncMediaServeOutcome("stored")
+	if n := len(entry.Bytes); n > 0 {
+		observability.AddMediaServeBytes(n)
+	}
 }
 
 func (h *MediaHandler) write304(c *gin.Context, etag string) {
 	c.Header("ETag", etag)
 	c.Header("Cache-Control", mediaCacheControl)
 	c.Status(http.StatusNotModified)
+	observability.IncMediaServeOutcome("not_modified")
 }
 
 // isValidHashHex returns true iff s is 64 lowercase hex chars.
@@ -728,8 +741,10 @@ func newByteCappedLRU(maxBytes int64) *byteCappedLRU {
 
 func (c *byteCappedLRU) Get(hash string) (mediaCacheEntry, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.store.Get(hash)
+	entry, ok := c.store.Get(hash)
+	c.mu.Unlock()
+	observability.IncMediaServeLRU(ok)
+	return entry, ok
 }
 
 func (c *byteCappedLRU) Put(hash string, entry mediaCacheEntry) {

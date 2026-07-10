@@ -169,6 +169,8 @@ func (f *onDemandFetcher) markFailed(hash string) {
 		}
 	}
 	f.negUntil[hash] = now.Add(negativeCacheTTL)
+	// M-5: Set under negMu so the len() read is consistent with the mutation (-race safe).
+	observability.SetMediaOnDemandCooldownSize(len(f.negUntil))
 }
 
 // clearCooldown drops hash from the negative cache after a success so
@@ -177,6 +179,8 @@ func (f *onDemandFetcher) clearCooldown(hash string) {
 	f.negMu.Lock()
 	defer f.negMu.Unlock()
 	delete(f.negUntil, hash)
+	// M-5: Set under negMu so the len() read is consistent with the mutation (-race safe).
+	observability.SetMediaOnDemandCooldownSize(len(f.negUntil))
 }
 
 // FetchSync is the synchronous fetch. Returns (hash, true) on success;
@@ -190,6 +194,12 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 	}
 	hash := HashFromURL(clean)
 	ext = normaliseExt(ext)
+
+	// M-5: coarse per-FetchSync outcome. Default "fail"; the success + cooldown
+	// paths override before their return. One deferred emit = exactly once per
+	// real attempt (the empty-URL guard above is intentionally excluded).
+	result := "fail"
+	defer func() { observability.IncMediaOnDemand(result) }()
 
 	// Inherit caller deadline; if none, apply onDemandTimeout as a hard
 	// floor so the composer can't accidentally hold the response.
@@ -228,6 +238,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 			slog.Int("stat_ms", statMS),
 			slog.Int("duration_ms", int(f.clock().Sub(start).Milliseconds())))
 		f.clearCooldown(hash)
+		result = "success"
 		return hash, true
 	}
 	// A Stat that timed out needs care: errors.Is(…, DeadlineExceeded)
@@ -265,6 +276,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 	// path (limiter wait + TMDB GET + S3 Put) while a store/image is broken.
 	if f.inCooldown(hash) {
 		observability.IncMediaFetch("skipped", "cooldown")
+		result = "cooldown_short_circuit"
 		log.DebugContext(ctx, "media.ondemand.skipped",
 			slog.String("reason", "cooldown"))
 		return "", false
@@ -348,6 +360,7 @@ func (f *onDemandFetcher) FetchSync(ctx context.Context, upstreamURL, kind, ext 
 	)
 	observability.IncMediaFetch("ok", "")
 	f.clearCooldown(hash)
+	result = "success"
 	return hash, true
 }
 
