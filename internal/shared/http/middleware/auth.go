@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
@@ -115,7 +116,9 @@ func buildAuth(
 			if cookieAllowed {
 				if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
 					now := time.Now()
-					if p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch); verr == nil {
+					p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch)
+					observability.AuthSessionValidation(sessionResultLabel(verr))
+					if verr == nil {
 						maybeSlideCookie(c, sessionKey, p, now, rt)
 						c.Set(UsernameContextKey, p.Username)
 						c.Next()
@@ -131,7 +134,9 @@ func buildAuth(
 		case runtime.AuthModeOIDC, runtime.AuthModeForms:
 			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
 				now := time.Now()
-				if p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch); verr == nil {
+				p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch)
+				observability.AuthSessionValidation(sessionResultLabel(verr))
+				if verr == nil {
 					maybeSlideCookie(c, sessionKey, p, now, rt)
 					c.Set(UsernameContextKey, p.Username)
 					c.Next()
@@ -141,7 +146,9 @@ func buildAuth(
 		default:
 			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
 				now := time.Now()
-				if p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch); verr == nil {
+				p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch)
+				observability.AuthSessionValidation(sessionResultLabel(verr))
+				if verr == nil {
 					maybeSlideCookie(c, sessionKey, p, now, rt)
 					c.Set(UsernameContextKey, p.Username)
 					c.Next()
@@ -188,6 +195,7 @@ func handleBasicAuth(c *gin.Context, repo ports.UserRepository, lim *auth.IPLimi
 	header := c.GetHeader("Authorization")
 	user, pass, ok := parseBasicHeader(header)
 	if !ok {
+		observability.AuthLogin(observability.AuthLoginModeBasic, observability.AuthLoginFailure)
 		c.Header("WWW-Authenticate", basicRealmHeader)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"error": "unauthorized", "code": "AUTH_REQUIRED",
@@ -196,6 +204,7 @@ func handleBasicAuth(c *gin.Context, repo ports.UserRepository, lim *auth.IPLimi
 	}
 
 	if lim != nil && !lim.Allow(c.ClientIP()) {
+		observability.AuthLogin(observability.AuthLoginModeBasic, observability.AuthLoginRateLimited)
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 			"error": "Invalid credentials", "code": "AUTH_REQUIRED",
 		})
@@ -218,14 +227,37 @@ func handleBasicAuth(c *gin.Context, repo ports.UserRepository, lim *auth.IPLimi
 		hashToCompare = ""
 	}
 	if !auth.ConstantLatencyVerify(hashToCompare, pass) {
+		observability.AuthLogin(observability.AuthLoginModeBasic, observability.AuthLoginFailure)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"error": "unauthorized", "code": "AUTH_REQUIRED",
 		})
 		return
 	}
 
+	observability.AuthLogin(observability.AuthLoginModeBasic, observability.AuthLoginSuccess)
 	c.Set(UsernameContextKey, row.Username)
 	c.Next()
+}
+
+// sessionResultLabel maps a VerifySession outcome to a bounded metric label for
+// seasonfill_auth_session_validations_total. err==nil → "valid". The label is
+// server-side observability only and is NEVER surfaced to the client, so this
+// does not violate the "don't leak which sentinel rejected" rule on the 401.
+func sessionResultLabel(err error) string {
+	switch {
+	case err == nil:
+		return observability.AuthSessionValid
+	case errors.Is(err, ErrSessionExpired):
+		return observability.AuthSessionExpired
+	case errors.Is(err, ErrSessionSignature):
+		return observability.AuthSessionBadSignature
+	case errors.Is(err, ErrSessionEpoch):
+		return observability.AuthSessionStaleEpoch
+	case errors.Is(err, ErrSessionMalformed):
+		return observability.AuthSessionMalformed
+	default:
+		return observability.AuthSessionInvalid
+	}
 }
 
 func loadAuthRuntime(ptr *AuthRuntimePointer) *AuthRuntime {

@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
@@ -144,10 +145,13 @@ func (h *OIDCHandler) Callback(c *gin.Context) {
 			slog.String("error", err.Error()))
 		status := http.StatusUnauthorized
 		code := "UNAUTHORIZED"
+		result := observability.AuthOIDCFailure
 		if err.Error() == auth.ErrOIDCGroupDenied.Error() {
 			status = http.StatusForbidden
 			code = "OIDC_GROUP_DENIED"
+			result = observability.AuthOIDCGroupDenied
 		}
+		observability.AuthOIDCCallback(result)
 		c.AbortWithStatusJSON(status, gin.H{
 			"error": "oidc login failed", "code": code,
 		})
@@ -164,11 +168,13 @@ func (h *OIDCHandler) Callback(c *gin.Context) {
 	if err != nil {
 		h.logger.ErrorContext(c.Request.Context(), "oidc.cookie_sign_failed",
 			slog.String("error", err.Error()))
+		observability.AuthOIDCCallback(observability.AuthOIDCError)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 			"error": "internal server error",
 		})
 		return
 	}
+	observability.AuthOIDCCallback(observability.AuthOIDCSuccess)
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(middleware.SessionCookieName, tok,
 		int(h.sessionTTL.Seconds()), "/", "", h.secureCookie, true)
