@@ -183,6 +183,17 @@ const (
 	// s3_write_error slice is the SeaweedFS-capacity-exhaustion signal that
 	// previously surfaced only as a buried WARN.
 	MetricMediaFetchTotal = `seasonfill_media_fetch_total`
+	// Story M-9a — sonarr_sync cache-write counter. Bumped by the number of
+	// series_cache rows persisted by the SyncSeriesFromSonarr cache-write step
+	// (sonarr_sync.go), in lockstep with the `sync_sonarr_series_ok` log line
+	// the operator gates deploys on. Labels:
+	//   - table: closed set, currently only {series_cache} — the single table
+	//            the cache-write step targets. Bounded; do NOT pass free-form
+	//            table names.
+	MetricSonarrSyncRowsWrittenTotal = `seasonfill_sonarr_sync_rows_written_total`
+	// MetricSonarrSyncTableSeriesCache is the only `table` label value M-9a
+	// emits — the per-instance projection table written at sonarr_sync.go:114.
+	MetricSonarrSyncTableSeriesCache = `series_cache`
 )
 
 // Webhook reconcile result values — emitted as the `result` label on
@@ -328,6 +339,18 @@ func IncScanSkipped(instance domain.InstanceName, reason string) {
 // media.ErrorKind enum value. Closed label set — do not pass url/hash.
 func IncMediaFetch(result, errorKind string) {
 	metrics.GetOrCreateCounter(`seasonfill_media_fetch_total{result="` + result + `",error_kind="` + errorKind + `"}`).Inc()
+}
+
+// AddSonarrSyncRowsWritten bumps the sonarr_sync cache-write counter by n
+// (Story M-9a). table is the target table label — currently only the closed
+// value MetricSonarrSyncTableSeriesCache. n is the number of rows the
+// cache-write step persisted; the per-series sync path passes 1. n <= 0 is a
+// no-op so callers can pass an unconditional count without a guard.
+func AddSonarrSyncRowsWritten(table string, n int) {
+	if n <= 0 {
+		return
+	}
+	metrics.GetOrCreateCounter(`seasonfill_sonarr_sync_rows_written_total{table="` + table + `"}`).Add(n)
 }
 
 func WritePrometheus(w io.Writer) {

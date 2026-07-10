@@ -18,6 +18,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/locale"
@@ -167,6 +168,11 @@ func SyncSeriesFromSonarr(
 	if deps.PostSync != nil {
 		deps.PostSync(ctx, canonID)
 	}
+
+	// M-9a: one series_cache row was persisted by the cache-write step above
+	// (deps.SeriesCache.Upsert). Bump the counter in lockstep with the
+	// sync_sonarr_series_ok log line the operator gates deploys on.
+	observability.AddSonarrSyncRowsWritten(observability.MetricSonarrSyncTableSeriesCache, 1)
 
 	log.InfoContext(ctx, "sync_sonarr_series_ok",
 		slog.Int("episodes", len(bundle.Episodes)),
