@@ -274,6 +274,18 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		log,
 	).Run(rootCtx)
 
+	// M-8 — enrichment backfill coverage-detail collector (5min cadence)
+	// publishing seasonfill_enrichment_{poster_coverage_ratio,
+	// checked_empty_total,unenriched_series}.
+	bgWG.Add(1)
+	go loops.NewEnrichmentCoverageLoop(
+		enrichpersistence.NewEnrichmentCoverageRepository(db),
+		observability.EnrichmentCoverageMetricsAdapter{},
+		loops.DefaultEnrichmentCoverageInterval,
+		&bgWG,
+		log,
+	).Run(rootCtx)
+
 	extSvcBundle, err := wiring.BuildExtSvc(persistence, bootCfg, bus, log)
 	if err != nil {
 		return nil, err

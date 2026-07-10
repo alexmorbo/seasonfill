@@ -30,6 +30,7 @@ var AllowedDomains = map[string]struct{}{
 
 	"catalog_counts":          {},
 	"library_poster_coverage": {},
+	"enrichment_coverage":     {},
 }
 
 // DomainLogger returns base.With(slog.String("domain", domain)).
