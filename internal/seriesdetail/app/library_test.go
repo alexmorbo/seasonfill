@@ -3,6 +3,10 @@ package seriesdetail
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -82,6 +86,52 @@ func fixedNow() time.Time { return time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC) 
 // sonarrForOK returns a SonarrFor closure resolving to the supplied lister.
 func sonarrForOK(l SonarrQueueLister) func(domain.InstanceName) (SonarrQueueLister, bool) {
 	return func(domain.InstanceName) (SonarrQueueLister, bool) { return l, true }
+}
+
+// TestLibraryCompose_QueueScopedToSeries — bug #1134. Sonarr's /api/v3/queue
+// ignores seriesId and returns the global queue, so every series-detail hero
+// was showing the SAME download chip from one global active download. The fix
+// lives in sonarr.Client.Queue (client-side SeriesID filter), so this test
+// wires the REAL client (NOT the fake queue lister, which returns its payload
+// verbatim and would bypass the filter) into the composer and asserts a
+// foreign-series download does NOT leak onto this series' hero.
+func TestLibraryCompose_QueueScopedToSeries(t *testing.T) {
+	t.Parallel()
+	now := fixedNow()
+	entry := series.CacheEntry{
+		InstanceName:     "homelab",
+		SonarrSeriesID:   7,
+		Monitored:        true,
+		EpisodeFileCount: 1,
+		UpdatedAt:        now,
+	}
+	globalQueue := `{
+        "totalRecords": 1,
+        "records": [
+            {"id": 500, "seriesId": 99, "episodeId": 900, "seasonNumber": 3,
+             "title": "SomeOtherShow.S03E01", "status": "downloading",
+             "downloadId": "GLOBAL", "protocol": "torrent", "size": 100, "sizeleft": 20}
+        ]
+    }`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(globalQueue))
+	}))
+	defer srv.Close()
+	realClient := sonarr.New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	lc := NewLibraryComposer(LibraryDeps{
+		CacheLookup:   &fakeLibCacheLookup{entries: []series.CacheEntry{entry}},
+		Episodes:      &fakeLibEpisodes{rows: []series.CanonEpisode{{ID: 1, SeasonNumber: 1, EpisodeNumber: 1}}},
+		EpisodeStates: &fakeLibEpisodeStates{},
+		SonarrFor:     sonarrForOK(realClient),
+		Now:           fixedNow,
+	})
+
+	view, err := lc.Compose(context.Background(), 42, "homelab")
+	require.NoError(t, err)
+	assert.Nil(t, view.Download, "foreign-series download must NOT leak onto this series' hero")
+	assert.Nil(t, view.InProgress, "foreign-series in-progress must NOT leak onto this series")
 }
 
 func TestLibraryCompose_HappyPath(t *testing.T) {

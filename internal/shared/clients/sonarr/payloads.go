@@ -376,9 +376,11 @@ func (c *Client) GrabHistoryPaged(ctx context.Context, page, pageSize int) (Hist
 }
 
 // Queue calls GET /api/v3/queue?seriesId={id}&includeSeries=true&
-// includeEpisode=true. Used by the torrentsync reconciler (PRD §4.5)
-// to bridge active downloads → series; E-1 lands the client method
-// so the reconciler story can pick it up.
+// includeEpisode=true. Sonarr's /api/v3/queue IGNORES the seriesId
+// query param and returns the ENTIRE global queue, so we filter the
+// records client-side by SeriesID — otherwise every series-detail hero
+// would surface the same one global active download. Used by the
+// seriesdetail library composer to scope the hero download chip.
 func (c *Client) Queue(ctx context.Context, seriesID shareddomain.SonarrSeriesID) (QueuePayload, error) {
 	q := url.Values{}
 	q.Set("seriesId", strconv.Itoa(int(seriesID)))
@@ -394,6 +396,9 @@ func (c *Client) Queue(ctx context.Context, seriesID shareddomain.SonarrSeriesID
 		Records:      make([]QueueRecord, 0, len(dto.Records)),
 	}
 	for _, r := range dto.Records {
+		if seriesID != 0 && r.SeriesID != seriesID {
+			continue
+		}
 		rec := QueueRecord{
 			ID:           r.ID,
 			SeriesID:     r.SeriesID,
