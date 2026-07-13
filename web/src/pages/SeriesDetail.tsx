@@ -175,8 +175,24 @@ export function SeriesDetail() {
   // #1064 — hero ratings StaleBadges now key off the /ratings per-source status
   // (revalidating = present-but-stale), NOT degraded[]. The /ratings DTO carries
   // no per-source timestamp, so syncedAt remains the best "as of" anchor.
-  const tmdbStaleAt = tmdbRatingStale ? syncedAt : undefined;
-  const imdbStaleAt = omdbRatingStale ? syncedAt : undefined;
+  //
+  // AUDIT-S6 (F-08) — /ratings.sources is only the source of truth when the
+  // fetch actually resolved. When it ERRORS (5xx/network) or is still in flight,
+  // `ratingSources` is undefined → every `=== 'revalidating' | 'pending'` check
+  // silently goes false, hiding the hero StaleBadge + IMDb chip even though the
+  // skeleton's degraded[] still legitimately reports the source stale. Fall back
+  // to the pre-#1064 degraded[] signals ONLY when /ratings is unavailable; when
+  // sources ARE present these resolve byte-for-byte to #1064's behaviour.
+  const ratingsLoadingInitial = ratingSources === undefined && !ratingsQ.isError;
+  const ratingsUnavailable = ratingsQ.isError || ratingSources === undefined;
+  const imdbValuePresent = (hero?.imdb_rating?.score ?? 0) > 0;
+  const tmdbRatingStaleEff = ratingsUnavailable ? tmdbSeriesDegraded : tmdbRatingStale;
+  const omdbRatingStaleEff = ratingsUnavailable ? omdbDegraded : omdbRatingStale;
+  const omdbRatingPendingEff = ratingsUnavailable
+    ? (ratingsLoadingInitial || omdbDegraded) && !imdbValuePresent
+    : omdbRatingPending;
+  const tmdbStaleAt = tmdbRatingStaleEff ? syncedAt : undefined;
+  const imdbStaleAt = omdbRatingStaleEff ? syncedAt : undefined;
 
   useSetPageTitle(hero?.title ?? t('seriesDetail.title'));
 
@@ -208,10 +224,12 @@ export function SeriesDetail() {
   const showCastSection = !sonarrOnly && (!castEmpty || castLoading);
   const seasonsEmpty = seasons.length === 0;
   const seasonsLoading = seasonsEmpty && (tmdbSeasonDegraded || tmdbSeriesDegraded);
-  // #1064 — hero IMDb loading chip now keys off /ratings (omdb `pending` =
-  // value still absent + fetch in flight), replacing the old
-  // `omdbDegraded && !hero?.imdb_rating` derivation from degraded[].
-  const imdbLoading = omdbRatingPending;
+  // #1064 — hero IMDb loading chip keys off /ratings (omdb `pending` = value
+  // still absent + fetch in flight). AUDIT-S6 (F-08) — `omdbRatingPendingEff`
+  // additionally covers the initial /ratings round-trip and the /ratings-error
+  // fallback (degraded[]'s `omdb`), so the chip doesn't gap on first fetch nor
+  // vanish on a /ratings outage.
+  const imdbLoading = omdbRatingPendingEff;
 
   // Build the cast href once so CastStrip stays URL-agnostic (Story 495 §A3).
   const castHref = `/series/${seriesId}/cast`;

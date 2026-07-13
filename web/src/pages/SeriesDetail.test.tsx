@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -506,5 +506,136 @@ describe('URL migration (story 495 / N-1e)', () => {
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('cast-strip-view-all')).toBeInTheDocument());
     expect(screen.getByTestId('cast-strip-view-all').getAttribute('href')).toBe('/series/122/cast');
+  });
+});
+
+// ── AUDIT-S6 (fable F-08) — the hero StaleBadge + IMDb loading chip read
+// /ratings.sources as single-source-of-truth (#1064). When the /ratings fetch
+// ITSELF errors or is still in flight, `sources` is undefined; the hero signals
+// must fall back to the skeleton degraded[] so the badges don't silently vanish.
+// NOTE: the tail "synced at …" footer renders its OWN degraded[]-driven
+// StaleBadges — every assertion below is scoped with within(hero) so it targets
+// the hero badges (title StaleBadge + RatingDuo omdb badge / loading chip) only.
+describe('AUDIT-S6 hero ratings badges — /ratings error fallback (F-08)', () => {
+  const sidebar = { status: 'continuing' };
+  // isSonarrOnly=false requires a tmdb_rating; heroWithImdb also carries an IMDb
+  // ★ so the RatingDuo shows the value (stale-badge path), heroNoImdb omits it
+  // so the loading-chip path stays reachable.
+  const heroWithImdb = {
+    title: { value: 'Cold Series' },
+    year_start: 2020,
+    tmdb_rating: { score: 7.5, votes: 100 },
+    imdb_rating: { score: 8.0, votes: 5000 },
+  };
+  const heroNoImdb = {
+    title: { value: 'Cold Series' },
+    year_start: 2020,
+    tmdb_rating: { score: 7.5, votes: 100 },
+  };
+
+  // Path-routed mock (same shape as installRoutes) but with a caller-supplied
+  // /ratings behaviour so we can drive error / pending / fresh independently.
+  function installRoutesWithRatings(
+    ratings: () => Promise<unknown>,
+    over: { skeleton?: Record<string, unknown> } = {},
+  ) {
+    const skeleton = { ...skeletonFixture, ...over.skeleton };
+    mockApi.mockImplementation((path: string) => {
+      if (typeof path !== 'string') return Promise.resolve(skeleton);
+      if (path.includes('/overview')) return Promise.resolve(overviewFixture);
+      if (path.includes('/recommendations')) return Promise.resolve(recsFixture);
+      if (path.includes('/cast')) return Promise.resolve(castFixture);
+      if (path.includes('/seasons')) return Promise.resolve(seasonsFixture);
+      if (path.includes('/library')) return Promise.resolve(libraryFixture);
+      if (path.includes('/ratings')) return ratings();
+      return Promise.resolve(skeleton);
+    });
+  }
+
+  beforeEach(() => {
+    mockApi.mockReset();
+  });
+
+  // (a) HAPPY PATH unchanged: /ratings resolves fresh ⇒ degraded[] is IGNORED
+  // for the hero ratings surface (single-source-of-truth from #1064 preserved),
+  // even though the skeleton reports tmdb_series + omdb degraded.
+  it('ignores degraded[] for hero ratings signals when /ratings resolves fresh', async () => {
+    installRoutesWithRatings(
+      () =>
+        Promise.resolve({
+          tmdb_rating: 7.5,
+          tmdb_votes: 100,
+          imdb_rating: 8.0,
+          imdb_votes: 5000,
+          rated: undefined,
+          awards: undefined,
+          sources: { tmdb: 'fresh', omdb: 'fresh' },
+        }),
+      { skeleton: { degraded: ['tmdb_series', 'omdb'], hero: heroWithImdb, sidebar } },
+    );
+    renderRoute('/series/122');
+    const hero = await screen.findByTestId('series-hero');
+    await waitFor(() =>
+      expect(within(hero).getByTestId('rating-imdb')).toBeInTheDocument(),
+    );
+    // No hero-scoped stale badge and no loading chip: /ratings is authoritative.
+    expect(within(hero).queryByTestId('imdb-rating-loading')).not.toBeInTheDocument();
+    expect(within(hero).queryByTestId('stale-badge')).not.toBeInTheDocument();
+  });
+
+  // (b) /ratings ERRORS ⇒ fall back to degraded[]: the hero tmdb + omdb
+  // StaleBadges must STILL render (pre-#1064 behaviour), not vanish.
+  it('falls back to degraded[] for the hero StaleBadge when /ratings errors', async () => {
+    installRoutesWithRatings(() => Promise.reject(new Error('ratings 503')), {
+      skeleton: { degraded: ['tmdb_series', 'omdb'], hero: heroWithImdb, sidebar },
+    });
+    renderRoute('/series/122');
+    const hero = await screen.findByTestId('series-hero');
+    // /ratings errored ⇒ liveRatings undefined ⇒ hero ★ falls back to
+    // hero.imdb_rating, so the IMDb value still paints.
+    await waitFor(() =>
+      expect(within(hero).getByTestId('rating-imdb')).toBeInTheDocument(),
+    );
+    await waitFor(() => {
+      const heroBadges = within(hero).getAllByTestId('stale-badge');
+      expect(heroBadges.some((b) => b.getAttribute('data-source') === 'tmdb')).toBe(true);
+      expect(heroBadges.some((b) => b.getAttribute('data-source') === 'omdb')).toBe(true);
+    });
+    // IMDb ★ present ⇒ no loading chip (stale, not loading).
+    expect(within(hero).queryByTestId('imdb-rating-loading')).not.toBeInTheDocument();
+  });
+
+  // (c) INITIAL /ratings round-trip (pending, no data yet) ⇒ the IMDb loading
+  // chip fills the gap instead of showing nothing, when the hero carries no
+  // IMDb ★ value. Then it clears once /ratings resolves fresh.
+  it('shows the IMDb loading chip during the initial /ratings round-trip', async () => {
+    let resolveRatings: (v: unknown) => void = () => {};
+    installRoutesWithRatings(
+      () =>
+        new Promise((res) => {
+          resolveRatings = res;
+        }),
+      { skeleton: { degraded: [], hero: heroNoImdb, sidebar } },
+    );
+    renderRoute('/series/122');
+    const hero = await screen.findByTestId('series-hero');
+    await waitFor(() =>
+      expect(within(hero).getByTestId('imdb-rating-loading')).toBeInTheDocument(),
+    );
+    // Settle the pending query so teardown doesn't warn, and confirm the chip
+    // clears + the ★ paints once fresh sources land.
+    resolveRatings({
+      tmdb_rating: 7.5,
+      tmdb_votes: 100,
+      imdb_rating: 8.0,
+      imdb_votes: 5000,
+      rated: undefined,
+      awards: undefined,
+      sources: { tmdb: 'fresh', omdb: 'fresh' },
+    });
+    await waitFor(() =>
+      expect(within(hero).getByTestId('rating-imdb')).toBeInTheDocument(),
+    );
+    expect(within(hero).queryByTestId('imdb-rating-loading')).not.toBeInTheDocument();
   });
 });
