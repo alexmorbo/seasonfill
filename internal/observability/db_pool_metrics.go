@@ -44,16 +44,16 @@ func RegisterDBPoolMetrics(db *sql.DB) {
 		metrics.GetOrCreateGauge(`seasonfill_db_pool_idle`, func() float64 {
 			return float64(db.Stats().Idle)
 		})
-		metrics.GetOrCreateGauge(`seasonfill_db_pool_wait_count_total`, func() float64 {
+		metrics.GetOrCreateGauge(`seasonfill_db_pool_wait_count`, func() float64 {
 			return float64(db.Stats().WaitCount)
 		})
-		metrics.GetOrCreateGauge(`seasonfill_db_pool_wait_duration_seconds_total`, func() float64 {
+		metrics.GetOrCreateGauge(`seasonfill_db_pool_wait_duration_seconds`, func() float64 {
 			return db.Stats().WaitDuration.Seconds()
 		})
-		metrics.GetOrCreateGauge(`seasonfill_db_pool_max_idle_closed_total`, func() float64 {
+		metrics.GetOrCreateGauge(`seasonfill_db_pool_max_idle_closed`, func() float64 {
 			return float64(db.Stats().MaxIdleClosed)
 		})
-		metrics.GetOrCreateGauge(`seasonfill_db_pool_max_lifetime_closed_total`, func() float64 {
+		metrics.GetOrCreateGauge(`seasonfill_db_pool_max_lifetime_closed`, func() float64 {
 			return float64(db.Stats().MaxLifetimeClosed)
 		})
 	})

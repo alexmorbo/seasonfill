@@ -102,3 +102,61 @@ func TestMetricsMiddleware_PanicSafeInFlight(t *testing.T) {
 	// The deferred Dec ran during panic unwinding, so the gauge is back to 0.
 	assert.Contains(t, dump(), "seasonfill_http_requests_in_flight 0")
 }
+
+func TestMethodLabel(t *testing.T) {
+	for _, m := range []string{
+		http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodHead, http.MethodOptions,
+	} {
+		assert.Equalf(t, m, methodLabel(m),
+			"standard method %q must pass through verbatim", m)
+	}
+	for _, m := range []string{"FOOBAR", "get", "CONNECT", "TRACE", "", "PROPFIND"} {
+		assert.Equalf(t, methodOther, methodLabel(m),
+			"non-standard verb %q must collapse to %q", m, methodOther)
+	}
+}
+
+// TestMetricsMiddleware_NonStandardMethodCollapsesToOther reproduces the F-02
+// probe: a bogus verb on an unrouted path (curl -X FOOBAR /anything) must land
+// in method="other", never minting a raw {method="FOOBAR"} series.
+func TestMetricsMiddleware_NonStandardMethodCollapsesToOther(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(MetricsMiddleware())
+	// No route registered: gin runs global middleware then its default 404.
+
+	const other = `seasonfill_http_requests_total{route="unmatched",method="other",status="404"}`
+	before := counterValue(t, dump(), other)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), "FOOBAR", "/anything", nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound, w.Code)
+
+	body := dump()
+	assert.Equal(t, before+1, counterValue(t, body, other),
+		`bogus verb must collapse to method="other"`)
+	assert.NotContains(t, body, `method="FOOBAR"`,
+		`raw verb must never be stamped as a method label`)
+}
+
+// TestMetricsMiddleware_StandardMethodVerbatim proves the guard is a no-op for
+// real traffic: a POST stamps method="POST" byte-identically to today.
+func TestMetricsMiddleware_StandardMethodVerbatim(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(MetricsMiddleware())
+	r.POST("/y", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+
+	const series = `seasonfill_http_requests_total{route="/y",method="POST",status="200"}`
+	before := counterValue(t, dump(), series)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/y", nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	assert.Equal(t, before+1, counterValue(t, dump(), series),
+		`standard method label must be byte-identical to today`)
+}

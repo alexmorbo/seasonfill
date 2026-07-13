@@ -234,7 +234,12 @@ func handleBasicAuth(c *gin.Context, repo ports.UserRepository, lim *auth.IPLimi
 		return
 	}
 
-	observability.AuthLogin(observability.AuthLoginModeBasic, observability.AuthLoginSuccess)
+	// Basic auth is per-request (credentials resent on every call), so there is
+	// no discrete "login" event to count here — ticking auth_login_total on the
+	// success path would count authenticated requests, not logins, and dwarf
+	// forms/oidc login counts on the shared panel. The failure / rate_limited
+	// ticks above are retained: each fires only on a rejected request and is a
+	// genuine failed-login signal.
 	c.Set(UsernameContextKey, row.Username)
 	c.Next()
 }

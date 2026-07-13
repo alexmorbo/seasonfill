@@ -71,10 +71,10 @@ func TestRegisterDBMetrics_PoolGaugesAndWriteError(t *testing.T) {
 		"seasonfill_db_pool_open_connections",
 		"seasonfill_db_pool_in_use",
 		"seasonfill_db_pool_idle",
-		"seasonfill_db_pool_wait_count_total",
-		"seasonfill_db_pool_wait_duration_seconds_total",
-		"seasonfill_db_pool_max_idle_closed_total",
-		"seasonfill_db_pool_max_lifetime_closed_total",
+		"seasonfill_db_pool_wait_count",
+		"seasonfill_db_pool_wait_duration_seconds",
+		"seasonfill_db_pool_max_idle_closed",
+		"seasonfill_db_pool_max_lifetime_closed",
 	}
 	for _, name := range poolNames {
 		line := findMetricLine(body, name)
@@ -142,4 +142,30 @@ func TestWriteErrorCallback_UpdateAndDelete(t *testing.T) {
 	require.Containsf(t, body,
 		`seasonfill_db_write_errors_total{repo="m3_probe_rows",op="delete"}`,
 		"delete write-error counter missing:\n%s", body)
+}
+
+// TestDBPoolGauges_NoTotalSuffix guards the F-11 rename: callback-read gauges
+// must not carry the counter-reserved _total suffix. The only db_* metric that
+// legitimately ends in _total is the real write-error counter, which lives
+// under seasonfill_db_write_errors_total (no "pool" segment).
+func TestDBPoolGauges_NoTotalSuffix(t *testing.T) {
+	db := openM3TestDB(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	RegisterDBPoolMetrics(sqlDB)
+
+	buf := &bytes.Buffer{}
+	WritePrometheus(buf)
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		if !strings.HasPrefix(line, "seasonfill_db_pool_") {
+			continue
+		}
+		name := strings.Fields(line)[0]
+		// Trim any {label...} suffix so we test the bare metric name.
+		if i := strings.IndexByte(name, '{'); i >= 0 {
+			name = name[:i]
+		}
+		require.Falsef(t, strings.HasSuffix(name, "_total"),
+			"db_pool gauge %q must not carry the counter-reserved _total suffix", name)
+	}
 }
