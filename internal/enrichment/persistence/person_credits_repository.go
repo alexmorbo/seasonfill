@@ -339,9 +339,17 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 			"department":     gorm.Expr("excluded.department"),
 			"job":            gorm.Expr("excluded.job"),
 			"poster_path":    gorm.Expr("excluded.poster_path"),
-			"vote_average":   gorm.Expr("excluded.vote_average"),
-			"tmdb_votes":     gorm.Expr("excluded.tmdb_votes"),
-			"episode_count":  gorm.Expr("excluded.episode_count"),
+			// Story 1034 — COALESCE-guard the TMDB show rating. The
+			// series-worker person_credits(tv) write path
+			// (mapSeriesCreditsToPersonCredits) is order-less on the rating
+			// versus the person-worker /person/{id}/tv_credits write, and a
+			// series-worker upsert that lands AFTER the person-worker
+			// populated vote_average must not null it back out. Mirrors the
+			// credit_order guard above — the H-1 person page "other credits"
+			// ★rating reads this column (OtherCreditEntry.VoteAverage).
+			"vote_average":  gorm.Expr("COALESCE(excluded.vote_average, person_credits.vote_average)"),
+			"tmdb_votes":    gorm.Expr("excluded.tmdb_votes"),
+			"episode_count": gorm.Expr("excluded.episode_count"),
 			// Story 1087b — COALESCE-guard billing order: the series-worker
 			// aggregate_credits write is the ONLY source of credit_order; a
 			// later person-worker tv_credits write (order-less) on the same

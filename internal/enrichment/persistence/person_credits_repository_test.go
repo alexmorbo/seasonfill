@@ -515,6 +515,72 @@ func TestPersonCreditsRepository_CreditOrder_PersistAndCoalesce(t *testing.T) {
 	}
 }
 
+// TestPersonCreditsRepository_VoteAverage_PersistAndCoalesce proves the Story
+// 1034 COALESCE-guard on vote_average: a person-worker row carrying the real
+// TMDB rating must survive a LATER series-worker-style row that re-upserts the
+// SAME natural key with a NULL rating (the series-worker person_credits(tv)
+// build path historically emitted NULL, nulling the person-page ★rating).
+// Symmetric to the CreditOrder guard test above. Also asserts the forward case
+// (a non-NULL incoming rating updates a previously-NULL stored value) so the
+// guard is proven to be COALESCE, not an unconditional keep-stored.
+func TestPersonCreditsRepository_VoteAverage_PersistAndCoalesce(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Vote Average"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			read := func(t *testing.T, mediaID int) *float64 {
+				t.Helper()
+				rows, err := repo.ListByMediaWithTextFallback(ctx, "tv", mediaID, "en-US")
+				require.NoError(t, err)
+				require.Len(t, rows, 1)
+				return rows[0].VoteAverage
+			}
+
+			t.Run("later NULL must not clobber stored rating", func(t *testing.T) {
+				// person-worker style row: carries the real TMDB rating.
+				personRow := samplePersonCredit(personID, "va-a", "Show", 2001)
+				personRow.VoteAverage = new(6.528)
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				// series-worker style row: SAME natural key, NULL rating.
+				seriesRow := samplePersonCredit(personID, "va-a", "Show", 2001)
+				seriesRow.VoteAverage = nil
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				got := read(t, 2001)
+				require.NotNil(t, got, "COALESCE must preserve the stored rating against a NULL re-upsert")
+				assert.InDelta(t, 6.528, *got, 1e-9)
+			})
+
+			t.Run("stored NULL, later non-NULL wins", func(t *testing.T) {
+				// series-worker style row first: NULL rating.
+				seriesRow := samplePersonCredit(personID, "va-b", "Show", 2002)
+				seriesRow.VoteAverage = nil
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				// later row carries a real rating → must land.
+				personRow := samplePersonCredit(personID, "va-b", "Show", 2002)
+				personRow.VoteAverage = new(8.1)
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				got := read(t, 2002)
+				require.NotNil(t, got, "a non-NULL incoming rating must update a previously-NULL stored value")
+				assert.InDelta(t, 8.1, *got, 1e-9)
+			})
+		})
+	}
+}
+
 // TestPersonCreditsRepository_LastAppearanceSeason_MaxMerge proves the Story
 // 1090 column round-trips (migration 000039 + model + read SELECT) and that the
 // portable CASE MAX-merge in OnConflict never regresses a stored value: a lower

@@ -1293,8 +1293,17 @@ func mapSeriesCreditsToPersonCredits(
 	lastAppByPerson map[int64]int,
 ) []people.PersonCredit {
 	title := ""
+	// Story 1034 — the vote_average on a person_credit row IS the show's
+	// own TMDB rating, so populate it from tv.VoteAverage here. Without this
+	// the series-worker wrote a NULL rating that (pre-COALESCE-guard) clobbered
+	// the person-worker value and left the person-page "other credits" ★rating
+	// blank. nonZeroFloatPtr keeps an absent TMDB rating (0.0) as NULL rather
+	// than a fake 0-star. The repository COALESCE-guard is the belt to this
+	// suspenders — either alone heals the card, both together are idempotent.
+	var rating *float64
 	if tv != nil {
 		title = tv.Name
+		rating = nonZeroFloatPtr(tv.VoteAverage)
 	}
 	out := make([]people.PersonCredit, 0, len(creds))
 	for _, cr := range creds {
@@ -1316,6 +1325,7 @@ func mapSeriesCreditsToPersonCredits(
 			EpisodeCount:         cr.EpisodeCount,
 			CreditOrder:          cr.CreditOrder, // Story 1087b — aggregate_credits billing order.
 			LastAppearanceSeason: lastApp,        // Story 1090 — max real season the person appears in.
+			TMDBRating:           rating,         // Story 1034 — show rating powers the other-credits ★.
 		})
 	}
 	return out
