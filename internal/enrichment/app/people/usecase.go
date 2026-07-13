@@ -19,9 +19,11 @@ import (
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	domenrich "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -217,7 +219,9 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 	// S-E3a — stage localized title + poster raw path onto each library
 	// credit BEFORE sorting (SortTitle reads the staged title). Canon no
 	// longer carries title/poster_asset.
-	uc.stageLibraryCreditTexts(ctx, libCredits, lang)
+	// Task 1127 — keep the series_media_texts batch map to classify sentinel
+	// poster misses at the resolve step below (row-presence signal).
+	libMediaByID := uc.stageLibraryCreditTexts(ctx, libCredits, lang)
 
 	sortLibraryCredits(libCredits, sk)
 
@@ -227,7 +231,7 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 	// makes the poster resolve to the real content hash (not the sentinel) and
 	// localizes the title. Canon-less credits (movies / never-enriched series)
 	// keep their raw person_credits values.
-	uc.stageCanonOtherCreditTexts(ctx, otherCredits, lang)
+	otherMediaByID := uc.stageCanonOtherCreditTexts(ctx, otherCredits, lang)
 
 	out.LibraryCredits = libCredits
 	out.OtherCredits = otherCredits
@@ -243,7 +247,13 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 		cancel()
 	}
 	for i := range out.LibraryCredits {
-		out.LibraryCredits[i].PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.LibraryCredits[i].PosterAsset, "w342", "poster_w342")
+		// Task 1127 (Observability B) — capture the raw path BEFORE the resolver
+		// overwrites it so a sentinel miss can be classified. Observation only:
+		// PosterAsset is assigned the resolver's result exactly as before.
+		raw := out.LibraryCredits[i].PosterAsset
+		resolved := uc.d.MediaResolver.Resolve(ctx, raw, "w342", "poster_w342")
+		out.LibraryCredits[i].PosterAsset = resolved
+		uc.observePersonPosterSentinel(ctx, resolved, raw, libMediaByID, out.LibraryCredits[i].Canon.ID, lang)
 	}
 	// Story 317 — OtherCredits posters. Movies + canon-less TV stubs. Same
 	// resolver, w185 (the frontend's grid is denser → smaller variant). The
@@ -252,11 +262,20 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 	// series_media_texts (same source as the series page) and resolve at the
 	// w342 variant so the emitted hash matches what the series page returns.
 	for i := range out.OtherCredits {
+		// Task 1127 (Observability B) — same sentinel classification as library
+		// credits. Canon-backed credits carry a series_media_texts row (use
+		// otherMediaByID for the row-presence signal); canon-less credits
+		// (movies / never-enriched TV) have no such row → rowPresent=false.
+		raw := out.OtherCredits[i].Credit.PosterAsset
 		if out.OtherCredits[i].Canon.ID != 0 {
-			out.OtherCredits[i].Credit.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.OtherCredits[i].Credit.PosterAsset, "w342", "poster_w342")
+			resolved := uc.d.MediaResolver.Resolve(ctx, raw, "w342", "poster_w342")
+			out.OtherCredits[i].Credit.PosterAsset = resolved
+			uc.observePersonPosterSentinel(ctx, resolved, raw, otherMediaByID, out.OtherCredits[i].Canon.ID, lang)
 			continue
 		}
-		out.OtherCredits[i].Credit.PosterAsset = uc.d.MediaResolver.Resolve(ctx, out.OtherCredits[i].Credit.PosterAsset, "w185", "poster_w185")
+		resolved := uc.d.MediaResolver.Resolve(ctx, raw, "w185", "poster_w185")
+		out.OtherCredits[i].Credit.PosterAsset = resolved
+		uc.observePersonPosterSentinel(ctx, resolved, raw, nil, 0, lang)
 	}
 
 	degraded := uc.computeDegraded(person)
@@ -283,6 +302,56 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string, s
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 	)
 	return out, nil
+}
+
+// observePersonPosterSentinel emits the per-reason person-poster sentinel
+// counter (+ an Info log) when a resolved credit poster came back as the
+// missing-art sentinel hash. Observation only — never mutates the poster.
+// Task 1127 (Observability B): the person analogue of
+// resolveRecommendationsMedia's sentinel classification. rowPresent is derived
+// from the series_media_texts batch map keyed by canon id (nil map / zero id =
+// no row, e.g. canon-less other credits).
+func (uc *UseCase) observePersonPosterSentinel(
+	ctx context.Context,
+	resolved, raw *string,
+	mediaByID map[domain.SeriesID]series.SeriesMediaText,
+	seriesID domain.SeriesID,
+	lang string,
+) {
+	rowPresent := false
+	if mediaByID != nil && seriesID != 0 {
+		_, rowPresent = mediaByID[seriesID]
+	}
+	rawNonEmpty := raw != nil && *raw != ""
+	reason, sentinel := classifyPersonPosterSentinel(resolved, rowPresent, rawNonEmpty)
+	if !sentinel {
+		return
+	}
+	observability.IncPersonPosterSentinel(reason)
+	uc.d.Logger.InfoContext(ctx, "person_poster_sentinel",
+		slog.Int64("series_id", int64(seriesID)),
+		slog.String("lang", lang),
+		slog.String("reason", reason))
+}
+
+// classifyPersonPosterSentinel mirrors classifyRecPosterSentinel
+// (seriesdetail/app/recommendations.go): returns (reason, true) when resolved
+// is the missing-art sentinel, else ("", false). Cheap common path — a single
+// nil-check + pointer-deref compare returns immediately when the resolver
+// produced a real hash. rowPresent = the credit had a series_media_texts entry
+// in the batch map; rawNonEmpty = the path fed to the resolver was non-empty.
+func classifyPersonPosterSentinel(resolved *string, rowPresent, rawNonEmpty bool) (string, bool) {
+	if !media.IsSentinel(resolved) {
+		return "", false
+	}
+	switch {
+	case rawNonEmpty:
+		return observability.PersonPosterSentinelResolverMiss, true
+	case rowPresent:
+		return observability.PersonPosterSentinelEmptyPosterRow, true
+	default:
+		return observability.PersonPosterSentinelNoRow, true
+	}
 }
 
 // CreditCategory tells the classifier whether a credit goes to
@@ -401,9 +470,13 @@ func sortLibraryCredits(libs []LibraryCredit, sk SortKey) {
 // PosterAsset raw path (from series_media_texts, lang → en-US). Canon no
 // longer carries title/poster_asset (S-E3a). nil-OK ports; a repo miss/error
 // degrades to OriginalTitle / nil poster and never fails the page.
-func (uc *UseCase) stageLibraryCreditTexts(ctx context.Context, libs []LibraryCredit, lang string) {
+//
+// Returns the series_media_texts batch map (keyed by canon id) so the caller's
+// poster-resolve step can classify sentinel misses without re-fetching (Task
+// 1127 Observability B). nil when the port is unwired / the batch failed.
+func (uc *UseCase) stageLibraryCreditTexts(ctx context.Context, libs []LibraryCredit, lang string) map[domain.SeriesID]series.SeriesMediaText {
 	if len(libs) == 0 {
-		return
+		return nil
 	}
 	ids := make([]domain.SeriesID, 0, len(libs))
 	for i := range libs {
@@ -452,6 +525,7 @@ func (uc *UseCase) stageLibraryCreditTexts(ctx context.Context, libs []LibraryCr
 			}
 		}
 	}
+	return mediaTexts
 }
 
 // stageCanonOtherCreditTexts localizes the display title (series_texts) and
@@ -462,7 +536,12 @@ func (uc *UseCase) stageLibraryCreditTexts(ctx context.Context, libs []LibraryCr
 // never-enriched series) are left untouched so they keep the raw
 // person_credits.title + poster_path (external TMDB link). nil-OK ports; a
 // repo miss/error leaves the raw credit values and never fails the page.
-func (uc *UseCase) stageCanonOtherCreditTexts(ctx context.Context, others []OtherCredit, lang string) {
+//
+// Returns the series_media_texts batch map (keyed by canon id) so the caller's
+// poster-resolve step can classify sentinel misses for canon-backed credits
+// without re-fetching (Task 1127 Observability B). nil when there are no
+// canon-backed credits / the port is unwired / the batch failed.
+func (uc *UseCase) stageCanonOtherCreditTexts(ctx context.Context, others []OtherCredit, lang string) map[domain.SeriesID]series.SeriesMediaText {
 	ids := make([]domain.SeriesID, 0, len(others))
 	for i := range others {
 		if others[i].Canon.ID != 0 {
@@ -470,7 +549,7 @@ func (uc *UseCase) stageCanonOtherCreditTexts(ctx context.Context, others []Othe
 		}
 	}
 	if len(ids) == 0 {
-		return
+		return nil
 	}
 
 	var texts map[domain.SeriesID]series.SeriesText
@@ -513,6 +592,7 @@ func (uc *UseCase) stageCanonOtherCreditTexts(ctx context.Context, others []Othe
 			}
 		}
 	}
+	return mediaTexts
 }
 
 // computeDegraded walks the H-2 degraded rules for the

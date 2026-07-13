@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/instance"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -947,14 +948,34 @@ func (h *InstancesHandler) localizeSeriesCachePosters(
 	}
 	for i := range items {
 		if items[i].SeriesID == nil {
+			// No canon id → no per-lang override + no series_media_texts row.
+			// Task 1127 (Observability B) — a tile that still has no poster_hash
+			// here is a no_row miss (observation only; PosterHash untouched).
+			if items[i].PosterHash == nil {
+				observability.IncGridPosterSentinel(observability.GridPosterSentinelNoRow)
+			}
 			continue
 		}
 		mt, ok := media[*items[i].SeriesID]
-		if !ok || mt.PosterAsset == nil || strings.TrimSpace(*mt.PosterAsset) == "" {
-			continue
+		if ok && mt.PosterAsset != nil && strings.TrimSpace(*mt.PosterAsset) != "" {
+			if hash := mediaHashForPosterAsset(mt.PosterAsset); hash != nil {
+				items[i].PosterHash = hash
+			}
 		}
-		if hash := mediaHashForPosterAsset(mt.PosterAsset); hash != nil {
-			items[i].PosterHash = hash
+		// Task 1127 (Observability B) — observation only: when a tile still has
+		// no poster_hash (canon poster empty AND no non-empty per-lang poster),
+		// classify why so the monogram cause is visible in prod. Mirrors
+		// classifyRecPosterSentinel (seriesdetail/app/recommendations.go): row
+		// present but poster empty → empty_poster_row; no row → no_row.
+		// resolver_miss never fires on the grid (the hash is derived directly
+		// from a non-empty path, never via the media resolver). PosterHash is
+		// NOT changed by this block.
+		if items[i].PosterHash == nil {
+			if ok {
+				observability.IncGridPosterSentinel(observability.GridPosterSentinelEmptyPosterRow)
+			} else {
+				observability.IncGridPosterSentinel(observability.GridPosterSentinelNoRow)
+			}
 		}
 	}
 }
