@@ -240,6 +240,19 @@ func TestPickPosterForLangRooted_KeyAndPeele(t *testing.T) {
 		img("/kp_ru_poster.jpg", ru, 7.0, 40),
 	}}
 
+	// AUDIT-S1 / F-01: the mis-tag is tagged "en" (so it OCCUPIES the exact-en
+	// tier) with the highest votes, while TMDB's editorial primary is a NULL-iso
+	// poster living in a LATER tier. The exact-en tier is non-empty but holds
+	// ONLY the mis-tag, so the old winning-tier-only anchor never reaches the null
+	// tier where the primary lives → the mis-tag poisons the en-US row. The
+	// all-tiers anchor must still return the primary. RED before the fix.
+	const rootNull = "/kp_null_primary.jpg" // TMDB /tv/43082?language=en-US primary, NULL-iso
+	enTierMistagNullPrimary := &tmdb.TVImages{Posters: []tmdb.TVImage{
+		img("/kp_ru_art.jpg", en, 6.0, 950), // Russian art MIS-TAGGED en, IN exact tier, top votes
+		img(rootNull, nil, 4.0, 3),          // editorial primary, NULL-iso (== root), low votes
+		img("/kp_ru_poster.jpg", ru, 7.0, 40),
+	}}
+
 	t.Run("en-tagged mis-tag: root primary wins, NOT the high-vote mis-tag", func(t *testing.T) {
 		got := pickPosterForLangRooted(enTagged, "en-US", rootEN)
 		require.NotNil(t, got)
@@ -250,10 +263,25 @@ func TestPickPosterForLangRooted_KeyAndPeele(t *testing.T) {
 		assert.Equal(t, "/kp_ru_art.jpg", *unanchored, "sanity: plain vote ranking picks the mis-tag")
 	})
 
-	t.Run("null-tagged mis-tag: root primary wins for en", func(t *testing.T) {
+	// NON-load-bearing: the primary is tagged en and already sits in the winning
+	// exact-en tier, so this passes even with the anchor deleted. Kept as a
+	// belt-and-suspenders guard; the load-bearing case is the subtest below.
+	t.Run("null-tagged mis-tag, en-tagged primary: root wins (non-load-bearing)", func(t *testing.T) {
 		got := pickPosterForLangRooted(nullTagged, "en-US", rootEN)
 		require.NotNil(t, got)
 		assert.Equal(t, rootEN, *got)
+	})
+
+	t.Run("en-tier mis-tag + null-iso primary: primary wins across tiers (AUDIT-S1, RED pre-fix)", func(t *testing.T) {
+		got := pickPosterForLangRooted(enTierMistagNullPrimary, "en-US", rootNull)
+		require.NotNil(t, got)
+		assert.Equal(t, rootNull, *got)
+		// Proof this fixture is load-bearing: the plain vote ranking (no anchor)
+		// returns the mis-tag, because the exact-en tier is non-empty and holds
+		// only the mis-tag — so the old winning-tier-only anchor could never win.
+		unanchored := pickPosterForLang(enTierMistagNullPrimary, "en-US")
+		require.NotNil(t, unanchored)
+		assert.Equal(t, "/kp_ru_art.jpg", *unanchored, "sanity: plain vote ranking picks the mis-tag")
 	})
 
 	t.Run("ru row still resolves to the ru poster (strict, unaffected)", func(t *testing.T) {

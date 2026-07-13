@@ -137,12 +137,33 @@ func pickByLangPriority(imgs []tmdb.TVImage, tiers []langMatcher) *string {
 	return pickByLangPriorityPreferring(imgs, tiers, "")
 }
 
-// pickByLangPriorityPreferring is pickByLangPriority with a trust anchor: inside
-// the first non-empty tier, if any candidate's FilePath == prefer that candidate
-// wins over the VoteAverage/VoteCount ranking (defeats a high-vote community
-// mis-tag, #1020). prefer == "" disables the anchor — identical to the plain
-// vote ranking.
+// pickByLangPriorityPreferring is pickByLangPriority with a trust anchor. prefer
+// is TMDB's editorial primary (the /tv/{id}?language=<lang> poster_path). When
+// prefer is non-empty AND appears in imgs with an iso accepted by SOME tier of
+// the language chain (exact short(lang), null, or "en"), prefer is returned
+// directly — TMDB's own designated primary is trusted over the community
+// VoteAverage/VoteCount ranking. Crucially the anchor is evaluated across ALL
+// tiers, not only the first non-empty one: a high-vote community mis-tag sitting
+// in an EARLIER tier can no longer win the walk before prefer's (later, e.g.
+// null/"en") tier is reached (#1020, AUDIT-S1/F-01). prefer must be a legitimate
+// candidate for this chain — if its iso matches no tier (or prefer is absent
+// from imgs) the anchor does not fire and the plain vote ranking is honoured
+// (never over-riding a genuine per-language pick). prefer == "" disables the
+// anchor entirely — identical to the plain vote ranking.
 func pickByLangPriorityPreferring(imgs []tmdb.TVImage, tiers []langMatcher, prefer string) *string {
+	if prefer != "" {
+		for i := range imgs {
+			if imgs[i].FilePath != prefer {
+				continue
+			}
+			for _, match := range tiers {
+				if match(imgs[i].ISO6391) {
+					fp := prefer
+					return &fp
+				}
+			}
+		}
+	}
 	for _, match := range tiers {
 		var group []tmdb.TVImage
 		for _, img := range imgs {
@@ -152,14 +173,6 @@ func pickByLangPriorityPreferring(imgs []tmdb.TVImage, tiers []langMatcher, pref
 		}
 		if len(group) == 0 {
 			continue
-		}
-		if prefer != "" {
-			for i := range group {
-				if group[i].FilePath == prefer {
-					fp := prefer
-					return &fp
-				}
-			}
 		}
 		sort.SliceStable(group, func(i, j int) bool {
 			if group[i].VoteAverage != group[j].VoteAverage {
