@@ -23,6 +23,15 @@ type personCreditKey struct {
 	tmdbCreditID string
 }
 
+// mediaTypeTVDiscriminator is the show-level media_type literal used by the
+// F-10 identity CASE guard in personCreditsDoUpdates. It mirrors
+// tmdb.MediaTypeTV ("tv") — the value both personCreditFromTV and the
+// series-worker mapSeriesCreditsToPersonCredits actually stamp — but is
+// declared locally so the persistence layer does not depend on the clients
+// package (AUDIT-S3 clean-architecture: persistence must not import
+// internal/shared/clients/tmdb).
+const mediaTypeTVDiscriminator = "tv"
+
 // PersonCredit is the read-shape returned by PersonCreditsRepository.
 // PosterPath is an upstream TMDB image path string in v1 — the media
 // downloader picks it up lazily on person-page open.
@@ -218,9 +227,11 @@ ORDER BY pc.person_id ASC`
 	return models, nil
 }
 
-// Upsert writes one credit row by natural key. Idempotent.
+// Upsert writes one credit row by natural key. Idempotent. Uses the
+// COALESCE-guarded (series-worker) discipline — single-row Upsert has no
+// authoritative caller.
 func (r *PersonCreditsRepository) Upsert(ctx context.Context, pc PersonCredit) (int64, error) {
-	ids, err := r.batchUpsert(ctx, []PersonCredit{pc})
+	ids, err := r.batchUpsert(ctx, []PersonCredit{pc}, false)
 	if err != nil {
 		return 0, err
 	}
@@ -236,11 +247,31 @@ func (r *PersonCreditsRepository) Upsert(ctx context.Context, pc PersonCredit) (
 // The conflict target (person_id, tmdb_credit_id) MUST match the UQ
 // index `person_credits_credit` exactly — re-running TMDB
 // /person/{id}/tv_credits never duplicates.
+//
+// This is the COALESCE-guarded (series-worker) discipline: the six
+// TMDB-owned columns (poster_path, original_title, year, vote_average,
+// tmdb_votes, episode_count) are preserved against a NULL excluded, because
+// the series-worker build (mapSeriesCreditsToPersonCredits / applyEpisodeCredits)
+// carries only partial aggregate data and emits NULL for columns it has no
+// source for at its seam (#1034 / #1126 / AUDIT-S3 F-06). The person-worker uses
+// BatchUpsertAuthoritative instead.
 func (r *PersonCreditsRepository) BatchUpsert(ctx context.Context, credits []PersonCredit) ([]int64, error) {
-	return r.batchUpsert(ctx, credits)
+	return r.batchUpsert(ctx, credits, false)
 }
 
-func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []PersonCredit) ([]int64, error) {
+// BatchUpsertAuthoritative is the PERSON-WORKER write path (AUDIT-S3 F-04). Same
+// INSERT … ON CONFLICT round-trip as BatchUpsert, but the six TMDB-owned columns
+// (poster_path, original_title, year, vote_average, tmdb_votes, episode_count)
+// are written RAW (excluded.X) instead of COALESCE-guarded: the person worker
+// fetches fresh full TMDB /person/{id}/tv_credits + /movie_credits for THIS
+// credit, so a NULL excluded is a genuine TMDB withdrawal that must self-heal the
+// column (go NULL) rather than be pinned to a stale stored value forever. The
+// identity columns (media_type, tmdb_media_id) still carry the F-10 CASE guard.
+func (r *PersonCreditsRepository) BatchUpsertAuthoritative(ctx context.Context, credits []PersonCredit) ([]int64, error) {
+	return r.batchUpsert(ctx, credits, true)
+}
+
+func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []PersonCredit, authoritative bool) ([]int64, error) {
 	if len(credits) == 0 {
 		return nil, nil
 	}
@@ -328,75 +359,7 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 			{Name: "person_id"},
 			{Name: "tmdb_credit_id"},
 		},
-		DoUpdates: clause.Assignments(map[string]any{
-			"media_type":    gorm.Expr("excluded.media_type"),
-			"tmdb_media_id": gorm.Expr("excluded.tmdb_media_id"),
-			"title":         gorm.Expr("excluded.title"),
-			// Story 1126 — COALESCE-guard original_title/year. Identical clobber
-			// shape to poster_path/tmdb_votes: the person-worker build
-			// (personCreditFromTV/Movie) populates both — OriginalTitle via
-			// nonEmptyPtr(c.OriginalName/OriginalTitle) and Year via
-			// yearFromReleaseDate — while the series-worker build
-			// (mapSeriesCreditsToPersonCredits) has NO source at its seam and
-			// emits NULL for both (first_air_date isn't in the patch shape). A
-			// series-worker upsert landing AFTER the person-worker populated them
-			// must not null them back out — the H-1 person page reads both
-			// (SELECT pc.original_title, pc.year). COALESCE keeps legitimate
-			// updates intact: a non-NULL excluded still overwrites; only a NULL
-			// excluded is ignored.
-			"original_title": gorm.Expr("COALESCE(excluded.original_title, person_credits.original_title)"),
-			"year":           gorm.Expr("COALESCE(excluded.year, person_credits.year)"),
-			"character_name": gorm.Expr("excluded.character_name"),
-			"kind":           gorm.Expr("excluded.kind"),
-			"department":     gorm.Expr("excluded.department"),
-			"job":            gorm.Expr("excluded.job"),
-			// Story 1126 — COALESCE-guard the credit poster path. Same clobber
-			// shape as vote_average: the series-worker person_credits(tv) build
-			// (mapSeriesCreditsToPersonCredits) has NO poster source at its seam
-			// and emits NULL, while the person-worker /person/{id}/tv_credits +
-			// /movie_credits build populates it (personCreditFromTV/Movie →
-			// nonEmptyPtr(c.PosterPath)). A series-worker upsert landing AFTER the
-			// person-worker populated poster_path must not null it back out and
-			// blank the person-page filmography cards. COALESCE keeps legitimate
-			// updates intact — a non-NULL excluded (a fresh/localised person-worker
-			// poster) still overwrites; only a NULL excluded is ignored.
-			"poster_path": gorm.Expr("COALESCE(excluded.poster_path, person_credits.poster_path)"),
-			// Story 1034 — COALESCE-guard the TMDB show rating. The
-			// series-worker person_credits(tv) write path
-			// (mapSeriesCreditsToPersonCredits) is order-less on the rating
-			// versus the person-worker /person/{id}/tv_credits write, and a
-			// series-worker upsert that lands AFTER the person-worker
-			// populated vote_average must not null it back out. Mirrors the
-			// credit_order guard above — the H-1 person page "other credits"
-			// ★rating reads this column (OtherCreditEntry.VoteAverage).
-			"vote_average": gorm.Expr("COALESCE(excluded.vote_average, person_credits.vote_average)"),
-			// Story 1126 — COALESCE-guard the TMDB show vote count. tmdb_votes is
-			// the show-level vote_count paired with vote_average; the person-worker
-			// populates it (personCreditFromTV/Movie → nonZeroIntPtr(c.VoteCount))
-			// while the series-worker historically left it NULL, so a later
-			// series-worker upsert nulled the person-worker value. Mirrors the
-			// vote_average guard above; the series-worker now also populates it
-			// from tv.VoteCount (belt-and-suspenders, either alone heals the card).
-			"tmdb_votes":    gorm.Expr("COALESCE(excluded.tmdb_votes, person_credits.tmdb_votes)"),
-			"episode_count": gorm.Expr("excluded.episode_count"),
-			// Story 1087b — COALESCE-guard billing order: the series-worker
-			// aggregate_credits write is the ONLY source of credit_order; a
-			// later person-worker tv_credits write (order-less) on the same
-			// (person_id, tmdb_credit_id) must not null it out.
-			"credit_order": gorm.Expr("COALESCE(excluded.credit_order, person_credits.credit_order)"),
-			// Story 1090 — MAX-merge last_appearance_season. Portable across
-			// BOTH dialects (GREATEST is PG-only; SQLite scalar MAX(NULL,x)=NULL).
-			// NULL-safe on both sides: a NULL excluded (staged path / non-cast
-			// writer) preserves the stored value; a NULL stored takes excluded;
-			// otherwise the greater wins. Never regresses a higher stored value.
-			"last_appearance_season": gorm.Expr(
-				"CASE " +
-					"WHEN excluded.last_appearance_season IS NULL THEN person_credits.last_appearance_season " +
-					"WHEN person_credits.last_appearance_season IS NULL THEN excluded.last_appearance_season " +
-					"WHEN excluded.last_appearance_season > person_credits.last_appearance_season THEN excluded.last_appearance_season " +
-					"ELSE person_credits.last_appearance_season END"),
-			"updated_at": gorm.Expr("excluded.updated_at"),
-		}),
+		DoUpdates: clause.Assignments(personCreditsDoUpdates(authoritative)),
 	}).CreateInBatches(&models, 1000).Error
 	if err != nil {
 		return nil, fmt.Errorf("batch upsert person_credits: %w", err)
@@ -407,4 +370,112 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 		ids[i] = models[idx].ID
 	}
 	return ids, nil
+}
+
+// personCreditsDoUpdates builds the ON CONFLICT (person_id, tmdb_credit_id)
+// DO UPDATE assignment map for person_credits. It is the SINGLE source of the
+// upsert's column-merge policy, shared by BatchUpsert (authoritative=false) and
+// BatchUpsertAuthoritative (authoritative=true) so the map is never duplicated.
+//
+// AUDIT-S3 F-04 / F-06 — the six TMDB-owned columns (poster_path,
+// original_title, year, vote_average, tmdb_votes, episode_count) swap between
+// two disciplines:
+//
+//   - authoritative=false — SERIES-WORKER seam. COALESCE-guarded
+//     (COALESCE(excluded.X, person_credits.X)): mapSeriesCreditsToPersonCredits /
+//     applyEpisodeCredits carry only partial aggregate data and emit NULL for
+//     columns they have no source for at their seam, so a series-worker upsert
+//     landing AFTER the person-worker populated them must NOT null them back out
+//     (#1034 / #1126; episode_count is F-06 — a 0→NULL tv_credits refresh must
+//     not null-clobber the aggregate total).
+//
+//   - authoritative=true — PERSON-WORKER seam. RAW (excluded.X): the person
+//     worker fetches fresh full TMDB /person/{id}/tv_credits + /movie_credits for
+//     THIS credit, so a NULL excluded is a genuine TMDB withdrawal that must
+//     self-heal the column (go NULL) rather than pin the stale stored value
+//     forever (F-04).
+//
+// AUDIT-S3 F-10 — media_type + tmdb_media_id carry a CASE guard in BOTH variants
+// (identity logic, independent of the enrichment-column split). media_type is
+// NOT part of the (person_id, tmdb_credit_id) unique key, so if an episode-crew
+// credit_id ever equals an aggregate/'tv' credit_id for the same person, a naive
+// RAW write would flip the stored media_type between 'tv' and 'tv_episode' and
+// ListByMedia('tv', showID) would then miss the row. The guard pins a show-level
+// 'tv' value: whenever EITHER side is 'tv' the row stays 'tv', and tmdb_media_id
+// tracks the SAME 'tv' side so the pair never desyncs. Behaviour-preserving for
+// the normal non-colliding case: a plain 'tv' row stays 'tv', a plain
+// 'tv_episode' row stays 'tv_episode', a 'movie' row stays 'movie'.
+//
+// All SQL is dialect-portable (SQLite UPSERT + Postgres ON CONFLICT both accept
+// the `excluded` pseudo-table and the `person_credits` target-table reference;
+// no GREATEST / PG-only cast). Proven on both backends by the existing
+// last_appearance_season MAX-merge test.
+func personCreditsDoUpdates(authoritative bool) map[string]any {
+	// enrich selects RAW vs COALESCE for the six TMDB-owned columns.
+	enrich := func(name string) clause.Expr {
+		if authoritative {
+			return gorm.Expr("excluded." + name)
+		}
+		return gorm.Expr("COALESCE(excluded." + name + ", person_credits." + name + ")")
+	}
+	// tvLit is the single-quoted SQL literal for the show-level 'tv'
+	// discriminator, derived from mediaTypeTVDiscriminator (mirrors
+	// tmdb.MediaTypeTV) so it never drifts from the value the writers actually
+	// store (mappers.go personCreditFromTV + series_worker
+	// mapSeriesCreditsToPersonCredits both stamp tmdb.MediaTypeTV).
+	tvLit := fmt.Sprintf("'%s'", mediaTypeTVDiscriminator) // "'tv'"
+
+	return map[string]any{
+		// F-10 — pin 'tv' whenever either side is 'tv'; else keep excluded's value.
+		"media_type": gorm.Expr(fmt.Sprintf(
+			"CASE WHEN excluded.media_type = %[1]s OR person_credits.media_type = %[1]s "+
+				"THEN %[1]s ELSE excluded.media_type END", tvLit)),
+		// F-10 — tmdb_media_id follows the SAME winner as media_type so they never
+		// desync: keep the stored 'tv' side's id, else take the incoming 'tv'
+		// side's id, else (no 'tv' involved) take excluded's id.
+		"tmdb_media_id": gorm.Expr(fmt.Sprintf(
+			"CASE WHEN person_credits.media_type = %[1]s THEN person_credits.tmdb_media_id "+
+				"WHEN excluded.media_type = %[1]s THEN excluded.tmdb_media_id "+
+				"ELSE excluded.tmdb_media_id END", tvLit)),
+
+		"title": gorm.Expr("excluded.title"),
+
+		// F-04 — six TMDB-owned columns swap RAW↔COALESCE via enrich().
+		"original_title": enrich("original_title"),
+		"year":           enrich("year"),
+
+		// character_name is written RAW in BOTH variants: the read paths
+		// (ListBy*WithTextFallback) resolve requested-lang → en-US →
+		// person_credits.character_name via the person_credits_texts side table,
+		// so this base tier is effectively masked for localised reads. RAW here
+		// is safe and preserves prior behaviour (AUDIT-S3: intentionally not
+		// COALESCE-guarded).
+		"character_name": gorm.Expr("excluded.character_name"),
+		"kind":           gorm.Expr("excluded.kind"),
+		"department":     gorm.Expr("excluded.department"),
+		"job":            gorm.Expr("excluded.job"),
+
+		"poster_path":  enrich("poster_path"),
+		"vote_average": enrich("vote_average"),
+		"tmdb_votes":   enrich("tmdb_votes"),
+		// F-06 — episode_count joins the split: COALESCE on the series-worker seam
+		// (0→NULL refresh must not null-clobber the aggregate total), RAW on the
+		// person-worker seam (authoritative 0-episodes self-heal, symmetric to F-04).
+		"episode_count": enrich("episode_count"),
+
+		// credit_order — series-worker aggregate_credits is the ONLY source;
+		// COALESCE-guarded in BOTH variants so a later order-less write never nulls
+		// it (#1087b).
+		"credit_order": gorm.Expr("COALESCE(excluded.credit_order, person_credits.credit_order)"),
+		// last_appearance_season — portable MAX-merge in BOTH variants (#1090).
+		// NULL-safe on both sides; never regresses a higher stored value.
+		"last_appearance_season": gorm.Expr(
+			"CASE " +
+				"WHEN excluded.last_appearance_season IS NULL THEN person_credits.last_appearance_season " +
+				"WHEN person_credits.last_appearance_season IS NULL THEN excluded.last_appearance_season " +
+				"WHEN excluded.last_appearance_season > person_credits.last_appearance_season THEN excluded.last_appearance_season " +
+				"ELSE person_credits.last_appearance_season END"),
+
+		"updated_at": gorm.Expr("excluded.updated_at"),
+	}
 }

@@ -909,3 +909,231 @@ func TestPersonCreditsRepository_LastAppearanceSeason_MaxMerge(t *testing.T) {
 		})
 	}
 }
+
+// TestPersonCreditsRepository_Authoritative_SelfHealsWithdrawnColumns is AUDIT-S3
+// F-04: the COALESCE variant (BatchUpsert) preserves stored poster/year/rating
+// against a NULL incoming value (series-worker partial data must not clobber),
+// while the authoritative variant (BatchUpsertAuthoritative) CAN null the same
+// columns on a NULL incoming value (person-worker is authoritative — a genuine
+// TMDB withdrawal must self-heal, not be pinned to a stale value forever).
+func TestPersonCreditsRepository_Authoritative_SelfHealsWithdrawnColumns(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Self Heal"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			get := func(t *testing.T, id int64) database.PersonCreditModel {
+				t.Helper()
+				got, gerr := repo.Get(ctx, id)
+				require.NoError(t, gerr)
+				return got
+			}
+
+			t.Run("COALESCE variant keeps stored poster/year/rating on NULL incoming", func(t *testing.T) {
+				seed := samplePersonCredit(personID, "sh-coalesce", "Show", 8001)
+				seed.PosterPath = new("/keep.jpg")
+				seed.Year = new(2020)
+				seed.VoteAverage = new(7.1)
+				ids, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{seed})
+				require.NoError(t, err)
+
+				nullRow := samplePersonCredit(personID, "sh-coalesce", "Show", 8001)
+				nullRow.PosterPath = nil
+				nullRow.Year = nil
+				nullRow.VoteAverage = nil
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{nullRow})
+				require.NoError(t, err)
+
+				got := get(t, ids[0])
+				require.NotNil(t, got.PosterPath)
+				assert.Equal(t, "/keep.jpg", *got.PosterPath)
+				require.NotNil(t, got.Year)
+				assert.Equal(t, 2020, *got.Year)
+				require.NotNil(t, got.VoteAverage)
+				assert.InDelta(t, 7.1, *got.VoteAverage, 1e-9)
+			})
+
+			t.Run("authoritative variant nulls poster/year/rating on NULL incoming (self-heal)", func(t *testing.T) {
+				seed := samplePersonCredit(personID, "sh-auth", "Show", 8002)
+				seed.PosterPath = new("/withdrawn.jpg")
+				seed.Year = new(2020)
+				seed.VoteAverage = new(7.1)
+				ids, err := repo.BatchUpsertAuthoritative(ctx, []database.PersonCreditModel{seed})
+				require.NoError(t, err)
+
+				nullRow := samplePersonCredit(personID, "sh-auth", "Show", 8002)
+				nullRow.PosterPath = nil
+				nullRow.Year = nil
+				nullRow.VoteAverage = nil
+				_, err = repo.BatchUpsertAuthoritative(ctx, []database.PersonCreditModel{nullRow})
+				require.NoError(t, err)
+
+				got := get(t, ids[0])
+				assert.Nil(t, got.PosterPath, "authoritative NULL must self-heal a withdrawn poster")
+				assert.Nil(t, got.Year, "authoritative NULL must self-heal a withdrawn year")
+				assert.Nil(t, got.VoteAverage, "authoritative NULL must self-heal a withdrawn rating")
+
+				// Forward case: a non-NULL authoritative value still lands.
+				freshRow := samplePersonCredit(personID, "sh-auth", "Show", 8002)
+				freshRow.PosterPath = new("/fresh.jpg")
+				_, err = repo.BatchUpsertAuthoritative(ctx, []database.PersonCreditModel{freshRow})
+				require.NoError(t, err)
+				got = get(t, ids[0])
+				require.NotNil(t, got.PosterPath)
+				assert.Equal(t, "/fresh.jpg", *got.PosterPath)
+			})
+		})
+	}
+}
+
+// TestPersonCreditsRepository_EpisodeCount_CoalesceVsAuthoritative is AUDIT-S3
+// F-06: episode_count survives a NULL incoming on the COALESCE variant (a later
+// tv_credits refresh reporting 0→NULL must not null-clobber the aggregate total),
+// but the authoritative variant can null/update it (person-worker is authoritative).
+func TestPersonCreditsRepository_EpisodeCount_CoalesceVsAuthoritative(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Episode Count"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			get := func(t *testing.T, id int64) database.PersonCreditModel {
+				t.Helper()
+				got, gerr := repo.Get(ctx, id)
+				require.NoError(t, gerr)
+				return got
+			}
+
+			t.Run("COALESCE variant keeps stored episode_count on NULL incoming", func(t *testing.T) {
+				seed := samplePersonCredit(personID, "ec-coalesce", "Show", 9001) // EpisodeCount=10
+				ids, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{seed})
+				require.NoError(t, err)
+
+				nullRow := samplePersonCredit(personID, "ec-coalesce", "Show", 9001)
+				nullRow.EpisodeCount = nil
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{nullRow})
+				require.NoError(t, err)
+
+				got := get(t, ids[0])
+				require.NotNil(t, got.EpisodeCount, "COALESCE must preserve the aggregate episode_count against a NULL refresh")
+				assert.Equal(t, 10, *got.EpisodeCount)
+			})
+
+			t.Run("authoritative variant can null episode_count on NULL incoming", func(t *testing.T) {
+				seed := samplePersonCredit(personID, "ec-auth", "Show", 9002) // EpisodeCount=10
+				ids, err := repo.BatchUpsertAuthoritative(ctx, []database.PersonCreditModel{seed})
+				require.NoError(t, err)
+
+				nullRow := samplePersonCredit(personID, "ec-auth", "Show", 9002)
+				nullRow.EpisodeCount = nil
+				_, err = repo.BatchUpsertAuthoritative(ctx, []database.PersonCreditModel{nullRow})
+				require.NoError(t, err)
+
+				got := get(t, ids[0])
+				assert.Nil(t, got.EpisodeCount, "authoritative NULL episode_count self-heals (person-worker reports 0 episodes)")
+			})
+		})
+	}
+}
+
+// TestPersonCreditsRepository_MediaTypeAndMediaID_F10_PinTV is AUDIT-S3 F-10:
+// media_type is not in the (person_id, tmdb_credit_id) unique key, so a
+// same-key collision between a 'tv' (show-level) row and a 'tv_episode' row must
+// never flip the stored media_type off 'tv' (ListByMedia('tv', showID) would
+// then miss the row). The CASE guard pins 'tv' and makes tmdb_media_id track the
+// same winner — in BOTH write variants. Non-colliding rows are behaviour-preserving.
+func TestPersonCreditsRepository_MediaTypeAndMediaID_F10_PinTV(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("F Ten"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			tvRow := func(creditID string, mediaID int) database.PersonCreditModel {
+				r := samplePersonCredit(personID, creditID, "Show", mediaID)
+				r.MediaType = "tv"
+				return r
+			}
+			epRow := func(creditID string, mediaID int) database.PersonCreditModel {
+				r := samplePersonCredit(personID, creditID, "Episode", mediaID)
+				r.MediaType = "tv_episode"
+				return r
+			}
+			get := func(t *testing.T, id int64) database.PersonCreditModel {
+				t.Helper()
+				got, gerr := repo.Get(ctx, id)
+				require.NoError(t, gerr)
+				return got
+			}
+
+			t.Run("non-colliding rows keep their own media_type on re-upsert", func(t *testing.T) {
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{tvRow("nc-tv", 7100), epRow("nc-ep", 7200)})
+				require.NoError(t, err)
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{tvRow("nc-tv", 7100), epRow("nc-ep", 7200)})
+				require.NoError(t, err)
+
+				tv, err := repo.ListByMedia(ctx, "tv", 7100)
+				require.NoError(t, err)
+				require.Len(t, tv, 1)
+				assert.Equal(t, "tv", tv[0].MediaType)
+				ep, err := repo.ListByMedia(ctx, "tv_episode", 7200)
+				require.NoError(t, err)
+				require.Len(t, ep, 1)
+				assert.Equal(t, "tv_episode", ep[0].MediaType, "a plain tv_episode row must stay tv_episode")
+			})
+
+			t.Run("collision tv then tv_episode resolves to tv + tv media id", func(t *testing.T) {
+				ids, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{tvRow("col-a", 7300)})
+				require.NoError(t, err)
+				rowID := ids[0]
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{epRow("col-a", 7399)})
+				require.NoError(t, err)
+
+				got := get(t, rowID)
+				assert.Equal(t, "tv", got.MediaType, "a 'tv' show-level value must never be overwritten by 'tv_episode'")
+				assert.Equal(t, 7300, got.TMDBMediaID, "tmdb_media_id must track the stored 'tv' winner")
+				// The 'tv_episode' media id must NOT have leaked a separate row.
+				ep, err := repo.ListByMedia(ctx, "tv_episode", 7399)
+				require.NoError(t, err)
+				assert.Empty(t, ep, "no tv_episode row must exist for the collided credit_id")
+			})
+
+			t.Run("collision tv_episode then tv resolves to tv + tv media id", func(t *testing.T) {
+				ids, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{epRow("col-b", 7499)})
+				require.NoError(t, err)
+				rowID := ids[0]
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{tvRow("col-b", 7400)})
+				require.NoError(t, err)
+
+				got := get(t, rowID)
+				assert.Equal(t, "tv", got.MediaType)
+				assert.Equal(t, 7400, got.TMDBMediaID, "tmdb_media_id must track the incoming 'tv' winner")
+			})
+
+			t.Run("F-10 guard also holds on the authoritative variant", func(t *testing.T) {
+				ids, err := repo.BatchUpsertAuthoritative(ctx, []database.PersonCreditModel{tvRow("col-c", 7500)})
+				require.NoError(t, err)
+				rowID := ids[0]
+				_, err = repo.BatchUpsertAuthoritative(ctx, []database.PersonCreditModel{epRow("col-c", 7599)})
+				require.NoError(t, err)
+
+				got := get(t, rowID)
+				assert.Equal(t, "tv", got.MediaType)
+				assert.Equal(t, 7500, got.TMDBMediaID)
+			})
+		})
+	}
+}

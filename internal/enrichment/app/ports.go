@@ -432,7 +432,14 @@ type PersonBiographiesPort interface {
 // One INSERT … ON CONFLICT round-trip per chunk; the worker chunks at
 // personCreditsBatchSize.
 type PersonCreditsPort interface {
+	// BatchUpsert — series-worker (partial-data) seam: the six TMDB-owned
+	// columns are COALESCE-guarded so a NULL excluded never nulls a
+	// person-worker-populated value (#1034 / #1126 / AUDIT-S3 F-06).
 	BatchUpsert(ctx context.Context, credits []people.PersonCredit) ([]int64, error)
+	// BatchUpsertAuthoritative — person-worker seam: the SAME six columns are
+	// written RAW so a genuine TMDB withdrawal self-heals the column (AUDIT-S3
+	// F-04). Both variants keep the F-10 media_type/tmdb_media_id CASE guard.
+	BatchUpsertAuthoritative(ctx context.Context, credits []people.PersonCredit) ([]int64, error)
 }
 
 // PersonCreditsTextsPort is the per-language cast-character-name write

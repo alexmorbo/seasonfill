@@ -1230,6 +1230,24 @@ func (a PersonCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []peo
 	if len(credits) == 0 {
 		return nil, nil
 	}
+	return a.Inner.BatchUpsert(ctx, personCreditRowsFromDomain(credits))
+}
+
+// BatchUpsertAuthoritative is the person-worker write path (AUDIT-S3 F-04): the
+// six TMDB-owned columns are written RAW so a genuine TMDB withdrawal self-heals
+// rather than being pinned by COALESCE. Same domain→model mapping as BatchUpsert.
+func (a PersonCreditsRepoAdapter) BatchUpsertAuthoritative(ctx context.Context, credits []people.PersonCredit) ([]int64, error) {
+	if len(credits) == 0 {
+		return nil, nil
+	}
+	return a.Inner.BatchUpsertAuthoritative(ctx, personCreditRowsFromDomain(credits))
+}
+
+// personCreditRowsFromDomain converts the domain []people.PersonCredit shape the
+// workers emit into the repository's []database.PersonCreditModel write rows.
+// The domain type carries pointer-typed nullable fields (ReleaseDate *time.Time,
+// TMDBRating *float64, etc.); the model carries year *int + poster_path *string.
+func personCreditRowsFromDomain(credits []people.PersonCredit) []database.PersonCreditModel {
 	rows := make([]database.PersonCreditModel, 0, len(credits))
 	for _, c := range credits {
 		rows = append(rows, database.PersonCreditModel{
@@ -1252,7 +1270,7 @@ func (a PersonCreditsRepoAdapter) BatchUpsert(ctx context.Context, credits []peo
 			LastAppearanceSeason: c.LastAppearanceSeason,
 		})
 	}
-	return a.Inner.BatchUpsert(ctx, rows)
+	return rows
 }
 
 // yearFromReleaseDate extracts the calendar year from a TMDB release

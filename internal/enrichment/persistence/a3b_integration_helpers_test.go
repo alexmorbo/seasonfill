@@ -121,6 +121,10 @@ func (nopPersonCredits) BatchUpsert(_ context.Context, _ []people.PersonCredit) 
 	panic("nopPersonCredits.BatchUpsert called")
 }
 
+func (nopPersonCredits) BatchUpsertAuthoritative(_ context.Context, _ []people.PersonCredit) ([]int64, error) {
+	panic("nopPersonCredits.BatchUpsertAuthoritative called")
+}
+
 type nopGenres struct{}
 
 func (nopGenres) Upsert(_ context.Context, _ taxonomy.Genre) (int64, error) {

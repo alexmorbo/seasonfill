@@ -78,6 +78,10 @@ func (f *fakeCredits) BatchUpsert(_ context.Context, c []people.PersonCredit) ([
 	return ids, nil
 }
 
+func (f *fakeCredits) BatchUpsertAuthoritative(ctx context.Context, c []people.PersonCredit) ([]int64, error) {
+	return f.BatchUpsert(ctx, c)
+}
+
 type fakePersonExternalIDs struct {
 	rows []struct {
 		Provider string

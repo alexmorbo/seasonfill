@@ -435,6 +435,10 @@ func (f *fakeSeriesWorkerPersonCredits) BatchUpsert(ctx context.Context, credits
 	return ids, nil
 }
 
+func (f *fakeSeriesWorkerPersonCredits) BatchUpsertAuthoritative(ctx context.Context, credits []people.PersonCredit) ([]int64, error) {
+	return f.BatchUpsert(ctx, credits)
+}
+
 // fakeSeriesWorkerPersonCreditsTexts satisfies PersonCreditsTextsPort for the
 // series_worker tests (S-G). Records every per-language cast character-name
 // row so the writer assertion can verify lang tagging + empty-name skipping.

@@ -275,7 +275,10 @@ func (w *PersonWorker) batchCredits(txCtx context.Context, credits []people.Pers
 	}
 	for start := 0; start < len(credits); start += personCreditsBatchSize {
 		end := min(start+personCreditsBatchSize, len(credits))
-		if _, err := w.deps.PersonCredits.BatchUpsert(txCtx, credits[start:end]); err != nil {
+		// AUDIT-S3 F-04 — the person-worker is authoritative for the six
+		// TMDB-owned columns (fresh full /person/{id}/tv_credits + /movie_credits
+		// per credit), so it writes RAW and a genuine TMDB withdrawal self-heals.
+		if _, err := w.deps.PersonCredits.BatchUpsertAuthoritative(txCtx, credits[start:end]); err != nil {
 			return fmt.Errorf("batch upsert person_credits [%d:%d]: %w", start, end, err)
 		}
 	}
