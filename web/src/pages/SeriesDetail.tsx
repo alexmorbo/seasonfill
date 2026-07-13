@@ -20,6 +20,7 @@ import { useSeriesRecommendations } from '@/api/seriesRecommendations';
 import { useSeriesCast } from '@/api/seriesCast';
 import { useSeriesSeasons } from '@/api/seriesSeasons';
 import { useSeriesLibrary } from '@/api/seriesLibrary';
+import { useSeriesRatings } from '@/api/seriesRatings';
 import { SeriesHero } from '@/components/series-detail/SeriesHero';
 import { DegradedChip } from '@/components/series-detail/DegradedChip';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
@@ -133,6 +134,19 @@ export function SeriesDetail() {
     pollWhileDegraded: true,
   });
 
+  // #1064 — shadow the shared /ratings query at the page level so the hero's
+  // ratings stale/loading SIGNALS read the SAME source of truth as its ★
+  // NUMBERS (#1059 already repointed the numbers). Same query key as
+  // SeriesHero / RatingsSection ⇒ react-query dedups to ONE network fetch, no
+  // extra traffic. Per-source status vocabulary (dto.SeriesRatingsSources):
+  // fresh → nothing; revalidating → StaleBadge (value present but stale);
+  // pending → loading chip (value still absent); unavailable → nothing.
+  const ratingsQ = useSeriesRatings({ seriesId });
+  const ratingSources = ratingsQ.data?.sources;
+  const tmdbRatingStale = ratingSources?.tmdb === 'revalidating';
+  const omdbRatingStale = ratingSources?.omdb === 'revalidating';
+  const omdbRatingPending = ratingSources?.omdb === 'pending';
+
   // Story 531 / C3b — aggregate degraded[] across the parent /series skeleton
   // and the /overview, /recommendations, /cast, /seasons per-section hooks.
   // Dedup'd + filtered to KNOWN_DEGRADED. /library carries no degraded field.
@@ -158,8 +172,11 @@ export function SeriesDetail() {
   const tmdbPersonDegraded = aggregatedDegraded.includes('tmdb_person');
   const omdbDegraded = aggregatedDegraded.includes('omdb');
   const syncedAt = skeleton?.synced_at;
-  const tmdbStaleAt = tmdbSeriesDegraded ? syncedAt : undefined;
-  const imdbStaleAt = omdbDegraded ? syncedAt : undefined;
+  // #1064 — hero ratings StaleBadges now key off the /ratings per-source status
+  // (revalidating = present-but-stale), NOT degraded[]. The /ratings DTO carries
+  // no per-source timestamp, so syncedAt remains the best "as of" anchor.
+  const tmdbStaleAt = tmdbRatingStale ? syncedAt : undefined;
+  const imdbStaleAt = omdbRatingStale ? syncedAt : undefined;
 
   useSetPageTitle(hero?.title ?? t('seriesDetail.title'));
 
@@ -191,7 +208,10 @@ export function SeriesDetail() {
   const showCastSection = !sonarrOnly && (!castEmpty || castLoading);
   const seasonsEmpty = seasons.length === 0;
   const seasonsLoading = seasonsEmpty && (tmdbSeasonDegraded || tmdbSeriesDegraded);
-  const imdbLoading = omdbDegraded && !hero?.imdb_rating;
+  // #1064 — hero IMDb loading chip now keys off /ratings (omdb `pending` =
+  // value still absent + fetch in flight), replacing the old
+  // `omdbDegraded && !hero?.imdb_rating` derivation from degraded[].
+  const imdbLoading = omdbRatingPending;
 
   // Build the cast href once so CastStrip stays URL-agnostic (Story 495 §A3).
   const castHref = `/series/${seriesId}/cast`;
@@ -278,8 +298,12 @@ export function SeriesDetail() {
                       OMDb content-rating + awards. Self-hides when no source
                       carries a value. The hero ★ reads this SAME /ratings query
                       (react-query dedup) so the two never show divergent
-                      numbers (#1059); the hero's imdbLoading / StaleBadge stay
-                      driven by the skeleton degraded[] signal. */}
+                      numbers (#1059); #1064 unifies the rest of the hero ratings
+                      surface on it too — the hero's tmdb/omdb StaleBadges and the
+                      IMDb loading chip now read /ratings.sources
+                      (fresh/revalidating/pending), NOT degraded[]. degraded[]
+                      still drives the section-level content-loading signals
+                      (overview/seasons/cast skeletons, backdrop plate). */}
                   <RatingsSection seriesId={seriesId} />
                 </>
               }

@@ -330,12 +330,13 @@ describe('B-20 degraded per-section', () => {
     expect(screen.getAllByTestId('cast-skeleton-avatar')).toHaveLength(8);
   });
 
-  it('shows IMDb loading chip in hero when omdb is degraded and rating is missing', async () => {
+  it('shows IMDb loading chip in hero when /ratings omdb source is pending', async () => {
+    // #1064: the hero IMDb loading chip now keys off /ratings.sources.omdb ===
+    // 'pending' (value still absent + fetch in flight), NOT degraded[]. The
+    // /ratings fixture must omit imdb (undefined overrides the default 8.0) so
+    // the loading-chip path stays reachable; degraded[] is irrelevant now.
     installRoutes({
-      skeleton: { degraded: ['omdb'], hero: coldHero, sidebar: coldSidebar },
-      // Repoint (#1059): the hero imdb ★ now reads /ratings, so this fixture
-      // must ALSO omit imdb (undefined overrides the default fixture's 8.0)
-      // for the loading-chip path to remain reachable.
+      skeleton: { degraded: [], hero: coldHero, sidebar: coldSidebar },
       ratings: {
         tmdb_rating: 7.5,
         tmdb_votes: 100,
@@ -343,11 +344,87 @@ describe('B-20 degraded per-section', () => {
         imdb_votes: undefined,
         rated: undefined,
         awards: undefined,
-        sources: { tmdb: 'fresh', omdb: 'revalidating' },
+        sources: { tmdb: 'fresh', omdb: 'pending' },
       },
     });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('imdb-rating-loading')).toBeInTheDocument());
+  });
+
+  // #1064 — the hero tmdb StaleBadge now reads /ratings.sources.tmdb ===
+  // 'revalidating' (present-but-stale). degraded[] is empty here, so the only
+  // tmdb stale-badge in the tree is the hero one driven by /ratings.
+  it('shows the hero tmdb StaleBadge when /ratings tmdb source is revalidating', async () => {
+    installRoutes({
+      skeleton: { degraded: [], hero: coldHero, sidebar: coldSidebar },
+      ratings: {
+        tmdb_rating: 7.5,
+        tmdb_votes: 100,
+        imdb_rating: undefined,
+        imdb_votes: undefined,
+        rated: undefined,
+        awards: undefined,
+        sources: { tmdb: 'revalidating', omdb: 'fresh' },
+      },
+    });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    await waitFor(() => {
+      const tmdbBadges = screen
+        .getAllByTestId('stale-badge')
+        .filter((b) => b.getAttribute('data-source') === 'tmdb');
+      expect(tmdbBadges.length).toBeGreaterThan(0);
+    });
+  });
+
+  // #1064 — the hero omdb StaleBadge (rendered inside RatingDuo next to the IMDb
+  // ★) reads /ratings.sources.omdb === 'revalidating'; needs a present imdb
+  // value so RatingDuo shows the ★ + badge (not the loading chip).
+  it('shows the hero omdb StaleBadge when /ratings omdb source is revalidating', async () => {
+    installRoutes({
+      skeleton: { degraded: [], hero: coldHero, sidebar: coldSidebar },
+      ratings: {
+        tmdb_rating: 7.5,
+        tmdb_votes: 100,
+        imdb_rating: 8.0,
+        imdb_votes: 5000,
+        rated: undefined,
+        awards: undefined,
+        sources: { tmdb: 'fresh', omdb: 'revalidating' },
+      },
+    });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    await waitFor(() => {
+      const omdbBadges = screen
+        .getAllByTestId('stale-badge')
+        .filter((b) => b.getAttribute('data-source') === 'omdb');
+      expect(omdbBadges.length).toBeGreaterThan(0);
+    });
+    // The loading chip must NOT show when a value is present (revalidating).
+    expect(screen.queryByTestId('imdb-rating-loading')).not.toBeInTheDocument();
+  });
+
+  // #1064 — fresh on both sources ⇒ no hero StaleBadge, no loading chip.
+  it('shows neither hero StaleBadge nor IMDb loading chip when /ratings sources are fresh', async () => {
+    installRoutes({
+      skeleton: { degraded: [], hero: coldHero, sidebar: coldSidebar },
+      ratings: {
+        tmdb_rating: 7.5,
+        tmdb_votes: 100,
+        imdb_rating: 8.0,
+        imdb_votes: 5000,
+        rated: undefined,
+        awards: undefined,
+        sources: { tmdb: 'fresh', omdb: 'fresh' },
+      },
+    });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    // Let any deferred queries settle, then assert nothing stale/loading shows.
+    await waitFor(() => expect(screen.getByTestId('rating-imdb')).toBeInTheDocument());
+    expect(screen.queryByTestId('imdb-rating-loading')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('stale-badge')).not.toBeInTheDocument();
   });
 
   it('shows backdrop loading plate when tmdb_series is degraded and no backdrop is present', async () => {
