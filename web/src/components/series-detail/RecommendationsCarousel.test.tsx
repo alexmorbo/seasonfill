@@ -60,10 +60,12 @@ describe('<RecommendationsCarousel /> (530)', () => {
   it('fetches and renders unified SeriesCards once visible', async () => {
     mockApi.mockResolvedValueOnce(payload);
     wrap(<RecommendationsCarousel seriesId={140} />);
-    // Story 565 (B-recs-lang) — carousel now forwards i18n.resolvedLanguage as ?lang=.
+    // Story 565 (B-recs-lang) — carousel forwards the resolved language as ?lang=.
+    // Task #1020-B: the value is routed through toBcp47(), so when present it is
+    // the canonical BCP-47 tag (e.g. en-US / ru-RU), never a bare short code.
     await waitFor(() =>
       expect(mockApi).toHaveBeenCalledWith(
-        expect.stringMatching(/^\/series\/140\/recommendations\?limit=20&offset=0(&lang=[A-Za-z-]+)?$/),
+        expect.stringMatching(/^\/series\/140\/recommendations\?limit=20&offset=0(&lang=[a-z]{2}-[A-Z]{2})?$/),
       ),
     );
     await waitFor(() => expect(screen.getByTestId('recommendations-carousel')).toBeInTheDocument());

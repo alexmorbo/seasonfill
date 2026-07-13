@@ -1,6 +1,7 @@
 import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { toBcp47 } from '@/lib/locale';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeriesCard } from '@/components/series/SeriesCard';
 import {
@@ -77,7 +78,7 @@ export function RecommendationsCarousel({
   const { t, i18n } = useTranslation();
   const ref = useRef<HTMLElement | null>(null);
   const visible = useIsSectionVisible(ref);
-  const lang = i18n.resolvedLanguage;
+  const lang = toBcp47(i18n.resolvedLanguage);
 
   const query = useSeriesRecommendations({
     seriesId,
