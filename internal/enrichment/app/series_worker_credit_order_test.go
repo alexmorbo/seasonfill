@@ -78,3 +78,32 @@ func TestMapSeriesCreditsToPersonCredits_ZeroRatingStaysNil(t *testing.T) {
 	require.Len(t, out, 1)
 	assert.Nil(t, out[0].TMDBRating, "vote_average 0.0 → nil, not a fake 0-star")
 }
+
+// TestMapSeriesCreditsToPersonCredits_PopulatesVotes proves the Story 1126
+// mapper threads the series' own TMDB vote_count onto every persisted
+// PersonCredit row (the show's vote count IS the person-credit ★vote count),
+// so the series-worker write path no longer emits a NULL that blanks the value.
+func TestMapSeriesCreditsToPersonCredits_PopulatesVotes(t *testing.T) {
+	t.Parallel()
+	creds := []people.SeriesCredit{
+		{PersonID: 7, Kind: people.SeriesCreditCast, TMDBCreditID: "c7"},
+		{PersonID: 8, Kind: people.SeriesCreditCrew, TMDBCreditID: "c8"},
+	}
+	out := mapSeriesCreditsToPersonCredits(creds, &tmdb.TVResponse{Name: "X", VoteCount: 4242}, 900, nil)
+	require.Len(t, out, 2)
+	for i := range out {
+		require.NotNil(t, out[i].TMDBVotes, "every row carries the show vote count")
+		assert.Equal(t, 4242, *out[i].TMDBVotes)
+	}
+}
+
+// TestMapSeriesCreditsToPersonCredits_ZeroVotesStaysNil proves an absent TMDB
+// vote_count (0) maps to a nil TMDBVotes rather than a fake 0, so the repository
+// COALESCE-guard preserves any stored value instead of a synthetic zero clobber.
+func TestMapSeriesCreditsToPersonCredits_ZeroVotesStaysNil(t *testing.T) {
+	t.Parallel()
+	creds := []people.SeriesCredit{{PersonID: 7, Kind: people.SeriesCreditCast, TMDBCreditID: "c7"}}
+	out := mapSeriesCreditsToPersonCredits(creds, &tmdb.TVResponse{Name: "X", VoteCount: 0}, 900, nil)
+	require.Len(t, out, 1)
+	assert.Nil(t, out[0].TMDBVotes, "vote_count 0 → nil, not a fake 0")
+}

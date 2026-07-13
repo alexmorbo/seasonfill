@@ -581,6 +581,271 @@ func TestPersonCreditsRepository_VoteAverage_PersistAndCoalesce(t *testing.T) {
 	}
 }
 
+// TestPersonCreditsRepository_TMDBVotes_PersistAndCoalesce proves the Story 1126
+// COALESCE-guard on tmdb_votes: a person-worker row carrying the real TMDB show
+// vote_count must survive a LATER series-worker-style row that re-upserts the
+// SAME natural key with a NULL count (the series-worker person_credits(tv) build
+// path historically emitted NULL, nulling the person-page ★vote count). Also
+// asserts the forward case (a non-NULL incoming count updates a previously-NULL
+// stored value) so the guard is proven to be COALESCE, not an unconditional
+// keep-stored. Symmetric to the VoteAverage guard test above.
+func TestPersonCreditsRepository_TMDBVotes_PersistAndCoalesce(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("TMDB Votes"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			read := func(t *testing.T, mediaID int) *int {
+				t.Helper()
+				rows, err := repo.ListByMediaWithTextFallback(ctx, "tv", mediaID, "en-US")
+				require.NoError(t, err)
+				require.Len(t, rows, 1)
+				return rows[0].TMDBVotes
+			}
+
+			t.Run("later NULL must not clobber stored votes", func(t *testing.T) {
+				// person-worker style row: carries the real TMDB vote count.
+				personRow := samplePersonCredit(personID, "tv-a", "Show", 3001)
+				personRow.TMDBVotes = new(4242)
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				// series-worker style row: SAME natural key, NULL vote count.
+				seriesRow := samplePersonCredit(personID, "tv-a", "Show", 3001)
+				seriesRow.TMDBVotes = nil
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				got := read(t, 3001)
+				require.NotNil(t, got, "COALESCE must preserve the stored vote count against a NULL re-upsert")
+				assert.Equal(t, 4242, *got)
+			})
+
+			t.Run("stored NULL, later non-NULL wins", func(t *testing.T) {
+				// series-worker style row first: NULL vote count.
+				seriesRow := samplePersonCredit(personID, "tv-b", "Show", 3002)
+				seriesRow.TMDBVotes = nil
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				// later row carries a real count → must land.
+				personRow := samplePersonCredit(personID, "tv-b", "Show", 3002)
+				personRow.TMDBVotes = new(999)
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				got := read(t, 3002)
+				require.NotNil(t, got, "a non-NULL incoming count must update a previously-NULL stored value")
+				assert.Equal(t, 999, *got)
+			})
+		})
+	}
+}
+
+// TestPersonCreditsRepository_PosterPath_PersistAndCoalesce proves the Story 1126
+// COALESCE-guard on poster_path: a person-worker row carrying a resolved TMDB
+// poster path must survive a LATER series-worker-style row that re-upserts the
+// SAME natural key with a NULL path (the series-worker person_credits(tv) build
+// has no poster source at its seam and emits NULL, blanking the person-page
+// filmography card). Also asserts the forward case (a non-NULL incoming poster
+// updates a previously-NULL stored value) so the guard is proven to be COALESCE,
+// not an unconditional keep-stored — a legitimate fresh/localised poster still
+// overwrites.
+func TestPersonCreditsRepository_PosterPath_PersistAndCoalesce(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Poster Path"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			read := func(t *testing.T, mediaID int) *string {
+				t.Helper()
+				rows, err := repo.ListByMediaWithTextFallback(ctx, "tv", mediaID, "en-US")
+				require.NoError(t, err)
+				require.Len(t, rows, 1)
+				return rows[0].PosterPath
+			}
+
+			t.Run("later NULL must not clobber stored poster", func(t *testing.T) {
+				// person-worker style row: carries a resolved poster path.
+				personRow := samplePersonCredit(personID, "pp-a", "Show", 4001)
+				personRow.PosterPath = new("/real-poster.jpg")
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				// series-worker style row: SAME natural key, NULL poster.
+				seriesRow := samplePersonCredit(personID, "pp-a", "Show", 4001)
+				seriesRow.PosterPath = nil
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				got := read(t, 4001)
+				require.NotNil(t, got, "COALESCE must preserve the stored poster against a NULL re-upsert")
+				assert.Equal(t, "/real-poster.jpg", *got)
+			})
+
+			t.Run("stored NULL, later non-NULL wins", func(t *testing.T) {
+				// series-worker style row first: NULL poster.
+				seriesRow := samplePersonCredit(personID, "pp-b", "Show", 4002)
+				seriesRow.PosterPath = nil
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				// later person-worker row carries a poster → must land.
+				personRow := samplePersonCredit(personID, "pp-b", "Show", 4002)
+				personRow.PosterPath = new("/fresh-poster.jpg")
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				got := read(t, 4002)
+				require.NotNil(t, got, "a non-NULL incoming poster must update a previously-NULL stored value")
+				assert.Equal(t, "/fresh-poster.jpg", *got)
+			})
+		})
+	}
+}
+
+// TestPersonCreditsRepository_OriginalTitle_PersistAndCoalesce proves the Story
+// 1126 COALESCE-guard on original_title: a person-worker row carrying the TMDB
+// original title must survive a LATER series-worker-style row that re-upserts the
+// SAME natural key with a NULL original_title (the series-worker
+// person_credits(tv) build has no source at its seam and emits NULL, blanking
+// the person-page card). Also asserts the forward case (a non-NULL incoming
+// original_title updates a previously-NULL stored value) so the guard is proven
+// to be COALESCE, not an unconditional keep-stored.
+func TestPersonCreditsRepository_OriginalTitle_PersistAndCoalesce(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Original Title"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			read := func(t *testing.T, mediaID int) *string {
+				t.Helper()
+				rows, err := repo.ListByMediaWithTextFallback(ctx, "tv", mediaID, "en-US")
+				require.NoError(t, err)
+				require.Len(t, rows, 1)
+				return rows[0].OriginalTitle
+			}
+
+			t.Run("later NULL must not clobber stored original_title", func(t *testing.T) {
+				// person-worker style row: carries the TMDB original title.
+				personRow := samplePersonCredit(personID, "ot-a", "Show", 5001)
+				personRow.OriginalTitle = new("Оригинальное название")
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				// series-worker style row: SAME natural key, NULL original_title.
+				seriesRow := samplePersonCredit(personID, "ot-a", "Show", 5001)
+				seriesRow.OriginalTitle = nil
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				got := read(t, 5001)
+				require.NotNil(t, got, "COALESCE must preserve the stored original_title against a NULL re-upsert")
+				assert.Equal(t, "Оригинальное название", *got)
+			})
+
+			t.Run("stored NULL, later non-NULL wins", func(t *testing.T) {
+				// series-worker style row first: NULL original_title.
+				seriesRow := samplePersonCredit(personID, "ot-b", "Show", 5002)
+				seriesRow.OriginalTitle = nil
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				// later person-worker row carries an original title → must land.
+				personRow := samplePersonCredit(personID, "ot-b", "Show", 5002)
+				personRow.OriginalTitle = new("Fresh Original")
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				got := read(t, 5002)
+				require.NotNil(t, got, "a non-NULL incoming original_title must update a previously-NULL stored value")
+				assert.Equal(t, "Fresh Original", *got)
+			})
+		})
+	}
+}
+
+// TestPersonCreditsRepository_Year_PersistAndCoalesce proves the Story 1126
+// COALESCE-guard on year: a person-worker row carrying the TMDB release/air year
+// must survive a LATER series-worker-style row that re-upserts the SAME natural
+// key with a NULL year (the series-worker person_credits(tv) build has no
+// year source at its seam — first_air_date isn't in the patch shape — and emits
+// NULL). Also asserts the forward case (a non-NULL incoming year updates a
+// previously-NULL stored value) so the guard is proven to be COALESCE, not an
+// unconditional keep-stored.
+func TestPersonCreditsRepository_Year_PersistAndCoalesce(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			personID, err := NewPeopleRepository(db).Upsert(ctx, samplePerson("Year"))
+			require.NoError(t, err)
+			repo := NewPersonCreditsRepository(db)
+
+			read := func(t *testing.T, mediaID int) *int {
+				t.Helper()
+				rows, err := repo.ListByMediaWithTextFallback(ctx, "tv", mediaID, "en-US")
+				require.NoError(t, err)
+				require.Len(t, rows, 1)
+				return rows[0].Year
+			}
+
+			t.Run("later NULL must not clobber stored year", func(t *testing.T) {
+				// person-worker style row: carries the TMDB year.
+				personRow := samplePersonCredit(personID, "yr-a", "Show", 6001)
+				personRow.Year = new(2019)
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				// series-worker style row: SAME natural key, NULL year.
+				seriesRow := samplePersonCredit(personID, "yr-a", "Show", 6001)
+				seriesRow.Year = nil
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				got := read(t, 6001)
+				require.NotNil(t, got, "COALESCE must preserve the stored year against a NULL re-upsert")
+				assert.Equal(t, 2019, *got)
+			})
+
+			t.Run("stored NULL, later non-NULL wins", func(t *testing.T) {
+				// series-worker style row first: NULL year.
+				seriesRow := samplePersonCredit(personID, "yr-b", "Show", 6002)
+				seriesRow.Year = nil
+				_, err := repo.BatchUpsert(ctx, []database.PersonCreditModel{seriesRow})
+				require.NoError(t, err)
+
+				// later person-worker row carries a year → must land.
+				personRow := samplePersonCredit(personID, "yr-b", "Show", 6002)
+				personRow.Year = new(2022)
+				_, err = repo.BatchUpsert(ctx, []database.PersonCreditModel{personRow})
+				require.NoError(t, err)
+
+				got := read(t, 6002)
+				require.NotNil(t, got, "a non-NULL incoming year must update a previously-NULL stored value")
+				assert.Equal(t, 2022, *got)
+			})
+		})
+	}
+}
+
 // TestPersonCreditsRepository_LastAppearanceSeason_MaxMerge proves the Story
 // 1090 column round-trips (migration 000039 + model + read SELECT) and that the
 // portable CASE MAX-merge in OnConflict never regresses a stored value: a lower

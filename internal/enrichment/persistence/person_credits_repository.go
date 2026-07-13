@@ -329,16 +329,38 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 			{Name: "tmdb_credit_id"},
 		},
 		DoUpdates: clause.Assignments(map[string]any{
-			"media_type":     gorm.Expr("excluded.media_type"),
-			"tmdb_media_id":  gorm.Expr("excluded.tmdb_media_id"),
-			"title":          gorm.Expr("excluded.title"),
-			"original_title": gorm.Expr("excluded.original_title"),
-			"year":           gorm.Expr("excluded.year"),
+			"media_type":    gorm.Expr("excluded.media_type"),
+			"tmdb_media_id": gorm.Expr("excluded.tmdb_media_id"),
+			"title":         gorm.Expr("excluded.title"),
+			// Story 1126 — COALESCE-guard original_title/year. Identical clobber
+			// shape to poster_path/tmdb_votes: the person-worker build
+			// (personCreditFromTV/Movie) populates both — OriginalTitle via
+			// nonEmptyPtr(c.OriginalName/OriginalTitle) and Year via
+			// yearFromReleaseDate — while the series-worker build
+			// (mapSeriesCreditsToPersonCredits) has NO source at its seam and
+			// emits NULL for both (first_air_date isn't in the patch shape). A
+			// series-worker upsert landing AFTER the person-worker populated them
+			// must not null them back out — the H-1 person page reads both
+			// (SELECT pc.original_title, pc.year). COALESCE keeps legitimate
+			// updates intact: a non-NULL excluded still overwrites; only a NULL
+			// excluded is ignored.
+			"original_title": gorm.Expr("COALESCE(excluded.original_title, person_credits.original_title)"),
+			"year":           gorm.Expr("COALESCE(excluded.year, person_credits.year)"),
 			"character_name": gorm.Expr("excluded.character_name"),
 			"kind":           gorm.Expr("excluded.kind"),
 			"department":     gorm.Expr("excluded.department"),
 			"job":            gorm.Expr("excluded.job"),
-			"poster_path":    gorm.Expr("excluded.poster_path"),
+			// Story 1126 — COALESCE-guard the credit poster path. Same clobber
+			// shape as vote_average: the series-worker person_credits(tv) build
+			// (mapSeriesCreditsToPersonCredits) has NO poster source at its seam
+			// and emits NULL, while the person-worker /person/{id}/tv_credits +
+			// /movie_credits build populates it (personCreditFromTV/Movie →
+			// nonEmptyPtr(c.PosterPath)). A series-worker upsert landing AFTER the
+			// person-worker populated poster_path must not null it back out and
+			// blank the person-page filmography cards. COALESCE keeps legitimate
+			// updates intact — a non-NULL excluded (a fresh/localised person-worker
+			// poster) still overwrites; only a NULL excluded is ignored.
+			"poster_path": gorm.Expr("COALESCE(excluded.poster_path, person_credits.poster_path)"),
 			// Story 1034 — COALESCE-guard the TMDB show rating. The
 			// series-worker person_credits(tv) write path
 			// (mapSeriesCreditsToPersonCredits) is order-less on the rating
@@ -347,8 +369,15 @@ func (r *PersonCreditsRepository) batchUpsert(ctx context.Context, credits []Per
 			// populated vote_average must not null it back out. Mirrors the
 			// credit_order guard above — the H-1 person page "other credits"
 			// ★rating reads this column (OtherCreditEntry.VoteAverage).
-			"vote_average":  gorm.Expr("COALESCE(excluded.vote_average, person_credits.vote_average)"),
-			"tmdb_votes":    gorm.Expr("excluded.tmdb_votes"),
+			"vote_average": gorm.Expr("COALESCE(excluded.vote_average, person_credits.vote_average)"),
+			// Story 1126 — COALESCE-guard the TMDB show vote count. tmdb_votes is
+			// the show-level vote_count paired with vote_average; the person-worker
+			// populates it (personCreditFromTV/Movie → nonZeroIntPtr(c.VoteCount))
+			// while the series-worker historically left it NULL, so a later
+			// series-worker upsert nulled the person-worker value. Mirrors the
+			// vote_average guard above; the series-worker now also populates it
+			// from tv.VoteCount (belt-and-suspenders, either alone heals the card).
+			"tmdb_votes":    gorm.Expr("COALESCE(excluded.tmdb_votes, person_credits.tmdb_votes)"),
 			"episode_count": gorm.Expr("excluded.episode_count"),
 			// Story 1087b — COALESCE-guard billing order: the series-worker
 			// aggregate_credits write is the ONLY source of credit_order; a

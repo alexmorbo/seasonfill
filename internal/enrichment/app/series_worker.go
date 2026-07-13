@@ -1298,9 +1298,17 @@ func mapSeriesCreditsToPersonCredits(
 	// than a fake 0-star. The repository COALESCE-guard is the belt to this
 	// suspenders — either alone heals the card, both together are idempotent.
 	var rating *float64
+	// Story 1126 — the tmdb_votes on a person_credit row IS the show's own TMDB
+	// vote_count (paired with vote_average), so populate it from tv.VoteCount here.
+	// Without this the series-worker wrote a NULL vote count that (pre-COALESCE
+	// guard) clobbered the person-worker value. nonZeroIntPtrSlim keeps an absent
+	// count (0) as NULL. The repository COALESCE-guard is the belt to this
+	// suspenders — either alone heals the card, both together are idempotent.
+	var votes *int
 	if tv != nil {
 		title = tv.Name
 		rating = nonZeroFloatPtr(tv.VoteAverage)
+		votes = nonZeroIntPtrSlim(tv.VoteCount)
 	}
 	out := make([]people.PersonCredit, 0, len(creds))
 	for _, cr := range creds {
@@ -1323,6 +1331,7 @@ func mapSeriesCreditsToPersonCredits(
 			CreditOrder:          cr.CreditOrder, // Story 1087b — aggregate_credits billing order.
 			LastAppearanceSeason: lastApp,        // Story 1090 — max real season the person appears in.
 			TMDBRating:           rating,         // Story 1034 — show rating powers the other-credits ★.
+			TMDBVotes:            votes,          // Story 1126 — show vote_count paired with the ★rating.
 		})
 	}
 	return out
