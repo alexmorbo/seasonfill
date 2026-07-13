@@ -522,3 +522,120 @@ func TestListRepository_ReplaceList_ConcurrentSerializes(t *testing.T) {
 		})
 	}
 }
+
+// seedMediaText inserts one series_media_texts row for (seriesID, lang) with the
+// supplied poster/backdrop (nil → NULL column). updated_at is NOT NULL, so it is
+// always stamped. Story 1122 fixtures use it to plant a requested-lang row that
+// carries NO art (confirmed-absent) alongside an en-US row that carries the real art.
+func seedMediaText(t *testing.T, db *gorm.DB, seriesID shareddomain.SeriesID, lang string, poster, backdrop *string) {
+	t.Helper()
+	require.NoError(t, db.Create(&database.SeriesMediaTextModel{
+		SeriesID:      seriesID,
+		Language:      lang,
+		PosterAsset:   poster,
+		BackdropAsset: backdrop,
+		UpdatedAt:     time.Now().UTC(),
+	}).Error)
+}
+
+// Story 1122 — a requested-lang (ru-RU) series_media_texts row that carries NO
+// poster/backdrop must NOT shadow the en-US row that DOES. Before the fix the
+// language-preference subquery (CASE ru-RU=2 > en-US=1) picked the NULL ru-RU row and
+// returned an empty path → the card fell to the "sf" sentinel. The added
+// `poster_asset IS NOT NULL AND <> ”` conjunct drops the NULL row from candidacy so the
+// en-US poster surfaces (RED before the WHERE conjunct, GREEN after).
+func TestListRepository_GetRanked_NullPosterRowDoesNotShadowEnUS_1122(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			sid := seedSeries(t, db, 1)[0]
+			realPoster := "posters/westies-en.jpg"
+			realBackdrop := "backdrops/westies-en.jpg"
+			// Requested-lang row exists but is confirmed-absent (no art).
+			seedMediaText(t, db, sid, "ru-RU", nil, nil)
+			// en-US carries the real poster + backdrop.
+			seedMediaText(t, db, sid, "en-US", &realPoster, &realBackdrop)
+
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", "ru-RU",
+				itemsFor([]shareddomain.SeriesID{sid})))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", "ru-RU", 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+
+			require.NotNil(t, page.Items[0].PosterPath,
+				"ru-RU NULL-poster row must NOT shadow the en-US poster")
+			assert.Equal(t, realPoster, *page.Items[0].PosterPath)
+			require.NotNil(t, page.Items[0].BackdropPath,
+				"ru-RU NULL-backdrop row must NOT shadow the en-US backdrop")
+			assert.Equal(t, realBackdrop, *page.Items[0].BackdropPath)
+		})
+	}
+}
+
+// Story 1122 — the added filter must NOT over-reach: when NO language carries a
+// poster/backdrop, the subquery legitimately returns NULL and the card falls to the
+// sentinel downstream. Guards against a filter that would (wrongly) synthesize art.
+func TestListRepository_GetRanked_NoArtAnyLangReturnsNil_1122(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			sid := seedSeries(t, db, 1)[0]
+			seedMediaText(t, db, sid, "ru-RU", nil, nil)
+			seedMediaText(t, db, sid, "en-US", nil, nil)
+
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", "ru-RU",
+				itemsFor([]shareddomain.SeriesID{sid})))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", "ru-RU", 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			assert.Nil(t, page.Items[0].PosterPath, "no poster in any language → nil (sentinel downstream)")
+			assert.Nil(t, page.Items[0].BackdropPath, "no backdrop in any language → nil")
+		})
+	}
+}
+
+// Story 1122 — the fix must NOT regress the requested-lang preference: when the ru-RU row
+// DOES carry a poster, it still outranks (CASE=2) the en-US poster. Proves the WHERE
+// conjunct only removes NULL rows, leaving the CASE ladder intact.
+func TestListRepository_GetRanked_RequestedLangPosterStillWins_1122(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			sid := seedSeries(t, db, 1)[0]
+			ruPoster := "posters/westies-ru.jpg"
+			enPoster := "posters/westies-en.jpg"
+			seedMediaText(t, db, sid, "ru-RU", &ruPoster, nil)
+			seedMediaText(t, db, sid, "en-US", &enPoster, nil)
+
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", "ru-RU",
+				itemsFor([]shareddomain.SeriesID{sid})))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", "ru-RU", 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			require.NotNil(t, page.Items[0].PosterPath)
+			assert.Equal(t, ruPoster, *page.Items[0].PosterPath,
+				"requested-lang poster still ranks above en-US after the NULL filter")
+		})
+	}
+}

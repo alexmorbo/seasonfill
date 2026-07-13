@@ -87,3 +87,90 @@ func TestLocalSearch_TMDBRating_Null_StaysNil_W18_2(t *testing.T) {
 		})
 	}
 }
+
+// Story 1122 — LocalSearch has the SAME NULL-shadow bug as GetRanked. A ru-RU
+// series_media_texts row with no poster must not shadow the en-US poster in search cards.
+// The EXISTS title probe matches on the en-US series_texts row; the poster subquery must
+// fall through the dropped ru-RU NULL row to the en-US asset.
+func TestLocalSearch_NullPosterRowDoesNotShadowEnUS_1122(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSearchRepository(db)
+			ctx := context.Background()
+
+			token := "Shadow" + uuid.NewString()[:8]
+			m := database.SeriesModel{
+				OriginalTitle:   &token,
+				Hydration:       "stub",
+				InProduction:    false,
+				OriginCountries: datatypes.JSON("[]"),
+			}
+			require.NoError(t, db.Create(&m).Error)
+			require.NotZero(t, m.ID)
+
+			title := token
+			require.NoError(t, db.Create(&database.SeriesTextModel{
+				SeriesID: m.ID,
+				Language: "en-US",
+				Title:    &title,
+			}).Error)
+
+			realPoster := "posters/search-en.jpg"
+			realBackdrop := "backdrops/search-en.jpg"
+			seedMediaText(t, db, m.ID, "ru-RU", nil, nil)
+			seedMediaText(t, db, m.ID, "en-US", &realPoster, &realBackdrop)
+
+			items, err := repo.LocalSearch(ctx, token, "ru-RU", 20)
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+			require.NotNil(t, items[0].PosterPath,
+				"ru-RU NULL-poster row must NOT shadow the en-US poster in search")
+			assert.Equal(t, realPoster, *items[0].PosterPath)
+			require.NotNil(t, items[0].BackdropPath,
+				"ru-RU NULL-backdrop row must NOT shadow the en-US backdrop in search")
+			assert.Equal(t, realBackdrop, *items[0].BackdropPath)
+		})
+	}
+}
+
+// Story 1122 — negative: no poster in any language → nil (search card renders sentinel).
+func TestLocalSearch_NoPosterAnyLangStaysNil_1122(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSearchRepository(db)
+			ctx := context.Background()
+
+			token := "NoArt" + uuid.NewString()[:8]
+			m := database.SeriesModel{
+				OriginalTitle:   &token,
+				Hydration:       "stub",
+				InProduction:    false,
+				OriginCountries: datatypes.JSON("[]"),
+			}
+			require.NoError(t, db.Create(&m).Error)
+			require.NotZero(t, m.ID)
+
+			title := token
+			require.NoError(t, db.Create(&database.SeriesTextModel{
+				SeriesID: m.ID,
+				Language: "en-US",
+				Title:    &title,
+			}).Error)
+
+			seedMediaText(t, db, m.ID, "ru-RU", nil, nil)
+			seedMediaText(t, db, m.ID, "en-US", nil, nil)
+
+			items, err := repo.LocalSearch(ctx, token, "ru-RU", 20)
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+			assert.Nil(t, items[0].PosterPath, "no poster in any language → nil")
+			assert.Nil(t, items[0].BackdropPath, "no backdrop in any language → nil")
+		})
+	}
+}

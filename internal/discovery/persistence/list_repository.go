@@ -113,9 +113,11 @@ func (r *ListRepository) GetRanked(
 		       COALESCE(s.year, d.year) AS year,
 		       COALESCE(s.tmdb_rating, d.tmdb_rating) AS tmdb_rating,
 		       (SELECT smt.poster_asset FROM series_media_texts smt WHERE smt.series_id = s.id
+		         AND smt.poster_asset IS NOT NULL AND smt.poster_asset <> ''
 		         ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
 		                  smt.language ASC LIMIT 1) AS poster_asset,
 		       (SELECT smt.backdrop_asset FROM series_media_texts smt WHERE smt.series_id = s.id
+		         AND smt.backdrop_asset IS NOT NULL AND smt.backdrop_asset <> ''
 		         ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
 		                  smt.language ASC LIMIT 1) AS backdrop_asset,
 		       s.original_language, s.origin_countries, s.tmdb_type, d.position

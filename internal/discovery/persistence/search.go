@@ -86,9 +86,11 @@ SELECT s.id, s.tmdb_id,
                   st.language ASC LIMIT 1), s.original_title) AS title,
        s.year,
        (SELECT smt.poster_asset FROM series_media_texts smt WHERE smt.series_id = s.id
+         AND smt.poster_asset IS NOT NULL AND smt.poster_asset <> ''
          ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
                   smt.language ASC LIMIT 1) AS poster_asset,
        (SELECT smt.backdrop_asset FROM series_media_texts smt WHERE smt.series_id = s.id
+         AND smt.backdrop_asset IS NOT NULL AND smt.backdrop_asset <> ''
          ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
                   smt.language ASC LIMIT 1) AS backdrop_asset,
        s.popularity, s.tmdb_rating
