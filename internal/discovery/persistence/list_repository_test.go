@@ -639,3 +639,144 @@ func TestListRepository_GetRanked_RequestedLangPosterStillWins_1122(t *testing.T
 		})
 	}
 }
+
+// AUDIT-S4 (F-07) — case (a): requested-lang art surfaces. A ru-RU request with
+// a ru-RU poster (and no en-US art) renders the ru-RU poster. Proves the language
+// gate lets the requested language through.
+func TestListRepository_GetRanked_RequestedLangArtSurfaces_S4(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			sid := seedSeries(t, db, 1)[0]
+			ruPoster := "posters/westies-ru.jpg"
+			ruBackdrop := "backdrops/westies-ru.jpg"
+			seedMediaText(t, db, sid, "ru-RU", &ruPoster, &ruBackdrop)
+
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", "ru-RU",
+				itemsFor([]shareddomain.SeriesID{sid})))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", "ru-RU", 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			require.NotNil(t, page.Items[0].PosterPath)
+			assert.Equal(t, ruPoster, *page.Items[0].PosterPath,
+				"requested-lang poster passes the language gate and surfaces")
+			require.NotNil(t, page.Items[0].BackdropPath)
+			assert.Equal(t, ruBackdrop, *page.Items[0].BackdropPath)
+		})
+	}
+}
+
+// AUDIT-S4 (F-07) — case (b): en-US art surfaces when the requested language has
+// no row. A ru-RU request with only an en-US poster falls back to the en-US art
+// (en-US is the universal editorial base and always passes the gate).
+func TestListRepository_GetRanked_EnUSArtSurfacesWhenRequestedAbsent_S4(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			sid := seedSeries(t, db, 1)[0]
+			enPoster := "posters/westies-en.jpg"
+			enBackdrop := "backdrops/westies-en.jpg"
+			// No ru-RU row at all; only en-US carries art.
+			seedMediaText(t, db, sid, "en-US", &enPoster, &enBackdrop)
+
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", "ru-RU",
+				itemsFor([]shareddomain.SeriesID{sid})))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", "ru-RU", 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			require.NotNil(t, page.Items[0].PosterPath)
+			assert.Equal(t, enPoster, *page.Items[0].PosterPath,
+				"en-US art passes the gate as the editorial base fallback")
+			require.NotNil(t, page.Items[0].BackdropPath)
+			assert.Equal(t, enBackdrop, *page.Items[0].BackdropPath)
+		})
+	}
+}
+
+// AUDIT-S4 (F-07) — case (c): a THIRD-language-only row must NOT surface. Request
+// en-US; the ONLY art belongs to ru-RU (no en-US, no other requested-lang art).
+// Pre-S4 the ELSE-0 CASE branch let the ru-RU poster win → Russian-text art on an
+// en-US card (#977: worse than none). The language gate excludes ru-RU → the
+// subquery returns NULL and the card falls to the monogram (nil PosterPath).
+func TestListRepository_GetRanked_ThirdLangArtDoesNotSurface_S4(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			sid := seedSeries(t, db, 1)[0]
+			ruPoster := "posters/westies-ru.jpg"
+			ruBackdrop := "backdrops/westies-ru.jpg"
+			// Only ru-RU art exists; the request is en-US with no en-US art.
+			seedMediaText(t, db, sid, "ru-RU", &ruPoster, &ruBackdrop)
+
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", "en-US",
+				itemsFor([]shareddomain.SeriesID{sid})))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", "en-US", 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			assert.Nil(t, page.Items[0].PosterPath,
+				"third-language (ru-RU) poster must NOT surface on an en-US request → monogram")
+			assert.Nil(t, page.Items[0].BackdropPath,
+				"third-language (ru-RU) backdrop must NOT surface on an en-US request")
+		})
+	}
+}
+
+// AUDIT-S4 (F-07) — case (d): #1122 preservation. An en-US request with a ru-RU
+// NULL-poster row (third-lang, confirmed-absent) alongside a real en-US poster
+// must still surface the en-US poster. Proves S4's language gate does not regress
+// #1122's row-presence-vs-poster-presence fix: the en-US row survives BOTH the
+// presence filter (#1122) and the language gate (S4), and the ru-RU NULL row is
+// dropped by the presence filter before the gate even applies.
+func TestListRepository_GetRanked_1122PreservedUnderLangGate_S4(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewListRepository(db)
+			ctx := context.Background()
+
+			sid := seedSeries(t, db, 1)[0]
+			enPoster := "posters/westies-en.jpg"
+			enBackdrop := "backdrops/westies-en.jpg"
+			// Third-lang row that is confirmed-absent (NULL art) — must be
+			// invisible to the ladder regardless of the gate.
+			seedMediaText(t, db, sid, "ru-RU", nil, nil)
+			seedMediaText(t, db, sid, "en-US", &enPoster, &enBackdrop)
+
+			require.NoError(t, repo.ReplaceList(ctx,
+				disco.KindTrendingDay, "", "en-US",
+				itemsFor([]shareddomain.SeriesID{sid})))
+
+			page, err := repo.GetRanked(ctx, disco.KindTrendingDay, "", "en-US", 1, 50)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			require.NotNil(t, page.Items[0].PosterPath,
+				"#1122 preserved: en-US poster still surfaces past a NULL third-lang row")
+			assert.Equal(t, enPoster, *page.Items[0].PosterPath)
+			require.NotNil(t, page.Items[0].BackdropPath)
+			assert.Equal(t, enBackdrop, *page.Items[0].BackdropPath)
+		})
+	}
+}

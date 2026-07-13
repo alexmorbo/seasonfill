@@ -114,10 +114,12 @@ func (r *ListRepository) GetRanked(
 		       COALESCE(s.tmdb_rating, d.tmdb_rating) AS tmdb_rating,
 		       (SELECT smt.poster_asset FROM series_media_texts smt WHERE smt.series_id = s.id
 		         AND smt.poster_asset IS NOT NULL AND smt.poster_asset <> ''
+		         AND (smt.language = ? OR smt.language = 'en-US')
 		         ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
 		                  smt.language ASC LIMIT 1) AS poster_asset,
 		       (SELECT smt.backdrop_asset FROM series_media_texts smt WHERE smt.series_id = s.id
 		         AND smt.backdrop_asset IS NOT NULL AND smt.backdrop_asset <> ''
+		         AND (smt.language = ? OR smt.language = 'en-US')
 		         ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
 		                  smt.language ASC LIMIT 1) AS backdrop_asset,
 		       s.original_language, s.origin_countries, s.tmdb_type, d.position
@@ -144,7 +146,7 @@ func (r *ListRepository) GetRanked(
 	}
 	var rows []joinedRow
 	if err := r.db.WithContext(ctx).
-		Raw(selectQ, language, language, language, string(kind), param, language, perPage, offset).
+		Raw(selectQ, language, language, language, language, language, string(kind), param, language, perPage, offset).
 		Scan(&rows).Error; err != nil {
 		return disco.Page{}, fmt.Errorf("discovery list repo: get ranked: %w", err)
 	}

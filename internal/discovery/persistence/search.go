@@ -87,10 +87,12 @@ SELECT s.id, s.tmdb_id,
        s.year,
        (SELECT smt.poster_asset FROM series_media_texts smt WHERE smt.series_id = s.id
          AND smt.poster_asset IS NOT NULL AND smt.poster_asset <> ''
+         AND (smt.language = ? OR smt.language = 'en-US')
          ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
                   smt.language ASC LIMIT 1) AS poster_asset,
        (SELECT smt.backdrop_asset FROM series_media_texts smt WHERE smt.series_id = s.id
          AND smt.backdrop_asset IS NOT NULL AND smt.backdrop_asset <> ''
+         AND (smt.language = ? OR smt.language = 'en-US')
          ORDER BY CASE WHEN smt.language = ? THEN 2 WHEN smt.language = 'en-US' THEN 1 ELSE 0 END DESC,
                   smt.language ASC LIMIT 1) AS backdrop_asset,
        s.popularity, s.tmdb_rating
@@ -109,7 +111,7 @@ SELECT s.id, s.tmdb_id,
 
 	var rows []searchRow
 	if err := r.db.WithContext(ctx).
-		Raw(sql, language, language, language, language, pattern, limit).
+		Raw(sql, language, language, language, language, language, language, pattern, limit).
 		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("discovery local search: %w", err)
 	}

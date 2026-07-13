@@ -174,3 +174,91 @@ func TestLocalSearch_NoPosterAnyLangStaysNil_1122(t *testing.T) {
 		})
 	}
 }
+
+// AUDIT-S4 (F-07) — LocalSearch third-language art must NOT surface. The EXISTS
+// title probe matches on the en-US series_texts row (an en-US request); the ONLY
+// media art is ru-RU. Pre-S4 the ELSE-0 branch surfaced the ru-RU poster in the
+// search card; the language gate excludes it → nil PosterPath (sentinel).
+func TestLocalSearch_ThirdLangArtDoesNotSurface_S4(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSearchRepository(db)
+			ctx := context.Background()
+
+			token := "ThirdLang" + uuid.NewString()[:8]
+			m := database.SeriesModel{
+				OriginalTitle:   &token,
+				Hydration:       "stub",
+				InProduction:    false,
+				OriginCountries: datatypes.JSON("[]"),
+			}
+			require.NoError(t, db.Create(&m).Error)
+			require.NotZero(t, m.ID)
+
+			title := token
+			require.NoError(t, db.Create(&database.SeriesTextModel{
+				SeriesID: m.ID,
+				Language: "en-US",
+				Title:    &title,
+			}).Error)
+
+			// Only ru-RU art exists; the request is en-US.
+			ruPoster := "posters/search-ru.jpg"
+			ruBackdrop := "backdrops/search-ru.jpg"
+			seedMediaText(t, db, m.ID, "ru-RU", &ruPoster, &ruBackdrop)
+
+			items, err := repo.LocalSearch(ctx, token, "en-US", 20)
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+			assert.Nil(t, items[0].PosterPath,
+				"third-language (ru-RU) poster must NOT surface in an en-US search → sentinel")
+			assert.Nil(t, items[0].BackdropPath,
+				"third-language (ru-RU) backdrop must NOT surface in an en-US search")
+		})
+	}
+}
+
+// AUDIT-S4 (F-07) — LocalSearch requested-lang art surfaces past the gate. A
+// ru-RU request with a ru-RU poster renders the ru-RU art.
+func TestLocalSearch_RequestedLangArtSurfaces_S4(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSearchRepository(db)
+			ctx := context.Background()
+
+			token := "ReqLang" + uuid.NewString()[:8]
+			m := database.SeriesModel{
+				OriginalTitle:   &token,
+				Hydration:       "stub",
+				InProduction:    false,
+				OriginCountries: datatypes.JSON("[]"),
+			}
+			require.NoError(t, db.Create(&m).Error)
+			require.NotZero(t, m.ID)
+
+			title := token
+			// A ru-RU title row lets the EXISTS probe match on a ru-RU request.
+			require.NoError(t, db.Create(&database.SeriesTextModel{
+				SeriesID: m.ID,
+				Language: "ru-RU",
+				Title:    &title,
+			}).Error)
+
+			ruPoster := "posters/search-req-ru.jpg"
+			seedMediaText(t, db, m.ID, "ru-RU", &ruPoster, nil)
+
+			items, err := repo.LocalSearch(ctx, token, "ru-RU", 20)
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+			require.NotNil(t, items[0].PosterPath)
+			assert.Equal(t, ruPoster, *items[0].PosterPath,
+				"requested-lang poster passes the language gate in search")
+		})
+	}
+}
