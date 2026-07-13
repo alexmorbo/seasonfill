@@ -693,9 +693,21 @@ func TestClient_AdaptivePause_FallbackWhenHeaderMissing(t *testing.T) {
 // both 429s have published, then let the post-pause 200s complete.
 func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	var hits atomic.Int32
+	// got429 fires ONCE per 429 the server issues. The test drains two of
+	// them before BlockUntilWaiters — see the rendezvous note below for why
+	// the fake-clock waiter count alone is an unsafe barrier here.
+	got429 := make(chan struct{}, 2)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := hits.Add(1)
 		if n <= 2 {
+			// Signal "request N arrived" the instant it lands: by the time
+			// the handler runs, the client has already cleared acquire()
+			// and issued the call. Draining this on the test side proves
+			// BOTH goroutines are past acquire before we count waiters.
+			select {
+			case got429 <- struct{}{}:
+			default:
+			}
 			// 3s window — the precise width only matters under fake
 			// clock as a positive number; the second 429 is guaranteed
 			// to land within it because we don't Advance until both
@@ -736,18 +748,39 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	}
 	close(start)
 
-	// Each goroutine after its 429 parks on: per-attempt Sleep (1
-	// waiter). The watchResume parks on a 3s timer (1 waiter, exactly
-	// ONCE — the second 429 extends but does not spawn a second
-	// watcher). So total waiters = 2 per-attempt-Sleep + 1
-	// watchResume = 3.
+	// DETERMINISTIC RENDEZVOUS — wait until BOTH goroutines have received a
+	// 429, i.e. both are past acquire() and heading into applyPause + the
+	// per-attempt retry Sleep.
 	//
-	// We wait until both per-attempt sleeps are parked, which proves
-	// both 429s have been processed AND the second one observed the
-	// pause already in flight. The watchResume waiter may or may not
-	// already be parked depending on goroutine scheduling — we use
-	// >=2 plus a brief BlockUntilWaiters(3) which is satisfied as soon
-	// as both goroutines and the watcher are all parked.
+	// Why this gate is required (root cause of the CI FAIL(5.06s) flake):
+	// acquire()'s limiter.Wait ALSO parks on a fake-clock timer when a pause
+	// is already active. If g1 publishes the pause deadline before g2 reaches
+	// limiter.Wait, g2 parks in the acquire pause-loop — a counted waiter —
+	// instead of in the retry Sleep. BlockUntilWaiters(3) would then unblock
+	// on the WRONG trio {watchResume timer, g1 retry-Sleep, g2 acquire-timer}
+	// while the server has seen only ONE 429. Advance(3s) then lets g1 retry
+	// straight back into the still-429 window (hits<=2), which opens a SECOND
+	// pause and re-parks g1 in Sleep — with no further Advance coming, g1
+	// hangs until the test's 5s wall guard fails. A fast local scheduler
+	// almost always interleaves both 429s first (50/50 local PASS); CI's
+	// slower, -race scheduler exposes the alternate interleaving.
+	//
+	// Once both 429s have landed, neither goroutine can be stuck in acquire
+	// (both already drew their token and issued attempt 0), and no retry can
+	// begin before Advance. So the only waiters that can form are exactly the
+	// 2 per-attempt Sleeps + the single watchResume timer — making
+	// BlockUntilWaiters(3) an unambiguous barrier.
+	for range 2 {
+		select {
+		case <-got429:
+		case <-time.After(2 * time.Second):
+			t.Fatal("server did not receive both 429 triggers")
+		}
+	}
+
+	// Both per-attempt Sleeps (1 waiter each) + the watchResume 3s timer (1
+	// waiter, spawned exactly ONCE — the second 429 extends/no-ops the pause,
+	// it does not spawn a second watcher) == 3 waiters total.
 	fc.BlockUntilWaiters(3)
 
 	// Advance past the pause window. All three waiters fire:
