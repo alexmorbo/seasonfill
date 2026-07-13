@@ -18,7 +18,9 @@ import (
 
 func newNotifTestClient(t *testing.T, mux *http.ServeMux) *Client {
 	t.Helper()
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewUnstartedServer(mux)
+	srv.Config.SetKeepAlivesEnabled(false)
+	srv.Start()
 	t.Cleanup(srv.Close)
 	return New("test", srv.URL, "secret", 5*time.Second,
 		slog.New(slog.NewJSONHandler(io.Discard, nil)))

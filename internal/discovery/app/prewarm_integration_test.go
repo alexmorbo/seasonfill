@@ -1,3 +1,5 @@
+//go:build integration
+
 package app_test
 
 import (
@@ -35,7 +37,9 @@ import (
 //     this layer because it lives inside enrichment; instead we assert the
 //     COALESCE-guarded Upsert doesn't clobber enriched_at).
 //
-// Skipped when Docker unavailable via testhelpers.StartPostgres t.Skip.
+// Skipped via testhelpers.SkipIfNoPostgres when the Postgres backend isn't
+// enabled (SEASONFILL_TEST_POSTGRES_ENABLE / _DSN unset), so a Docker-free
+// `make test-race` / pre-push skips it instead of failing.
 
 // realRepoPreWarmer bridges the SeriesTextPreWarmer port to a real
 // SeriesTextsRepository. Simulates what
@@ -177,6 +181,7 @@ func makeSeededResp(n int) *tmdb.TVListResponse {
 // Postgres. Assert series_texts rows land for every (seriesID, lang)
 // pair after Tick.
 func TestPreWarm_Integration_WritesSeriesTextRows(t *testing.T) {
+	testhelpers.SkipIfNoPostgres(t)
 
 	pg := testhelpers.StartPostgres(t)
 	// Fresh DB per subtest so parallel-safe.

@@ -77,6 +77,18 @@ func AllBackends(t testing.TB) []Backend {
 	return backends
 }
 
+// SkipIfNoPostgres skips the calling test unless the Postgres backend is
+// opted in via SEASONFILL_TEST_POSTGRES_ENABLE or _DSN (i.e. Docker/an
+// external Postgres is actually available). Integration tests that call
+// StartPostgres directly (bypassing AllBackends) MUST call this first so a
+// Docker-free `make test-race` / pre-push skips them instead of Fatalf-ing.
+func SkipIfNoPostgres(t testing.TB) {
+	t.Helper()
+	if !postgresEnabled() {
+		t.Skip("postgres backend not enabled (set SEASONFILL_TEST_POSTGRES_ENABLE=1 or SEASONFILL_TEST_POSTGRES_DSN); skipping Docker-dependent integration test")
+	}
+}
+
 // postgresEnabled is true when either the enable flag or the DSN
 // override env var is set. Empty strings count as unset to keep the
 // CI matrix's "var defined but blank" edge case from accidentally
