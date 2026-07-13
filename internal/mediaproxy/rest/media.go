@@ -122,6 +122,8 @@ type MediaHandler struct {
 	negativeCacheTTL   time.Duration            // story 321 — failed-at re-attempt window
 	ondemandWallBudget time.Duration            // story 321 — per-request budget for FetchSync
 	serveGetBudget     time.Duration            // story 1099 — serve-path store.Get sub-budget
+	graceRetryBudget   time.Duration            // story 1125 — total grace window for the deferred EnsurePending write to land
+	graceRetryInterval time.Duration            // story 1125 — poll interval within the grace window
 	http               *http.Client
 	cache              *byteCappedLRU
 	sf                 singleflight.Group
@@ -142,6 +144,8 @@ type MediaHandlerDeps struct {
 	NegativeCacheTTL   time.Duration // story 321: 0 → defaultNegativeCacheTTL (60 s)
 	OnDemandWallBudget time.Duration // story 321: 0 → defaultOnDemandWallBudget (10 s, W19-1)
 	ServeGetBudget     time.Duration // story 1099: 0 → defaultServeGetBudget (1500 ms)
+	GraceRetryBudget   time.Duration // story 1125: 0 → defaultGraceRetryBudget (400 ms)
+	GraceRetryInterval time.Duration // story 1125: 0 → defaultGraceRetryInterval (40 ms)
 }
 
 // defaultNegativeCacheTTL is the window after a failed on-demand fetch
@@ -164,6 +168,19 @@ const defaultOnDemandWallBudget = 10 * time.Second
 // the SVG placeholder instead of hanging on minio-go's multi-second retry
 // stack. Override via SEASONFILL_MEDIA_SERVE_GET_BUDGET (ms).
 const defaultServeGetBudget = 1500 * time.Millisecond
+
+// defaultGraceRetryBudget is the total window the ErrNotFound branch polls the
+// repo before falling back to the unknown_hash placeholder (Story 1125). The
+// catalog grid defers its EnsurePending write to a background goroutine that
+// commits AFTER the response, so a fast FE media GET can arrive before the row
+// exists; 400ms is well past the goroutine's commit latency yet imperceptible
+// to a first paint. Override via SEASONFILL_MEDIA_GRACE_RETRY_BUDGET (ms).
+const defaultGraceRetryBudget = 400 * time.Millisecond
+
+// defaultGraceRetryInterval is the poll cadence inside the grace window. 40ms
+// gives ~10 attempts over the default budget without busy-spinning. Override
+// via SEASONFILL_MEDIA_GRACE_RETRY_INTERVAL (ms).
+const defaultGraceRetryInterval = 40 * time.Millisecond
 
 // SetOnDemandFetcher late-binds the on-demand fetcher onto an
 // already-constructed handler. Used by cmd/server/main.go: the handler
@@ -217,6 +234,14 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 	if serveBudget <= 0 {
 		serveBudget = defaultServeGetBudget
 	}
+	graceBudget := d.GraceRetryBudget
+	if graceBudget <= 0 {
+		graceBudget = defaultGraceRetryBudget
+	}
+	graceInterval := d.GraceRetryInterval
+	if graceInterval <= 0 {
+		graceInterval = defaultGraceRetryInterval
+	}
 	return &MediaHandler{
 		store:              d.Store,
 		repo:               d.Repo,
@@ -225,6 +250,8 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 		negativeCacheTTL:   negTTL,
 		ondemandWallBudget: wall,
 		serveGetBudget:     serveBudget,
+		graceRetryBudget:   graceBudget,
+		graceRetryInterval: graceInterval,
 		http:               httpClient,
 		cache:              newByteCappedLRU(mediaCacheMaxBytes),
 		logger:             logger,
@@ -293,28 +320,31 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 	//    than wait for the downloader's background retry loop.
 	asset, err := h.repo.Get(ctx, hash)
 	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			// Story 352: catalog endpoints (ListSeriesCache,
-			// enrichMissingFromCache, collectGrabCacheFields) emit
-			// deterministic eager poster_hash values into the wire DTO
-			// before media_assets has a pending row — the EnsurePending
-			// side effect runs in a background goroutine after the
-			// response commits. Serving 404 here breaks <img onError>
-			// into the monogram fallback for the milliseconds between
-			// the FE receiving the hash and the goroutine landing the
-			// row. The SVG placeholder (200 + image/svg+xml +
-			// no-store Cache-Control) keeps the visual stable; because
-			// it is never cached the FE re-requests immediately and by
-			// then the row is pending → on-demand fetch path takes over.
-			h.writePlaceholder(c, hash, "unknown_hash", "none", start)
+		if !errors.Is(err, ports.ErrNotFound) {
+			h.logger.WarnContext(ctx, "media.serve.repo_error",
+				slog.String("hash", hash),
+				slog.String("error", err.Error()))
+			observability.IncMediaServeOutcome("repo_error")
+			c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "media lookup failed"})
 			return
 		}
-		h.logger.WarnContext(ctx, "media.serve.repo_error",
-			slog.String("hash", hash),
-			slog.String("error", err.Error()))
-		observability.IncMediaServeOutcome("repo_error")
-		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "media lookup failed"})
-		return
+		// Story 1125: catalog endpoints (ListSeriesCache, enrichMissingFromCache,
+		// collectGrabCacheFields) emit deterministic eager poster_hash values into
+		// the wire DTO before media_assets has a pending row — EnsurePending runs
+		// in a background goroutine that commits AFTER the response. A fast FE media
+		// GET beats it and finds no row. Rather than immediately serving the
+		// unknown_hash placeholder (which flickers the monogram on first paint),
+		// poll the repo for a bounded grace window so the deferred writer can land
+		// the pending row, then rejoin the normal serveOnDemand → store path so the
+		// REAL bytes stream on first view. graceRetryOnNotFound returns the resolved
+		// asset (ok=true) to fall through with, or handles the terminal response
+		// itself (placeholder on budget-expiry, 502 on a repo error mid-grace, or a
+		// silent bail when our own client aborted) and returns ok=false.
+		resolved, ok := h.graceRetryOnNotFound(c, ctx, hash, start)
+		if !ok {
+			return
+		}
+		asset = resolved
 	}
 	if asset.Status != media.StatusStored {
 		// Story 321: try synchronous on-demand fetch for pending rows
@@ -369,6 +399,56 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		slog.String("source", served),
 		slog.Int("size", len(entry.Bytes)),
 	)
+}
+
+// graceRetryOnNotFound handles the media_assets-row-absent race (Story 1125).
+// The catalog grid defers its EnsurePending write to a background goroutine that
+// commits AFTER the response, so a fast FE media GET can arrive before the row
+// exists. Instead of immediately serving the unknown_hash placeholder, this polls
+// the repo every graceRetryInterval for up to graceRetryBudget to let the deferred
+// writer land the pending row.
+//
+// Returns:
+//   - (asset, true)  — the row appeared; caller rejoins its normal serve path.
+//   - (_, false)     — terminal: this method already wrote the response, one of
+//   - unknown_hash placeholder (200) once the budget elapsed with no row, OR
+//   - the 502 "media lookup failed" repo_error reply if a non-NotFound error
+//     surfaced during a retry, OR
+//   - NOTHING at all when the caller's OWN request ctx was cancelled mid-grace
+//     (client navigated away — nobody is waiting for a body; mirror the
+//     clientGone silent-return used by the serve + on-demand error branches).
+//
+// The deadline uses h.clock() (the handler's time source); the per-iteration wait
+// is a ctx-aware select on time.After so a client abort short-circuits the sleep.
+func (h *MediaHandler) graceRetryOnNotFound(c *gin.Context, ctx context.Context, hash string, start time.Time) (media.Asset, bool) {
+	deadline := h.clock().Add(h.graceRetryBudget)
+	for h.clock().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return media.Asset{}, false
+		case <-time.After(h.graceRetryInterval):
+		}
+		if clientGone(c) {
+			return media.Asset{}, false
+		}
+		asset, err := h.repo.Get(ctx, hash)
+		if err == nil {
+			observability.IncMediaServeGrace("resolved")
+			return asset, true
+		}
+		if errors.Is(err, ports.ErrNotFound) {
+			continue
+		}
+		h.logger.WarnContext(ctx, "media.serve.repo_error",
+			slog.String("hash", hash),
+			slog.String("error", err.Error()))
+		observability.IncMediaServeOutcome("repo_error")
+		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "media lookup failed"})
+		return media.Asset{}, false
+	}
+	observability.IncMediaServeGrace("expired")
+	h.writePlaceholder(c, hash, "unknown_hash", "none", start)
+	return media.Asset{}, false
 }
 
 // loadFromStoreOrRefetch returns the entry + a descriptive source

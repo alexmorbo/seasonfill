@@ -30,6 +30,15 @@ type stubRepo struct {
 	mu       sync.Mutex
 	byHash   map[string]media.Asset
 	getCalls atomic.Int32
+
+	// Story 1125 scripted appearance: while appearAtCall > 0 the row stays
+	// absent (ErrNotFound) until the appearAtCall-th Get, at which point
+	// appearAsset is inserted ONCE and returned. Models the catalog grid's
+	// deferred EnsurePending goroutine landing the pending row mid grace-retry.
+	// Inserted only if the key is not already present, so a later fetcher.Upsert
+	// (status=stored) is never clobbered back to the scripted pending value.
+	appearAtCall int32
+	appearAsset  media.Asset
 }
 
 func newStubRepo() *stubRepo { return &stubRepo{byHash: map[string]media.Asset{}} }
@@ -41,9 +50,14 @@ func (s *stubRepo) put(a media.Asset) {
 }
 
 func (s *stubRepo) Get(ctx context.Context, hash string) (media.Asset, error) {
-	s.getCalls.Add(1)
+	n := s.getCalls.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.appearAtCall > 0 && n >= s.appearAtCall {
+		if _, exists := s.byHash[s.appearAsset.Hash]; !exists {
+			s.byHash[s.appearAsset.Hash] = s.appearAsset
+		}
+	}
 	a, ok := s.byHash[hash]
 	if !ok {
 		return media.Asset{}, ports.ErrNotFound
@@ -295,6 +309,7 @@ func TestMedia_FailedServesPlaceholderWhenUnwired(t *testing.T) {
 func TestMedia_UnknownHashServesPlaceholder(t *testing.T) {
 	t.Parallel()
 	h, _, _ := newHandler(t)
+	h.graceRetryBudget = 0 // Story 1125: keep the immediate-placeholder timing for this no-row case
 	// Hash is a valid 64-char lowercase hex string but no row exists.
 	hash := hashOf("https://image.tmdb.org/t/p/w342/unknown.jpg")
 	r := newRouter(h)

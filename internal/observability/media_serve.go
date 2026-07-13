@@ -29,6 +29,13 @@ const (
 	// MetricMediaOnDemandCooldownSize — current negative-cache (cooldown map) size,
 	// Set under the fetcher's negMu on every add/remove.
 	MetricMediaOnDemandCooldownSize = `seasonfill_media_ondemand_cooldown_size`
+	// MetricMediaServeGraceTotal — Story 1125 grace-retry outcome for the
+	// media_assets-row-absent race (catalog grid defers its EnsurePending write).
+	// outcome ∈ {resolved,expired}: "resolved" = the row appeared inside the grace
+	// window and the handler served real bytes; "expired" = the budget elapsed
+	// with the row still absent and the handler fell back to the unknown_hash
+	// placeholder.
+	MetricMediaServeGraceTotal = `seasonfill_media_serve_grace_total`
 )
 
 // IncMediaServeOutcome bumps the serve-mix counter for one terminal Serve branch.
@@ -63,4 +70,11 @@ func IncMediaOnDemand(result string) {
 // gauge itself is internally synchronized. In prod a single onDemandFetcher owns it.
 func SetMediaOnDemandCooldownSize(n int) {
 	metrics.GetOrCreateGauge(`seasonfill_media_ondemand_cooldown_size`, nil).Set(float64(n))
+}
+
+// IncMediaServeGrace bumps the grace-retry outcome counter (Story 1125). outcome
+// is a compile-time literal ∈ {resolved,expired} — never the hash — so cardinality
+// stays bounded. Metric NAME is frozen; new label VALUES are fine.
+func IncMediaServeGrace(outcome string) {
+	metrics.GetOrCreateCounter(`seasonfill_media_serve_grace_total{outcome="` + outcome + `"}`).Inc()
 }

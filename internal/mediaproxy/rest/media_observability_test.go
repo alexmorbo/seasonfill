@@ -64,6 +64,7 @@ func TestMediaHandler_Placeholder_LogsInfoReasonStatusElapsed(t *testing.T) {
 	var buf strings.Builder
 	logger := slog.New(slog.NewJSONHandler(&safeWriter{w: &buf}, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	h, _, _ := newHandlerWithLogger(logger)
+	h.graceRetryBudget = 0 // Story 1125: immediate unknown_hash placeholder, no grace delay
 
 	hash := hashOf("https://image.tmdb.org/t/p/w342/unknown-obs.jpg") // no row → unknown_hash
 	r := newRouter(h)
@@ -91,6 +92,7 @@ func TestMediaHandler_Placeholder_LogsInfoReasonStatusElapsed(t *testing.T) {
 // reason (unknown_hash) exactly once per served placeholder.
 func TestMediaHandler_Placeholder_IncrementsDegradedMetric(t *testing.T) {
 	h, _, _ := newHandler(t)
+	h.graceRetryBudget = 0                                               // Story 1125: immediate unknown_hash placeholder, no grace delay
 	hash := hashOf("https://image.tmdb.org/t/p/w342/metric-unknown.jpg") // unknown_hash
 	r := newRouter(h)
 
