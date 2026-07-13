@@ -11,7 +11,7 @@
 //     4.5-rps limiter. Paces over hours/days by design; safe to re-run.
 //
 // Idempotent: a second run over a converged library nudges/copies zero rows.
-// Reuses the same DB bootstrap path as backfill-assets / auth-mode.
+// Reuses the same DB bootstrap path as auth-mode.
 package commands
 
 import (

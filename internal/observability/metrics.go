@@ -104,17 +104,6 @@ const (
 	MetricTMDBRateLimitPauseSecondsTotal = `tmdb_rate_limit_pause_seconds_total`
 	MetricTMDBRateLimitInPause           = `tmdb_rate_limit_in_pause`
 
-	// Story 346 — per-kind cold-start canon-images recovery telemetry.
-	// `recovery_sweep_enqueued_total{kind}` ticks by the count of canon
-	// rows the boot-time recovery sweep observed missing poster_asset
-	// (`kind=poster`) or backdrop_asset (`kind=backdrop`) and re-enqueued
-	// for re-enrichment. Reads "is the sweep actually moving rows" on
-	// the operator dashboard. A flat counter across successive deploys
-	// with the same backlog row count means the sweep is firing but the
-	// enrichment write side never lands the path — i.e. the defensive
-	// write-side guard is the only fix.
-	MetricRecoverySweepEnqueuedTotal = `recovery_sweep_enqueued_total`
-
 	// Story 351 — generic external-HTTP observability. Written by
 	// infrastructure/httpx.MetricsTransport at the http.RoundTripper
 	// layer. Labels:
@@ -492,18 +481,6 @@ func IncTMDBSWRRevalidate(tier, result string) {
 // means the singleflight is paying off — many callers, one TMDB hit. Story 553.
 func IncTMDBSWRInflightDedup(tier string) {
 	metrics.GetOrCreateCounter(`tmdb_swr_inflight_dedup_total{tier="` + tier + `"}`).Inc()
-}
-
-// AddRecoverySweepEnqueued bumps the per-kind recovery-sweep enqueue
-// counter (Story 346) by n. kind ∈ {"poster", "backdrop"} — the boot
-// one-shot recovery sweep calls this with the count of canon rows it
-// observed missing the named column. n <= 0 is a no-op so callers can
-// pass an unconditional count without a guard.
-func AddRecoverySweepEnqueued(kind string, n int) {
-	if n <= 0 {
-		return
-	}
-	metrics.GetOrCreateCounter(`recovery_sweep_enqueued_total{kind="` + kind + `"}`).Add(n)
 }
 
 // IncOnDemandEnrich bumps the per-result on-demand enrichment counter

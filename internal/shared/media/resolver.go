@@ -54,7 +54,7 @@ const eagerPersistTimeout = 3 * time.Second
 //   - reason="nil_path"   — canon row carries a NULL/empty raw asset
 //     path. Typical root cause is a known prior merge-policy bug that
 //     zeroed canon.poster_asset / canon.backdrop_asset on upsert; the
-//     fix is a backfill (see `cli backfill-assets`), not a code change.
+//     fix is a data backfill, not a code change.
 //   - reason="empty_url"  — BuildTMDBImageURL returned empty (path was
 //     whitespace-only or unmappable). Rare; usually a mapper bug.
 //   - reason="ensure_pending_failed" — eager-hash path failed to write
