@@ -126,6 +126,7 @@ type MediaHandler struct {
 	graceRetryInterval time.Duration            // story 1125 — poll interval within the grace window
 	http               *http.Client
 	cache              *byteCappedLRU
+	unknownNeg         *unknownHashNegCache // AUDIT-S2 — skip the grace re-scan for known-absent hashes
 	sf                 singleflight.Group
 	logger             *slog.Logger
 	clock              func() time.Time
@@ -146,6 +147,7 @@ type MediaHandlerDeps struct {
 	ServeGetBudget     time.Duration // story 1099: 0 → defaultServeGetBudget (1500 ms)
 	GraceRetryBudget   time.Duration // story 1125: 0 → defaultGraceRetryBudget (400 ms)
 	GraceRetryInterval time.Duration // story 1125: 0 → defaultGraceRetryInterval (40 ms)
+	UnknownHashNegTTL  time.Duration // AUDIT-S2: 0 → defaultUnknownHashNegTTL (2 s)
 }
 
 // defaultNegativeCacheTTL is the window after a failed on-demand fetch
@@ -181,6 +183,16 @@ const defaultGraceRetryBudget = 400 * time.Millisecond
 // gives ~10 attempts over the default budget without busy-spinning. Override
 // via SEASONFILL_MEDIA_GRACE_RETRY_INTERVAL (ms).
 const defaultGraceRetryInterval = 40 * time.Millisecond
+
+// defaultUnknownHashNegTTL is the TTL for the AUDIT-S2 (F-03) unknown-hash
+// negative cache: how long a hash that resolved to NO media_assets row across a
+// full grace window short-circuits straight to the placeholder without re-running
+// the ~10 repo.Get / ~400ms grace re-scan. Kept SHORT (distinct from the 60s
+// negativeCacheTTL, which is a different, unwired knob) so a hash whose deferred
+// EnsurePending row lands late still resolves within one TTL on the next paint,
+// while a whole grid paint of a permanently-dead hash collapses to a single scan.
+// Override via UnknownHashNegTTL (0 → this default).
+const defaultUnknownHashNegTTL = 2 * time.Second
 
 // SetOnDemandFetcher late-binds the on-demand fetcher onto an
 // already-constructed handler. Used by cmd/server/main.go: the handler
@@ -242,6 +254,11 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 	if graceInterval <= 0 {
 		graceInterval = defaultGraceRetryInterval
 	}
+	unknownTTL := d.UnknownHashNegTTL
+	if unknownTTL <= 0 {
+		unknownTTL = defaultUnknownHashNegTTL
+	}
+	clock := func() time.Time { return time.Now().UTC() }
 	return &MediaHandler{
 		store:              d.Store,
 		repo:               d.Repo,
@@ -254,8 +271,9 @@ func NewMediaHandler(d MediaHandlerDeps) *MediaHandler {
 		graceRetryInterval: graceInterval,
 		http:               httpClient,
 		cache:              newByteCappedLRU(mediaCacheMaxBytes),
+		unknownNeg:         newUnknownHashNegCache(unknownTTL, clock),
 		logger:             logger,
-		clock:              func() time.Time { return time.Now().UTC() },
+		clock:              clock,
 	}
 }
 
@@ -421,6 +439,22 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 // The deadline uses h.clock() (the handler's time source); the per-iteration wait
 // is a ctx-aware select on time.After so a client abort short-circuits the sleep.
 func (h *MediaHandler) graceRetryOnNotFound(c *gin.Context, ctx context.Context, hash string, start time.Time) (media.Asset, bool) {
+	// AUDIT-S2 (F-03): a hash we already proved has NO media_assets row across a
+	// full grace window short-circuits straight to the placeholder — skipping the
+	// ~10 repo.Get + ~graceRetryBudget re-scan. Without this a stale catalog hash
+	// (media_assets wiped, series_cache still emitting eager poster_hash values
+	// whose EnsurePending row never lands) re-pays the whole scan on every grid
+	// paint, forever. The entry is short-TTL so a hash whose row lands late still
+	// resolves once it expires. clientGone-gated so an aborted request neither
+	// writes an unheard body nor pollutes the placeholder metrics.
+	if h.unknownNeg.contains(hash) {
+		if clientGone(c) {
+			return media.Asset{}, false
+		}
+		observability.IncMediaServeGrace("skipped")
+		h.writePlaceholder(c, hash, "unknown_hash", "none", start)
+		return media.Asset{}, false
+	}
 	deadline := h.clock().Add(h.graceRetryBudget)
 	for h.clock().Before(deadline) {
 		select {
@@ -447,6 +481,7 @@ func (h *MediaHandler) graceRetryOnNotFound(c *gin.Context, ctx context.Context,
 		return media.Asset{}, false
 	}
 	observability.IncMediaServeGrace("expired")
+	h.unknownNeg.mark(hash)
 	h.writePlaceholder(c, hash, "unknown_hash", "none", start)
 	return media.Asset{}, false
 }
@@ -860,4 +895,46 @@ func (c *byteCappedLRU) Len() int {
 
 func entrySize(hash string, e mediaCacheEntry) int64 {
 	return int64(len(e.Bytes)) + int64(len(hash)) + mediaCacheEntryOverhead
+}
+
+// unknownHashNegCache is the AUDIT-S2 (F-03) short-TTL negative cache for hashes
+// that resolved to NO media_assets row across a full grace window. It bounds the
+// grace-retry cost (~graceRetryBudget of handler occupancy + ~10 repo.Get per
+// request) for permanently-unknown hashes: a stale catalog poster_hash whose
+// EnsurePending row never lands would otherwise re-pay the whole grace scan on
+// every grid paint, forever. Mirrors the onDemandFetcher cooldown idiom
+// (app/ondemand.go): mutex + hash→expiry map, pruned on insert so a churn of dead
+// hashes can't grow it unbounded. Short TTL keeps grace-retry's purpose intact — a
+// hash whose row lands late still resolves once the entry expires.
+type unknownHashNegCache struct {
+	mu    sync.Mutex
+	until map[string]time.Time
+	ttl   time.Duration
+	clock func() time.Time
+}
+
+func newUnknownHashNegCache(ttl time.Duration, clock func() time.Time) *unknownHashNegCache {
+	return &unknownHashNegCache{until: make(map[string]time.Time), ttl: ttl, clock: clock}
+}
+
+// contains reports whether hash is still inside its unknown-row cooldown.
+func (n *unknownHashNegCache) contains(hash string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	until, ok := n.until[hash]
+	return ok && n.clock().Before(until)
+}
+
+// mark records hash as row-absent for ttl, pruning expired entries first so the
+// map stays bounded across a churn of dead hashes.
+func (n *unknownHashNegCache) mark(hash string) {
+	now := n.clock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for h, until := range n.until {
+		if !now.Before(until) {
+			delete(n.until, h)
+		}
+	}
+	n.until[hash] = now.Add(n.ttl)
 }
