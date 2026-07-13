@@ -49,6 +49,29 @@ func pickPosterForLang(imgs *tmdb.TVImages, lang string) *string {
 	return pickByLangPriority(imgs.Posters, langPriority(shortLang(lang)))
 }
 
+// pickPosterForLangRooted is pickPosterForLang anchored to TMDB's editorial
+// primary. rootPoster is the /tv/{id}?language=<lang> root poster_path — the
+// poster TMDB itself designates as the language primary. #1020: TMDB community-
+// tagged a Russian-art poster (Key&Peele, tmdb 43082) as en; because
+// pickByLangPriority ranks each language tier purely by VoteAverage/VoteCount
+// that high-vote mis-tag outranks the genuine English poster and poisons the
+// en-US series_media_texts row. When the winning tier holds an image whose
+// FilePath == rootPoster, that image is TMDB's own primary and is trusted over
+// the community vote ranking. Otherwise the normal vote-ranked pick wins
+// (honouring a genuinely-correct per-language poster), then rootPoster, then
+// nil. rootPoster == "" reduces to pickPosterForLang + no fallback. Pure.
+func pickPosterForLangRooted(imgs *tmdb.TVImages, lang, rootPoster string) *string {
+	if imgs != nil && len(imgs.Posters) > 0 {
+		if p := pickByLangPriorityPreferring(imgs.Posters, langPriority(shortLang(lang)), rootPoster); p != nil {
+			return p
+		}
+	}
+	if rootPoster != "" {
+		return &rootPoster
+	}
+	return nil
+}
+
 // pickBackdropForLang: nil (language-agnostic) → short(lang) → "en".
 func pickBackdropForLang(imgs *tmdb.TVImages, lang string) *string {
 	if imgs == nil || len(imgs.Backdrops) == 0 {
@@ -111,6 +134,15 @@ func matchISO(want string) langMatcher {
 // by VoteAverage desc, tie-broken by VoteCount desc, and the top FilePath is
 // returned (nil if empty).
 func pickByLangPriority(imgs []tmdb.TVImage, tiers []langMatcher) *string {
+	return pickByLangPriorityPreferring(imgs, tiers, "")
+}
+
+// pickByLangPriorityPreferring is pickByLangPriority with a trust anchor: inside
+// the first non-empty tier, if any candidate's FilePath == prefer that candidate
+// wins over the VoteAverage/VoteCount ranking (defeats a high-vote community
+// mis-tag, #1020). prefer == "" disables the anchor — identical to the plain
+// vote ranking.
+func pickByLangPriorityPreferring(imgs []tmdb.TVImage, tiers []langMatcher, prefer string) *string {
 	for _, match := range tiers {
 		var group []tmdb.TVImage
 		for _, img := range imgs {
@@ -120,6 +152,14 @@ func pickByLangPriority(imgs []tmdb.TVImage, tiers []langMatcher) *string {
 		}
 		if len(group) == 0 {
 			continue
+		}
+		if prefer != "" {
+			for i := range group {
+				if group[i].FilePath == prefer {
+					fp := prefer
+					return &fp
+				}
+			}
 		}
 		sort.SliceStable(group, func(i, j int) bool {
 			if group[i].VoteAverage != group[j].VoteAverage {

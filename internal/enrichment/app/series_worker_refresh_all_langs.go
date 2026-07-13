@@ -164,10 +164,7 @@ func (w *SeriesWorker) RefreshSeriesAllLangs(
 			// non-strict for non-base (textless key-art, W18-15 parity).
 			var posterPath, backdropPath *string
 			if lang == base {
-				posterPath = pickPosterForLang(tv.Images, lang)
-				if posterPath == nil {
-					posterPath = nonEmptyStringPtr(tv.PosterPath)
-				}
+				posterPath = pickPosterForLangRooted(tv.Images, lang, tv.PosterPath)
 				backdropPath = pickBackdropForLang(tv.Images, lang)
 				if backdropPath == nil {
 					backdropPath = nonEmptyStringPtr(tv.BackdropPath)

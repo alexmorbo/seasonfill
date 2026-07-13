@@ -210,3 +210,115 @@ func TestPickPoster_EmptyFilePath_Nil(t *testing.T) {
 	}}, "en-US")
 	assert.Nil(t, got)
 }
+
+// TestPickPosterForLangRooted_KeyAndPeele reproduces #1020: series 373 "Key &
+// Peele" (tmdb 43082). A Russian-art poster is community-mis-tagged upstream and
+// carries the HIGHEST vote_count, so the plain vote ranking pulls it into the
+// en-US tier and poisons the base series_media_texts row. The root-anchored
+// picker must return TMDB's curated en primary (rootPoster) instead, while the
+// ru row is unaffected. Also locks the "don't over-filter" fallback.
+func TestPickPosterForLangRooted_KeyAndPeele(t *testing.T) {
+	t.Parallel()
+	en := new("en")
+	ru := new("ru")
+
+	const rootEN = "/kp_en_primary.jpg" // TMDB /tv/43082?language=en-US poster_path
+
+	// Mis-tag tagged en: it sits IN the en tier alongside the genuine primary
+	// and wins the plain vote ranking (avg tie 6.0, count 950 ≫ 8).
+	enTagged := &tmdb.TVImages{Posters: []tmdb.TVImage{
+		img(rootEN, en, 6.0, 8),               // genuine en primary (== root)
+		img("/kp_ru_art.jpg", en, 6.0, 950),   // Russian art MIS-TAGGED en, high votes
+		img("/kp_ru_poster.jpg", ru, 7.0, 40), // genuine ru poster
+	}}
+
+	// Mis-tag tagged null: the exact-en tier already excludes it, but the root
+	// anchor must still land on the primary (belt-and-suspenders).
+	nullTagged := &tmdb.TVImages{Posters: []tmdb.TVImage{
+		img(rootEN, en, 6.0, 8),
+		img("/kp_ru_art.jpg", nil, 9.0, 999), // Russian art MIS-TAGGED null, highest votes
+		img("/kp_ru_poster.jpg", ru, 7.0, 40),
+	}}
+
+	t.Run("en-tagged mis-tag: root primary wins, NOT the high-vote mis-tag", func(t *testing.T) {
+		got := pickPosterForLangRooted(enTagged, "en-US", rootEN)
+		require.NotNil(t, got)
+		assert.Equal(t, rootEN, *got)
+		// Proof the anchor is load-bearing: without it the mis-tag wins the tier.
+		unanchored := pickPosterForLang(enTagged, "en-US")
+		require.NotNil(t, unanchored)
+		assert.Equal(t, "/kp_ru_art.jpg", *unanchored, "sanity: plain vote ranking picks the mis-tag")
+	})
+
+	t.Run("null-tagged mis-tag: root primary wins for en", func(t *testing.T) {
+		got := pickPosterForLangRooted(nullTagged, "en-US", rootEN)
+		require.NotNil(t, got)
+		assert.Equal(t, rootEN, *got)
+	})
+
+	t.Run("ru row still resolves to the ru poster (strict, unaffected)", func(t *testing.T) {
+		for _, imgs := range []*tmdb.TVImages{enTagged, nullTagged} {
+			got := pickPosterForLangStrict(imgs, "ru-RU")
+			require.NotNil(t, got)
+			assert.Equal(t, "/kp_ru_poster.jpg", *got)
+		}
+	})
+}
+
+// TestPickPosterForLangRooted_Semantics covers the non-Key&Peele branches:
+// a genuine per-language poster is still honoured when the root primary is not
+// among the tier candidates, and the picker never over-filters to empty.
+func TestPickPosterForLangRooted_Semantics(t *testing.T) {
+	t.Parallel()
+	en := new("en")
+
+	tests := []struct {
+		name       string
+		imgs       *tmdb.TVImages
+		lang       string
+		rootPoster string
+		want       *string
+	}{
+		{
+			// Root not among the tier candidates → keep the vote-ranked pick
+			// (honour a genuinely-correct, higher-voted per-language poster).
+			name: "root absent from tier → vote ranking honoured",
+			imgs: &tmdb.TVImages{Posters: []tmdb.TVImage{
+				img("/a.jpg", en, 7.0, 10),
+				img("/b.jpg", en, 8.0, 20),
+			}},
+			lang: "en-US", rootPoster: "/not_in_posters.jpg", want: new("/b.jpg"),
+		},
+		{
+			// Regression: ONLY a null high-vote image, no exact-lang, empty root
+			// → still return the null image (do NOT over-filter to empty).
+			name: "null-only, no root → still returns the null image",
+			imgs: &tmdb.TVImages{Posters: []tmdb.TVImage{
+				img("/only_null.jpg", nil, 9.0, 900),
+			}},
+			lang: "en-US", rootPoster: "", want: new("/only_null.jpg"),
+		},
+		{
+			// No posters at all but TMDB has a primary → fall back to root.
+			name: "empty posters → root fallback",
+			imgs: &tmdb.TVImages{Posters: nil},
+			lang: "en-US", rootPoster: "/root_only.jpg", want: new("/root_only.jpg"),
+		},
+		{
+			// No posters and no root → nil.
+			name: "empty posters, no root → nil",
+			imgs: nil, lang: "en-US", rootPoster: "", want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pickPosterForLangRooted(tt.imgs, tt.lang, tt.rootPoster)
+			if tt.want == nil {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, *tt.want, *got)
+		})
+	}
+}

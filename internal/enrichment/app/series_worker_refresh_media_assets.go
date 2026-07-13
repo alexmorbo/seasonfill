@@ -267,10 +267,7 @@ func (w *SeriesWorker) RefreshMediaAssets(
 		for _, l := range locale.SupportedUserLanguages {
 			var posterPath, backdropPath *string
 			if l == base {
-				posterPath = pickPosterForLang(tv.Images, l)
-				if posterPath == nil {
-					posterPath = nonEmptyStringPtr(tv.PosterPath)
-				}
+				posterPath = pickPosterForLangRooted(tv.Images, l, tv.PosterPath)
 				backdropPath = pickBackdropForLang(tv.Images, l)
 				if backdropPath == nil {
 					backdropPath = nonEmptyStringPtr(tv.BackdropPath)

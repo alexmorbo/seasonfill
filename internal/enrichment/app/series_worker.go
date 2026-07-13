@@ -962,10 +962,7 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		// poster). Always write the row (persist the absence) + stamp *_checked_at.
 		var posterPath, backdropPath *string
 		if lang == locale.Default() {
-			posterPath = pickPosterForLang(tv.Images, lang)
-			if posterPath == nil {
-				posterPath = nonEmptyStringPtr(tv.PosterPath)
-			}
+			posterPath = pickPosterForLangRooted(tv.Images, lang, tv.PosterPath)
 			backdropPath = pickBackdropForLang(tv.Images, lang)
 			if backdropPath == nil {
 				backdropPath = nonEmptyStringPtr(tv.BackdropPath)
