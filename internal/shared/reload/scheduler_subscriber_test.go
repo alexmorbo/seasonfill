@@ -69,14 +69,19 @@ func TestSchedulerSubscriber_RebuildOnChange(t *testing.T) {
 	bus.Publish(context.Background(), runtime.Snapshot{
 		Cron: runtime.CronSnapshot{Enabled: true, Schedule: "*/5 * * * *", Jitter: 30 * time.Second},
 	})
-	// Poll up to 1s for the rebuild to land.
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && atomic.LoadInt32(builds) == 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
+	// Poll on the TRUE post-condition — the atomic swap of Current() to the
+	// new scheduler. `builds` is incremented INSIDE apply() at
+	// `next := s.factory(...)`, which is BEFORE `s.current.Swap(next)`, so
+	// polling on it observes a mid-apply state and races the swap.
+	require.Eventually(t, func() bool {
+		return sub.Current() != boot
+	}, time.Second, 10*time.Millisecond,
+		"schedule change must swap Current() to a new scheduler")
+
 	assert.Equal(t, int32(1), atomic.LoadInt32(builds), "schedule change must trigger one rebuild")
-	assert.NotSame(t, boot, sub.Current(), "Current must point at the new scheduler")
-	if cur := sub.Current(); cur != nil {
+	cur := sub.Current()
+	assert.NotSame(t, boot, cur, "Current must point at the new scheduler")
+	if cur != nil {
 		_ = cur.Stop()
 	}
 }
@@ -267,10 +272,12 @@ func TestSchedulerSubscriber_HotSwap_OldRefValidUntilSwap(t *testing.T) {
 	bus.Publish(context.Background(), runtime.Snapshot{
 		Cron: runtime.CronSnapshot{Enabled: true, Schedule: "*/5 * * * *", Jitter: 30 * time.Second},
 	})
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && atomic.LoadInt32(builds) == 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
+	// Poll on swap completion (Current()!=boot), NOT the `builds` counter,
+	// which fires mid-apply before s.current.Swap(next).
+	require.Eventually(t, func() bool {
+		return sub.Current() != boot
+	}, time.Second, 10*time.Millisecond,
+		"rebuild must swap Current() away from boot")
 	require.Equal(t, int32(1), atomic.LoadInt32(builds))
 
 	after := sub.Current()
