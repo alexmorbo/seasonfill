@@ -202,3 +202,20 @@ func TestClient_Queue_SeriesIDZeroReturnsAllPages(t *testing.T) {
 	require.Len(t, q.Records, 1002, "seriesID==0 is unfiltered and must span both pages")
 	assert.Equal(t, 1002, q.TotalRecords)
 }
+
+// TestClient_QueueAll_PaginatesGlobalQueue — AUDIT2-S5 regression. QueueAll is
+// unfiltered and MUST walk every page of Sonarr's paginated global queue. The
+// fake serves 1002 records across 2 pages (1000 on page 1, 2 on page 2); the
+// pre-fix single-request code returned only the 1000 on page 1. QueueAll must
+// return all 1002, with TotalRecords == len(Records).
+func TestClient_QueueAll_PaginatesGlobalQueue(t *testing.T) {
+	t.Parallel()
+	srv := paginatedQueueServer(t)
+	defer srv.Close()
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	q, err := c.QueueAll(context.Background())
+	require.NoError(t, err)
+	require.Len(t, q.Records, 1002, "QueueAll is unfiltered and must span both pages; a single-page fetch drops page 2")
+	assert.Equal(t, 1002, q.TotalRecords, "TotalRecords mirrors the full unfiltered record count")
+}

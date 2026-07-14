@@ -252,51 +252,66 @@ func (c *Client) ListEpisodeFilesForSync(ctx context.Context, seriesID shareddom
 	return out, nil
 }
 
-// QueueAll calls GET /api/v3/queue without a seriesId filter. The
-// torrentsync reconciler (PRD §4.5 source 3) does ONE upstream call
-// per tick and matches against the in-memory unmapped-hashes set
-// locally; per-series fan-out would multiply API load by the number
-// of unmapped series and starve the global rate limiter.
+// QueueAll calls GET /api/v3/queue without a seriesId filter, walking
+// pages until the global queue is drained. The torrentsync reconciler
+// (PRD §4.5 source 3) does ONE upstream fan-out per tick and matches
+// against the in-memory unmapped-hashes set locally; per-series fan-out
+// would multiply API load by the number of unmapped series and starve
+// the global rate limiter.
 //
-// pageSize=1000 is Sonarr's effective ceiling — production fleets
-// never have more than a few hundred active downloads at once.
+// Sonarr's /api/v3/queue is paginated; a single-page fetch silently
+// drops every record beyond page 1 once the global queue exceeds
+// pageSize. We page through all of them so the reconciler sees every
+// active download.
 func (c *Client) QueueAll(ctx context.Context) (QueuePayload, error) {
-	q := url.Values{}
-	q.Set("includeSeries", "false")
-	q.Set("includeEpisode", "false")
-	q.Set("pageSize", "1000")
-	var dto queueDTO
-	if err := c.get(ctx, "/api/v3/queue", q, &dto); err != nil {
-		return QueuePayload{}, fmt.Errorf("queue all: %w", err)
-	}
-	out := QueuePayload{
-		TotalRecords: dto.TotalRecords,
-		Records:      make([]QueueRecord, 0, len(dto.Records)),
-	}
-	for _, r := range dto.Records {
-		rec := QueueRecord{
-			ID:           r.ID,
-			SeriesID:     r.SeriesID,
-			EpisodeID:    r.EpisodeID,
-			SeasonNumber: r.SeasonNumber,
-			Title:        r.Title,
-			Status:       r.Status,
-			DownloadID:   r.DownloadID,
-			Protocol:     r.Protocol,
-			Size:         r.Size,
-			SizeLeft:     r.SizeLeft,
+	const pageSize = 1000
+	const maxPages = 1000 // infinite-loop guard; Sonarr never paginates 1M queue rows
+
+	out := QueuePayload{Records: make([]QueueRecord, 0, pageSize)}
+	for page := 1; page <= maxPages; page++ {
+		q := url.Values{}
+		q.Set("includeSeries", "false")
+		q.Set("includeEpisode", "false")
+		q.Set("page", strconv.Itoa(page))
+		q.Set("pageSize", strconv.Itoa(pageSize))
+		var dto queueDTO
+		if err := c.get(ctx, "/api/v3/queue", q, &dto); err != nil {
+			return QueuePayload{}, fmt.Errorf("queue all: %w", err)
 		}
-		if r.Episode != nil {
-			rec.EpisodeNumber = r.Episode.EpisodeNumber
-			if r.Episode.Title != "" {
-				rec.Title = r.Episode.Title
+		for _, r := range dto.Records {
+			rec := QueueRecord{
+				ID:           r.ID,
+				SeriesID:     r.SeriesID,
+				EpisodeID:    r.EpisodeID,
+				SeasonNumber: r.SeasonNumber,
+				Title:        r.Title,
+				Status:       r.Status,
+				DownloadID:   r.DownloadID,
+				Protocol:     r.Protocol,
+				Size:         r.Size,
+				SizeLeft:     r.SizeLeft,
 			}
-			if rec.SeasonNumber == 0 {
-				rec.SeasonNumber = r.Episode.SeasonNumber
+			if r.Episode != nil {
+				rec.EpisodeNumber = r.Episode.EpisodeNumber
+				if r.Episode.Title != "" {
+					rec.Title = r.Episode.Title
+				}
+				if rec.SeasonNumber == 0 {
+					rec.SeasonNumber = r.Episode.SeasonNumber
+				}
 			}
+			out.Records = append(out.Records, rec)
 		}
-		out.Records = append(out.Records, rec)
+		// Last page reached: a short/empty page (fewer than pageSize rows), or
+		// we've walked past the reported total. Either terminates cleanly; the
+		// empty-page case (len==0 < pageSize) also guards the infinite loop.
+		if len(dto.Records) < pageSize || page*pageSize >= dto.TotalRecords {
+			break
+		}
 	}
+	// Unfiltered walk: len(out.Records) is the global total. Mirror Queue's
+	// F-04 line so Records and TotalRecords stay consistent.
+	out.TotalRecords = len(out.Records)
 	return out, nil
 }
 
