@@ -88,48 +88,19 @@ silently fail.
 
 ## Authentication modes
 
-Auth mode is a runtime setting — change it in the web UI at
-**Settings → Security** with no restart required.
+Forms login is always on; enable OIDC in **Settings → Security** when
+you want SSO.
 
 | Mode | Description | When to use |
 |------|-------------|-------------|
-| **Forms** (default) | Username/password via the web login page; session cookie issued on success. | Recommended for direct browser access or any public-facing deploy. |
-| **Basic** | HTTP Basic Auth — the browser shows a native credentials popup; no login page rendered. | Useful for CLI/scripted clients or simple setups behind an IP allowlist. |
-| **None** | No authentication enforced by seasonfill. | **WARNING:** use ONLY behind a reverse proxy that authenticates (Pangolin, oauth2-proxy, Authelia, etc.). Enabling None without a protecting proxy exposes the entire UI to anyone. |
+| **Forms** (always on) | Username/password via the web login page; session cookie issued on success. | Direct browser access — always available. |
 | **OIDC** | SSO via an external OpenID Connect provider (Keycloak, Authelia, Authentik). | Recommended for shared / public deploys with an existing IdP. See §"OIDC mode" for setup. |
-
-### Authentication Required toggle
-
-The "Authentication Required" dropdown offers an optional
-**Disabled for Local Addresses** mode: requests originating from
-local CIDRs skip auth entirely regardless of the mode setting above.
-
-Default local network list (editable in the UI):
-
-- `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` — RFC1918 private
-- `127.0.0.0/8` — IPv4 loopback
-- `::1/128` — IPv6 loopback
-- `169.254.0.0/16` — IPv4 link-local
-- `fe80::/10` — IPv6 link-local
-- `fc00::/7` — IPv6 ULA
+| **X-Api-Key** | Header credential for the Sonarr webhook and scripted clients. | Automation — independent of the browser login path. |
 
 > **Webhook invariant:** `POST /api/v1/webhook/*` always requires
-> `X-Api-Key` regardless of auth mode or local-bypass state. The
+> `X-Api-Key` regardless of the browser session state. The
 > webhook endpoint is a public-facing surface that must not be
 > bypassed.
-
-### Lockout rescue
-
-If you accidentally lock yourself out (e.g. set mode=None on a
-public surface and now need to restore Forms), reset via the CLI:
-
-```sh
-docker compose exec backend /app/seasonfill auth-mode --set forms
-```
-
-This writes directly to the DB, bumps the session epoch (invalidates
-all active cookies), and exits. The next page load will show the
-login form again.
 
 ## Operations
 
@@ -148,6 +119,7 @@ docker compose exec backend /app/seasonfill reset-password --print
 
 Prints a fresh random password to stdout (also persisted as a bcrypt
 hash in the DB). Use `--set <password>` to choose a specific one.
+Forms login is always available; an OIDC misconfig cannot lock you out.
 
 ### Pin to a specific image tag
 
@@ -186,14 +158,8 @@ The example `docker-compose.yaml` contains a commented Keycloak side-service
 
 ### Recovery
 
-If you lock yourself out (e.g. wrong issuer URL or revoked provider):
-
-```
-docker exec seasonfill-backend seasonfill auth-mode --set forms
-```
-
-This flips the backend back to forms-auth without touching the OIDC config —
-the values are still there when you flip back.
+Forms login stays available even if OIDC is misconfigured — sign in with
+username + password and fix the settings.
 
 ## Watchdog (post-import re-grab)
 

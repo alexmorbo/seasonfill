@@ -69,12 +69,11 @@ re-grabbing broken releases.
 | Decision audit log with operator "Grab now" override | shipped |
 | Operator "Rescan" with supersession chain | shipped |
 | React SPA: Dashboard, Instances, Scans, Decisions, Grabs | shipped |
-| Auth modes: Forms / Basic / None / OIDC (runtime-switchable) | shipped |
+| Forms login (always on) + optional OIDC SSO | shipped |
 | OIDC SSO with PKCE + group ACL (Keycloak / Authelia / Authentik) | shipped |
 | Persistent API key for Sonarr webhook (`X-Api-Key`) | shipped |
 | Auto-generated first-run password (qBittorrent-style) | shipped |
-| `reset-password` + `auth-mode` rescue CLI | shipped |
-| Disabled-for-local-addresses bypass (RFC1918/loopback) | shipped |
+| `reset-password` rescue CLI | shipped |
 | Watchdog: post-import re-grab on unregistered torrents (per-instance opt-in) | shipped |
 | Media layer: TMDB-sourced poster/backdrop/cast cache backed by S3 (self-healing) | shipped |
 | Helm chart (`oci://ghcr.io/alexmorbo/seasonfill-helm`) | shipped |
@@ -120,30 +119,23 @@ itself does not host a live UI for the spec.
 
 ## Security model
 
-### Authentication modes
+### Authentication
 
-Three modes are available, configured at runtime via **Settings →
-Security** (no restart needed):
+Forms login (username + password) is always available. When OIDC is
+configured, an SSO button additionally appears on the login page.
+The Sonarr webhook and scripted clients authenticate with the
+`X-Api-Key` header, independent of the browser login path.
 
-| Mode | Use case | Local bypass advisable? | Reverse proxy required? |
-|------|----------|------------------------|------------------------|
-| **Forms** (default) | Direct browser access, public-facing | Optional | No |
-| **Basic** | CLI/scripted clients, IP-restricted deploys | Optional | Recommended for public |
-| **None** | Fully behind an authenticating proxy | N/A | **Yes — mandatory** |
-| **OIDC** | SSO browser auth via OIDC | Optional | Reverse proxy with TLS recommended |
-
-> **Deployment scenarios:**
->
-> | Scenario | Recommended setup |
-> |----------|-------------------|
-> | Local docker-compose, trusted LAN | Forms + Disabled-for-Local (defaults seeded via `.env.example`) |
-> | Public via Pangolin / oauth2-proxy / Authelia | None + reverse-proxy auth |
-> | Public direct | Forms + strong rotated password + HTTPS |
+| Path | Use case |
+|------|----------|
+| **Forms** (always on) | Direct browser access — username + password |
+| **OIDC SSO** (optional) | Browser auth delegated to an external IdP (Keycloak / Authelia / Authentik); SSO button shown once configured |
+| **X-Api-Key** | Sonarr webhook + automation clients |
 
 ### Webhook invariant
 
 `POST /api/v1/webhook/sonarr/<instance-name>` always requires the
-`X-Api-Key` header regardless of auth mode or local-bypass state.
+`X-Api-Key` header regardless of the browser session state.
 This endpoint is a public-facing surface and is never bypassed.
 
 ### Other security properties
@@ -155,11 +147,11 @@ This endpoint is a public-facing surface and is never bypassed.
   login** via Settings → Security.
 - Cookie HMAC-signed with the API key. `HttpOnly`, `SameSite=Strict`,
   `Secure` flag opt-in (toggle in Settings → Security when behind
-  HTTPS). Mode change bumps the session epoch — all active cookies
-  are invalidated immediately.
+  HTTPS). Auth-config changes (OIDC settings, password reset) bump the
+  session epoch — all active cookies are invalidated immediately.
 - API key persists across restarts. Rotated via Secret / `.env` edit
   + redeploy. Sonarr's `Connect → Webhook` provides it as a Custom
-  header (`X-Api-Key`). Works in every auth mode.
+  header (`X-Api-Key`). Works independently of the browser session.
 - Rate-limited `/auth/login` (5 attempts per IP per 15min) and
   `/webhook`. Constant-time password compare. Generic error message
   ("Invalid credentials") for both unknown-user and wrong-password.
@@ -198,14 +190,13 @@ runtime configuration details and the lockout rescue command.
 
 ### Recovery
 
-If you lock yourself out, run:
+Forms login is always available, so an OIDC misconfiguration never
+locks you out of the UI — sign in with username + password. If you
+forget the password, reset it from the container shell:
 
 ```
-seasonfill auth-mode --set forms
+seasonfill reset-password --print
 ```
-
-from the container shell. This restores forms-auth without clearing the
-OIDC config, so you can fix the issue and switch back.
 
 ## External service credentials (TMDB / OMDb / TVDB)
 
@@ -344,8 +335,8 @@ cycles.
   override path as the rest of seasonfill's at-rest secrets.
 - Read responses always redact the password. There is no API to read
   it back; rotate via `PUT` instead.
-- The webhook endpoint always requires `X-Api-Key` regardless of auth
-  mode, including when Watchdog is doing the auto-install (see
+- The webhook endpoint always requires `X-Api-Key` regardless of the
+  browser session state, including when Watchdog is doing the auto-install (see
   [§Security model](#webhook-invariant)).
 
 ### Out of scope (v1)

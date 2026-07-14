@@ -70,12 +70,11 @@ Webhook-приёмник обновляет grab-запись по факту im
 | Audit-лог решений + операторский «Grab now» override | shipped |
 | Операторский Rescan со связью supersession | shipped |
 | React SPA: Dashboard, Instances, Scans, Decisions, Grabs | shipped |
-| Auth-режимы: Forms / Basic / None / OIDC (переключаются на лету) | shipped |
+| Forms-логин (всегда включён) + опциональный OIDC SSO | shipped |
 | OIDC SSO с PKCE + group ACL (Keycloak / Authelia / Authentik) | shipped |
 | Постоянный API-ключ для webhook'а Sonarr (`X-Api-Key`) | shipped |
 | Авто-генерация пароля при первом запуске (в стиле qBittorrent) | shipped |
-| Rescue-CLI `reset-password` + `auth-mode` | shipped |
-| Bypass для локальных адресов (RFC1918/loopback) | shipped |
+| Rescue-CLI `reset-password` | shipped |
 | Watchdog: re-grab после import при unregistered торрентах (opt-in per-instance) | shipped |
 | Media-слой: кэш постеров/backdrop'ов/cast с TMDB в S3 (self-healing) | shipped |
 | Helm-чарт (`oci://ghcr.io/alexmorbo/seasonfill-helm`) | shipped |
@@ -113,30 +112,23 @@ OpenAPI-просмотрщиком (Swagger UI, Redoc, IntelliJ HTTP client) —
 
 ## Модель безопасности
 
-### Режимы аутентификации
+### Аутентификация
 
-Четыре режима, переключаются runtime через **Settings → Security**
-(перезапуск не нужен):
+Forms-логин (логин + пароль) доступен всегда. Когда настроен OIDC,
+на странице входа дополнительно появляется кнопка SSO. Webhook Sonarr
+и скриптовые клиенты аутентифицируются заголовком `X-Api-Key`
+независимо от браузерного входа.
 
-| Режим | Случай использования | Local bypass уместен? | Нужен reverse proxy? |
-|-------|----------------------|----------------------|---------------------|
-| **Forms** (по умолчанию) | Прямой браузерный доступ, публичный | Опционально | Нет |
-| **Basic** | CLI/скрипты, deploys с IP-ограничениями | Опционально | Рекомендуется для публичных |
-| **None** | Полностью за authenticating-прокси | N/A | **Да — обязательно** |
-| **OIDC** | SSO через OIDC | Опционально | Reverse proxy с TLS рекомендуется |
-
-> **Сценарии деплоя:**
->
-> | Сценарий | Рекомендация |
-> |----------|--------------|
-> | Локальный docker-compose, доверенный LAN | Forms + Disabled-for-Local (сеется из `.env.example`) |
-> | Публичный через Pangolin / oauth2-proxy / Authelia | None + auth на reverse-proxy |
-> | Публичный напрямую | Forms + сильный регулярно-меняемый пароль + HTTPS |
+| Путь | Сценарий |
+|------|----------|
+| **Forms** (всегда) | Прямой браузерный доступ — логин + пароль |
+| **OIDC SSO** (опционально) | Делегирование входа внешнему IdP (Keycloak / Authelia / Authentik); кнопка SSO появляется после настройки |
+| **X-Api-Key** | Webhook Sonarr + клиенты автоматизации |
 
 ### Инвариант webhook'а
 
 `POST /api/v1/webhook/sonarr/<instance-name>` всегда требует заголовок
-`X-Api-Key` независимо от auth-режима и состояния local-bypass. Это
+`X-Api-Key` независимо от состояния браузерной сессии. Это
 публично-доступная поверхность, для неё bypass не работает никогда.
 
 ### Другие свойства безопасности
@@ -149,11 +141,12 @@ OpenAPI-просмотрщиком (Swagger UI, Redoc, IntelliJ HTTP client) —
   Security.
 - Cookie подписан HMAC ключом API. `HttpOnly`, `SameSite=Strict`,
   флаг `Secure` опт-ин (переключается в Settings → Security при
-  HTTPS). Смена режима бампит session epoch — все живые cookie
-  инвалидируются мгновенно.
+  HTTPS). Изменения auth-конфигурации (OIDC-настройки, сброс пароля)
+  бампят session epoch — все активные cookie немедленно
+  инвалидируются.
 - API-ключ переживает рестарт. Ротация — правка Secret / `.env` +
   redeploy. Sonarr `Connect → Webhook` шлёт его как Custom header
-  (`X-Api-Key`). Работает в любом auth-режиме.
+  (`X-Api-Key`). Работает независимо от браузерной сессии.
 - Rate-limit на `/auth/login` (5 попыток / IP / 15 мин) и `/webhook`.
   Constant-time сравнение пароля. Generic сообщение об ошибке
   («Invalid credentials») для неизвестного пользователя и неверного
@@ -193,14 +186,13 @@ OpenAPI-просмотрщиком (Swagger UI, Redoc, IntelliJ HTTP client) —
 
 ### Восстановление доступа
 
-Если заблокировались, выполните из shell контейнера:
+Forms-логин доступен всегда, поэтому мисконфигурация OIDC не
+заблокирует вход в UI — войдите по логину и паролю. Если забыли
+пароль, сбросьте его из shell контейнера:
 
 ```
-seasonfill auth-mode --set forms
+seasonfill reset-password --print
 ```
-
-Это вернёт forms-auth без сброса OIDC-конфига — можно починить
-проблему и переключиться обратно.
 
 ## Watchdog (автоматический re-grab после import)
 
@@ -309,7 +301,7 @@ unreachability (10 последовательных fail'ов polling'а) авт
 - Read-responses всегда маскируют пароль. API для чтения пароля
   нет; ротация — через `PUT`.
 - Webhook endpoint всегда требует `X-Api-Key` независимо от
-  auth-режима, в том числе во время auto-install'а Watchdog'ом
+  состояния браузерной сессии, в том числе во время auto-install'а Watchdog'ом
   (см. [§Инвариант webhook'а](#инвариант-webhook-а)).
 
 ### Out of scope (v1)

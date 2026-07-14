@@ -438,7 +438,7 @@ func TestMe_PatchSettings_EmptyBodyNoOp(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
-// Defensive: api-key + local-bypass usernames have no row → 401.
+// Defensive: the api-key pseudo-user has no row → 401.
 func TestMe_Get_RejectsAPIKeyPseudoUser(t *testing.T) {
 	t.Parallel()
 	repo := newFakeMeRepo()

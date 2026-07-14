@@ -138,16 +138,15 @@ Full reference: `helm show values oci://ghcr.io/alexmorbo/seasonfill-helm --vers
 | `mediaStore.fs.persistence.enabled` | `false` | RWO PVC for `fs` mode. |
 
 Everything else — cron schedule, scan tuning, `dry_run`, instances,
-session TTL, secure cookie toggle, trusted proxies, **auth mode** —
+session TTL, secure cookie toggle, trusted proxies, **OIDC** —
 is managed via the Settings UI at `/settings`. Not in the chart values.
 
-**Auth mode** defaults to `forms` on first boot (username + password
-login page). To change it after deploy, open Settings → Security and
-select Forms / Basic / None from the dropdown — no restart or chart
-upgrade required. For a CLI fallback (e.g. lockout recovery):
+Forms login (username + password) is always on. To add SSO, open
+Settings → Security and configure OIDC — no restart or chart upgrade
+required. Forgotten password recovery:
 
 ```sh
-kubectl -n seasonfill exec deploy/seasonfill -- /app/seasonfill auth-mode --set forms
+kubectl -n seasonfill exec deploy/seasonfill -- /app/seasonfill reset-password --print
 ```
 
 ## Terraform example
@@ -454,15 +453,9 @@ Authentik):
 5. Save. All live cookies invalidate; the next request triggers the OIDC
    flow.
 
-If you lock yourself out (e.g. wrong issuer URL after a deploy), use the
-rescue command:
-
-```
-kubectl exec deploy/seasonfill -- seasonfill auth-mode --set forms
-```
-
-This flips the backend back to forms-auth mode without touching the OIDC
-config (so the values are still there when you flip back).
+Forms login stays available even after an OIDC misconfig, so you can't be
+locked out of the UI. To reset a forgotten password: `kubectl -n seasonfill
+exec deploy/seasonfill -- /app/seasonfill reset-password --print`.
 
 ## License
 

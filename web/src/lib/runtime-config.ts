@@ -82,7 +82,7 @@ export function useUpdateRuntimeConfig() {
         runtimeConfigKey, { config, lastModified },
       );
       qc.invalidateQueries({ queryKey: runtimeConfigKey });
-      // Auth mode / local-bypass may have changed — drop the cached
+      // OIDC config may have changed — drop the cached
       // /auth/config snapshot so Login, TopBar, banner re-evaluate the
       // next render. Must run BEFORE the mutation promise resolves so
       // Settings doesn't show the old mode briefly after Save.
