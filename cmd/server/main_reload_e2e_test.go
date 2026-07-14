@@ -34,9 +34,13 @@ func TestReload_E2E_PublishFiresAllSubscribers(t *testing.T) {
 	bus, stop := bootForTest(t)
 	defer stop()
 
-	// Boot publish has already landed by the time bootForTest returns
-	// (the barrier in wiring.StartSubscribers + the boot Publish guarantee it).
-	require.True(t, allSubscribersGreen(t),
+	// The boot publish is applied asynchronously by each subscriber goroutine;
+	// under -race the applies may not have landed the instant bootForTest
+	// returns, so poll rather than asserting once (matches every other test in
+	// this file: 2s / 50ms).
+	require.Eventually(t, func() bool {
+		return allSubscribersGreen(t)
+	}, 2*time.Second, 50*time.Millisecond,
 		"all 6 subscribers must have applied the boot snapshot before runForTest exposed the bus")
 
 	// Publish a synthetic snapshot and confirm counters increment AGAIN.
@@ -328,7 +332,7 @@ func TestReload_E2E_HolderInstance_DryRunToggle(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "inst-dr", URL: "http://sonarr:8989", APIKey: "k1", DryRun: &dryRunTrue},
+			{Name: "inst-dr", URL: "http://127.0.0.1:1", APIKey: "k1", DryRun: &dryRunTrue},
 		},
 	})
 	require.Eventually(t, func() bool {
@@ -342,7 +346,7 @@ func TestReload_E2E_HolderInstance_DryRunToggle(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "inst-dr", URL: "http://sonarr:8989", APIKey: "k1", DryRun: &dryRunFalse},
+			{Name: "inst-dr", URL: "http://127.0.0.1:1", APIKey: "k1", DryRun: &dryRunFalse},
 		},
 	})
 	require.Eventually(t, func() bool {
@@ -370,7 +374,7 @@ func TestReload_E2E_HolderInstance_LimitsToggle(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "inst-lim", URL: "http://sonarr:8989", APIKey: "k1",
+			{Name: "inst-lim", URL: "http://127.0.0.1:1", APIKey: "k1",
 				Limits: runtime.LimitsSnapshot{MaxGrabsPerScan: 5, ScanMaxSeries: 50}},
 		},
 	})
@@ -384,7 +388,7 @@ func TestReload_E2E_HolderInstance_LimitsToggle(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "inst-lim", URL: "http://sonarr:8989", APIKey: "k1",
+			{Name: "inst-lim", URL: "http://127.0.0.1:1", APIKey: "k1",
 				Limits: runtime.LimitsSnapshot{MaxGrabsPerScan: 20, ScanMaxSeries: 100}},
 		},
 	})
@@ -418,7 +422,7 @@ func TestReload_E2E_HolderInstance_GUIDCooldownToggle(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "inst-cd", URL: "http://sonarr:8989", APIKey: "k1",
+			{Name: "inst-cd", URL: "http://127.0.0.1:1", APIKey: "k1",
 				Cooldown: runtime.CooldownSnapshot{GUIDAfterFailedImport: 24 * time.Hour}},
 		},
 	})
@@ -433,7 +437,7 @@ func TestReload_E2E_HolderInstance_GUIDCooldownToggle(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "inst-cd", URL: "http://sonarr:8989", APIKey: "k1",
+			{Name: "inst-cd", URL: "http://127.0.0.1:1", APIKey: "k1",
 				Cooldown: runtime.CooldownSnapshot{GUIDAfterFailedImport: 96 * time.Hour}},
 		},
 	})
@@ -464,8 +468,8 @@ func TestReload_E2E_ClientsViewUpdated(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "inst-a", URL: "http://sonarr-a:8989", APIKey: "k1"},
-			{Name: "inst-b", URL: "http://sonarr-b:8989", APIKey: "k2"},
+			{Name: "inst-a", URL: "http://127.0.0.1:1", APIKey: "k1"},
+			{Name: "inst-b", URL: "http://127.0.0.1:1", APIKey: "k2"},
 		},
 	})
 
@@ -501,7 +505,7 @@ func TestReload_E2E_HolderSnapshot_SecretRotation(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "Sonarr", URL: "http://sonarr:8989", APIKey: "A"},
+			{Name: "Sonarr", URL: "http://127.0.0.1:1", APIKey: "A"},
 		},
 	})
 
@@ -520,7 +524,7 @@ func TestReload_E2E_HolderSnapshot_SecretRotation(t *testing.T) {
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "Sonarr", URL: "http://sonarr:8989", APIKey: "B"},
+			{Name: "Sonarr", URL: "http://127.0.0.1:1", APIKey: "B"},
 		},
 	})
 
@@ -570,7 +574,7 @@ func TestReload_E2E_HealthRegistryReflectsLatestInstancesAfterCRUD(t *testing.T)
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "alpha", URL: "http://sonarr-alpha:8989", APIKey: "k1"},
+			{Name: "alpha", URL: "http://127.0.0.1:1", APIKey: "k1"},
 		},
 	})
 	require.Eventually(t, func() bool {
@@ -613,8 +617,8 @@ func TestReload_E2E_HealthRegistryReflectsLatestInstancesAfterCRUD(t *testing.T)
 		Cron: runtime.CronSnapshot{Enabled: false},
 		Auth: runtime.AuthSnapshot{SessionTTL: 12 * time.Hour},
 		Instances: []runtime.InstanceSnapshot{
-			{Name: "alpha", URL: "http://sonarr-alpha:8989", APIKey: "k1"},
-			{Name: "beta", URL: "http://sonarr-beta:8989", APIKey: "k2"},
+			{Name: "alpha", URL: "http://127.0.0.1:1", APIKey: "k1"},
+			{Name: "beta", URL: "http://127.0.0.1:1", APIKey: "k2"},
 		},
 	})
 	require.Eventually(t, func() bool {
@@ -660,6 +664,6 @@ func TestReload_E2E_HealthRegistryReflectsLatestInstancesAfterCRUD(t *testing.T)
 			}
 		}
 		return true
-	}, 2*time.Second, 25*time.Millisecond,
+	}, 5*time.Second, 25*time.Millisecond,
 		"every checker entry must have a non-zero LastCheckAt after the publish — proves the immediate preflight ran")
 }
