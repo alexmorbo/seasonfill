@@ -9,6 +9,7 @@ package sonarr
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -268,6 +269,7 @@ func (c *Client) QueueAll(ctx context.Context) (QueuePayload, error) {
 	const maxPages = 1000 // infinite-loop guard; Sonarr never paginates 1M queue rows
 
 	out := QueuePayload{Records: make([]QueueRecord, 0, pageSize)}
+	fetched := 0
 	for page := 1; page <= maxPages; page++ {
 		q := url.Values{}
 		q.Set("includeSeries", "false")
@@ -278,6 +280,7 @@ func (c *Client) QueueAll(ctx context.Context) (QueuePayload, error) {
 		if err := c.get(ctx, "/api/v3/queue", q, &dto); err != nil {
 			return QueuePayload{}, fmt.Errorf("queue all: %w", err)
 		}
+		fetched += len(dto.Records)
 		for _, r := range dto.Records {
 			rec := QueueRecord{
 				ID:           r.ID,
@@ -302,10 +305,24 @@ func (c *Client) QueueAll(ctx context.Context) (QueuePayload, error) {
 			}
 			out.Records = append(out.Records, rec)
 		}
-		// Last page reached: a short/empty page (fewer than pageSize rows), or
-		// we've walked past the reported total. Either terminates cleanly; the
-		// empty-page case (len==0 < pageSize) also guards the infinite loop.
-		if len(dto.Records) < pageSize || page*pageSize >= dto.TotalRecords {
+		// Last page reached: a short/empty page (fewer than the effective page
+		// size), or we've walked past the reported total. Prefer the server-
+		// reported PageSize when present (>0) so a server that clamps our
+		// requested pageSize does not read a full clamped page as "short" and
+		// silently revert to page-1-only drop behaviour. The empty-page case
+		// (len==0 < effPageSize) also guards the infinite loop.
+		effPageSize := pageSize
+		if dto.PageSize > 0 {
+			effPageSize = dto.PageSize
+		}
+		if len(dto.Records) < effPageSize || page*effPageSize >= dto.TotalRecords {
+			if fetched < dto.TotalRecords && c.logger != nil {
+				c.logger.WarnContext(ctx, "sonarr_queue_pagination_break_early",
+					slog.String("instance", string(c.name)),
+					slog.Int("fetched", fetched),
+					slog.Int("total_records", dto.TotalRecords),
+					slog.Int("last_page", page))
+			}
 			break
 		}
 	}
@@ -406,6 +423,7 @@ func (c *Client) Queue(ctx context.Context, seriesID shareddomain.SonarrSeriesID
 	const maxPages = 1000 // infinite-loop guard; Sonarr never paginates 1M queue rows
 
 	out := QueuePayload{Records: make([]QueueRecord, 0, pageSize)}
+	fetched := 0
 	for page := 1; page <= maxPages; page++ {
 		q := url.Values{}
 		q.Set("seriesId", strconv.Itoa(int(seriesID)))
@@ -417,6 +435,7 @@ func (c *Client) Queue(ctx context.Context, seriesID shareddomain.SonarrSeriesID
 		if err := c.get(ctx, "/api/v3/queue", q, &dto); err != nil {
 			return QueuePayload{}, err
 		}
+		fetched += len(dto.Records)
 		for _, r := range dto.Records {
 			if seriesID != 0 && r.SeriesID != seriesID {
 				continue
@@ -444,10 +463,24 @@ func (c *Client) Queue(ctx context.Context, seriesID shareddomain.SonarrSeriesID
 			}
 			out.Records = append(out.Records, rec)
 		}
-		// Last page reached: a short/empty page (fewer than pageSize rows), or
-		// we've walked past the reported total. Either terminates cleanly; the
-		// empty-page case (len==0 < pageSize) also guards the infinite loop.
-		if len(dto.Records) < pageSize || page*pageSize >= dto.TotalRecords {
+		// Last page reached: a short/empty page (fewer than the effective page
+		// size), or we've walked past the reported total. Prefer the server-
+		// reported PageSize when present (>0) so a server that clamps our
+		// requested pageSize does not read a full clamped page as "short" and
+		// silently revert to page-1-only drop behaviour. The empty-page case
+		// (len==0 < effPageSize) also guards the infinite loop.
+		effPageSize := pageSize
+		if dto.PageSize > 0 {
+			effPageSize = dto.PageSize
+		}
+		if len(dto.Records) < effPageSize || page*effPageSize >= dto.TotalRecords {
+			if fetched < dto.TotalRecords && c.logger != nil {
+				c.logger.WarnContext(ctx, "sonarr_queue_pagination_break_early",
+					slog.String("instance", string(c.name)),
+					slog.Int("fetched", fetched),
+					slog.Int("total_records", dto.TotalRecords),
+					slog.Int("last_page", page))
+			}
 			break
 		}
 	}

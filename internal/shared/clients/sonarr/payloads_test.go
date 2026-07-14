@@ -203,6 +203,74 @@ func TestClient_Queue_SeriesIDZeroReturnsAllPages(t *testing.T) {
 	assert.Equal(t, 1002, q.TotalRecords)
 }
 
+// clampingQueueServer models a Sonarr that clamps the requested pageSize
+// (client asks 1000) down to 200 and reports the clamped size in the DTO.
+// It serves `total` records, 200 per page. A pagination loop that keys its
+// "short page" stop condition off the REQUESTED pageSize would read the
+// first full clamped page (200 < 1000) as short and drop every record past
+// page 1 — the F-02 failure. Keying off dto.PageSize walks all pages.
+func clampingQueueServer(t *testing.T, total int) *httptest.Server {
+	t.Helper()
+	const clamp = 200
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		if page == 0 {
+			page = 1
+		}
+		start := (page - 1) * clamp
+		recs := make([]queueTestRecord, 0, clamp)
+		for i := start; i < start+clamp && i < total; i++ {
+			recs = append(recs, queueTestRecord{
+				ID:           i + 1,
+				SeriesID:     42,
+				EpisodeID:    5000 + i,
+				SeasonNumber: 1,
+				Title:        "Clamped.Show",
+				Status:       "downloading",
+				DownloadID:   fmt.Sprintf("C%04d", i),
+				Protocol:     "torrent",
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(queueTestResponse{
+			Page:         page,
+			PageSize:     clamp, // server-clamped size, smaller than the requested 1000
+			TotalRecords: total,
+			Records:      recs,
+		})
+	}))
+}
+
+// TestClient_QueueAll_ServerClampsPageSize — F-02. A server that clamps the
+// requested pageSize must not trick the loop into a page-1-only fetch. All
+// 400 records (2 clamped pages of 200) must come back.
+func TestClient_QueueAll_ServerClampsPageSize(t *testing.T) {
+	t.Parallel()
+	srv := clampingQueueServer(t, 400)
+	defer srv.Close()
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	q, err := c.QueueAll(context.Background())
+	require.NoError(t, err)
+	require.Len(t, q.Records, 400, "server clamped pageSize to 200; the loop must key its short-page stop on dto.PageSize and walk both pages")
+	assert.Equal(t, 400, q.TotalRecords)
+}
+
+// TestClient_Queue_ServerClampsPageSize — same clamp guard on the filtered
+// Queue path. seriesID 42 matches every served record, so all 400 survive
+// the client-side filter across both clamped pages.
+func TestClient_Queue_ServerClampsPageSize(t *testing.T) {
+	t.Parallel()
+	srv := clampingQueueServer(t, 400)
+	defer srv.Close()
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	q, err := c.Queue(context.Background(), 42)
+	require.NoError(t, err)
+	require.Len(t, q.Records, 400, "clamped pageSize must not truncate the filtered walk to page 1")
+	assert.Equal(t, 400, q.TotalRecords)
+}
+
 // TestClient_QueueAll_PaginatesGlobalQueue — AUDIT2-S5 regression. QueueAll is
 // unfiltered and MUST walk every page of Sonarr's paginated global queue. The
 // fake serves 1002 records across 2 pages (1000 on page 1, 2 on page 2); the
