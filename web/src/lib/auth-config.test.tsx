@@ -18,6 +18,17 @@ function makeQC() {
   });
 }
 
+// Mirrors production retry (query-client.ts): 5xx/network retry up to 2.
+// retryDelay:0 skips react-query's exponential backoff so waitFor stays fast.
+// useAuthConfig no longer overrides retry, so the provider must supply it.
+function makeRetryQC() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: 2, retryDelay: 0, gcTime: 0, staleTime: Infinity },
+    },
+  });
+}
+
 function wrap(qc: QueryClient) {
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
@@ -81,5 +92,21 @@ describe('useAuthConfig()', () => {
     const qc = makeQC();
     const { result } = renderHook(() => useAuthConfig(), { wrapper: wrap(qc) });
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+
+  it('recovers oidcReady after a transient 5xx (retries then succeeds)', async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      // First call fails like a pod-roll blip; the retry must succeed.
+      if (calls === 1) return jsonResp({ error: 'unavailable' }, 503);
+      return jsonResp({ oidc_ready: true, login_url: '/api/v1/auth/oidc/start' });
+    }) as typeof fetch;
+    const qc = makeRetryQC();
+    const { result } = renderHook(() => useAuthConfig(), { wrapper: wrap(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.oidcReady).toBe(true);
+    expect(result.current.data?.loginUrl).toBe('/api/v1/auth/oidc/start');
+    expect(calls).toBeGreaterThanOrEqual(2);
   });
 });

@@ -32,7 +32,10 @@ export function useAuthConfig(): UseQueryResult<AuthConfig, ApiError> {
     // (useUpdateRuntimeConfig.onSuccess) to refresh after a Settings save.
     staleTime: Infinity,
     refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    retry: 0,
+    // Do NOT override retry: inherit the global policy (query-client.ts) so a
+    // transient 5xx/network failure during a pod roll retries and self-heals
+    // instead of permanently hiding the OIDC/SSO button for the session.
+    // A later reconnect also re-fetches, recovering from a fully-failed boot.
+    refetchOnReconnect: true,
   });
 }
