@@ -4,7 +4,23 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestRequireNonEmptySubject_RejectsEmpty(t *testing.T) {
+	t.Parallel()
+	// A broken/hostile IdP emitting an empty `sub` must be rejected in
+	// Callback BEFORE GetByOIDCSubject / CreateFromOIDC run, so no
+	// empty-subject user row is ever created.
+	err := requireNonEmptySubject("")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrOIDCEmptySubject)
+}
+
+func TestRequireNonEmptySubject_AllowsNonEmpty(t *testing.T) {
+	t.Parallel()
+	assert.NoError(t, requireNonEmptySubject("google-oauth2|1234567890"))
+}
 
 func TestGroupACLAllows_EmptyAllowsAll(t *testing.T) {
 	t.Parallel()

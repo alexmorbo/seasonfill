@@ -27,6 +27,7 @@ var (
 	ErrOIDCNonceMismatch   = errors.New("oidc: nonce mismatch")
 	ErrOIDCGroupDenied     = errors.New("oidc: group ACL denied")
 	ErrOIDCMissingUsername = errors.New("oidc: missing username claim")
+	ErrOIDCEmptySubject    = errors.New("oidc: empty subject claim")
 )
 
 // RequestInfo carries HTTP request headers used to derive the OIDC redirect URL
@@ -237,6 +238,13 @@ func (u *OIDCLoginUseCase) Callback(ctx context.Context, cfg OIDCConfig, info Re
 	if idToken.Nonce != in.Nonce {
 		return CallbackResult{}, ErrOIDCNonceMismatch
 	}
+	// A broken/hostile IdP emitting an empty `sub` would otherwise mint
+	// an empty-subject user row (CreateFromOIDC) and let two distinct
+	// empty-sub identities collapse onto one account. Reject before the
+	// subject is used for the username fallback OR the user lookup/create.
+	if err := requireNonEmptySubject(idToken.Subject); err != nil {
+		return CallbackResult{}, err
+	}
 
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
@@ -369,6 +377,18 @@ func extractStringSlicePermissive(claims map[string]any, path string) []string {
 		cur = next
 	}
 	return stringSliceFromClaim(cur)
+}
+
+// requireNonEmptySubject rejects an ID token whose `sub` claim is empty.
+// Called in Callback immediately after Verify + nonce check, BEFORE the
+// subject is threaded into the username fallback or GetByOIDCSubject /
+// CreateFromOIDC — so a broken/hostile IdP can never mint an empty-subject
+// row nor collapse two empty-sub identities onto one account.
+func requireNonEmptySubject(subject string) error {
+	if subject == "" {
+		return ErrOIDCEmptySubject
+	}
+	return nil
 }
 
 func stringClaim(claims map[string]any, key string) string {
