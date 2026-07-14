@@ -168,12 +168,17 @@ jobs:
             pkg_path="${dir#./}"
             pkg_path="./${pkg_path#./}"
 
-            # go list will output full import path, capture errors separately
-            if ! list_out=$(go list -tags integration "$pkg_path" 2>&1); then
+            # go list will output full import path; redirect stderr to temp file
+            # so benign "go: downloading" messages don't pollute ACTUAL package list.
+            # On error, show stderr and fail.
+            list_err=$(mktemp)
+            if ! list_out=$(go list -tags integration "$pkg_path" 2>"$list_err"); then
               echo "FAILURE: go list error in $pkg_path:"
-              echo "$list_out"
+              cat "$list_err"
+              rm -f "$list_err"
               exit 1
             fi
+            rm -f "$list_err"
             ACTUAL="${ACTUAL}${list_out}"$'\n'
           done
 
