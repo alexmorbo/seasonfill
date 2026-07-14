@@ -4318,8 +4318,6 @@ export type components = {
             readonly token_endpoint?: components["schemas"]["auth.CheckTokenEndpoint"];
         };
         readonly "dto.AuthConfigDTO": {
-            /** @example false */
-            readonly local_bypass?: boolean;
             /** @example /api/v1/auth/oidc/start */
             readonly login_url?: string;
             /** @example forms */
@@ -5429,16 +5427,6 @@ export type components = {
             readonly year?: number;
         };
         readonly "dto.RuntimeAuthDTO": {
-            /** @description LocalBypass enables the local-address bypass middleware (036c). */
-            readonly local_bypass?: boolean;
-            /**
-             * @description LocalNetworks is the CIDR allow-list driving local-bypass.
-             * @example [
-             *       "127.0.0.0/8",
-             *       "10.0.0.0/8"
-             *     ]
-             */
-            readonly local_networks?: readonly string[];
             /**
              * @description Mode is one of "forms" | "basic" | "none" | "oidc". Default "forms".
              * @example forms

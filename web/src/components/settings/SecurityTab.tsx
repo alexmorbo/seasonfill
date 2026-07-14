@@ -8,9 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { AlertTriangle, Info, Loader2, Lock, ShieldAlert } from 'lucide-react';
 import {
   useRuntimeConfig, useUpdateRuntimeConfig, type RuntimeConfig,
@@ -18,7 +15,6 @@ import {
 import { useAuthConfig } from '@/lib/auth-config';
 import { api } from '@/lib/api';
 import { TrustedProxiesEditor } from './TrustedProxiesEditor';
-import { LocalNetworksEditor, LOCAL_NETWORK_DEFAULTS } from './LocalNetworksEditor';
 import { isValidCIDR } from '@/lib/cidr';
 import type { OIDCFormShape, OIDCTestResult } from './OIDCConfigBlock';
 import { OIDCFold } from './OIDCFold';
@@ -41,9 +37,6 @@ const schema = z.object({
   trusted_proxies: z.array(z.string())
     .refine((arr) => arr.every(isValidCIDR), 'settings.security.proxies.invalid'),
   auth_mode: z.enum(AUTH_MODES),
-  auth_local_bypass: z.boolean(),
-  auth_local_networks: z.array(z.string())
-    .refine((arr) => arr.every(isValidCIDR), 'settings.security.localNetworks.invalid'),
   oidc_issuer: z.string(),
   oidc_client_id: z.string(),
   oidc_redirect_url: z.string(),
@@ -117,8 +110,6 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
     secure_cookie: Boolean(c?.auth?.secure_cookie ?? false),
     trusted_proxies: (c?.auth?.trusted_proxies ?? []) as string[],
     auth_mode: narrowMode(c?.auth?.mode),
-    auth_local_bypass: Boolean(c?.auth?.local_bypass ?? false),
-    auth_local_networks: (c?.auth?.local_networks ?? []) as string[],
     oidc_issuer: c?.auth?.oidc?.issuer ?? '',
     oidc_client_id: c?.auth?.oidc?.client_id ?? '',
     oidc_redirect_url: c?.auth?.oidc?.redirect_url ?? '',
@@ -144,8 +135,6 @@ function formToPayload(
       secure_cookie: v.secure_cookie,
       trusted_proxies: v.trusted_proxies,
       mode: v.auth_mode,
-      local_bypass: v.auth_local_bypass,
-      local_networks: v.auth_local_networks,
       oidc: {
         issuer: v.oidc_issuer.trim(),
         client_id: v.oidc_client_id.trim(),
@@ -225,8 +214,6 @@ export function SecurityTab() {
   }, [storedTTL]);
 
   const authMode = useWatch({ control, name: 'auth_mode', defaultValue: 'forms' });
-  const localBypass = useWatch({ control, name: 'auth_local_bypass', defaultValue: false });
-  const localNetworks = useWatch({ control, name: 'auth_local_networks', defaultValue: [] });
   const secureCookie = useWatch({ control, name: 'secure_cookie', defaultValue: false });
   const trustedProxies = useWatch({ control, name: 'trusted_proxies', defaultValue: [] });
   const oidcIssuer = useWatch({ control, name: 'oidc_issuer', defaultValue: '' });
@@ -251,15 +238,6 @@ export function SecurityTab() {
   const onDiscard = () => {
     reset(configToForm(q.data?.config));
     setOidcClientSecret(undefined);
-  };
-
-  // Local bypass seeding (UNCHANGED behavior).
-  const onBypassChange = (next: 'enabled' | 'disabledLocal') => {
-    const enabled = next === 'disabledLocal';
-    setValue('auth_local_bypass', enabled, { shouldDirty: true });
-    if (enabled && localNetworks.length === 0) {
-      setValue('auth_local_networks', [...LOCAL_NETWORK_DEFAULTS], { shouldDirty: true });
-    }
   };
 
   // Mode-change confirmation flow.
@@ -372,42 +350,6 @@ export function SecurityTab() {
           </div>
         </div>
 
-        <FieldRow
-          label={t('settings.security.auth.requiredLabel')}
-          hint={t('settings.security.auth.required.hint')}
-          control={
-            <Select
-              value={localBypass ? 'disabledLocal' : 'enabled'}
-              onValueChange={(v) => { if (v) onBypassChange(v as 'enabled' | 'disabledLocal'); }}
-            >
-              <SelectTrigger id="auth-required" className="w-[220px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="enabled">{t('settings.security.auth.required.enabled')}</SelectItem>
-                <SelectItem value="disabledLocal">{t('settings.security.auth.required.disabledLocal')}</SelectItem>
-              </SelectContent>
-            </Select>
-          }
-        />
-
-        {localBypass && (
-          <div className="flex flex-col gap-2 pt-1">
-            <Label htmlFor="local-networks">{t('settings.security.localNetworks.section')}</Label>
-            <p className="text-[12px] text-muted m-0">{t('settings.security.localNetworks.hint')}</p>
-            <LocalNetworksEditor
-              id="local-networks"
-              value={localNetworks}
-              onChange={(next) =>
-                setValue('auth_local_networks', [...next], { shouldDirty: true })}
-            />
-            {errors.auth_local_networks && (
-              <p role="alert" className="text-status-danger text-[11.5px]">
-                {t(errors.auth_local_networks.message ?? '')}
-              </p>
-            )}
-          </div>
-        )}
       </Block>
 
       <Block title={t('settings.security.cookies.section')}>

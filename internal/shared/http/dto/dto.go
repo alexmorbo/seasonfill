@@ -576,10 +576,6 @@ type RuntimeAuthDTO struct {
 	TrustedProxies []string `json:"trusted_proxies" example:"127.0.0.1,::1"`
 	// Mode is one of "forms" | "basic" | "none" | "oidc". Default "forms".
 	Mode string `json:"mode" example:"forms"`
-	// LocalBypass enables the local-address bypass middleware (036c).
-	LocalBypass bool `json:"local_bypass"`
-	// LocalNetworks is the CIDR allow-list driving local-bypass.
-	LocalNetworks []string `json:"local_networks" example:"127.0.0.0/8,10.0.0.0/8"`
 	// SessionEpoch is read-only — the server bumps it whenever any
 	// auth-invalidating field changes. PUT bodies that include it are
 	// silently ignored (the usecase manages the value).
@@ -605,8 +601,7 @@ type RuntimeOIDCDTO struct {
 // endpoint — no secrets, no auth required. Used by the SPA bootstrap
 // path to decide whether to render Login / Logout / banners.
 type AuthConfigDTO struct {
-	Mode        string `json:"mode" example:"forms"`
-	LocalBypass bool   `json:"local_bypass" example:"false"`
+	Mode string `json:"mode" example:"forms"`
 	// OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,
 	// LoginURL is also populated — SPA renders SSO button regardless of mode.
 	OIDCReady bool   `json:"oidc_ready" example:"false"`

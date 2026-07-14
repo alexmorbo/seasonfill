@@ -111,8 +111,6 @@ func validInput() Input {
 			SecureCookie:   false,
 			TrustedProxies: []string{"127.0.0.1", "::1", "10.0.0.0/8"},
 			Mode:           runtime.AuthModeForms,
-			LocalBypass:    false,
-			LocalNetworks:  []string{"127.0.0.0/8", "10.0.0.0/8"},
 		},
 	}
 }
@@ -631,19 +629,6 @@ func TestUsecase_RejectsInvalidAuthMode(t *testing.T) {
 	assert.Equal(t, "INVALID_AUTH_MODE", verr.Code)
 }
 
-func TestUsecase_RejectsInvalidLocalNetwork(t *testing.T) {
-	t.Parallel()
-	repo := &fakeRuntimeRepo{}
-	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
-	in := validInput()
-	in.Auth.LocalNetworks = []string{"127.0.0.0/8", "not-a-cidr"}
-	_, _, err := uc.Update(context.Background(), in, nil)
-	require.Error(t, err)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_LOCAL_NETWORK", verr.Code)
-}
-
 func TestUsecase_EpochBumpsOnModeChange(t *testing.T) {
 	t.Parallel()
 	repo := &fakeRuntimeRepo{}
@@ -679,42 +664,6 @@ func TestUsecase_EpochUnchangedWhenAuthFieldsStable(t *testing.T) {
 	assert.Equal(t, first, repo.row.Auth.SessionEpoch)
 }
 
-func TestUsecase_EpochBumpsOnBypassToggle(t *testing.T) {
-	t.Parallel()
-	repo := &fakeRuntimeRepo{}
-	clock := time.Unix(0, 1_000_000_000).UTC()
-	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
-		WithClock(func() time.Time { return clock })
-	in := validInput()
-	_, _, err := uc.Update(context.Background(), in, nil)
-	require.NoError(t, err)
-	first := repo.row.Auth.SessionEpoch
-
-	clock = time.Unix(0, 2_000_000_000).UTC()
-	in.Auth.LocalBypass = true
-	_, _, err = uc.Update(context.Background(), in, nil)
-	require.NoError(t, err)
-	assert.Greater(t, repo.row.Auth.SessionEpoch, first)
-}
-
-func TestUsecase_EpochBumpsOnNetworksChange(t *testing.T) {
-	t.Parallel()
-	repo := &fakeRuntimeRepo{}
-	clock := time.Unix(0, 1_000_000_000).UTC()
-	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
-		WithClock(func() time.Time { return clock })
-	in := validInput()
-	_, _, err := uc.Update(context.Background(), in, nil)
-	require.NoError(t, err)
-	first := repo.row.Auth.SessionEpoch
-
-	clock = time.Unix(0, 2_000_000_000).UTC()
-	in.Auth.LocalNetworks = append(in.Auth.LocalNetworks, "192.168.0.0/16")
-	_, _, err = uc.Update(context.Background(), in, nil)
-	require.NoError(t, err)
-	assert.Greater(t, repo.row.Auth.SessionEpoch, first)
-}
-
 func TestUsecase_SetAuthMode_BumpsEpoch(t *testing.T) {
 	t.Parallel()
 	repo := &fakeRuntimeRepo{}
@@ -740,80 +689,6 @@ func TestUsecase_SetAuthMode_RejectsInvalid(t *testing.T) {
 	var verr *ValidationError
 	require.ErrorAs(t, err, &verr)
 	assert.Equal(t, "INVALID_AUTH_MODE", verr.Code)
-}
-
-func TestValidate_LocalNetworks_TooMany(t *testing.T) {
-	t.Parallel()
-	uc, _, _ := setup(t)
-	in := validInput()
-	too := make([]string, 0, localNetworksMaxLen+1)
-	for i := 0; i <= localNetworksMaxLen; i++ {
-		too = append(too, "10.0.0.0/8")
-	}
-	in.Auth.LocalNetworks = too
-	_, _, err := uc.Update(context.Background(), in, nil)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_LOCAL_NETWORKS_TOO_MANY", verr.Code)
-}
-
-func TestValidate_LocalNetworks_BadCIDR(t *testing.T) {
-	t.Parallel()
-	uc, _, _ := setup(t)
-	in := validInput()
-	in.Auth.LocalNetworks = []string{"10.0.0.0/8", "not.a.cidr"}
-	_, _, err := uc.Update(context.Background(), in, nil)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_LOCAL_NETWORK", verr.Code)
-	assert.Contains(t, verr.Message, "not.a.cidr")
-}
-
-func TestValidate_LocalNetworks_EmptyEntry(t *testing.T) {
-	t.Parallel()
-	uc, _, _ := setup(t)
-	in := validInput()
-	in.Auth.LocalNetworks = []string{"10.0.0.0/8", "   "}
-	_, _, err := uc.Update(context.Background(), in, nil)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_LOCAL_NETWORK", verr.Code)
-}
-
-func TestValidate_LocalNetworks_TrimAndDedup(t *testing.T) {
-	t.Parallel()
-	uc, repo, _ := setup(t)
-	in := validInput()
-	in.Auth.LocalNetworks = []string{
-		" 10.0.0.0/8 ",
-		"10.0.0.0/8",
-		"192.168.0.0/16",
-		" 192.168.0.0/16",
-	}
-	out, _, err := uc.Update(context.Background(), in, nil)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"10.0.0.0/8", "192.168.0.0/16"}, out.Auth.LocalNetworks,
-		"validator must trim whitespace and dedupe by canonical CIDR")
-	// Stored row must contain the canonical form too.
-	repo.mu.Lock()
-	stored := append([]string(nil), repo.row.Auth.LocalNetworks...)
-	repo.mu.Unlock()
-	assert.Equal(t, []string{"10.0.0.0/8", "192.168.0.0/16"}, stored)
-}
-
-func TestValidate_LocalNetworks_MixedIPv4IPv6(t *testing.T) {
-	t.Parallel()
-	uc, _, _ := setup(t)
-	in := validInput()
-	in.Auth.LocalNetworks = []string{
-		"10.0.0.0/8",
-		"fc00::/7",
-		"::1/128",
-		"192.168.0.0/16",
-	}
-	out, _, err := uc.Update(context.Background(), in, nil)
-	require.NoError(t, err)
-	assert.Len(t, out.Auth.LocalNetworks, 4)
 }
 
 // validOIDCInput returns a minimal-valid set of OIDC fields for use in

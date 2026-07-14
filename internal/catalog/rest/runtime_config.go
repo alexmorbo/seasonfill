@@ -186,8 +186,6 @@ func dtoToInput(d dto.RuntimeConfigDTO) (runtimeconfig.Input, error) {
 			SecureCookie:   d.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), d.Auth.TrustedProxies...),
 			Mode:           normalizeIncomingMode(d.Auth.Mode),
-			LocalBypass:    d.Auth.LocalBypass,
-			LocalNetworks:  append([]string(nil), d.Auth.LocalNetworks...),
 			OIDC: runtimeconfig.OIDCInput{
 				Issuer:        d.Auth.OIDC.Issuer,
 				ClientID:      d.Auth.OIDC.ClientID,
@@ -258,8 +256,6 @@ func outputToDTO(out runtimeconfig.Output) dto.RuntimeConfigDTO {
 			SecureCookie:   out.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), out.Auth.TrustedProxies...),
 			Mode:           out.Auth.Mode,
-			LocalBypass:    out.Auth.LocalBypass,
-			LocalNetworks:  append([]string(nil), out.Auth.LocalNetworks...),
 			SessionEpoch:   out.Auth.SessionEpoch,
 			OIDC: dto.RuntimeOIDCDTO{
 				Issuer:                  out.Auth.OIDC.Issuer,

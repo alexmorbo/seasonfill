@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"reflect"
 
 	"github.com/gin-gonic/gin"
@@ -47,15 +46,12 @@ func (s *AuthMiddlewareSubscriber) apply(ctx context.Context, snap runtime.Snaps
 	if mode == "" {
 		mode = runtime.AuthModeForms
 	}
-	parsed := s.parseLocalNetworks(ctx, snap.Auth.LocalNetworks)
 	resolvedSecret := s.resolveClientSecret(ctx)
 	want := middleware.AuthRuntime{
 		SessionTTL:     snap.Auth.SessionTTL,
 		TrustedProxies: append([]string(nil), snap.Auth.TrustedProxies...),
 		SecureCookie:   snap.Auth.SecureCookie,
 		Mode:           mode,
-		LocalBypass:    snap.Auth.LocalBypass,
-		LocalNetworks:  parsed,
 		SessionEpoch:   snap.Auth.SessionEpoch,
 		OIDC: middleware.OIDCRuntime{
 			Issuer:        snap.Auth.OIDC.Issuer,
@@ -103,47 +99,15 @@ func (s *AuthMiddlewareSubscriber) resolveClientSecret(ctx context.Context) stri
 	return secret
 }
 
-// parseLocalNetworks pre-parses CIDR strings once per reload. Bad
-// entries are logged + skipped (NOT fatal) — a single malformed CIDR
-// must not poison the whole apply. The bypass hot path (036c) treats a
-// nil slice as "bypass disabled", which is the safe fail-closed
-// behaviour.
-func (s *AuthMiddlewareSubscriber) parseLocalNetworks(ctx context.Context, raw []string) []*net.IPNet {
-	if len(raw) == 0 {
-		return nil
-	}
-	out := make([]*net.IPNet, 0, len(raw))
-	for _, entry := range raw {
-		_, ipnet, err := net.ParseCIDR(entry)
-		if err != nil {
-			s.logger.WarnContext(ctx, "authMiddleware.local_network_invalid",
-				slog.String("entry", entry),
-				slog.String("error", err.Error()))
-			continue
-		}
-		out = append(out, ipnet)
-	}
-	return out
-}
-
 func authRuntimeEqual(a, b *middleware.AuthRuntime) bool {
 	if a.SessionTTL != b.SessionTTL ||
 		a.SecureCookie != b.SecureCookie ||
 		a.Mode != b.Mode ||
-		a.LocalBypass != b.LocalBypass ||
 		a.SessionEpoch != b.SessionEpoch {
 		return false
 	}
 	if !reflect.DeepEqual(a.TrustedProxies, b.TrustedProxies) {
 		return false
-	}
-	if len(a.LocalNetworks) != len(b.LocalNetworks) {
-		return false
-	}
-	for i := range a.LocalNetworks {
-		if a.LocalNetworks[i].String() != b.LocalNetworks[i].String() {
-			return false
-		}
 	}
 	if a.OIDC.Issuer != b.OIDC.Issuer ||
 		a.OIDC.ClientID != b.OIDC.ClientID ||

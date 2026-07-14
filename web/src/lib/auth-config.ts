@@ -5,7 +5,6 @@ import type { components } from '@/api/schema';
 export type AuthMode = 'forms' | 'basic' | 'none' | 'oidc';
 export type AuthConfig = {
   mode: AuthMode;
-  localBypass: boolean;
   oidcReady: boolean;
   loginUrl?: string;
 };
@@ -24,7 +23,6 @@ export async function getAuthConfig(): Promise<AuthConfig> {
   const r = await api<Wire>('/auth/config');
   const cfg: AuthConfig = {
     mode: narrowMode(r.mode),
-    localBypass: Boolean(r.local_bypass),
     oidcReady: Boolean(r.oidc_ready),
   };
   if (r.login_url) cfg.loginUrl = r.login_url;

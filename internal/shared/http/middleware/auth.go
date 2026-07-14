@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"net"
 	"net/http"
 	"time"
 
@@ -26,15 +25,14 @@ const UsernameContextKey = "auth.username"
 func RequireAuth(apiKey string, sessionKey []byte) gin.HandlerFunc {
 	ptr := &AuthRuntimePointer{}
 	ptr.Store(&AuthRuntime{Mode: runtime.AuthModeForms})
-	return buildAuth(apiKey, sessionKey, ptr, nil, nil, true, true)
+	return buildAuth(apiKey, sessionKey, ptr, nil, nil, true)
 }
 
 // RequireAuthWithRuntime gates protected non-webhook routes. Dispatch order:
 //
 //  1. X-Api-Key check (precedence — automation must never be silently
-//     attributed to "local")
-//  2. Local-bypass (if rt.LocalBypass=true AND client IP ∈ rt.LocalNetworks)
-//  3. Mode-specific path (forms | basic | none)
+//     attributed to another principal)
+//  2. Mode-specific path (forms | basic | none)
 //
 // adminRepo + loginLimiter are required only for Basic mode.
 func RequireAuthWithRuntime(
@@ -44,14 +42,13 @@ func RequireAuthWithRuntime(
 	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
-	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, true, true)
+	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, true)
 }
 
 // RequireAuthWebhook is the webhook-route variant. IDENTICAL to
-// RequireAuthWithRuntime except step 2 (local-bypass) is unconditionally
-// skipped. Webhook ALWAYS requires X-Api-Key — invariant D-3 / AC-8.
-// Cookie precheck is also disabled (cookieAllowed=false): webhook must
-// never be authenticated via a session cookie.
+// RequireAuthWithRuntime except the cookie precheck is disabled
+// (cookieAllowed=false): webhook must never be authenticated via a
+// session cookie. Webhook ALWAYS requires X-Api-Key — invariant D-3 / AC-8.
 func RequireAuthWebhook(
 	apiKey string,
 	sessionKey []byte,
@@ -59,20 +56,17 @@ func RequireAuthWebhook(
 	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
-	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, false, false)
+	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, false)
 }
 
-// buildAuth is the shared pipeline. localBypassAllowed=false pins the
-// bypass branch off (webhook constructor); =true lets the snapshot
-// decide per request. cookieAllowed=false disables the basic-mode cookie
-// precheck (webhook path must be X-Api-Key only).
+// buildAuth is the shared pipeline. cookieAllowed=false disables the
+// basic-mode cookie precheck (webhook path must be X-Api-Key only).
 func buildAuth(
 	apiKey string,
 	sessionKey []byte,
 	ptr *AuthRuntimePointer,
 	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
-	localBypassAllowed bool,
 	cookieAllowed bool,
 ) gin.HandlerFunc {
 	rawKeyBytes := []byte(apiKey)
@@ -80,7 +74,7 @@ func buildAuth(
 		rt := loadAuthRuntime(ptr)
 
 		// Step 1: X-Api-Key first — automation must never be blocked
-		// by mode OR silently collapsed to "local" by step 2.
+		// by mode.
 		if apiKey != "" {
 			got := c.GetHeader("X-Api-Key")
 			if got != "" && subtle.ConstantTimeCompare([]byte(got), rawKeyBytes) == 1 {
@@ -90,18 +84,7 @@ func buildAuth(
 			}
 		}
 
-		// Step 2: local-bypass (non-webhook routes only).
-		if localBypassAllowed && rt.LocalBypass && len(rt.LocalNetworks) > 0 {
-			if ip := net.ParseIP(c.ClientIP()); ip != nil {
-				if IsLocalAddress(ip, rt.LocalNetworks) {
-					c.Set(UsernameContextKey, "local")
-					c.Next()
-					return
-				}
-			}
-		}
-
-		// Step 3: mode dispatch.
+		// Step 2: mode dispatch.
 		switch rt.Mode {
 		case runtime.AuthModeNone:
 			c.Set(UsernameContextKey, "anonymous")

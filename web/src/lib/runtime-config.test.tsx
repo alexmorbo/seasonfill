@@ -92,7 +92,7 @@ describe('useUpdateRuntimeConfig()', () => {
     // Seed the auth-config cache with a stale value so we can verify it
     // gets invalidated; we test via QueryClient state rather than a spy on
     // invalidateQueries because the latter is more brittle.
-    qc.setQueryData(authConfigQueryKey, { mode: 'forms', localBypass: false });
+    qc.setQueryData(authConfigQueryKey, { mode: 'forms' });
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useUpdateRuntimeConfig(), { wrapper: wrap(qc) });
     result.current.mutate({} as never);

@@ -274,8 +274,6 @@ type AppConfigModel struct {
 	AuthSecureCookie     bool   `gorm:"column:auth_secure_cookie;not null"`
 	AuthTrustedProxies   string `gorm:"column:auth_trusted_proxies;type:text;not null"`
 	AuthMode             string `gorm:"column:auth_mode;type:text;not null"`
-	AuthLocalBypass      bool   `gorm:"column:auth_local_bypass;not null"`
-	AuthLocalNetworks    string `gorm:"column:auth_local_networks;type:text;not null"`
 	AuthSessionEpoch     int64  `gorm:"column:auth_session_epoch;not null"`
 	OIDCIssuer           string `gorm:"column:oidc_issuer;type:text;not null"`
 	OIDCClientID         string `gorm:"column:oidc_client_id;type:text;not null"`

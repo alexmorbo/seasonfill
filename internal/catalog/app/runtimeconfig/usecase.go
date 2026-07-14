@@ -67,9 +67,6 @@ const (
 	// trustedProxiesMaxLen caps the list length so a misconfigured
 	// caller can't blow the gin XFF parser with arbitrary input.
 	trustedProxiesMaxLen = 64
-	// localNetworksMaxLen caps the per-request CIDR allow-list. Larger
-	// values blow the per-request linear scan on the bypass hot path.
-	localNetworksMaxLen = 64
 
 	// guidRewritesMaxLen / guidRewriteFromMaxLen / guidRewriteToMaxLen
 	// bound the operator-curated tracker-URL substitution table (107).
@@ -175,9 +172,8 @@ func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 
 // Update validates the incoming Input, persists it, then republishes a
 // fresh Snapshot. Bumps SessionEpoch when any auth-invalidating field
-// changes (Mode / LocalBypass / LocalNetworks). The bump uses the
-// usecase clock (UnixNano) which is monotonic across normal real-world
-// gaps and stable in tests.
+// changes (Mode / OIDC). The bump uses the usecase clock (UnixNano)
+// which is monotonic across normal real-world gaps and stable in tests.
 func (u *UseCase) Update(
 	ctx context.Context,
 	in Input,
@@ -282,8 +278,6 @@ func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 			SecureCookie:   row.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), row.Auth.TrustedProxies...),
 			Mode:           mode,
-			LocalBypass:    row.Auth.LocalBypass,
-			LocalNetworks:  append([]string(nil), row.Auth.LocalNetworks...),
 			SessionEpoch:   next,
 			OIDC: runtime.OIDCSnapshot{
 				Issuer:        row.Auth.OIDC.Issuer,
@@ -312,12 +306,6 @@ func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
 
 func epochShouldBump(prev, next runtime.AuthSnapshot) bool {
 	if prev.Mode != next.Mode {
-		return true
-	}
-	if prev.LocalBypass != next.LocalBypass {
-		return true
-	}
-	if !stringSliceEqual(prev.LocalNetworks, next.LocalNetworks) {
 		return true
 	}
 	if prev.OIDC.Issuer != next.OIDC.Issuer ||
@@ -418,10 +406,6 @@ func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (run
 			"auth.mode", "INVALID_AUTH_MODE",
 			fmt.Sprintf("must be one of forms|basic|none|oidc, got %q", in.Auth.Mode))
 	}
-	cleanedNetworks, err := validateLocalNetworks(in.Auth.LocalNetworks)
-	if err != nil {
-		return runtime.Snapshot{}, err
-	}
 	hasStored := len(prevRow.OIDCClientSecretCiphertext) > 0
 	if err := validateOIDCInput(in.Auth.OIDC, in.Auth.Mode,
 		u.clientSecretEnv, hasStored); err != nil {
@@ -451,8 +435,6 @@ func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (run
 			SecureCookie:   in.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), in.Auth.TrustedProxies...),
 			Mode:           in.Auth.Mode,
-			LocalBypass:    in.Auth.LocalBypass,
-			LocalNetworks:  cleanedNetworks,
 			OIDC: runtime.OIDCSnapshot{
 				Issuer:        strings.TrimSpace(in.Auth.OIDC.Issuer),
 				ClientID:      strings.TrimSpace(in.Auth.OIDC.ClientID),
@@ -474,48 +456,6 @@ func validAuthMode(m string) bool {
 	default:
 		return false
 	}
-}
-
-// validateLocalNetworks accepts CIDRs only — bare IPs are intentionally
-// rejected (callers should write `127.0.0.1/32`). Returns the cleaned
-// list (trimmed + deduplicated by canonical CIDR string) so the caller
-// can persist canonical form instead of raw user input.
-//
-// Rules:
-//   - len ≤ localNetworksMaxLen (DoS bound on the bypass hot path)
-//   - each entry trimmed; empty entries rejected
-//   - net.ParseCIDR must succeed; the *canonical* form (ipnet.String())
-//     is what we dedupe on, so " 10.0.0.0/8 " and "10.0.0.0/8"
-//     collapse to one entry
-//   - mixed IPv4 / IPv6 allowed
-func validateLocalNetworks(list []string) ([]string, error) {
-	if len(list) > localNetworksMaxLen {
-		return nil, newValidationErr("auth.local_networks",
-			"INVALID_LOCAL_NETWORKS_TOO_MANY",
-			fmt.Sprintf("at most %d entries allowed", localNetworksMaxLen))
-	}
-	seen := make(map[string]struct{}, len(list))
-	out := make([]string, 0, len(list))
-	for _, raw := range list {
-		entry := strings.TrimSpace(raw)
-		if entry == "" {
-			return nil, newValidationErr("auth.local_networks",
-				"INVALID_LOCAL_NETWORK", "empty entry not allowed")
-		}
-		_, ipnet, err := net.ParseCIDR(entry)
-		if err != nil {
-			return nil, newValidationErr("auth.local_networks",
-				"INVALID_LOCAL_NETWORK",
-				fmt.Sprintf("%q is not a valid CIDR: %s", entry, err.Error()))
-		}
-		canon := ipnet.String()
-		if _, dup := seen[canon]; dup {
-			continue
-		}
-		seen[canon] = struct{}{}
-		out = append(out, canon)
-	}
-	return out, nil
 }
 
 func validateOIDCInput(in OIDCInput, mode, env string, hasStoredSecret bool) error {
@@ -684,10 +624,6 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time, envSecret string) Out
 	if proxies == nil {
 		proxies = []string{}
 	}
-	networks := append([]string(nil), row.Auth.LocalNetworks...)
-	if networks == nil {
-		networks = []string{}
-	}
 	rewrites := append([]runtime.GUIDRewriteRule(nil), row.GUIDRewrites...)
 	if rewrites == nil {
 		rewrites = []runtime.GUIDRewriteRule{}
@@ -716,8 +652,6 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time, envSecret string) Out
 			SecureCookie:   row.Auth.SecureCookie,
 			TrustedProxies: proxies,
 			Mode:           mode,
-			LocalBypass:    row.Auth.LocalBypass,
-			LocalNetworks:  networks,
 			SessionEpoch:   row.Auth.SessionEpoch,
 			OIDC: OIDCOutput{
 				Issuer:                  row.Auth.OIDC.Issuer,

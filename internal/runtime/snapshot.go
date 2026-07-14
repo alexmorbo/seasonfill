@@ -138,38 +138,16 @@ func DefaultOIDCSnapshot() OIDCSnapshot {
 	}
 }
 
-// DefaultAuthLocalNetworks is the hardcoded private/loopback/link-local/ULA
-// allow-list used both at fresh-install seed time and as the snapshot
-// fallback when a stored row lacks the column. Kept in sync with the
-// migration v2 default JSON literal.
-func DefaultAuthLocalNetworks() []string {
-	return []string{
-		"127.0.0.0/8",
-		"::1/128",
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"169.254.0.0/16",
-		"fe80::/10",
-		"fc00::/7",
-	}
-}
-
 type AuthSnapshot struct {
 	SessionTTL     time.Duration
 	SecureCookie   bool
 	TrustedProxies []string
 	// Mode is one of AuthMode{Forms,Basic,None,OIDC}.
 	Mode string
-	// LocalBypass=true → trusted-local clients skip auth entirely
-	// (except for /api/v1/webhook/*, which always requires X-Api-Key).
-	LocalBypass bool
-	// LocalNetworks is the CIDR allow-list driving local-bypass.
-	LocalNetworks []string
 	// SessionEpoch is bumped by the usecase whenever a change should
-	// invalidate live sessions (mode change, bypass toggle, network
-	// list change). Cookies carry the epoch they were minted under;
-	// the middleware rejects payloads with ep < SessionEpoch.
+	// invalidate live sessions (mode change). Cookies carry the epoch
+	// they were minted under; the middleware rejects payloads with
+	// ep < SessionEpoch.
 	SessionEpoch int64
 	OIDC         OIDCSnapshot
 }
@@ -296,8 +274,6 @@ func Defaults() Snapshot {
 			SecureCookie:   false,
 			TrustedProxies: []string{"127.0.0.1", "::1"},
 			Mode:           AuthModeForms,
-			LocalBypass:    false,
-			LocalNetworks:  DefaultAuthLocalNetworks(),
 			SessionEpoch:   0,
 			OIDC:           DefaultOIDCSnapshot(),
 		},

@@ -25,7 +25,6 @@ beforeEach(() => {
         global_rate_limit: { rpm: 30, burst: 10 },
         auth: {
           mode: 'forms', secure_cookie: false, trusted_proxies: [],
-          local_bypass: false, local_networks: [],
           session_ttl: '12h', session_epoch: 1,
           oidc: { issuer: '', client_id: '', redirect_url: '', scopes: ['openid','profile','email'],
             username_claim: 'preferred_username', allowed_groups: [], groups_claim: 'groups',
@@ -35,7 +34,7 @@ beforeEach(() => {
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/v1/auth/config')) {
-      return new Response(JSON.stringify({ mode: 'forms', local_bypass: false, oidc_ready: false }),
+      return new Response(JSON.stringify({ mode: 'forms', oidc_ready: false }),
         { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });

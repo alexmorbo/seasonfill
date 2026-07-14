@@ -15,7 +15,7 @@ export type OIDCTestResult = {
 };
 
 // OIDCField helpers — kept as a list-of-strings chip editor for scopes and
-// allowed_groups, identical UX to TrustedProxiesEditor / LocalNetworksEditor
+// allowed_groups, identical UX to TrustedProxiesEditor
 // but without the CIDR validation (these are plain strings).
 function ChipList(props: {
   id: string;

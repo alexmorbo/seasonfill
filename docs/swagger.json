@@ -88,10 +88,6 @@
             },
             "dto.AuthConfigDTO": {
                 "properties": {
-                    "local_bypass": {
-                        "example": false,
-                        "type": "boolean"
-                    },
                     "login_url": {
                         "example": "/api/v1/auth/oidc/start",
                         "type": "string"
@@ -2077,22 +2073,6 @@
             },
             "dto.RuntimeAuthDTO": {
                 "properties": {
-                    "local_bypass": {
-                        "description": "LocalBypass enables the local-address bypass middleware (036c).",
-                        "type": "boolean"
-                    },
-                    "local_networks": {
-                        "description": "LocalNetworks is the CIDR allow-list driving local-bypass.",
-                        "example": [
-                            "127.0.0.0/8",
-                            "10.0.0.0/8"
-                        ],
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
                     "mode": {
                         "description": "Mode is one of \"forms\" | \"basic\" | \"none\" | \"oidc\". Default \"forms\".",
                         "example": "forms",

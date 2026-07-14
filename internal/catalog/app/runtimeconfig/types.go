@@ -45,11 +45,7 @@ type AuthInput struct {
 	// the usecase; rejected at the boundary so a bogus value never
 	// reaches the dispatcher.
 	Mode string
-	// LocalBypass + LocalNetworks drive the local-address bypass.
-	// Both are wired here so a single PUT applies the full set atomically.
-	LocalBypass   bool
-	LocalNetworks []string
-	OIDC          OIDCInput
+	OIDC OIDCInput
 }
 
 // OIDCInput is the wire-validated OIDC config. ClientSecret follows the
@@ -92,8 +88,6 @@ type AuthOutput struct {
 	SecureCookie   bool
 	TrustedProxies []string
 	Mode           string
-	LocalBypass    bool
-	LocalNetworks  []string
 	SessionEpoch   int64
 	OIDC           OIDCOutput
 }

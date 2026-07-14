@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"net"
 	"sync/atomic"
 	"time"
 )
@@ -13,9 +12,6 @@ import (
 //   - TrustedProxies → gin engine SetTrustedProxies on rebuild
 //   - SecureCookie   → AuthHandler.Login / Logout cookie Secure flag
 //   - Mode           → RequireAuth dispatcher (forms|basic|none)
-//   - LocalBypass    → 036c bypass middleware
-//   - LocalNetworks  → 036c pre-parsed CIDR allow-list (subscriber
-//     parses once, hot path does pure compare)
 //   - SessionEpoch   → cookie verifier rejects payloads with ep < this
 //
 // Callers MUST Load() the atomic per request — never cache the pointer
@@ -25,8 +21,6 @@ type AuthRuntime struct {
 	TrustedProxies []string
 	SecureCookie   bool
 	Mode           string
-	LocalBypass    bool
-	LocalNetworks  []*net.IPNet
 	SessionEpoch   int64
 	OIDC           OIDCRuntime
 }
@@ -50,7 +44,7 @@ func (o OIDCRuntime) IsReady() bool {
 // AuthRuntimePointer is the atomic published by cmd/server to:
 //   - AuthHandler, which reads SessionTTL + SecureCookie on every request.
 //   - AuthMiddlewareSubscriber, which Stores a fresh value per snapshot.
-//   - AuthConfigHandler, which reads Mode + LocalBypass.
+//   - AuthConfigHandler, which reads Mode.
 //   - RequireAuthWithRuntime dispatcher.
 //
 // Default = boot-time values; never nil after cmd/server init.
