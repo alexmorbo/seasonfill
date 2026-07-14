@@ -23,13 +23,6 @@ func main() {
 		}
 		return
 	}
-	if len(os.Args) > 1 && os.Args[1] == "auth-mode" {
-		if err := commands.AuthMode(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "auth-mode: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
 	if len(os.Args) > 1 && os.Args[1] == "backfill-base-lang" {
 		if err := commands.BackfillBaseLang(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "backfill-base-lang: %v\n", err)

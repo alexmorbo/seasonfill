@@ -2546,12 +2546,6 @@ func buildAppConfigTable(d Dialect) *atlasschema.Table {
 		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
 	authTrustedProxies := atlasschema.NewStringColumn("auth_trusted_proxies", "text").
 		SetNull(false).SetDefault(&atlasschema.Literal{V: "'[]'"})
-	authMode := atlasschema.NewStringColumn("auth_mode", "text").
-		SetNull(false).SetDefault(&atlasschema.Literal{V: "'forms'"})
-	authLocalBypass := atlasschema.NewBoolColumn("auth_local_bypass", "boolean").
-		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
-	authLocalNetworks := atlasschema.NewStringColumn("auth_local_networks", "text").
-		SetNull(false).SetDefault(&atlasschema.Literal{V: "'[]'"})
 	authSessionEpoch := atlasschema.NewIntColumn("auth_session_epoch", "bigint").
 		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
 	oidcIssuer := atlasschema.NewStringColumn("oidc_issuer", "text").
@@ -2588,7 +2582,7 @@ func buildAppConfigTable(d Dialect) *atlasschema.Table {
 			dryRun,
 			globalRPM, globalBurst,
 			authSessionTTLSec, authSecureCookie, authTrustedProxies,
-			authMode, authLocalBypass, authLocalNetworks, authSessionEpoch,
+			authSessionEpoch,
 			oidcIssuer, oidcClientID, oidcRedirectURL, oidcScopes,
 			oidcUsernameClaim, oidcAllowedGroups, oidcGroupsClaim,
 			guidRewrites,
