@@ -712,6 +712,27 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		seriesCacheRepo, counterRepo, discoveryHTTPBundle, tmdbSeasonsClient, log,
 	)
 
+	// F-07: the two static-named cachewatch caches (discover LRU +
+	// instance_metadata bundle) are registered in the cachewatch singleton
+	// by construction above. If a later boot step (BuildScheduler /
+	// StartSubscribers / bootScheduler.Start) errors, New returns without
+	// reaching Shutdown — leaking those registry names into a subsequent
+	// boot in the same process (the cmd/server E2E suite). Close them on the
+	// error path via the same `armed` sentinel that guards bus/rootCancel;
+	// disarmed on success (armed=false below) where Shutdown owns the Close.
+	// Both nil-safe; Close is idempotent (no double-close on the happy path).
+	defer func() {
+		if !armed {
+			return
+		}
+		if discoverBundle != nil && discoverBundle.LRU != nil {
+			_ = discoverBundle.LRU.Close()
+		}
+		if instanceMetadataBundle != nil && instanceMetadataBundle.Cache != nil {
+			_ = instanceMetadataBundle.Cache.Close()
+		}
+	}()
+
 	// Boot scheduler — constructed after BuildEnrichment so the four
 	// enrichment-derived job closures are ready. BuildScheduler Registers
 	// every cron job before returning; caller owns Start() below.
