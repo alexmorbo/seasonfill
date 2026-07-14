@@ -140,22 +140,73 @@ jobs:
       - name: Verify integration package coverage (drift guard)
         run: |
           set -euo pipefail
-          ACTUAL=$(grep -rl -e '//go:build integration' -e '// +build integration' internal/ cmd/ tests/ 2>/dev/null \
-            | xargs -n1 dirname | sort -u \
-            | sed 's,^,./,' \
-            | xargs -I{} go list -tags integration {} 2>/dev/null \
-            | sed 's,^github.com/alexmorbo/seasonfill/,./,' | grep -v '/cmd/' | sort -u)
-          EXPECTED=$(go list -tags integration ./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/... 2>/dev/null \
-            | sed 's,^github.com/alexmorbo/seasonfill/,./,' | sort -u)
+
+          # Find all .go files with exact integration build tag, excluding web/ .git/ vendor/
+          # Extract unique package directories and verify via go list.
+          # Fail on any go list errors (import issues, unreachable packages).
+
+          echo "Scanning for integration-tagged packages repo-wide..."
+
+          # Find .go files with exact //go:build integration tag
+          FILES=$(find . -type f -name "*.go" \
+            ! -path "./web/*" ! -path "./.git/*" ! -path "./vendor/*" \
+            -exec grep -l "^//go:build integration\$" {} \; 2>/dev/null || true)
+
+          # If no files found, guard is trivially OK
+          if [ -z "$FILES" ]; then
+            echo "OK: no integration-tagged files found"
+            exit 0
+          fi
+
+          # Extract unique package directories
+          DIRS=$(echo "$FILES" | xargs -n1 dirname | sort -u)
+
+          # Resolve packages via go list, fail on errors
+          ACTUAL=""
+          for dir in $DIRS; do
+            # Normalize directory path to ./path form
+            pkg_path="${dir#./}"
+            pkg_path="./${pkg_path#./}"
+
+            # go list will output full import path, capture errors separately
+            if ! list_out=$(go list -tags integration "$pkg_path" 2>&1); then
+              echo "FAILURE: go list error in $pkg_path:"
+              echo "$list_out"
+              exit 1
+            fi
+            ACTUAL="${ACTUAL}${list_out}"$'\n'
+          done
+
+          # Normalize ACTUAL: convert import paths to relative paths, sort, deduplicate
+          ACTUAL=$(echo "$ACTUAL" | sed 's,^github.com/alexmorbo/seasonfill/,./,' | grep -v '^$' | sort -u)
+
+          # EXPECTED: include cmd/server since sqlite lane now runs it
+          EXPECTED=$(go list -tags integration \
+            ./internal/shared/testhelpers \
+            ./internal/discovery/app/... \
+            ./internal/discovery/persistence \
+            ./internal/mediaproxy/infrastructure \
+            ./tests/... \
+            ./cmd/server/... \
+            2>/dev/null | sed 's,^github.com/alexmorbo/seasonfill/,./,' | sort -u)
+
+          # Check for drift: packages in ACTUAL but not in EXPECTED
           MISSING=$(comm -23 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$EXPECTED") | grep -v '^$' || true)
           if [ -n "$MISSING" ]; then
-            echo "DRIFT: integration-tagged packages missing from sqlite explicit list:"; echo "$MISSING"; exit 1
+            echo "DRIFT: integration-tagged packages missing from CI coverage:"
+            echo "$MISSING"
+            echo ""
+            echo "Action: either (a) add the package to .github/workflows/ci.yml EXPECTED list, or (b) remove the integration tag if not meant to run"
+            exit 1
           fi
-          echo "OK: no integration package drift"
+
+          echo "OK: integration package coverage is complete"
+          echo "  Actual tagged packages: $(echo "$ACTUAL" | wc -l)"
+          echo "  Expected coverage: $(echo "$EXPECTED" | wc -l)"
 
       - name: Test (integration, sqlite only)
         run: |
-          PKGS="./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/..."
+          PKGS="./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/... ./cmd/server/..."
           go test -tags integration -race -timeout 15m $PKGS
 
   integration-postgres:
