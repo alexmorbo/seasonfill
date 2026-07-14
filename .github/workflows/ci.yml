@@ -16,6 +16,18 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Single source of truth for the integration-test package specs. Each lane's
+# `go test` step runs exactly these specs, and the drift guard (integration-sqlite
+# job) derives its EXPECTED set from the SAME three variables via `go list`. Because
+# EXPECTED is computed from the specs that are actually executed — not a separately
+# maintained list — a package cannot satisfy the guard without genuinely running in
+# some lane. Adding an integration-tagged package therefore requires adding it here
+# (where it runs); listing it only in the guard is impossible.
+env:
+  INTEGRATION_PKGS_SQLITE: "./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/..."
+  INTEGRATION_PKGS_CMDSERVER: "./cmd/server/..."
+  INTEGRATION_PKGS_POSTGRES: "./internal/shared/testhelpers ./internal/discovery/app/... ./internal/admin/persistence/... ./internal/catalog/persistence/... ./internal/enrichment/persistence/... ./internal/grab/persistence/... ./internal/watchdog/persistence/... ./tests/integration/..."
+
 jobs:
   lint:
     name: Lint
@@ -141,16 +153,40 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Find all .go files with exact integration build tag, excluding web/ .git/ vendor/
-          # Extract unique package directories and verify via go list.
-          # Fail on any go list errors (import issues, unreachable packages).
+          # Find all .go files whose //go:build constraint INCLUDES the `integration`
+          # tag as a positive term, excluding web/ .git/ vendor/. Extract unique
+          # package directories and verify via go list. Fail on any go list errors
+          # (import issues, unreachable packages).
+          #
+          # The discovery regex (grep -P) matches the `integration` tag as a whole
+          # word so it catches compound constraints — `//go:build integration`,
+          # `//go:build integration && linux`, `//go:build linux || integration` —
+          # while deliberately NOT matching:
+          #   * `integration_e2e` — a genuinely distinct tag run only by nightly-deep
+          #     (the \b after `integration` fails against the `_`), and
+          #   * `!integration`   — a negated constraint (the (?<!!) lookbehind rejects it).
+          # An exact-line match previously let `integration && …` files escape the
+          # scan entirely, making the guard green while those packages never ran.
+          # Discovery is intentionally broad: a package it finds must still appear in
+          # one of the INTEGRATION_PKGS_* specs so it is executed under `-tags
+          # integration`. Every lane selects the sqlite/postgres backend via the
+          # SEASONFILL_TEST_POSTGRES_* env, NOT a build tag — so gating test files
+          # behind an extra build tag that no lane sets (e.g. a bespoke `postgres`
+          # tag) would keep them from running; use `-tags integration` + env instead.
+
+          # Fail closed if grep lacks PCRE (-P): without it the find below would match
+          # nothing, emptying FILES and passing the guard having scanned zero files.
+          if ! printf '//go:build integration\n' | grep -qP '^//go:build .*(?<!!)\bintegration\b'; then
+            echo "FAILURE: grep -P (PCRE) unavailable — cannot scan build constraints"
+            exit 1
+          fi
 
           echo "Scanning for integration-tagged packages repo-wide..."
 
-          # Find .go files with exact //go:build integration tag
+          # Find .go files whose //go:build constraint includes the integration tag
           FILES=$(find . -type f -name "*.go" \
             ! -path "./web/*" ! -path "./.git/*" ! -path "./vendor/*" \
-            -exec grep -l "^//go:build integration\$" {} \; 2>/dev/null || true)
+            -exec grep -lP '^//go:build .*(?<!!)\bintegration\b' {} \; 2>/dev/null || true)
 
           # If no files found, guard is trivially OK
           if [ -z "$FILES" ]; then
@@ -185,23 +221,28 @@ jobs:
           # Normalize ACTUAL: convert import paths to relative paths, sort, deduplicate
           ACTUAL=$(echo "$ACTUAL" | sed 's,^github.com/alexmorbo/seasonfill/,./,' | grep -v '^$' | sort -u)
 
-          # EXPECTED: include cmd/server since sqlite lane now runs it
+          # EXPECTED = the union of the packages EVERY integration lane actually
+          # executes, resolved from the SAME shared specs the test steps run:
+          #   * INTEGRATION_PKGS_SQLITE     — sqlite lane, main step
+          #   * INTEGRATION_PKGS_CMDSERVER  — sqlite lane, dedicated cmd/server step
+          #   * INTEGRATION_PKGS_POSTGRES   — postgres lane
+          # Deriving EXPECTED from these (rather than a hand-typed copy) is what makes
+          # the guard a real coverage proof: every package it accepts is one a lane
+          # runs, and any integration-tagged package absent from all three specs falls
+          # out of EXPECTED and trips the drift check below.
           EXPECTED=$(go list -tags integration \
-            ./internal/shared/testhelpers \
-            ./internal/discovery/app/... \
-            ./internal/discovery/persistence \
-            ./internal/mediaproxy/infrastructure \
-            ./tests/... \
-            ./cmd/server/... \
+            $INTEGRATION_PKGS_SQLITE \
+            $INTEGRATION_PKGS_CMDSERVER \
+            $INTEGRATION_PKGS_POSTGRES \
             2>/dev/null | sed 's,^github.com/alexmorbo/seasonfill/,./,' | sort -u)
 
           # Check for drift: packages in ACTUAL but not in EXPECTED
           MISSING=$(comm -23 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$EXPECTED") | grep -v '^$' || true)
           if [ -n "$MISSING" ]; then
-            echo "DRIFT: integration-tagged packages missing from CI coverage:"
+            echo "DRIFT: integration-tagged packages that no lane executes:"
             echo "$MISSING"
             echo ""
-            echo "Action: either (a) add the package to .github/workflows/ci.yml EXPECTED list, or (b) remove the integration tag if not meant to run"
+            echo "Action: either (a) add the package to the matching INTEGRATION_PKGS_* list in .github/workflows/ci.yml (env: block) so its tests ACTUALLY RUN, or (b) remove the integration build tag if the package is not meant to run. Adding it only to a reference list is not possible — EXPECTED is derived from the specs the test steps execute."
             exit 1
           fi
 
@@ -210,9 +251,7 @@ jobs:
           echo "  Expected coverage: $(echo "$EXPECTED" | wc -l)"
 
       - name: Test (integration, sqlite only)
-        run: |
-          PKGS="./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/..."
-          go test -tags integration -race -timeout 15m $PKGS
+        run: go test -tags integration -race -timeout 15m $INTEGRATION_PKGS_SQLITE
 
       # cmd/server runs in its OWN step, sequentially after the packages above.
       # Its reload E2E suite boots the full server ~13 times (SQLite migrations +
@@ -223,7 +262,7 @@ jobs:
       # dedicated step gives the boots the whole runner, matching the green
       # isolated runs.
       - name: Test (integration, sqlite only — cmd/server)
-        run: go test -tags integration -race -timeout 15m ./cmd/server/...
+        run: go test -tags integration -race -timeout 15m $INTEGRATION_PKGS_CMDSERVER
 
   integration-postgres:
     name: Integration (Postgres via services container)
@@ -274,7 +313,7 @@ jobs:
           SEASONFILL_TEST_POSTGRES_DSN: "postgres://seasonfill:seasonfill@localhost:5432/seasonfill_test?sslmode=disable"
           GOMAXPROCS: "4"
         run: |
-          PKGS=$(go list -tags integration ./internal/shared/testhelpers ./internal/discovery/app/... ./internal/admin/persistence/... ./internal/catalog/persistence/... ./internal/enrichment/persistence/... ./internal/grab/persistence/... ./internal/watchdog/persistence/... ./tests/integration/...)
+          PKGS=$(go list -tags integration $INTEGRATION_PKGS_POSTGRES)
           go test -tags integration -race -timeout 20m -parallel=4 $PKGS
 
   nightly-deep:
