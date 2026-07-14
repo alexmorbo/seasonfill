@@ -149,7 +149,7 @@ describe('<NewScanModal />', () => {
     const captured: { urls: string[]; methods: string[]; bodies: string[] } =
       { urls: [], methods: [], bodies: [] };
     const sevItem = {
-      series_id: 122, title: 'Severance', monitored: true,
+      sonarr_series_id: 122, series_id: 122, title: 'Severance', monitored: true,
       season_count: 2, missing_aired_count: 8,
     };
     globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
