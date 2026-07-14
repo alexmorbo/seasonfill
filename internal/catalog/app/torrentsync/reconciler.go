@@ -319,7 +319,14 @@ func (r *Reconciler) applyGrabRecords(ctx context.Context, instance domain.Insta
 // returns one record per active download; downloadId is the
 // lowercase hash for torrent grabs.
 func (r *Reconciler) applyQueue(ctx context.Context, instance domain.InstanceName, client SonarrReconciler, hashes []string) ([]string, error) {
-	payload, err := client.QueueAll(ctx)
+	// F-04: QueueAll now paginates the global queue, so a pathological
+	// backlog could stall a reconciler pass indefinitely on the loop's
+	// long-lived rootCtx. Bound the upstream fetch with a per-pass
+	// deadline. WithTimeout nests correctly under any tighter caller
+	// deadline (it never loosens an earlier one).
+	fetchCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	payload, err := client.QueueAll(fetchCtx)
 	if err != nil {
 		return hashes, fmt.Errorf("sonarr queue: %w", err)
 	}
