@@ -36,6 +36,15 @@ server {
     # redeclare and would otherwise drop the CSP there.
     include /etc/nginx/snippets/security-headers.conf;
 
+    # Proxy header buffer — all locations inherit. nginx proxy_buffer_size
+    # governs the initial read buffer for response headers independently of
+    # proxy_buffering on/off. With large Set-Cookie headers (session slide
+    # + OIDC callback), the default 4k/8k overflows → "upstream sent too big
+    # header" 502s. Sized for ~12k payload + 30% headroom.
+    proxy_buffer_size 16k;
+    proxy_buffers 8 16k;
+    proxy_busy_buffers_size 32k;
+
     # Backend fan-out. The frontend proxies these path prefixes to the
     # backend container so end users hit a single host:port. The
     # backend itself stays unexposed (compose: no `ports:` mapping on
