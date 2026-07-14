@@ -11,7 +11,6 @@ import (
 //   - SessionTTL     → AuthHandler.Login (cookie max-age + token exp)
 //   - TrustedProxies → gin engine SetTrustedProxies on rebuild
 //   - SecureCookie   → AuthHandler.Login / Logout cookie Secure flag
-//   - Mode           → RequireAuth dispatcher (forms|basic|none)
 //   - SessionEpoch   → cookie verifier rejects payloads with ep < this
 //
 // Callers MUST Load() the atomic per request — never cache the pointer
@@ -20,7 +19,6 @@ type AuthRuntime struct {
 	SessionTTL     time.Duration
 	TrustedProxies []string
 	SecureCookie   bool
-	Mode           string
 	SessionEpoch   int64
 	OIDC           OIDCRuntime
 }
@@ -44,7 +42,6 @@ func (o OIDCRuntime) IsReady() bool {
 // AuthRuntimePointer is the atomic published by cmd/server to:
 //   - AuthHandler, which reads SessionTTL + SecureCookie on every request.
 //   - AuthMiddlewareSubscriber, which Stores a fresh value per snapshot.
-//   - AuthConfigHandler, which reads Mode.
 //   - RequireAuthWithRuntime dispatcher.
 //
 // Default = boot-time values; never nil after cmd/server init.

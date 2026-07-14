@@ -110,7 +110,6 @@ func validInput() Input {
 			SessionTTL:     12 * time.Hour,
 			SecureCookie:   false,
 			TrustedProxies: []string{"127.0.0.1", "::1", "10.0.0.0/8"},
-			Mode:           runtime.AuthModeForms,
 		},
 	}
 }
@@ -616,38 +615,6 @@ func TestUpdate_NoIUS_SucceedsThroughRepo(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestUsecase_RejectsInvalidAuthMode(t *testing.T) {
-	t.Parallel()
-	repo := &fakeRuntimeRepo{}
-	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
-	in := validInput()
-	in.Auth.Mode = "foobar"
-	_, _, err := uc.Update(context.Background(), in, nil)
-	require.Error(t, err)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_AUTH_MODE", verr.Code)
-}
-
-func TestUsecase_EpochBumpsOnModeChange(t *testing.T) {
-	t.Parallel()
-	repo := &fakeRuntimeRepo{}
-	clock := time.Unix(0, 1_000_000_000).UTC()
-	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
-		WithClock(func() time.Time { return clock })
-	in := validInput()
-	_, _, err := uc.Update(context.Background(), in, nil)
-	require.NoError(t, err)
-	firstEpoch := repo.row.Auth.SessionEpoch
-
-	clock = time.Unix(0, 2_000_000_000).UTC()
-	in.Auth.Mode = runtime.AuthModeNone
-	_, _, err = uc.Update(context.Background(), in, nil)
-	require.NoError(t, err)
-	assert.Greater(t, repo.row.Auth.SessionEpoch, firstEpoch,
-		"mode change MUST bump epoch")
-}
-
 func TestUsecase_EpochUnchangedWhenAuthFieldsStable(t *testing.T) {
 	t.Parallel()
 	repo := &fakeRuntimeRepo{}
@@ -664,35 +631,8 @@ func TestUsecase_EpochUnchangedWhenAuthFieldsStable(t *testing.T) {
 	assert.Equal(t, first, repo.row.Auth.SessionEpoch)
 }
 
-func TestUsecase_SetAuthMode_BumpsEpoch(t *testing.T) {
-	t.Parallel()
-	repo := &fakeRuntimeRepo{}
-	clock := time.Unix(0, 5_000_000_000).UTC()
-	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
-		WithClock(func() time.Time { return clock })
-
-	// First call must succeed even though row is missing (falls back
-	// to Defaults).
-	epoch, err := uc.SetAuthMode(context.Background(), runtime.AuthModeBasic)
-	require.NoError(t, err)
-	assert.Greater(t, epoch, int64(0))
-	assert.Equal(t, runtime.AuthModeBasic, repo.row.Auth.Mode)
-	assert.Equal(t, epoch, repo.row.Auth.SessionEpoch)
-}
-
-func TestUsecase_SetAuthMode_RejectsInvalid(t *testing.T) {
-	t.Parallel()
-	repo := &fakeRuntimeRepo{}
-	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil)
-	_, err := uc.SetAuthMode(context.Background(), "foobar")
-	require.Error(t, err)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_AUTH_MODE", verr.Code)
-}
-
 // validOIDCInput returns a minimal-valid set of OIDC fields for use in
-// mode=oidc tests. Callers may further mutate individual sub-fields.
+// OIDC configuration tests. Callers may further mutate individual sub-fields.
 func validOIDCInput() OIDCInput {
 	secret := "test-client-secret"
 	return OIDCInput{
@@ -713,7 +653,6 @@ func TestValidate_OIDC_MissingIssuer(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	in.Auth.OIDC.Issuer = ""
 	_, _, err := uc.Update(context.Background(), in, nil)
@@ -726,7 +665,6 @@ func TestValidate_OIDC_MissingClientID(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	in.Auth.OIDC.ClientID = ""
 	_, _, err := uc.Update(context.Background(), in, nil)
@@ -740,7 +678,6 @@ func TestValidate_OIDC_MissingRedirectURL_NowOptional(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	in.Auth.OIDC.RedirectURL = ""
 	_, _, err := uc.Update(context.Background(), in, nil)
@@ -751,7 +688,6 @@ func TestValidate_OIDC_ScopesWithoutOpenID(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	in.Auth.OIDC.Scopes = []string{"profile", "email"} // missing "openid"
 	_, _, err := uc.Update(context.Background(), in, nil)
@@ -764,7 +700,6 @@ func TestValidate_OIDC_AllowedGroupsTooMany(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	groups := make([]string, 65)
 	for i := range groups {
@@ -777,98 +712,74 @@ func TestValidate_OIDC_AllowedGroupsTooMany(t *testing.T) {
 	assert.Equal(t, "INVALID_OIDC_GROUPS_TOO_MANY", verr.Code)
 }
 
-// TestValidate_OIDC_NonOIDCMode_EmptyFieldsOK confirms that empty OIDC
-// fields do NOT produce a validation error when auth_mode != oidc.
-// Operators may pre-fill OIDC before switching modes, so the inverse
-// (non-oidc with populated OIDC fields) must also pass — but the
-// minimum requirement here is "empty fields on non-oidc mode = OK".
-func TestValidate_OIDC_NonOIDCMode_EmptyFieldsOK(t *testing.T) {
+// TestValidate_OIDC_EmptyFieldsOK confirms that an entirely-empty OIDC
+// subtree passes validation — OIDC simply stays unconfigured / not ready.
+func TestValidate_OIDC_EmptyFieldsOK(t *testing.T) {
 	t.Parallel()
-	cases := []string{
-		runtime.AuthModeForms,
-		runtime.AuthModeBasic,
-		runtime.AuthModeNone,
-	}
-	for _, mode := range cases {
-		t.Run(mode, func(t *testing.T) {
-			t.Parallel()
-			uc, _, _ := setup(t)
-			in := validInput()
-			in.Auth.Mode = mode
-			in.Auth.OIDC = OIDCInput{} // all empty
-			_, _, err := uc.Update(context.Background(), in, nil)
-			require.NoError(t, err, "mode=%s with empty OIDC must not fail", mode)
-		})
-	}
+	uc, _, _ := setup(t)
+	in := validInput()
+	in.Auth.OIDC = OIDCInput{} // all empty
+	_, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err, "empty OIDC must not fail")
 }
 
-// TestValidate_OIDC_FormsMode_PartialOIDC_NoError reproduces the live
-// prod symptom that triggered B-33 (story 481): mode=forms with an env
-// OIDC_CLIENT_SECRET override and otherwise-empty issuer/client_id used
-// to fail validation with OIDC_PARTIAL_CONFIG, blocking ALL runtime
-// config saves on /settings. The fix routes mode!=oidc straight through.
-func TestValidate_OIDC_FormsMode_PartialOIDC_NoError(t *testing.T) {
+// TestValidate_OIDC_PartialNotConfiguring_NoError reproduces the live
+// prod symptom that triggered B-33 (story 481): an env OIDC_CLIENT_SECRET
+// override with otherwise-empty issuer/client_id used to fail validation,
+// blocking ALL runtime config saves on /settings. With the presence-gate,
+// an unconfigured OIDC subtree (no issuer/client_id/incoming secret) passes.
+func TestValidate_OIDC_PartialNotConfiguring_NoError(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
 	uc.WithClientSecretEnv("env-injected-secret")
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeForms
 	in.Auth.OIDC = OIDCInput{
-		// Issuer/ClientID empty (DB cleared), redirect_url empty.
-		// Env override makes secretResolved=true under the old rule.
+		// Issuer/ClientID empty (DB cleared), redirect_url empty, no
+		// incoming secret → not "configuring", so validation is skipped.
 		Scopes: []string{"openid"},
 	}
 	_, _, err := uc.Update(context.Background(), in, nil)
-	require.NoError(t, err, "mode=forms with env-only OIDC secret must save")
+	require.NoError(t, err, "env-only OIDC secret with empty issuer/client_id must save")
 }
 
-// TestValidate_OIDC_FormsMode_FullOIDC_NoError confirms that the inverse
-// — fully-configured OIDC subtree while mode=forms — also passes. The
-// values persist for a future mode switch but do not block the save.
-func TestValidate_OIDC_FormsMode_FullOIDC_NoError(t *testing.T) {
+// TestValidate_OIDC_FullConfig_NoError confirms a fully-configured OIDC
+// subtree passes and persists.
+func TestValidate_OIDC_FullConfig_NoError(t *testing.T) {
 	t.Parallel()
 	uc, _, _ := setup(t)
 	uc.WithClientSecretEnv("env-injected-secret")
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeForms
 	in.Auth.OIDC = validOIDCInput()
 	_, _, err := uc.Update(context.Background(), in, nil)
-	require.NoError(t, err, "mode=forms with full OIDC pre-fill must save")
+	require.NoError(t, err, "full OIDC config must save")
 }
 
-// TestValidate_OIDC_ParallelMode tests the tri-state validation for non-oidc modes.
-func TestValidate_OIDC_ParallelMode(t *testing.T) {
+// TestValidate_OIDC_PresenceGate locks the presence-gate: OIDC validation
+// only kicks in once the operator starts configuring OIDC (issuer /
+// client_id / an incoming client_secret present).
+func TestValidate_OIDC_PresenceGate(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name      string
-		mode      string
 		envSecret string
 		oidc      OIDCInput
 		wantErr   string
 	}{
 		{
-			name: "mode=forms, all empty OIDC → OK",
-			mode: "forms",
+			name: "all empty OIDC → OK (not configuring)",
 			oidc: OIDCInput{Scopes: []string{"openid"}},
 		},
 		{
-			name: "mode=forms, full OIDC + env secret → OK",
-			mode: "forms", envSecret: "env-s",
+			name:      "full OIDC + env secret → OK",
+			envSecret: "env-s",
 			oidc: OIDCInput{
 				Issuer: "https://kc.example.com", ClientID: "sf",
 				Scopes: []string{"openid"},
 			},
 		},
 		{
-			name: "mode=forms, issuer set but client_id blank → OK (B-33: no all-or-nothing under non-OIDC)",
-			mode: "forms", envSecret: "env-s",
-			oidc: OIDCInput{
-				Issuer: "https://kc.example.com", Scopes: []string{"openid"},
-			},
-		},
-		{
-			name: "mode=oidc, redirect_url blank, env secret → OK (auto-derive)",
-			mode: "oidc", envSecret: "env-s",
+			name:      "redirect_url blank, env secret → OK (auto-derive)",
+			envSecret: "env-s",
 			oidc: OIDCInput{
 				Issuer: "https://kc.example.com", ClientID: "sf",
 				Scopes: []string{"openid"},
@@ -883,7 +794,6 @@ func TestValidate_OIDC_ParallelMode(t *testing.T) {
 				uc.WithClientSecretEnv(tc.envSecret)
 			}
 			in := validInput()
-			in.Auth.Mode = tc.mode
 			in.Auth.OIDC = tc.oidc
 			_, _, err := uc.Update(context.Background(), in, nil)
 			if tc.wantErr == "" {
@@ -906,7 +816,6 @@ func TestUsecase_EpochBumpsOnOIDCIssuerChange(t *testing.T) {
 	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
 		WithClock(func() time.Time { return clock })
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	_, _, err := uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)
@@ -929,7 +838,6 @@ func TestUsecase_EpochBumpsOnOIDCClientIDChange(t *testing.T) {
 	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
 		WithClock(func() time.Time { return clock })
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	_, _, err := uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)
@@ -952,7 +860,6 @@ func TestUsecase_EpochBumpsOnOIDCScopesChange(t *testing.T) {
 	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
 		WithClock(func() time.Time { return clock })
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	_, _, err := uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)
@@ -975,7 +882,6 @@ func TestUsecase_EpochBumpsOnOIDCAllowedGroupsChange(t *testing.T) {
 	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
 		WithClock(func() time.Time { return clock })
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	_, _, err := uc.Update(context.Background(), in, nil)
 	require.NoError(t, err)
@@ -998,7 +904,6 @@ func TestUsecase_EpochUnchangedWhenOIDCFieldsStable(t *testing.T) {
 	uc := New(repo, fakeInstanceRepo{}, nil, runtime.NewBus(nil), nil).
 		WithClientSecretEnv("env-secret") // env-secret satisfies OIDC_CLIENT_SECRET_MISSING guard
 	in := validInput()
-	in.Auth.Mode = runtime.AuthModeOIDC
 	in.Auth.OIDC = validOIDCInput()
 	in.Auth.OIDC.ClientSecret = nil // preserve, not dirty
 	_, _, err := uc.Update(context.Background(), in, nil)

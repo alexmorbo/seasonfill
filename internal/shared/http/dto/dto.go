@@ -574,8 +574,6 @@ type RuntimeAuthDTO struct {
 	SessionTTL     string   `json:"session_ttl"     example:"12h"`
 	SecureCookie   bool     `json:"secure_cookie"`
 	TrustedProxies []string `json:"trusted_proxies" example:"127.0.0.1,::1"`
-	// Mode is one of "forms" | "basic" | "none" | "oidc". Default "forms".
-	Mode string `json:"mode" example:"forms"`
 	// SessionEpoch is read-only — the server bumps it whenever any
 	// auth-invalidating field changes. PUT bodies that include it are
 	// silently ignored (the usecase manages the value).
@@ -601,9 +599,8 @@ type RuntimeOIDCDTO struct {
 // endpoint — no secrets, no auth required. Used by the SPA bootstrap
 // path to decide whether to render Login / Logout / banners.
 type AuthConfigDTO struct {
-	Mode string `json:"mode" example:"forms"`
 	// OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,
-	// LoginURL is also populated — SPA renders SSO button regardless of mode.
+	// LoginURL is also populated — SPA renders the SSO button.
 	OIDCReady bool   `json:"oidc_ready" example:"false"`
 	LoginURL  string `json:"login_url,omitempty" example:"/api/v1/auth/oidc/start"`
 }
@@ -974,7 +971,7 @@ type MeResponse struct {
 	Username           string     `json:"username"           example:"admin"`
 	Email              *string    `json:"email"              example:"admin@example.com"`
 	Role               string     `json:"role"               example:"admin" enums:"admin,user"`
-	AuthMode           string     `json:"auth_mode"          example:"forms" enums:"forms,basic,none,oidc"`
+	AuthMode           string     `json:"auth_mode"          example:"forms" enums:"forms,oidc"`
 	AvatarMode         string     `json:"avatar_mode"        example:"auto" enums:"auto,monogram,gravatar"`
 	AvatarResolvedMode string     `json:"avatar_resolved_mode" example:"gravatar" enums:"gravatar,monogram"`
 	AvatarHash         string     `json:"avatar_hash"        example:"0bc83cb571cd1c50ba6f3e8a78ef1346"`
@@ -1000,16 +997,15 @@ type MeChangePasswordRequest struct {
 }
 
 // MePasswordUnavailableResponse is the 405 envelope for
-// POST /api/v1/me/change-password when auth_mode != forms.
+// POST /api/v1/me/change-password when the current user is
+// OIDC-provisioned (no local password to change).
 //
-// Reason values: "managed_by_idp" (oidc), "managed_by_basic_auth"
-// (basic), "auth_disabled" (none).
-//
-// ManageURL is non-nil only for oidc (issuer's account page); nil for
-// basic + none. SPA renders either a deep-link button or a generic
-// notice depending on presence.
+// Reason is always "managed_by_idp". ManageURL is the issuer's account
+// page when the user carries an oidc_subject and the runtime exposes an
+// issuer; nil otherwise. SPA renders either a deep-link button or a
+// generic notice depending on presence.
 type MePasswordUnavailableResponse struct {
 	Error     string  `json:"error"      example:"password_change_unavailable"`
-	Reason    string  `json:"reason"     example:"managed_by_idp" enums:"managed_by_idp,managed_by_basic_auth,auth_disabled"`
+	Reason    string  `json:"reason"     example:"managed_by_idp" enums:"managed_by_idp"`
 	ManageURL *string `json:"manage_url" example:"https://keycloak.example.com/realms/homelab/account"`
 }

@@ -24,7 +24,7 @@ beforeEach(() => {
         dry_run: false,
         global_rate_limit: { rpm: 30, burst: 10 },
         auth: {
-          mode: 'forms', secure_cookie: false, trusted_proxies: [],
+          secure_cookie: false, trusted_proxies: [],
           session_ttl: '12h', session_epoch: 1,
           oidc: { issuer: '', client_id: '', redirect_url: '', scopes: ['openid','profile','email'],
             username_claim: 'preferred_username', allowed_groups: [], groups_claim: 'groups',
@@ -34,7 +34,7 @@ beforeEach(() => {
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/v1/auth/config')) {
-      return new Response(JSON.stringify({ mode: 'forms', oidc_ready: false }),
+      return new Response(JSON.stringify({ oidc_ready: false }),
         { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -43,53 +43,32 @@ beforeEach(() => {
 afterEach(() => { globalThis.fetch = origFetch; });
 
 describe('<SecurityTab />', () => {
-  it('renders the segmented control with current mode pill', async () => {
+  it('renders the session + OIDC surface (no auth-mode selector)', async () => {
     renderWithProviders(<SecurityTab />);
-    expect(await screen.findByTestId('auth-mode-segmented')).toBeVisible();
-    expect(screen.getByTestId('auth-mode-pill').textContent).toMatch(/forms/i);
+    // Session TTL field renders once config loads.
+    expect(await screen.findByLabelText(/session/i)).toBeVisible();
+    // OIDC configuration fold is present.
+    expect(screen.getByTestId('oidc-fold')).toBeInTheDocument();
+    // The removed auth-mode switcher UI must be gone.
+    expect(screen.queryByTestId('auth-mode-segmented')).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Basic' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'OIDC' })).toBeNull();
   });
 
-  it('clicking a non-current mode opens the confirm dialog', async () => {
+  it('editing a field dirties the form and PUTs config without an auth mode', async () => {
     renderWithProviders(<SecurityTab />);
-    const oidcBtn = await screen.findByRole('radio', { name: 'OIDC' });
-    await userEvent.click(oidcBtn);
-    expect(await screen.findByTestId('auth-mode-confirm-dialog')).toBeVisible();
-  });
-
-  it('ack+confirm switches mode and dirties the form (enables Save)', async () => {
-    renderWithProviders(<SecurityTab />);
-    const oidcBtn = await screen.findByRole('radio', { name: 'OIDC' });
-    await userEvent.click(oidcBtn);
-    await userEvent.click(await screen.findByTestId('auth-mode-confirm-ack'));
-    await userEvent.click(screen.getByTestId('auth-mode-confirm-confirm'));
+    const ttl = await screen.findByLabelText(/session/i);
+    await userEvent.clear(ttl);
+    await userEvent.type(ttl, '600');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /save|сохранить/i })).toBeEnabled(),
     );
-    // OIDC fields visible (auto-fold open).
-    expect(screen.getByLabelText(/issuer/i)).toBeVisible();
-  });
-
-  it('cancel preserves the current mode and form stays pristine', async () => {
-    renderWithProviders(<SecurityTab />);
-    const oidcBtn = await screen.findByRole('radio', { name: 'OIDC' });
-    await userEvent.click(oidcBtn);
-    await userEvent.click(await screen.findByTestId('auth-mode-confirm-cancel'));
-    await waitFor(() =>
-      expect(screen.queryByTestId('auth-mode-confirm-dialog')).toBeNull(),
-    );
-    expect(screen.getByRole('button', { name: /save|сохранить/i })).toBeDisabled();
-  });
-
-  it('save PUTs auth.mode change to /api/v1/config/runtime', async () => {
-    renderWithProviders(<SecurityTab />);
-    await userEvent.click(await screen.findByRole('radio', { name: 'Basic' }));
-    await userEvent.click(await screen.findByTestId('auth-mode-confirm-ack'));
-    await userEvent.click(screen.getByTestId('auth-mode-confirm-confirm'));
     await userEvent.click(screen.getByRole('button', { name: /save|сохранить/i }));
     await waitFor(() => {
       expect(putBody).not.toBeNull();
-      const parsed = JSON.parse(putBody!) as { auth: { mode: string } };
-      expect(parsed.auth.mode).toBe('basic');
+      const parsed = JSON.parse(putBody!) as { auth: Record<string, unknown> };
+      expect(parsed.auth).not.toHaveProperty('mode');
+      expect(parsed.auth.session_ttl).toBe('600m');
     });
   });
 });

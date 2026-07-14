@@ -158,12 +158,12 @@ func TestAuthMiddleware_SecureCookieFlipped(t *testing.T) {
 	assert.True(t, v.SecureCookie, "SecureCookie must propagate via atomic")
 }
 
-// TestAuthMiddleware_ModeAndEpochPropagate confirms the new auth-mode
-// + session-epoch fields flow through the apply path.
-func TestAuthMiddleware_ModeAndEpochPropagate(t *testing.T) {
+// TestAuthMiddleware_EpochPropagates confirms the session-epoch field
+// flows through the apply path.
+func TestAuthMiddleware_EpochPropagates(t *testing.T) {
 	t.Parallel()
 	ptr := &middleware.AuthRuntimePointer{}
-	ptr.Store(&middleware.AuthRuntime{SessionTTL: time.Hour, Mode: runtime.AuthModeForms})
+	ptr.Store(&middleware.AuthRuntime{SessionTTL: time.Hour})
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
@@ -179,19 +179,17 @@ func TestAuthMiddleware_ModeAndEpochPropagate(t *testing.T) {
 	bus.Publish(ctx, runtime.Snapshot{
 		Auth: runtime.AuthSnapshot{
 			SessionTTL:   time.Hour,
-			Mode:         runtime.AuthModeBasic,
 			SessionEpoch: 42,
 		},
 	})
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if v := ptr.Load(); v != nil && v.Mode == runtime.AuthModeBasic {
+		if v := ptr.Load(); v != nil && v.SessionEpoch == 42 {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	v := ptr.Load()
 	require.NotNil(t, v)
-	assert.Equal(t, runtime.AuthModeBasic, v.Mode)
 	assert.Equal(t, int64(42), v.SessionEpoch)
 }

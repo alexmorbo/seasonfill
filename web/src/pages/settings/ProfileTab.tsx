@@ -11,8 +11,8 @@ import { AuthSection } from '@/components/settings/profile/AuthSection';
 // shared useMe() snapshot. Loading + error states surface inline (the
 // global api() wrapper handles 401 by redirecting).
 //
-// AuthSection self-hides for basic/none auth_mode (no user identity
-// surface to manage). The other two sections render unconditionally.
+// AuthSection renders the per-user credential surface (password change for
+// forms accounts, IdP profile link for OIDC accounts).
 //
 // Story 487 (N-7c).
 export function ProfileTab() {

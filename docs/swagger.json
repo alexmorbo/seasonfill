@@ -92,12 +92,8 @@
                         "example": "/api/v1/auth/oidc/start",
                         "type": "string"
                     },
-                    "mode": {
-                        "example": "forms",
-                        "type": "string"
-                    },
                     "oidc_ready": {
-                        "description": "OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,\nLoginURL is also populated — SPA renders SSO button regardless of mode.",
+                        "description": "OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,\nLoginURL is also populated — SPA renders the SSO button.",
                         "example": false,
                         "type": "boolean"
                     }
@@ -1576,9 +1572,7 @@
                     },
                     "reason": {
                         "enum": [
-                            "managed_by_idp",
-                            "managed_by_basic_auth",
-                            "auth_disabled"
+                            "managed_by_idp"
                         ],
                         "example": "managed_by_idp",
                         "type": "string"
@@ -1591,8 +1585,6 @@
                     "auth_mode": {
                         "enum": [
                             "forms",
-                            "basic",
-                            "none",
                             "oidc"
                         ],
                         "example": "forms",
@@ -2073,11 +2065,6 @@
             },
             "dto.RuntimeAuthDTO": {
                 "properties": {
-                    "mode": {
-                        "description": "Mode is one of \"forms\" | \"basic\" | \"none\" | \"oidc\". Default \"forms\".",
-                        "example": "forms",
-                        "type": "string"
-                    },
                     "oidc": {
                         "$ref": "#/components/schemas/dto.RuntimeOIDCDTO"
                     },
@@ -4416,7 +4403,7 @@
                         "description": "OK"
                     }
                 },
-                "summary": "Public auth-mode bootstrap",
+                "summary": "Public auth-config bootstrap",
                 "tags": [
                     "auth"
                 ]
@@ -6462,7 +6449,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "summary": "Change the current user's password (forms mode only)",
+                "summary": "Change the current user's password (not available to OIDC users)",
                 "tags": [
                     "auth"
                 ]

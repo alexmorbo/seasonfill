@@ -15,61 +15,16 @@ export class ApiError extends Error {
 type RequestInitWithJson = Omit<RequestInit, 'body'> & { body?: unknown };
 const BASE = '/api/v1';
 
-// authConfigCache stores the latest /auth/config response so the 401 handler
-// can pick the correct login redirect without re-fetching on every 401.
-// Seeded by lib/auth-config.ts via __seedAuthConfigCache; refreshed on a
-// 401 when the cache is missing.
-let authConfigCache: { mode: string; loginUrl?: string } | null = null;
-
-export function __seedAuthConfigCache(v: { mode: string; loginUrl?: string }) {
-  authConfigCache = v;
-}
-
-export function _resetAuthConfigCacheForTests() {
-  authConfigCache = null;
-}
-
-async function refreshAuthConfig(): Promise<void> {
-  try {
-    const res = await fetch(`${BASE}/auth/config`, {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) return;
-    const j = (await res.json()) as { mode?: string; login_url?: string };
-    authConfigCache = {
-      mode: j.mode ?? 'forms',
-      ...(j.login_url ? { loginUrl: j.login_url } : {}),
-    };
-  } catch {
-    // fail-open
-  }
-}
-
-function buildLoginRedirect(here: string): string | null {
-  const cfg = authConfigCache;
-  if (!cfg) return null;
-  if (cfg.mode === 'basic' || cfg.mode === 'none') return null;
-  const nextParam = here === '/' ? '' : '?next=' + encodeURIComponent(here);
-  if (cfg.mode === 'oidc' && cfg.loginUrl) {
-    return cfg.loginUrl + nextParam;
-  }
-  return '/login' + nextParam;
-}
-
-async function handle401(): Promise<void> {
+// handle401 sends an unauthenticated caller to the login screen. Forms login
+// is always available, so the redirect target is unconditionally /login
+// (the login screen additionally offers the SSO button when OIDC is ready).
+function handle401(): void {
   if (typeof window === 'undefined') return;
   if (window.location.pathname === '/login') return;
   if (window.location.pathname.startsWith('/api/v1/auth/oidc/')) return;
   const here = window.location.pathname + window.location.search;
-  let target = buildLoginRedirect(here);
-  if (target === null) {
-    await refreshAuthConfig();
-    target = buildLoginRedirect(here);
-  }
-  if (target !== null) {
-    window.location.assign(target);
-  }
+  const nextParam = here === '/' ? '' : '?next=' + encodeURIComponent(here);
+  window.location.assign('/login' + nextParam);
 }
 
 export async function api<T>(path: string, init: RequestInitWithJson = {}): Promise<T> {
@@ -92,7 +47,7 @@ export async function api<T>(path: string, init: RequestInitWithJson = {}): Prom
   });
 
   if (res.status === 401) {
-    await handle401();
+    handle401();
     throw new ApiError(401, 'unauthorized');
   }
   if (!res.ok) {

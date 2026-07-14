@@ -16,7 +16,6 @@ import (
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
 	"github.com/alexmorbo/seasonfill/internal/observability"
-	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
@@ -110,7 +109,7 @@ func TestSessionValidationMetric_ValidAndBadSignature(t *testing.T) {
 func TestOIDCCallbackMetric_FailureOnStateMismatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ptr := &middleware.AuthRuntimePointer{}
-	ptr.Store(&middleware.AuthRuntime{Mode: runtime.AuthModeOIDC})
+	ptr.Store(&middleware.AuthRuntime{})
 	uc := auth.NewOIDCLoginUseCase(infraoidc.NewProviderCache(), stubAdminRepo{})
 	h := NewOIDCHandler(uc, ptr, []byte("k"), time.Hour, false, nil)
 

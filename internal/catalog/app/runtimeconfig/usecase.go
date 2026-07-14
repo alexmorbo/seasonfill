@@ -233,81 +233,7 @@ func (u *UseCase) Update(
 	return rowToOutput(stored, ts, u.clientSecretEnv), ts, nil
 }
 
-// SetAuthMode is a focused rescue path used by the CLI: read the row,
-// switch Mode, bump epoch, write. Does NOT consult If-Unmodified-Since
-// (the operator is explicitly overriding). Returns the new epoch so the
-// caller can log it.
-func (u *UseCase) SetAuthMode(ctx context.Context, mode string) (int64, error) {
-	if !validAuthMode(mode) {
-		return 0, newValidationErr("auth.mode", "INVALID_AUTH_MODE",
-			fmt.Sprintf("must be one of forms|basic|none|oidc, got %q", mode))
-	}
-	row, err := u.runtimes.Get(ctx)
-	switch {
-	case err == nil:
-		// happy path
-	case errors.Is(err, ports.ErrNotFound):
-		var runtimeNF *sharedErrors.RuntimeConfigNotFoundError
-		if errors.As(err, &runtimeNF) {
-			u.logger.DebugContext(ctx, "runtimeconfig.set_auth_mode.default_seed",
-				slog.String("code", runtimeNF.Code()),
-				slog.String("reason", "no row yet, seeding from defaults"))
-		} else {
-			u.logger.DebugContext(ctx, "runtimeconfig.set_auth_mode.default_seed",
-				slog.String("code", "not_found"),
-				slog.String("reason", "no row yet, seeding from defaults"))
-		}
-		def := runtime.Defaults()
-		row = ports.RuntimeConfigRow{
-			Cron: def.Cron, Scan: def.Scan, DryRun: def.DryRun,
-			GlobalRateLimit: def.GlobalRateLimit, Auth: def.Auth,
-			GUIDRewrites: def.GUIDRewrites,
-		}
-	default:
-		return 0, fmt.Errorf("runtimeconfig: get row: %w", err)
-	}
-	next := u.now().UTC().UnixNano()
-	if next <= row.Auth.SessionEpoch {
-		next = row.Auth.SessionEpoch + 1
-	}
-	snap := runtime.Snapshot{
-		Cron: row.Cron, Scan: row.Scan, DryRun: row.DryRun,
-		GlobalRateLimit: row.GlobalRateLimit,
-		Auth: runtime.AuthSnapshot{
-			SessionTTL:     row.Auth.SessionTTL,
-			SecureCookie:   row.Auth.SecureCookie,
-			TrustedProxies: append([]string(nil), row.Auth.TrustedProxies...),
-			Mode:           mode,
-			SessionEpoch:   next,
-			OIDC: runtime.OIDCSnapshot{
-				Issuer:        row.Auth.OIDC.Issuer,
-				ClientID:      row.Auth.OIDC.ClientID,
-				RedirectURL:   row.Auth.OIDC.RedirectURL,
-				Scopes:        append([]string(nil), row.Auth.OIDC.Scopes...),
-				UsernameClaim: row.Auth.OIDC.UsernameClaim,
-				AllowedGroups: append([]string(nil), row.Auth.OIDC.AllowedGroups...),
-				GroupsClaim:   row.Auth.OIDC.GroupsClaim,
-			},
-		},
-		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), row.GUIDRewrites...),
-	}
-	if err := u.runtimes.Upsert(ctx, snap, nil); err != nil {
-		return 0, fmt.Errorf("runtimeconfig: upsert: %w", err)
-	}
-	stored, gerr := u.runtimes.Get(ctx)
-	if gerr == nil {
-		if perr := u.publish(ctx, stored); perr != nil {
-			u.logger.WarnContext(ctx, "runtimeconfig.publish_failed",
-				slog.String("error", perr.Error()))
-		}
-	}
-	return next, nil
-}
-
 func epochShouldBump(prev, next runtime.AuthSnapshot) bool {
-	if prev.Mode != next.Mode {
-		return true
-	}
 	if prev.OIDC.Issuer != next.OIDC.Issuer ||
 		prev.OIDC.ClientID != next.OIDC.ClientID ||
 		prev.OIDC.RedirectURL != next.OIDC.RedirectURL ||
@@ -401,14 +327,8 @@ func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (run
 	if err := validateTrustedProxies(in.Auth.TrustedProxies); err != nil {
 		return runtime.Snapshot{}, err
 	}
-	if !validAuthMode(in.Auth.Mode) {
-		return runtime.Snapshot{}, newValidationErr(
-			"auth.mode", "INVALID_AUTH_MODE",
-			fmt.Sprintf("must be one of forms|basic|none|oidc, got %q", in.Auth.Mode))
-	}
 	hasStored := len(prevRow.OIDCClientSecretCiphertext) > 0
-	if err := validateOIDCInput(in.Auth.OIDC, in.Auth.Mode,
-		u.clientSecretEnv, hasStored); err != nil {
+	if err := validateOIDCInput(in.Auth.OIDC, u.clientSecretEnv, hasStored); err != nil {
 		return runtime.Snapshot{}, err
 	}
 	cleanedRewrites, err := validateGUIDRewrites(in.GUIDRewrites)
@@ -434,7 +354,6 @@ func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (run
 			SessionTTL:     in.Auth.SessionTTL,
 			SecureCookie:   in.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), in.Auth.TrustedProxies...),
-			Mode:           in.Auth.Mode,
 			OIDC: runtime.OIDCSnapshot{
 				Issuer:        strings.TrimSpace(in.Auth.OIDC.Issuer),
 				ClientID:      strings.TrimSpace(in.Auth.OIDC.ClientID),
@@ -449,25 +368,7 @@ func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (run
 	}, nil
 }
 
-func validAuthMode(m string) bool {
-	switch m {
-	case runtime.AuthModeForms, runtime.AuthModeBasic, runtime.AuthModeNone, runtime.AuthModeOIDC:
-		return true
-	default:
-		return false
-	}
-}
-
-func validateOIDCInput(in OIDCInput, mode, env string, hasStoredSecret bool) error {
-	// When auth_mode is not OIDC, the OIDC subtree is informational only:
-	// operators may pre-fill values before flipping the mode, or leave
-	// leftover values after switching away. The all-or-nothing check is
-	// reserved for mode=oidc, where partial config really would break
-	// the OIDC login flow. See B-33 (story 481).
-	if mode != runtime.AuthModeOIDC {
-		return nil
-	}
-
+func validateOIDCInput(in OIDCInput, env string, hasStoredSecret bool) error {
 	hasEnv := env != ""
 	hasIncoming := in.ClientSecret != nil && *in.ClientSecret != ""
 	clearing := in.ClientSecret != nil && *in.ClientSecret == ""
@@ -477,9 +378,18 @@ func validateOIDCInput(in OIDCInput, mode, env string, hasStoredSecret bool) err
 	hasIssuer := strings.TrimSpace(in.Issuer) != ""
 	hasClientID := strings.TrimSpace(in.ClientID) != ""
 
+	// The OIDC subtree is optional: operators may leave every field blank
+	// (OIDC simply stays unconfigured / not ready). The all-or-nothing
+	// check only kicks in once the operator starts configuring OIDC —
+	// signalled by any of issuer / client_id / an incoming client_secret.
+	configuring := hasIssuer || hasClientID || hasIncoming
+	if !configuring {
+		return nil
+	}
+
 	if !hasIssuer {
 		return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
-			"issuer is required when auth_mode=oidc")
+			"issuer is required when configuring OIDC")
 	}
 	if !strings.HasPrefix(in.Issuer, "https://") && !strings.HasPrefix(in.Issuer, "http://") {
 		return newValidationErr("auth.oidc.issuer", "INVALID_OIDC_ISSUER",
@@ -487,7 +397,7 @@ func validateOIDCInput(in OIDCInput, mode, env string, hasStoredSecret bool) err
 	}
 	if !hasClientID {
 		return newValidationErr("auth.oidc.client_id", "INVALID_OIDC_CLIENT_ID",
-			"client_id is required when auth_mode=oidc")
+			"client_id is required when configuring OIDC")
 	}
 	if !secretResolved {
 		return newValidationErr("auth.oidc.client_secret", "OIDC_CLIENT_SECRET_MISSING",
@@ -628,10 +538,6 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time, envSecret string) Out
 	if rewrites == nil {
 		rewrites = []runtime.GUIDRewriteRule{}
 	}
-	mode := row.Auth.Mode
-	if mode == "" {
-		mode = runtime.AuthModeForms
-	}
 	return Output{
 		Cron: CronInput{
 			Enabled:  row.Cron.Enabled,
@@ -651,7 +557,6 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time, envSecret string) Out
 			SessionTTL:     row.Auth.SessionTTL,
 			SecureCookie:   row.Auth.SecureCookie,
 			TrustedProxies: proxies,
-			Mode:           mode,
 			SessionEpoch:   row.Auth.SessionEpoch,
 			OIDC: OIDCOutput{
 				Issuer:                  row.Auth.OIDC.Issuer,

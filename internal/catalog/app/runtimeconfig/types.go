@@ -41,11 +41,7 @@ type AuthInput struct {
 	SessionTTL     time.Duration
 	SecureCookie   bool
 	TrustedProxies []string
-	// Mode is one of runtime.AuthMode{Forms,Basic,None,OIDC}. Validated by
-	// the usecase; rejected at the boundary so a bogus value never
-	// reaches the dispatcher.
-	Mode string
-	OIDC OIDCInput
+	OIDC           OIDCInput
 }
 
 // OIDCInput is the wire-validated OIDC config. ClientSecret follows the
@@ -87,7 +83,6 @@ type AuthOutput struct {
 	SessionTTL     time.Duration
 	SecureCookie   bool
 	TrustedProxies []string
-	Mode           string
 	SessionEpoch   int64
 	OIDC           OIDCOutput
 }

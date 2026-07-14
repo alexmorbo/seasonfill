@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"crypto/subtle"
 	"errors"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	"github.com/alexmorbo/seasonfill/internal/observability"
-	"github.com/alexmorbo/seasonfill/internal/runtime"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
@@ -19,22 +17,22 @@ const UsernameContextKey = "auth.username"
 
 // RequireAuth preserves the pre-036a signature so existing callers
 // (tests, helm-deployed binaries that haven't been rebuilt) keep
-// compiling and behave as forms-mode. Internally builds a throwaway
-// AuthRuntimePointer seeded with mode=forms + epoch=0 and delegates to
-// RequireAuthWithRuntime with nil basic deps.
+// compiling. Internally builds a throwaway AuthRuntimePointer seeded with
+// epoch=0 and delegates to buildAuth with the cookie path enabled.
 func RequireAuth(apiKey string, sessionKey []byte) gin.HandlerFunc {
 	ptr := &AuthRuntimePointer{}
-	ptr.Store(&AuthRuntime{Mode: runtime.AuthModeForms})
-	return buildAuth(apiKey, sessionKey, ptr, nil, nil, true)
+	ptr.Store(&AuthRuntime{})
+	return buildAuth(apiKey, sessionKey, ptr, true)
 }
 
 // RequireAuthWithRuntime gates protected non-webhook routes. Dispatch order:
 //
 //  1. X-Api-Key check (precedence — automation must never be silently
 //     attributed to another principal)
-//  2. Mode-specific path (forms | basic | none)
+//  2. Session-cookie check
 //
-// adminRepo + loginLimiter are required only for Basic mode.
+// adminRepo + loginLimiter are retained in the signature for call-site
+// compatibility but are no longer consulted.
 func RequireAuthWithRuntime(
 	apiKey string,
 	sessionKey []byte,
@@ -42,7 +40,7 @@ func RequireAuthWithRuntime(
 	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
-	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, true)
+	return buildAuth(apiKey, sessionKey, ptr, true)
 }
 
 // RequireAuthWebhook is the webhook-route variant. IDENTICAL to
@@ -56,25 +54,22 @@ func RequireAuthWebhook(
 	adminRepo ports.UserRepository,
 	loginLimiter *auth.IPLimiter,
 ) gin.HandlerFunc {
-	return buildAuth(apiKey, sessionKey, ptr, adminRepo, loginLimiter, false)
+	return buildAuth(apiKey, sessionKey, ptr, false)
 }
 
 // buildAuth is the shared pipeline. cookieAllowed=false disables the
-// basic-mode cookie precheck (webhook path must be X-Api-Key only).
+// cookie precheck (webhook path must be X-Api-Key only).
 func buildAuth(
 	apiKey string,
 	sessionKey []byte,
 	ptr *AuthRuntimePointer,
-	adminRepo ports.UserRepository,
-	loginLimiter *auth.IPLimiter,
 	cookieAllowed bool,
 ) gin.HandlerFunc {
 	rawKeyBytes := []byte(apiKey)
 	return func(c *gin.Context) {
 		rt := loadAuthRuntime(ptr)
 
-		// Step 1: X-Api-Key first — automation must never be blocked
-		// by mode.
+		// Step 1: X-Api-Key first — automation must never be blocked.
 		if apiKey != "" {
 			got := c.GetHeader("X-Api-Key")
 			if got != "" && subtle.ConstantTimeCompare([]byte(got), rawKeyBytes) == 1 {
@@ -84,49 +79,8 @@ func buildAuth(
 			}
 		}
 
-		// Step 2: mode dispatch.
-		switch rt.Mode {
-		case runtime.AuthModeNone:
-			c.Set(UsernameContextKey, "anonymous")
-			c.Next()
-			return
-		case runtime.AuthModeBasic:
-			// 037e: accept a valid session cookie BEFORE issuing the Basic
-			// challenge. Lets an OIDC-issued cookie continue working under
-			// mode=basic without prompting the browser popup.
-			// cookieAllowed is false on the webhook path — webhook must
-			// always require X-Api-Key.
-			if cookieAllowed {
-				if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
-					now := time.Now()
-					p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch)
-					observability.AuthSessionValidation(sessionResultLabel(verr))
-					if verr == nil {
-						maybeSlideCookie(c, sessionKey, p, now, rt)
-						c.Set(UsernameContextKey, p.Username)
-						c.Next()
-						return
-					}
-				}
-			}
-			if adminRepo == nil {
-				break
-			}
-			handleBasicAuth(c, adminRepo, loginLimiter)
-			return
-		case runtime.AuthModeOIDC, runtime.AuthModeForms:
-			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
-				now := time.Now()
-				p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch)
-				observability.AuthSessionValidation(sessionResultLabel(verr))
-				if verr == nil {
-					maybeSlideCookie(c, sessionKey, p, now, rt)
-					c.Set(UsernameContextKey, p.Username)
-					c.Next()
-					return
-				}
-			}
-		default:
+		// Step 2: session cookie (disabled on the webhook path).
+		if cookieAllowed {
 			if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != "" {
 				now := time.Now()
 				p, verr := VerifySession(sessionKey, cookie, now, rt.SessionEpoch)
@@ -139,6 +93,7 @@ func buildAuth(
 				}
 			}
 		}
+
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"error": "unauthorized", "code": "AUTH_REQUIRED",
 		})
@@ -172,61 +127,6 @@ func maybeSlideCookie(
 		int(ttl.Seconds()), "/", "", rt.SecureCookie, true)
 }
 
-// handleBasicAuth runs the Basic-mode credential check. Split out so
-// buildAuth stays readable.
-func handleBasicAuth(c *gin.Context, repo ports.UserRepository, lim *auth.IPLimiter) {
-	header := c.GetHeader("Authorization")
-	user, pass, ok := parseBasicHeader(header)
-	if !ok {
-		observability.AuthLogin(observability.AuthLoginModeBasic, observability.AuthLoginFailure)
-		c.Header("WWW-Authenticate", basicRealmHeader)
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "unauthorized", "code": "AUTH_REQUIRED",
-		})
-		return
-	}
-
-	if lim != nil && !lim.Allow(c.ClientIP()) {
-		observability.AuthLogin(observability.AuthLoginModeBasic, observability.AuthLoginRateLimited)
-		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-			"error": "Invalid credentials", "code": "AUTH_REQUIRED",
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
-	defer cancel()
-	row, err := repo.Get(ctx)
-	if err != nil && !errors.Is(err, ports.ErrNotFound) {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"error": "internal server error",
-		})
-		return
-	}
-
-	usernameMatches := err == nil && row.Username == user
-	hashToCompare := row.PasswordHash
-	if !usernameMatches {
-		hashToCompare = ""
-	}
-	if !auth.ConstantLatencyVerify(hashToCompare, pass) {
-		observability.AuthLogin(observability.AuthLoginModeBasic, observability.AuthLoginFailure)
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "unauthorized", "code": "AUTH_REQUIRED",
-		})
-		return
-	}
-
-	// Basic auth is per-request (credentials resent on every call), so there is
-	// no discrete "login" event to count here — ticking auth_login_total on the
-	// success path would count authenticated requests, not logins, and dwarf
-	// forms/oidc login counts on the shared panel. The failure / rate_limited
-	// ticks above are retained: each fires only on a rejected request and is a
-	// genuine failed-login signal.
-	c.Set(UsernameContextKey, row.Username)
-	c.Next()
-}
-
 // sessionResultLabel maps a VerifySession outcome to a bounded metric label for
 // seasonfill_auth_session_validations_total. err==nil → "valid". The label is
 // server-side observability only and is NEVER surfaced to the client, so this
@@ -250,11 +150,11 @@ func sessionResultLabel(err error) string {
 
 func loadAuthRuntime(ptr *AuthRuntimePointer) *AuthRuntime {
 	if ptr == nil {
-		return &AuthRuntime{Mode: runtime.AuthModeForms}
+		return &AuthRuntime{}
 	}
 	v := ptr.Load()
 	if v == nil {
-		return &AuthRuntime{Mode: runtime.AuthModeForms}
+		return &AuthRuntime{}
 	}
 	return v
 }

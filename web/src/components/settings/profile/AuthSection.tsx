@@ -7,20 +7,14 @@ export interface AuthSectionProps {
   readonly me: MeResponse;
 }
 
-// AuthSection is the password / IdP gate. Branches by auth_mode:
+// AuthSection is the password / IdP gate. Branches by the per-user auth_mode:
 //   - 'forms' → mount <ChangePasswordForm>.
 //   - 'oidc'  → render IdP profile link CTA (or disabled notice when
 //               idp_profile_url is null).
-//   - 'basic' | 'none' → return null (the parent ProfileTab won't even
-//               render the section; this is defense-in-depth).
 //
 // Story 487 (N-7c).
 export function AuthSection({ me }: AuthSectionProps) {
   const { t } = useTranslation();
-
-  if (me.auth_mode === 'basic' || me.auth_mode === 'none') {
-    return null;
-  }
 
   return (
     <section

@@ -63,7 +63,6 @@ func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {
 					SessionTTL:     24 * time.Hour,
 					SecureCookie:   true,
 					TrustedProxies: []string{"10.0.0.1", "10.0.0.2"},
-					Mode:           runtime.AuthModeForms,
 				},
 			}
 
@@ -215,48 +214,6 @@ func TestRuntimeConfigRepository_Upsert_FreshRow_IgnoresIUS(t *testing.T) {
 	}
 }
 
-func TestRuntimeConfigRepository_AuthModes_RoundTrip(t *testing.T) {
-	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
-		t.Run(backend.Name, func(t *testing.T) {
-			t.Parallel()
-			db := backend.NewDB(t)
-			repo := NewRuntimeConfigRepository(db, nil)
-			ctx := context.Background()
-
-			snap := runtime.Defaults()
-			snap.Auth.Mode = runtime.AuthModeBasic
-			snap.Auth.SessionEpoch = 123456789
-
-			require.NoError(t, repo.Upsert(ctx, snap, nil))
-			row, err := repo.Get(ctx)
-			require.NoError(t, err)
-			assert.Equal(t, runtime.AuthModeBasic, row.Auth.Mode)
-			assert.Equal(t, int64(123456789), row.Auth.SessionEpoch)
-		})
-	}
-}
-
-func TestRuntimeConfigRepository_AuthModeNormalizesEmpty(t *testing.T) {
-	t.Parallel()
-	for _, backend := range testhelpers.AllBackends(t) {
-		t.Run(backend.Name, func(t *testing.T) {
-			t.Parallel()
-			db := backend.NewDB(t)
-			repo := NewRuntimeConfigRepository(db, nil)
-			ctx := context.Background()
-
-			snap := runtime.Defaults()
-			snap.Auth.Mode = "" // legacy / mis-seeded row
-			require.NoError(t, repo.Upsert(ctx, snap, nil))
-			row, err := repo.Get(ctx)
-			require.NoError(t, err)
-			assert.Equal(t, runtime.AuthModeForms, row.Auth.Mode,
-				"empty mode must normalize to forms")
-		})
-	}
-}
-
 // --- OIDC round-trip tests ---
 
 func TestRuntimeConfigRepository_OIDCFields_FullRoundTrip(t *testing.T) {
@@ -269,7 +226,6 @@ func TestRuntimeConfigRepository_OIDCFields_FullRoundTrip(t *testing.T) {
 			ctx := context.Background()
 
 			snap := runtime.Defaults()
-			snap.Auth.Mode = runtime.AuthModeOIDC
 			snap.Auth.OIDC = runtime.OIDCSnapshot{
 				Issuer:        "https://sso.example.com",
 				ClientID:      "seasonfill-client",
@@ -481,7 +437,6 @@ func TestRuntimeConfigRepository_AppConfig_SingletonGuard(t *testing.T) {
 				ID:                 2,
 				CronSchedule:       "0 0 * * *",
 				AuthTrustedProxies: "[]",
-				AuthMode:           "forms",
 				OIDCScopes:         "[]",
 				OIDCAllowedGroups:  "[]",
 				OIDCGroupsClaim:    "groups",

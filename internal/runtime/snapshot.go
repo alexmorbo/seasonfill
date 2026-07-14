@@ -95,17 +95,6 @@ const (
 	MissingSeasonEmbedAiredCap = 100
 )
 
-// AuthModeForms, AuthModeBasic, AuthModeNone enumerate the auth backends
-// the dispatcher accepts. Any other value is rejected at validation time
-// (the DB-layer CHECK constraint only exists on postgres; the
-// application layer is the single source of truth for the enum).
-const (
-	AuthModeForms = "forms"
-	AuthModeBasic = "basic"
-	AuthModeNone  = "none"
-	AuthModeOIDC  = "oidc"
-)
-
 // OIDCSnapshot carries OIDC provider settings from runtime_config plus the
 // resolved client secret (env > DB-decrypted). ClientSecret is transient —
 // populated by the reload subscriber at publish time and never written to the
@@ -142,12 +131,10 @@ type AuthSnapshot struct {
 	SessionTTL     time.Duration
 	SecureCookie   bool
 	TrustedProxies []string
-	// Mode is one of AuthMode{Forms,Basic,None,OIDC}.
-	Mode string
 	// SessionEpoch is bumped by the usecase whenever a change should
-	// invalidate live sessions (mode change). Cookies carry the epoch
-	// they were minted under; the middleware rejects payloads with
-	// ep < SessionEpoch.
+	// invalidate live sessions (e.g. an OIDC-config change). Cookies carry
+	// the epoch they were minted under; the middleware rejects payloads
+	// with ep < SessionEpoch.
 	SessionEpoch int64
 	OIDC         OIDCSnapshot
 }
@@ -273,7 +260,6 @@ func Defaults() Snapshot {
 			SessionTTL:     12 * time.Hour,
 			SecureCookie:   false,
 			TrustedProxies: []string{"127.0.0.1", "::1"},
-			Mode:           AuthModeForms,
 			SessionEpoch:   0,
 			OIDC:           DefaultOIDCSnapshot(),
 		},

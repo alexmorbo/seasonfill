@@ -48,14 +48,4 @@ describe('<AuthSection />', () => {
     expect(screen.getByTestId('oidc-no-profile-url')).toBeInTheDocument();
     expect(screen.queryByTestId('oidc-profile-link')).not.toBeInTheDocument();
   });
-
-  it('returns null in basic mode', () => {
-    const { container } = renderWithProviders(<AuthSection me={baseMe({ auth_mode: 'basic' })} />);
-    expect(container.querySelector('[data-testid="auth-section"]')).toBeNull();
-  });
-
-  it('returns null in none mode', () => {
-    const { container } = renderWithProviders(<AuthSection me={baseMe({ auth_mode: 'none' })} />);
-    expect(container.querySelector('[data-testid="auth-section"]')).toBeNull();
-  });
 });

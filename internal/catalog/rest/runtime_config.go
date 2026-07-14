@@ -185,7 +185,6 @@ func dtoToInput(d dto.RuntimeConfigDTO) (runtimeconfig.Input, error) {
 			SessionTTL:     sessionTTL,
 			SecureCookie:   d.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), d.Auth.TrustedProxies...),
-			Mode:           normalizeIncomingMode(d.Auth.Mode),
 			OIDC: runtimeconfig.OIDCInput{
 				Issuer:        d.Auth.OIDC.Issuer,
 				ClientID:      d.Auth.OIDC.ClientID,
@@ -224,15 +223,6 @@ func rewritesToDTO(in []runtime.GUIDRewriteRule) []dto.GUIDRewriteDTO {
 	return out
 }
 
-// normalizeIncomingMode treats empty as the safe default. Any unknown
-// value flows through to the usecase, which returns INVALID_AUTH_MODE.
-func normalizeIncomingMode(m string) string {
-	if m == "" {
-		return "forms"
-	}
-	return m
-}
-
 // outputToDTO converts usecase Output to the wire DTO. Durations are
 // rendered as Go-style strings (e.g. "30s").
 func outputToDTO(out runtimeconfig.Output) dto.RuntimeConfigDTO {
@@ -255,7 +245,6 @@ func outputToDTO(out runtimeconfig.Output) dto.RuntimeConfigDTO {
 			SessionTTL:     out.Auth.SessionTTL.String(),
 			SecureCookie:   out.Auth.SecureCookie,
 			TrustedProxies: append([]string(nil), out.Auth.TrustedProxies...),
-			Mode:           out.Auth.Mode,
 			SessionEpoch:   out.Auth.SessionEpoch,
 			OIDC: dto.RuntimeOIDCDTO{
 				Issuer:                  out.Auth.OIDC.Issuer,

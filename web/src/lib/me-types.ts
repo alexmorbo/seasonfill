@@ -15,7 +15,10 @@ export interface MeResponse {
   readonly username: string;
   readonly email: string | null;
   readonly role: 'admin' | 'user';
-  readonly auth_mode: 'forms' | 'basic' | 'none' | 'oidc';
+  // auth_mode is computed per-user by the server: 'oidc' when the account has
+  // an OIDC subject / no local password, otherwise 'forms'. It is NOT a
+  // server-wide setting.
+  readonly auth_mode: 'forms' | 'oidc';
   readonly avatar_mode: 'auto' | 'monogram' | 'gravatar';
   readonly avatar_resolved_mode: 'gravatar' | 'monogram';
   readonly avatar_hash: string;

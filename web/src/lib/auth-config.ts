@@ -2,9 +2,10 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { api, ApiError } from './api';
 import type { components } from '@/api/schema';
 
-export type AuthMode = 'forms' | 'basic' | 'none' | 'oidc';
+// AuthConfig mirrors GET /auth/config. There is no server-wide auth mode:
+// password (forms) login is always available; OIDC/SSO is additive and only
+// surfaced when oidcReady is true (loginUrl is then also populated).
 export type AuthConfig = {
-  mode: AuthMode;
   oidcReady: boolean;
   loginUrl?: string;
 };
@@ -13,28 +14,12 @@ type Wire = components['schemas']['dto.AuthConfigDTO'];
 
 export const authConfigQueryKey = ['auth', 'config'] as const;
 
-function narrowMode(raw: string | undefined): AuthMode {
-  return raw === 'basic' || raw === 'none' || raw === 'forms' || raw === 'oidc'
-    ? raw
-    : 'forms';
-}
-
 export async function getAuthConfig(): Promise<AuthConfig> {
   const r = await api<Wire>('/auth/config');
   const cfg: AuthConfig = {
-    mode: narrowMode(r.mode),
     oidcReady: Boolean(r.oidc_ready),
   };
   if (r.login_url) cfg.loginUrl = r.login_url;
-  try {
-    const api = await import('./api');
-    api.__seedAuthConfigCache({
-      mode: cfg.mode,
-      ...(cfg.loginUrl ? { loginUrl: cfg.loginUrl } : {}),
-    });
-  } catch {
-    // fail-open; the 401 handler will refresh on its own
-  }
   return cfg;
 }
 

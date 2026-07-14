@@ -57,9 +57,9 @@ func (uc *MeUseCase) UpdateSettings(ctx context.Context, userID uint, patch port
 }
 
 // ChangePassword verifies current against user.PasswordHash and
-// rehashes new. The handler is responsible for gating on auth_mode ==
-// forms before reaching this method, and for loading user via
-// GetByUsername first.
+// rehashes new. The handler is responsible for gating on the user being
+// a forms user (not OIDC-provisioned) before reaching this method, and
+// for loading user via GetByUsername first.
 //
 // Errors: ErrInvalidCurrentPassword, ErrNewPasswordTooShort,
 // ErrNewPasswordSameAsCurrent, or a wrapped repo error.

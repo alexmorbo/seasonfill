@@ -114,10 +114,10 @@ func BuildAuth(
 	// Story 485 (N-7a): allocate the shared AuthRuntime atomic here so
 	// the MeHandler (built next) and the AuthHandler (built inside
 	// edge.NewServer via WithAuthRuntimePointer) read the SAME pointer.
-	// Seeded with mode=forms so the dispatcher and MeHandler agree on
-	// the default before the reload subscriber publishes a snapshot.
+	// Seeded empty; the reload subscriber publishes the first real
+	// snapshot shortly after boot.
 	authRuntime := &middleware.AuthRuntimePointer{}
-	authRuntime.Store(&middleware.AuthRuntime{Mode: runtime.AuthModeForms})
+	authRuntime.Store(&middleware.AuthRuntime{})
 
 	meUC := authapp.NewMeUseCase(adminRepo)
 	meHandler := adminrest.NewMeHandler(meUC, authRuntime, authLog)

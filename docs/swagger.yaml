@@ -60,13 +60,10 @@ components:
         login_url:
           example: /api/v1/auth/oidc/start
           type: string
-        mode:
-          example: forms
-          type: string
         oidc_ready:
           description: |-
             OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,
-            LoginURL is also populated — SPA renders SSO button regardless of mode.
+            LoginURL is also populated — SPA renders the SSO button.
           example: false
           type: boolean
       type: object
@@ -1303,8 +1300,6 @@ components:
         reason:
           enum:
           - managed_by_idp
-          - managed_by_basic_auth
-          - auth_disabled
           example: managed_by_idp
           type: string
       type: object
@@ -1313,8 +1308,6 @@ components:
         auth_mode:
           enum:
           - forms
-          - basic
-          - none
           - oidc
           example: forms
           type: string
@@ -1687,11 +1680,6 @@ components:
       type: object
     dto.RuntimeAuthDTO:
       properties:
-        mode:
-          description: Mode is one of "forms" | "basic" | "none" | "oidc". Default
-            "forms".
-          example: forms
-          type: string
         oidc:
           $ref: '#/components/schemas/dto.RuntimeOIDCDTO'
         secure_cookie:
@@ -3473,7 +3461,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/dto.AuthConfigDTO'
           description: OK
-      summary: Public auth-mode bootstrap
+      summary: Public auth-config bootstrap
       tags:
       - auth
   /auth/login:
@@ -4702,7 +4690,7 @@ paths:
       security:
       - CookieAuth: []
       - ApiKeyAuth: []
-      summary: Change the current user's password (forms mode only)
+      summary: Change the current user's password (not available to OIDC users)
       tags:
       - auth
   /me/settings:

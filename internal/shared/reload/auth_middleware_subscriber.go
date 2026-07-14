@@ -42,16 +42,11 @@ func (s *AuthMiddlewareSubscriber) Run(ctx context.Context, bus *runtime.Bus, re
 }
 
 func (s *AuthMiddlewareSubscriber) apply(ctx context.Context, snap runtime.Snapshot) error {
-	mode := snap.Auth.Mode
-	if mode == "" {
-		mode = runtime.AuthModeForms
-	}
 	resolvedSecret := s.resolveClientSecret(ctx)
 	want := middleware.AuthRuntime{
 		SessionTTL:     snap.Auth.SessionTTL,
 		TrustedProxies: append([]string(nil), snap.Auth.TrustedProxies...),
 		SecureCookie:   snap.Auth.SecureCookie,
-		Mode:           mode,
 		SessionEpoch:   snap.Auth.SessionEpoch,
 		OIDC: middleware.OIDCRuntime{
 			Issuer:        snap.Auth.OIDC.Issuer,
@@ -102,7 +97,6 @@ func (s *AuthMiddlewareSubscriber) resolveClientSecret(ctx context.Context) stri
 func authRuntimeEqual(a, b *middleware.AuthRuntime) bool {
 	if a.SessionTTL != b.SessionTTL ||
 		a.SecureCookie != b.SecureCookie ||
-		a.Mode != b.Mode ||
 		a.SessionEpoch != b.SessionEpoch {
 		return false
 	}

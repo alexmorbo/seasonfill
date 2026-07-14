@@ -13,7 +13,6 @@ import (
 
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
-	"github.com/alexmorbo/seasonfill/internal/runtime"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
@@ -151,7 +150,7 @@ func (h *MeHandler) UpdateSettings(c *gin.Context) {
 
 // ChangePassword is POST /api/v1/me/change-password.
 //
-// @Summary     Change the current user's password (forms mode only)
+// @Summary     Change the current user's password (not available to OIDC users)
 // @Tags        auth
 // @Accept      json
 // @Produce     json
@@ -165,25 +164,19 @@ func (h *MeHandler) UpdateSettings(c *gin.Context) {
 // @Security    ApiKeyAuth
 // @Router      /me/change-password [post]
 func (h *MeHandler) ChangePassword(c *gin.Context) {
-	// Mode gate FIRST — before reading the body, so a misconfigured
-	// SPA in OIDC mode can't even POST a password.
-	rt := h.authRuntime.Load()
-	mode := runtime.AuthModeForms
-	if rt != nil && rt.Mode != "" {
-		mode = rt.Mode
+	user, ok := h.resolveUser(c)
+	if !ok {
+		return
 	}
-	if mode != runtime.AuthModeForms {
-		reason, manageURL := passwordChangeUnavailable(mode, rt)
+	// Per-user gate FIRST — an OIDC-provisioned user has no local password
+	// to change; reject before reading the body.
+	if userAuthMode(user) != "forms" {
+		reason, manageURL := passwordChangeUnavailable(user, h.authRuntime.Load())
 		c.AbortWithStatusJSON(http.StatusMethodNotAllowed, dto.MePasswordUnavailableResponse{
 			Error:     "password_change_unavailable",
 			Reason:    reason,
 			ManageURL: manageURL,
 		})
-		return
-	}
-
-	user, ok := h.resolveUser(c)
-	if !ok {
 		return
 	}
 
@@ -266,16 +259,23 @@ func (h *MeHandler) resolveUser(c *gin.Context) (admin.User, bool) {
 	return user, true
 }
 
+// userAuthMode derives the per-user auth mode from the stored row. An
+// OIDC-provisioned user (has an oidc_subject, or carries no local password
+// hash) is "oidc"; everyone else is "forms".
+func userAuthMode(u admin.User) string {
+	if u.OIDCSubject != nil || u.PasswordHash == "" {
+		return "oidc"
+	}
+	return "forms"
+}
+
 // buildResponse renders the canonical /me payload for the user row, with
 // auth_mode + avatar_resolved_mode + idp_profile_url derived from the
-// live AuthRuntime.
+// user row and the live AuthRuntime issuer.
 func (h *MeHandler) buildResponse(user admin.User) dto.MeResponse {
-	mode := runtime.AuthModeForms
+	mode := userAuthMode(user)
 	var issuer string
 	if rt := h.authRuntime.Load(); rt != nil {
-		if rt.Mode != "" {
-			mode = rt.Mode
-		}
 		issuer = strings.TrimRight(rt.OIDC.Issuer, "/")
 	}
 	resp := dto.MeResponse{
@@ -291,7 +291,7 @@ func (h *MeHandler) buildResponse(user admin.User) dto.MeResponse {
 		OIDCSubject:        user.OIDCSubject,
 		LastLoginAt:        user.LastLoginAt,
 	}
-	if mode == runtime.AuthModeOIDC && user.OIDCSubject != nil && issuer != "" {
+	if mode == "oidc" && user.OIDCSubject != nil && issuer != "" {
 		profile := issuer + "/account"
 		resp.IDPProfileURL = &profile
 	}
@@ -340,24 +340,17 @@ func isAllowedAvatarMode(s string) bool {
 	return false
 }
 
-// passwordChangeUnavailable maps the current auth_mode to the
-// envelope's `reason` + `manage_url`.
-func passwordChangeUnavailable(mode string, rt *middleware.AuthRuntime) (string, *string) {
-	switch mode {
-	case runtime.AuthModeOIDC:
-		var manageURL *string
-		if rt != nil {
-			if issuer := strings.TrimRight(rt.OIDC.Issuer, "/"); issuer != "" {
-				profile := issuer + "/account"
-				manageURL = &profile
-			}
+// passwordChangeUnavailable builds the 405 envelope's `reason` +
+// `manage_url` for an OIDC-provisioned user. The deep-link to the IdP
+// account page is added when the user carries an oidc_subject and the
+// live runtime exposes an issuer.
+func passwordChangeUnavailable(user admin.User, rt *middleware.AuthRuntime) (string, *string) {
+	var manageURL *string
+	if user.OIDCSubject != nil && rt != nil {
+		if issuer := strings.TrimRight(rt.OIDC.Issuer, "/"); issuer != "" {
+			profile := issuer + "/account"
+			manageURL = &profile
 		}
-		return "managed_by_idp", manageURL
-	case runtime.AuthModeBasic:
-		return "managed_by_basic_auth", nil
-	case runtime.AuthModeNone:
-		return "auth_disabled", nil
-	default:
-		return "unknown_mode", nil
 	}
+	return "managed_by_idp", manageURL
 }

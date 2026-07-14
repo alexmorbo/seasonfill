@@ -19,7 +19,6 @@ import (
 
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
-	"github.com/alexmorbo/seasonfill/internal/runtime"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
@@ -156,12 +155,13 @@ func TestMe_Get_FormsModeNoOIDC(t *testing.T) {
 	repo := newFakeMeRepo()
 	email := "Admin@Example.com"
 	repo.seed(admin.User{
-		Username:   "admin",
-		Email:      &email,
-		Role:       admin.RoleAdmin,
-		AvatarMode: admin.AvatarModeAuto,
+		Username:     "admin",
+		Email:        &email,
+		Role:         admin.RoleAdmin,
+		AvatarMode:   admin.AvatarModeAuto,
+		PasswordHash: "x",
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "admin")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "admin")
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
 	w := httptest.NewRecorder()
@@ -194,7 +194,6 @@ func TestMe_Get_OIDCModeWithSubject(t *testing.T) {
 		OIDCSubject: &sub,
 	})
 	r := setupMe(t, repo, &middleware.AuthRuntime{
-		Mode: runtime.AuthModeOIDC,
 		OIDC: middleware.OIDCRuntime{Issuer: "https://kc.example.com/realms/lab"},
 	}, "user")
 
@@ -220,7 +219,7 @@ func TestMe_Get_AvatarAutoNoEmailFallsToMonogram(t *testing.T) {
 		Role:       admin.RoleAdmin,
 		AvatarMode: admin.AvatarModeAuto,
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "ghost")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "ghost")
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
 	w := httptest.NewRecorder()
@@ -244,7 +243,7 @@ func TestMe_Get_AvatarAutoWithEmailResolvesGravatar(t *testing.T) {
 		Role:       admin.RoleAdmin,
 		AvatarMode: admin.AvatarModeAuto,
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "x")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "x")
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
 	w := httptest.NewRecorder()
@@ -265,7 +264,7 @@ func TestMe_Get_AvatarGravatarNoEmailSilentlyMonogram(t *testing.T) {
 		Role:       admin.RoleAdmin,
 		AvatarMode: admin.AvatarModeGravatar,
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "ghost2")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "ghost2")
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
 	w := httptest.NewRecorder()
@@ -288,7 +287,7 @@ func TestMe_PatchSettings_Valid(t *testing.T) {
 		Role:       admin.RoleAdmin,
 		AvatarMode: admin.AvatarModeAuto,
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "alice")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
 
 	body := bytes.NewBufferString(`{"preferred_language":"ru","avatar_mode":"gravatar"}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/v1/me/settings", body)
@@ -308,7 +307,7 @@ func TestMe_PatchSettings_InvalidAvatarMode(t *testing.T) {
 	t.Parallel()
 	repo := newFakeMeRepo()
 	repo.seed(admin.User{Username: "alice", Role: admin.RoleAdmin})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "alice")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
 
 	body := bytes.NewBufferString(`{"avatar_mode":"sparkles"}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/v1/me/settings", body)
@@ -323,7 +322,7 @@ func TestMe_PatchSettings_CustomModeRejected(t *testing.T) {
 	t.Parallel()
 	repo := newFakeMeRepo()
 	repo.seed(admin.User{Username: "alice", Role: admin.RoleAdmin})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "alice")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
 
 	body := bytes.NewBufferString(`{"avatar_mode":"custom"}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/v1/me/settings", body)
@@ -338,7 +337,7 @@ func TestMe_PatchSettings_UnknownField(t *testing.T) {
 	t.Parallel()
 	repo := newFakeMeRepo()
 	repo.seed(admin.User{Username: "alice", Role: admin.RoleAdmin})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "alice")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
 
 	body := bytes.NewBufferString(`{"theme":"dark"}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/v1/me/settings", body)
@@ -352,9 +351,9 @@ func TestMe_PatchSettings_UnknownField(t *testing.T) {
 func TestMe_ChangePassword_OIDCMode_Returns405(t *testing.T) {
 	t.Parallel()
 	repo := newFakeMeRepo()
-	repo.seed(admin.User{Username: "alice", Role: admin.RoleAdmin})
+	sub := "kc-sub-alice"
+	repo.seed(admin.User{Username: "alice", Role: admin.RoleAdmin, OIDCSubject: &sub})
 	r := setupMe(t, repo, &middleware.AuthRuntime{
-		Mode: runtime.AuthModeOIDC,
 		OIDC: middleware.OIDCRuntime{Issuer: "https://kc.example.com/realms/lab"},
 	}, "alice")
 
@@ -373,25 +372,6 @@ func TestMe_ChangePassword_OIDCMode_Returns405(t *testing.T) {
 	assert.Equal(t, "https://kc.example.com/realms/lab/account", *env.ManageURL)
 }
 
-func TestMe_ChangePassword_BasicMode_Returns405(t *testing.T) {
-	t.Parallel()
-	repo := newFakeMeRepo()
-	repo.seed(admin.User{Username: "alice", Role: admin.RoleAdmin})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeBasic}, "alice")
-
-	body := bytes.NewBufferString(`{"current_password":"x","new_password":"NewSecretLongEnough"}`)
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/me/change-password", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusMethodNotAllowed, w.Code)
-
-	var env dto.MePasswordUnavailableResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	assert.Equal(t, "managed_by_basic_auth", env.Reason)
-	assert.Nil(t, env.ManageURL)
-}
-
 func TestMe_ChangePassword_WrongCurrent_Returns401(t *testing.T) {
 	t.Parallel()
 	repo := newFakeMeRepo()
@@ -402,7 +382,7 @@ func TestMe_ChangePassword_WrongCurrent_Returns401(t *testing.T) {
 		PasswordHash: hash,
 		Role:         admin.RoleAdmin,
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "alice")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
 
 	body := bytes.NewBufferString(`{"current_password":"wrong","new_password":"NewSecretLongEnough"}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/me/change-password", body)
@@ -422,7 +402,7 @@ func TestMe_ChangePassword_HappyPath_Returns204AndPersists(t *testing.T) {
 		PasswordHash: hash,
 		Role:         admin.RoleAdmin,
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "alice")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
 
 	body := bytes.NewBufferString(`{"current_password":"RealCurrentPassword!","new_password":"NewSecretLongEnough"}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/me/change-password", body)
@@ -449,7 +429,7 @@ func TestMe_PatchSettings_EmptyBodyNoOp(t *testing.T) {
 		Role:       admin.RoleAdmin,
 		AvatarMode: admin.AvatarModeAuto,
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "alice")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/api/v1/me/settings", strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/json")
@@ -462,7 +442,7 @@ func TestMe_PatchSettings_EmptyBodyNoOp(t *testing.T) {
 func TestMe_Get_RejectsAPIKeyPseudoUser(t *testing.T) {
 	t.Parallel()
 	repo := newFakeMeRepo()
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "api-key")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "api-key")
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
 	w := httptest.NewRecorder()
@@ -481,7 +461,7 @@ func TestMe_ChangePassword_TooShort_Returns400(t *testing.T) {
 		PasswordHash: hash,
 		Role:         admin.RoleAdmin,
 	})
-	r := setupMe(t, repo, &middleware.AuthRuntime{Mode: runtime.AuthModeForms}, "alice")
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
 
 	body := bytes.NewBufferString(`{"current_password":"RealCurrentPassword!","new_password":"short"}`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/me/change-password", body)

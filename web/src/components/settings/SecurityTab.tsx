@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, Info, Loader2, Lock, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Info, Loader2, Lock } from 'lucide-react';
 import {
   useRuntimeConfig, useUpdateRuntimeConfig, type RuntimeConfig,
 } from '@/lib/runtime-config';
@@ -18,8 +18,6 @@ import { TrustedProxiesEditor } from './TrustedProxiesEditor';
 import { isValidCIDR } from '@/lib/cidr';
 import type { OIDCFormShape, OIDCTestResult } from './OIDCConfigBlock';
 import { OIDCFold } from './OIDCFold';
-import { AuthModeSegmented, type AuthMode, AUTH_MODES } from './AuthModeSegmented';
-import { AuthModeConfirmDialog } from './AuthModeConfirmDialog';
 
 async function postOIDCTest(payload: {
   issuer?: string; client_id?: string; scopes?: string[];
@@ -36,7 +34,6 @@ const schema = z.object({
   secure_cookie: z.boolean(),
   trusted_proxies: z.array(z.string())
     .refine((arr) => arr.every(isValidCIDR), 'settings.security.proxies.invalid'),
-  auth_mode: z.enum(AUTH_MODES),
   oidc_issuer: z.string(),
   oidc_client_id: z.string(),
   oidc_redirect_url: z.string(),
@@ -45,27 +42,23 @@ const schema = z.object({
   oidc_allowed_groups: z.array(z.string()),
   oidc_groups_claim: z.string(),
 }).superRefine((v, ctx) => {
-  if (v.auth_mode === 'oidc') {
-    if (v.oidc_issuer.trim() === '') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['oidc_issuer'],
-        message: 'settings.security.oidc.issuer.required' });
-    }
-    if (v.oidc_client_id.trim() === '') {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['oidc_client_id'],
-        message: 'settings.security.oidc.clientId.required' });
-    }
-    if (!v.oidc_scopes.includes('openid')) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['oidc_scopes'],
-        message: 'settings.security.oidc.scopes.openidRequired' });
-    }
-    return;
-  }
+  // OIDC is additive. Validate the subtree whenever the operator has started
+  // configuring it (any OIDC field present) — a partial config would silently
+  // fail to become ready otherwise.
   const anyPresent = v.oidc_issuer.trim() !== ''
     || v.oidc_client_id.trim() !== '' || v.oidc_redirect_url.trim() !== '';
-  const allPresent = v.oidc_issuer.trim() !== '' && v.oidc_client_id.trim() !== '';
-  if (anyPresent && !allPresent) {
+  if (!anyPresent) return;
+  if (v.oidc_issuer.trim() === '') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['oidc_issuer'],
-      message: 'settings.security.oidc.partialConfig' });
+      message: 'settings.security.oidc.issuer.required' });
+  }
+  if (v.oidc_client_id.trim() === '') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['oidc_client_id'],
+      message: 'settings.security.oidc.clientId.required' });
+  }
+  if (!v.oidc_scopes.includes('openid')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['oidc_scopes'],
+      message: 'settings.security.oidc.scopes.openidRequired' });
   }
 });
 type FormValues = z.infer<typeof schema>;
@@ -99,17 +92,11 @@ function parseTTL(raw: string | undefined): number | null {
   return Math.max(1, Math.round(totalMs / 60_000));
 }
 
-function narrowMode(raw: string | undefined): AuthMode {
-  return raw === 'basic' || raw === 'none' || raw === 'forms' || raw === 'oidc'
-    ? raw : 'forms';
-}
-
 function configToForm(c: RuntimeConfig | undefined): FormValues {
   return {
     session_ttl_min: parseTTL(c?.auth?.session_ttl) ?? DEFAULT_TTL_MIN,
     secure_cookie: Boolean(c?.auth?.secure_cookie ?? false),
     trusted_proxies: (c?.auth?.trusted_proxies ?? []) as string[],
-    auth_mode: narrowMode(c?.auth?.mode),
     oidc_issuer: c?.auth?.oidc?.issuer ?? '',
     oidc_client_id: c?.auth?.oidc?.client_id ?? '',
     oidc_redirect_url: c?.auth?.oidc?.redirect_url ?? '',
@@ -134,7 +121,6 @@ function formToPayload(
       session_ttl: `${v.session_ttl_min}m`,
       secure_cookie: v.secure_cookie,
       trusted_proxies: v.trusted_proxies,
-      mode: v.auth_mode,
       oidc: {
         issuer: v.oidc_issuer.trim(),
         client_id: v.oidc_client_id.trim(),
@@ -213,7 +199,6 @@ export function SecurityTab() {
     return parseTTL(storedTTL) === null ? storedTTL : null;
   }, [storedTTL]);
 
-  const authMode = useWatch({ control, name: 'auth_mode', defaultValue: 'forms' });
   const secureCookie = useWatch({ control, name: 'secure_cookie', defaultValue: false });
   const trustedProxies = useWatch({ control, name: 'trusted_proxies', defaultValue: [] });
   const oidcIssuer = useWatch({ control, name: 'oidc_issuer', defaultValue: '' });
@@ -225,7 +210,8 @@ export function SecurityTab() {
   const oidcGroupsClaim = useWatch({ control, name: 'oidc_groups_claim', defaultValue: 'groups' });
 
   const oidcReady = Boolean(cfg.data?.oidcReady);
-  const showParallelBanner = cfg.data?.mode !== 'oidc' && oidcReady;
+  const showParallelBanner = oidcReady;
+  const oidcConfigured = Boolean(q.data?.config?.auth?.oidc?.issuer);
 
   const onSubmit = handleSubmit((values) => {
     mut.mutate(formToPayload(q.data?.config, values, oidcClientSecret), {
@@ -238,14 +224,6 @@ export function SecurityTab() {
   const onDiscard = () => {
     reset(configToForm(q.data?.config));
     setOidcClientSecret(undefined);
-  };
-
-  // Mode-change confirmation flow.
-  const [pendingMode, setPendingMode] = useState<AuthMode | null>(null);
-  const onModeAttempt = (target: AuthMode) => setPendingMode(target);
-  const onModeConfirm = () => {
-    if (pendingMode) setValue('auth_mode', pendingMode, { shouldDirty: true });
-    setPendingMode(null);
   };
 
   // OIDC-error-driven force-open.
@@ -273,24 +251,6 @@ export function SecurityTab() {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-5" noValidate>
-      <AuthModeSegmented current={authMode} onAttempt={onModeAttempt} />
-
-      <AuthModeConfirmDialog
-        open={pendingMode !== null}
-        onOpenChange={(o) => { if (!o) setPendingMode(null); }}
-        currentMode={authMode}
-        targetMode={pendingMode}
-        onConfirm={onModeConfirm}
-      />
-
-      {authMode === 'none' && (
-        <Alert variant="destructive">
-          <ShieldAlert className="w-4 h-4" />
-          <AlertTitle>{t('settings.security.auth.noneWarningTitle')}</AlertTitle>
-          <AlertDescription>{t('settings.security.auth.noneWarning')}</AlertDescription>
-        </Alert>
-      )}
-
       {showParallelBanner && (
         <Alert>
           <Info className="w-4 h-4" />
@@ -378,7 +338,7 @@ export function SecurityTab() {
       </Block>
 
       <OIDCFold
-        mode={authMode}
+        defaultOpen={oidcConfigured}
         forceOpen={hasOIDCError}
         value={{
           issuer: oidcIssuer,

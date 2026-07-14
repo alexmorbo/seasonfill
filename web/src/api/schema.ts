@@ -323,7 +323,7 @@ export type paths = {
             readonly path?: never;
             readonly cookie?: never;
         };
-        /** Public auth-mode bootstrap */
+        /** Public auth-config bootstrap */
         readonly get: {
             readonly parameters: {
                 readonly query?: never;
@@ -2136,7 +2136,7 @@ export type paths = {
         };
         readonly get?: never;
         readonly put?: never;
-        /** Change the current user's password (forms mode only) */
+        /** Change the current user's password (not available to OIDC users) */
         readonly post: {
             readonly parameters: {
                 readonly query?: never;
@@ -4320,11 +4320,9 @@ export type components = {
         readonly "dto.AuthConfigDTO": {
             /** @example /api/v1/auth/oidc/start */
             readonly login_url?: string;
-            /** @example forms */
-            readonly mode?: string;
             /**
              * @description OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,
-             *     LoginURL is also populated — SPA renders SSO button regardless of mode.
+             *     LoginURL is also populated — SPA renders the SSO button.
              * @example false
              */
             readonly oidc_ready?: boolean;
@@ -5427,11 +5425,6 @@ export type components = {
             readonly year?: number;
         };
         readonly "dto.RuntimeAuthDTO": {
-            /**
-             * @description Mode is one of "forms" | "basic" | "none" | "oidc". Default "forms".
-             * @example forms
-             */
-            readonly mode?: string;
             readonly oidc?: components["schemas"]["dto.RuntimeOIDCDTO"];
             readonly secure_cookie?: boolean;
             /**
@@ -6582,14 +6575,10 @@ export enum DtoInstanceUpdateRequestMode {
     manual = "manual"
 }
 export enum DtoMePasswordUnavailableResponseReason {
-    managed_by_idp = "managed_by_idp",
-    managed_by_basic_auth = "managed_by_basic_auth",
-    auth_disabled = "auth_disabled"
+    managed_by_idp = "managed_by_idp"
 }
 export enum DtoMeResponseAuth_mode {
     forms = "forms",
-    basic = "basic",
-    none = "none",
     oidc = "oidc"
 }
 export enum DtoMeResponseAvatar_mode {

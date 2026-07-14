@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 )
 
@@ -110,9 +109,8 @@ func TestRequireAuth_IdenticalRejection(t *testing.T) {
 	assert.Equal(t, bodies[1], bodies[2])
 }
 
-// TestRequireAuth_DispatchMatrix exercises the mode × auth-state matrix
-// that 036a wires up. Each row asserts the expected outcome given a
-// snapshot mode and combination of present/absent cookie/api-key.
+// TestRequireAuth_DispatchMatrix exercises the auth-state matrix now that
+// the mode concept is gone: X-Api-Key precedence + session-cookie path.
 func TestRequireAuth_DispatchMatrix(t *testing.T) {
 	t.Parallel()
 	const apiKey = "secret"
@@ -127,31 +125,20 @@ func TestRequireAuth_DispatchMatrix(t *testing.T) {
 	}
 	cases := []struct {
 		name   string
-		mode   string
 		apiKey string
 		cookie string
 		want   want
 	}{
-		{"forms+valid_cookie", runtime.AuthModeForms, "", validCookie, want{http.StatusOK, "admin"}},
-		{"forms+valid_apikey", runtime.AuthModeForms, apiKey, "", want{http.StatusOK, "api-key"}},
-		{"forms+no_auth", runtime.AuthModeForms, "", "", want{http.StatusUnauthorized, ""}},
-		{"forms+wrong_apikey", runtime.AuthModeForms, "nope", "", want{http.StatusUnauthorized, ""}},
-		{"basic+no_header_falls_through", runtime.AuthModeBasic, "", "", want{http.StatusUnauthorized, ""}},
-		{"basic+apikey_works", runtime.AuthModeBasic, apiKey, "", want{http.StatusOK, "api-key"}},
-		{"basic+valid_cookie_accepted", runtime.AuthModeBasic, "", validCookie, want{http.StatusOK, "admin"}},
-		{"none+no_auth_passes", runtime.AuthModeNone, "", "", want{http.StatusOK, "anonymous"}},
-		{"none+apikey_identity", runtime.AuthModeNone, apiKey, "", want{http.StatusOK, "api-key"}},
-		{"none+cookie_irrelevant", runtime.AuthModeNone, "", validCookie, want{http.StatusOK, "anonymous"}},
-		// OIDC mode: session-cookie path is identical to forms; X-Api-Key
-		// short-circuits before mode dispatch (step-1 precedence rule).
-		{"oidc+valid_cookie", runtime.AuthModeOIDC, "", validCookie, want{http.StatusOK, "admin"}},
-		{"oidc+no_cookie", runtime.AuthModeOIDC, "", "", want{http.StatusUnauthorized, ""}},
-		{"oidc+valid_apikey_no_cookie", runtime.AuthModeOIDC, apiKey, "", want{http.StatusOK, "api-key"}},
+		{"valid_cookie", "", validCookie, want{http.StatusOK, "admin"}},
+		{"valid_apikey", apiKey, "", want{http.StatusOK, "api-key"}},
+		{"no_auth", "", "", want{http.StatusUnauthorized, ""}},
+		{"wrong_apikey", "nope", "", want{http.StatusUnauthorized, ""}},
+		{"apikey_precedence_over_cookie", apiKey, validCookie, want{http.StatusOK, "api-key"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			r, _ := setupAuthWithRuntime(t, apiKey, &AuthRuntime{Mode: tc.mode})
+			r, _ := setupAuthWithRuntime(t, apiKey, &AuthRuntime{})
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
 			if tc.apiKey != "" {
 				req.Header.Set("X-Api-Key", tc.apiKey)
@@ -169,9 +156,9 @@ func TestRequireAuth_DispatchMatrix(t *testing.T) {
 	}
 }
 
-// TestRequireAuth_Basic_AcceptsValidCookie — mode=basic + valid cookie → 200,
-// no WWW-Authenticate header, adminRepo NOT consulted.
-func TestRequireAuth_Basic_AcceptsValidCookie(t *testing.T) {
+// TestRequireAuth_AcceptsValidCookie — valid cookie → 200, no
+// WWW-Authenticate header.
+func TestRequireAuth_AcceptsValidCookie(t *testing.T) {
 	t.Parallel()
 	const apiKey = "secret"
 	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
@@ -180,7 +167,6 @@ func TestRequireAuth_Basic_AcceptsValidCookie(t *testing.T) {
 	require.NoError(t, err)
 
 	r, _ := setupAuthWithRuntime(t, apiKey, &AuthRuntime{
-		Mode:         runtime.AuthModeBasic,
 		SessionEpoch: 0,
 	})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
@@ -189,14 +175,13 @@ func TestRequireAuth_Basic_AcceptsValidCookie(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Empty(t, w.Header().Get("WWW-Authenticate"),
-		"must not emit Basic challenge when cookie authenticates")
+		"must not emit a Basic challenge")
 	assert.Contains(t, w.Body.String(), `"user":"admin"`)
 }
 
-// TestRequireAuth_Basic_StaleEpochFallsThrough — mode=basic + stale-epoch cookie
-// → 401; cookie did not short-circuit (no adminRepo → no Basic challenge header,
-// but the 401 proves the cookie was not accepted).
-func TestRequireAuth_Basic_StaleEpochFallsThrough(t *testing.T) {
+// TestRequireAuth_StaleEpochFallsThrough — a stale-epoch cookie → 401;
+// the cookie did not short-circuit.
+func TestRequireAuth_StaleEpochFallsThrough(t *testing.T) {
 	t.Parallel()
 	const apiKey = "secret"
 	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
@@ -204,10 +189,7 @@ func TestRequireAuth_Basic_StaleEpochFallsThrough(t *testing.T) {
 	staleCookie, err := SignSession(sessionKey, "admin", time.Now().Add(time.Hour), 1)
 	require.NoError(t, err)
 
-	// setupAuthWithRuntime uses adminRepo=nil; stale cookie falls through,
-	// adminRepo nil → break → generic 401 (no WWW-Authenticate).
 	r, _ := setupAuthWithRuntime(t, apiKey, &AuthRuntime{
-		Mode:         runtime.AuthModeBasic,
 		SessionEpoch: 5,
 	})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)
@@ -218,9 +200,9 @@ func TestRequireAuth_Basic_StaleEpochFallsThrough(t *testing.T) {
 		"stale-epoch cookie must not grant access")
 }
 
-// TestRequireAuthWebhook_Basic_IgnoresCookie — mode=basic + cookie via
-// RequireAuthWebhook → 401 (cookie ignored, X-Api-Key required).
-func TestRequireAuthWebhook_Basic_IgnoresCookie(t *testing.T) {
+// TestRequireAuthWebhook_IgnoresCookie — cookie via RequireAuthWebhook →
+// 401 (cookie ignored, X-Api-Key required).
+func TestRequireAuthWebhook_IgnoresCookie(t *testing.T) {
 	t.Parallel()
 	const apiKey = "secret"
 	sessionKey, err := crypto.DeriveSessionHMACKey(apiKey)
@@ -229,7 +211,7 @@ func TestRequireAuthWebhook_Basic_IgnoresCookie(t *testing.T) {
 	require.NoError(t, err)
 
 	ptr := &AuthRuntimePointer{}
-	ptr.Store(&AuthRuntime{Mode: runtime.AuthModeBasic, SessionEpoch: 0})
+	ptr.Store(&AuthRuntime{SessionEpoch: 0})
 	r := gin.New()
 	api := r.Group("/api")
 	api.Use(RequireAuthWebhook(apiKey, sessionKey, ptr, nil, nil))
@@ -246,8 +228,7 @@ func TestRequireAuthWebhook_Basic_IgnoresCookie(t *testing.T) {
 }
 
 // TestRequireAuth_StaleEpochCookie_Rejected confirms a cookie minted
-// under an older epoch is rejected after a mode change bumps the
-// authoritative epoch.
+// under an older epoch is rejected after an epoch bump.
 func TestRequireAuth_StaleEpochCookie_Rejected(t *testing.T) {
 	t.Parallel()
 	const apiKey = "secret"
@@ -257,7 +238,6 @@ func TestRequireAuth_StaleEpochCookie_Rejected(t *testing.T) {
 	require.NoError(t, err)
 
 	r, _ := setupAuthWithRuntime(t, apiKey, &AuthRuntime{
-		Mode:         runtime.AuthModeForms,
 		SessionEpoch: 200,
 	})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/ping", nil)

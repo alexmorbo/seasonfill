@@ -19,7 +19,6 @@ const (
 // auth_login_total label values.
 const (
 	AuthLoginModeForms   = "forms"
-	AuthLoginModeBasic   = "basic"
 	AuthLoginSuccess     = "success"
 	AuthLoginFailure     = "failure"
 	AuthLoginRateLimited = "rate_limited"
@@ -60,10 +59,11 @@ func sessionCounter(result string) *metrics.Counter {
 		`seasonfill_auth_session_validations_total{result="` + result + `"}`)
 }
 
-// AuthLogin bumps the login-outcome counter. mode ∈ {forms,basic}; result ∈
-// {success,failure,rate_limited}. Both are compile-time literals from the call
-// site — never user input. Cold path (one Inc per login attempt), so the
-// concatenation idiom is fine.
+// AuthLogin bumps the login-outcome counter. mode is always "forms" (OIDC
+// logins are counted via AuthOIDCCallback); result ∈ {success,failure,
+// rate_limited}. Both are compile-time literals from the call site — never
+// user input. Cold path (one Inc per login attempt), so the concatenation
+// idiom is fine.
 func AuthLogin(mode, result string) {
 	metrics.GetOrCreateCounter(
 		`seasonfill_auth_login_total{mode="` + mode + `",result="` + result + `"}`).Inc()

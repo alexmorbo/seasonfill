@@ -5,14 +5,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, KeyRound, LogIn, ShieldCheck, User } from 'lucide-react';
+import { KeyRound, LogIn, ShieldCheck, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api';
 import { loginWithPassword, sessionQueryKey, useSession } from '@/lib/auth';
-import { useAuthConfig, type AuthConfig } from '@/lib/auth-config';
+import { useAuthConfig } from '@/lib/auth-config';
 import logoUrl from '@/assets/logo.svg';
 
 const schema = z.object({
@@ -33,7 +33,7 @@ function ssoHref(loginUrl: string | undefined, next: string): string {
 }
 
 /** Visual chrome — centred stage with accent radial glow + faint grid mask. */
-function LoginStage({ children, footMode }: { children: React.ReactNode; footMode: string | null }) {
+function LoginStage({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const host = typeof window !== 'undefined' ? window.location.host : '';
   return (
@@ -70,9 +70,7 @@ function LoginStage({ children, footMode }: { children: React.ReactNode; footMod
         data-testid="login-foot"
         className="absolute bottom-5 left-0 right-0 text-center text-[11.5px] text-tx-faint font-mono z-[1] px-4"
       >
-        {footMode
-          ? t('login.footTitle', { mode: footMode, host })
-          : t('login.footTitleMinimal', { host })}
+        {t('login.footTitleMinimal', { host })}
       </div>
     </div>
   );
@@ -154,20 +152,6 @@ function Divider() {
   );
 }
 
-function modeLabel(cfg: AuthConfig | undefined, t: (k: string) => string): string | null {
-  if (!cfg) return null;
-  switch (cfg.mode) {
-    case 'forms':
-      return t('login.mode.forms');
-    case 'oidc':
-      return t('login.mode.oidc');
-    case 'none':
-      return t('login.mode.none');
-    case 'basic':
-      return t('login.mode.basic');
-  }
-}
-
 export function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -185,17 +169,13 @@ export function Login() {
     defaultValues: { username: '', password: '' },
   });
 
-  // Mode-aware redirect: under mode=basic the browser popup handles auth
-  // (stale-URL guard), AND if the user already has a valid session cookie
-  // we send them home rather than render a redundant sign-in form (B-48).
-  // The basic-mode clause is a load-bearing security invariant covered by
-  // Login.test.tsx "redirects to / when mode=basic".
+  // If the visitor already holds a valid session cookie, send them home
+  // rather than render a redundant sign-in form (B-48).
   useEffect(() => {
-    const basicMode = cfg.isSuccess && cfg.data.mode === 'basic';
-    if (basicMode || session.isSuccess) {
+    if (session.isSuccess) {
       navigate(safeNext(params.get('next')), { replace: true });
     }
-  }, [cfg.isSuccess, cfg.data?.mode, session.isSuccess, navigate, params]);
+  }, [session.isSuccess, navigate, params]);
 
   const onSubmit = handleSubmit(async ({ username, password }) => {
     setServerErr(null);
@@ -218,12 +198,11 @@ export function Login() {
     }
   });
 
-  const foot = modeLabel(cfg.data, (k) => t(k));
-
-  // Skeleton — avoid flashing the password form on a mode=oidc deployment.
+  // Skeleton — avoid a form flash before auth-config resolves (the SSO button
+  // is only known once oidcReady arrives).
   if (cfg.isPending) {
     return (
-      <LoginStage footMode={null}>
+      <LoginStage>
         <CardShell>
           <BrandRow subtitle={t('login.brand.subtitle.loading')} />
           <Skeleton className="h-10 w-full" />
@@ -237,48 +216,10 @@ export function Login() {
   const next = safeNext(params.get('next'));
   const oidcReady = cfg.data?.oidcReady ?? false;
 
-  // mode=oidc → SSO-only card.
-  if (cfg.isSuccess && cfg.data.mode === 'oidc') {
-    const href = ssoHref(cfg.data.loginUrl, next);
-    return (
-      <LoginStage footMode={foot}>
-        <CardShell>
-          <BrandRow subtitle={t('login.brand.subtitle.oidc')} />
-          <p className="text-[13px] text-tx-secondary text-center leading-snug">
-            {t('login.sso.intro')}
-          </p>
-          <SsoButton href={href} />
-        </CardShell>
-      </LoginStage>
-    );
-  }
-
-  // mode=none → entry button (+ optional SSO button).
-  if (cfg.isSuccess && cfg.data.mode === 'none') {
-    return (
-      <LoginStage footMode={foot}>
-        <CardShell>
-          <BrandRow subtitle={t('login.brand.subtitle.none')} />
-          <Button asChild className="h-10 font-semibold gap-2">
-            <a href={safeNext(params.get('next'))}>
-              <ArrowRight className="w-4 h-4" />
-              {t('login.enter')}
-            </a>
-          </Button>
-          {oidcReady && (
-            <>
-              <Divider />
-              <SsoButton href={ssoHref(cfg.data.loginUrl, next)} />
-            </>
-          )}
-        </CardShell>
-      </LoginStage>
-    );
-  }
-
-  // Default branch: mode=forms (or error fallback) → password form.
+  // Forms login is always available; the SSO button is additive, shown only
+  // when OIDC is ready.
   return (
-    <LoginStage footMode={foot}>
+    <LoginStage>
       <CardShell>
         <BrandRow subtitle={t('login.brand.subtitle.forms')} />
         <form onSubmit={onSubmit} autoComplete="on" noValidate className="flex flex-col gap-3">

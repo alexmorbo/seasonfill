@@ -13,7 +13,6 @@ import (
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	infraoidc "github.com/alexmorbo/seasonfill/internal/admin/infrastructure/oidc"
-	"github.com/alexmorbo/seasonfill/internal/runtime"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
@@ -46,7 +45,7 @@ func TestOIDCStart_NotConfigured_ReturnsServiceUnavailable(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	ptr := &middleware.AuthRuntimePointer{}
-	ptr.Store(&middleware.AuthRuntime{Mode: runtime.AuthModeOIDC})
+	ptr.Store(&middleware.AuthRuntime{})
 	uc := auth.NewOIDCLoginUseCase(infraoidc.NewProviderCache(), stubAdminRepo{})
 	h := NewOIDCHandler(uc, ptr, []byte("k"), 0, false, nil)
 

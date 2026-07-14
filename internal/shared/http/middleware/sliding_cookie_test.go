@@ -8,8 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/alexmorbo/seasonfill/internal/runtime"
 )
 
 func slideHandler(t *testing.T, ttl time.Duration) (*gin.Engine, []byte) {
@@ -18,7 +16,7 @@ func slideHandler(t *testing.T, ttl time.Duration) (*gin.Engine, []byte) {
 	key := []byte("test-session-key-32-bytes-padded")
 	ptr := &AuthRuntimePointer{}
 	ptr.Store(&AuthRuntime{
-		Mode: runtime.AuthModeForms, SessionTTL: ttl, SecureCookie: false,
+		SessionTTL: ttl, SecureCookie: false,
 	})
 	r := gin.New()
 	r.GET("/api/v1/scans",

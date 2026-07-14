@@ -30,36 +30,25 @@ const jsonResp = (body: unknown, status = 200) =>
   });
 
 describe('getAuthConfig()', () => {
-  it('maps snake_case wire to camelCase + narrows mode', async () => {
+  it('maps oidc_ready from wire; defaults to false when absent', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ mode: 'basic' }),
+      jsonResp({ oidc_ready: false }),
     ) as typeof fetch;
-    await expect(getAuthConfig()).resolves.toEqual({
-      mode: 'basic', oidcReady: false,
-    });
+    await expect(getAuthConfig()).resolves.toEqual({ oidcReady: false });
   });
 
-  it('falls back to forms on unknown mode', async () => {
+  it('includes loginUrl when present', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ mode: 'unknown_mode' }),
+      jsonResp({ oidc_ready: true, login_url: '/api/v1/auth/oidc/start' }),
     ) as typeof fetch;
     await expect(getAuthConfig()).resolves.toEqual({
-      mode: 'forms', oidcReady: false,
-    });
-  });
-
-  it('maps mode=oidc and includes loginUrl when present', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      jsonResp({ mode: 'oidc', oidc_ready: true, login_url: '/api/v1/auth/oidc/start' }),
-    ) as typeof fetch;
-    await expect(getAuthConfig()).resolves.toEqual({
-      mode: 'oidc', oidcReady: true, loginUrl: '/api/v1/auth/oidc/start',
+      oidcReady: true, loginUrl: '/api/v1/auth/oidc/start',
     });
   });
 
   it('decodes oidc_ready from wire', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ mode: 'forms', oidc_ready: true, login_url: '/api/v1/auth/oidc/start' }),
+      jsonResp({ oidc_ready: true, login_url: '/api/v1/auth/oidc/start' }),
     ) as typeof fetch;
     await expect(getAuthConfig()).resolves.toMatchObject({
       oidcReady: true, loginUrl: '/api/v1/auth/oidc/start',
@@ -68,21 +57,21 @@ describe('getAuthConfig()', () => {
 
   it('defaults oidcReady to false when absent', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ mode: 'forms' }),
+      jsonResp({}),
     ) as typeof fetch;
-    await expect(getAuthConfig()).resolves.toMatchObject({ oidcReady: false });
+    await expect(getAuthConfig()).resolves.toEqual({ oidcReady: false });
   });
 });
 
 describe('useAuthConfig()', () => {
   it('resolves to AuthConfig on success', async () => {
     globalThis.fetch = vi.fn(async () =>
-      jsonResp({ mode: 'forms' }),
+      jsonResp({ oidc_ready: false }),
     ) as typeof fetch;
     const qc = makeQC();
     const { result } = renderHook(() => useAuthConfig(), { wrapper: wrap(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual({ mode: 'forms', oidcReady: false });
+    expect(result.current.data).toEqual({ oidcReady: false });
   });
 
   it('exposes error state on 5xx', async () => {

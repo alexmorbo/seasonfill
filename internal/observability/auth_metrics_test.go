@@ -30,9 +30,6 @@ func TestAuthLogin_AllModeResultCombos(t *testing.T) {
 		{AuthLoginModeForms, AuthLoginSuccess},
 		{AuthLoginModeForms, AuthLoginFailure},
 		{AuthLoginModeForms, AuthLoginRateLimited},
-		{AuthLoginModeBasic, AuthLoginSuccess},
-		{AuthLoginModeBasic, AuthLoginFailure},
-		{AuthLoginModeBasic, AuthLoginRateLimited},
 	}
 	for _, cmb := range combos {
 		series := `seasonfill_auth_login_total{mode="` + cmb.mode + `",result="` + cmb.result + `"}`

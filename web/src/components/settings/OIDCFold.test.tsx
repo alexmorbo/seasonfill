@@ -22,7 +22,7 @@ function renderFold(props: Partial<Parameters<typeof OIDCFold>[0]> = {}) {
   return render(
     <I18nextProvider i18n={i18n}>
       <OIDCFold
-        mode={props.mode ?? 'forms'}
+        defaultOpen={props.defaultOpen ?? false}
         forceOpen={props.forceOpen ?? false}
         value={props.value ?? VALUE}
         onChange={props.onChange ?? (() => {})}
@@ -34,33 +34,33 @@ function renderFold(props: Partial<Parameters<typeof OIDCFold>[0]> = {}) {
 }
 
 describe('<OIDCFold />', () => {
-  it('auto-opens when mode is oidc', () => {
-    renderFold({ mode: 'oidc' });
+  it('auto-opens when defaultOpen is true', () => {
+    renderFold({ defaultOpen: true });
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
     // Inner OIDCConfigBlock fields show through.
     expect(screen.getByLabelText(/issuer/i)).toBeVisible();
   });
 
-  it('starts collapsed in non-oidc modes', () => {
-    renderFold({ mode: 'forms' });
+  it('starts collapsed when defaultOpen is false', () => {
+    renderFold({ defaultOpen: false });
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'false');
   });
 
-  it('clicking the header toggles open in non-oidc mode', async () => {
-    renderFold({ mode: 'forms' });
+  it('clicking the header toggles open when collapsed', async () => {
+    renderFold({ defaultOpen: false });
     await userEvent.click(screen.getByTestId('oidc-fold-head'));
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
   });
 
   it('forceOpen=true keeps it open and disables the toggle', async () => {
-    renderFold({ mode: 'forms', forceOpen: true });
+    renderFold({ defaultOpen: false, forceOpen: true });
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
     await userEvent.click(screen.getByTestId('oidc-fold-head'));
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
   });
 
-  it('user can collapse the fold even when mode is oidc', async () => {
-    renderFold({ mode: 'oidc' });
+  it('user can collapse the fold even when defaultOpen is true', async () => {
+    renderFold({ defaultOpen: true });
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'true');
     await userEvent.click(screen.getByTestId('oidc-fold-head'));
     expect(screen.getByTestId('oidc-fold')).toHaveAttribute('data-open', 'false');
@@ -69,7 +69,7 @@ describe('<OIDCFold />', () => {
   });
 
   it('open content carries data-state=open and collapsible-down animation class', () => {
-    renderFold({ mode: 'oidc' });
+    renderFold({ defaultOpen: true });
     const content = screen.getByTestId('oidc-fold-content');
     expect(content).toHaveAttribute('data-state', 'open');
     expect(content.className).toMatch(/data-\[state=open\]:animate-collapsible-down/);
@@ -78,7 +78,7 @@ describe('<OIDCFold />', () => {
   });
 
   it("closed content stays in DOM with hidden + data-state='closed' (Radix default)", () => {
-    renderFold({ mode: 'forms' });
+    renderFold({ defaultOpen: false });
     const content = screen.getByTestId('oidc-fold-content');
     expect(content).toHaveAttribute('data-state', 'closed');
     expect(content).toHaveAttribute('hidden');

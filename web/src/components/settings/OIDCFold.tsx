@@ -12,10 +12,11 @@ import {
   type OIDCFormShape,
   type OIDCTestResult,
 } from './OIDCConfigBlock';
-import type { AuthMode } from './AuthModeSegmented';
 
 interface Props {
-  readonly mode: AuthMode;
+  // defaultOpen seeds the initial expanded state — the parent passes true when
+  // OIDC is already configured so operators land on the populated section.
+  readonly defaultOpen?: boolean;
   readonly forceOpen?: boolean;
   readonly value: OIDCFormShape & {
     client_secret_configured: boolean;
@@ -29,20 +30,10 @@ interface Props {
 }
 
 export function OIDCFold({
-  mode, forceOpen, value, onChange, onTest, errors,
+  defaultOpen, forceOpen, value, onChange, onTest, errors,
 }: Props) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(mode === 'oidc');
-
-  // Auto-open/close on mode change via adjust-state-during-render. Tracking
-  // the prev mode means we only force `open` when the parent actually
-  // flips modes — user toggles inside the section (open=true while
-  // mode=oidc, then user collapses) are preserved.
-  const [prevMode, setPrevMode] = useState(mode);
-  if (prevMode !== mode) {
-    setPrevMode(mode);
-    setOpen(mode === 'oidc');
-  }
+  const [open, setOpen] = useState(Boolean(defaultOpen));
 
   const effectivelyOpen = open || Boolean(forceOpen);
 
@@ -55,7 +46,6 @@ export function OIDCFold({
       <section
         data-testid="oidc-fold"
         data-open={effectivelyOpen}
-        data-mode={mode}
         className="border border-border-faint rounded-[var(--r-lg)] overflow-hidden"
       >
         <CollapsibleTrigger asChild>
@@ -70,18 +60,11 @@ export function OIDCFold({
             <h3 className="text-[13.5px] font-semibold m-0">
               {t('settings.security.oidcFold.title')}
             </h3>
-            {mode !== 'oidc' && !effectivelyOpen && (
-              <span className="font-mono text-[10.5px] text-tx-faint bg-bg-surface-2 border border-border-faint px-[7px] py-px rounded-[5px]">
-                {t('settings.security.oidcFold.hidden')}
-              </span>
-            )}
-            {mode !== 'oidc' && (
-              <span className="text-[12px] text-tx-muted">
-                {effectivelyOpen
-                  ? t('settings.security.oidcFold.collapseHint')
-                  : t('settings.security.oidcFold.expandHint')}
-              </span>
-            )}
+            <span className="text-[12px] text-tx-muted">
+              {effectivelyOpen
+                ? t('settings.security.oidcFold.collapseHint')
+                : t('settings.security.oidcFold.expandHint')}
+            </span>
             <ChevronDown
               className={cn(
                 'w-4 h-4 ml-auto text-tx-muted transition-transform',
