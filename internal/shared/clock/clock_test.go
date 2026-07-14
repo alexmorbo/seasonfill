@@ -271,7 +271,15 @@ func TestFakeClock_ReentryAfterAdvance(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("first sleep did not wake")
 	}
-	f.BlockUntilWaiters(1)
+	// Fake waiter count is CUMULATIVE — a fired Sleep is not decremented.
+	// Waiter#1 (the first Sleep) already fired above but is still counted,
+	// so the reentrant second Sleep registers at count 2, not 1. Waiting on
+	// (2) is the deterministic barrier that guarantees the reentrant park is
+	// registered before this Advance fires it. Waiting on (1) would race the
+	// reentry: the stale count 1 from the already-fired waiter#1 lets
+	// BlockUntilWaiters(1) return before the second Sleep registers, the
+	// Advance then fires nothing, and the goroutine hangs to the wall-guard.
+	f.BlockUntilWaiters(2)
 	f.Advance(time.Second)
 	select {
 	case <-woke:

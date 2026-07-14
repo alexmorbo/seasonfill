@@ -693,21 +693,24 @@ func TestClient_AdaptivePause_FallbackWhenHeaderMissing(t *testing.T) {
 // both 429s have published, then let the post-pause 200s complete.
 func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	var hits atomic.Int32
-	// got429 fires ONCE per 429 the server issues. The test drains two of
-	// them before BlockUntilWaiters — see the rendezvous note below for why
-	// the fake-clock waiter count alone is an unsafe barrier here.
-	got429 := make(chan struct{}, 2)
+	// arrival barrier: each of the first two requests announces itself on
+	// `arrived` the instant its handler runs (both goroutines are past
+	// acquire() and have physically issued their first HTTP request), then
+	// blocks on `release` until the test has confirmed BOTH have landed.
+	// This makes "both 429s land before either returns" a hard rendezvous
+	// rather than relying on the fake-clock waiter count as a barrier — see
+	// the note below for why the waiter count alone is unsafe here.
+	arrived := make(chan struct{}, 2)
+	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := hits.Add(1)
 		if n <= 2 {
-			// Signal "request N arrived" the instant it lands: by the time
-			// the handler runs, the client has already cleared acquire()
-			// and issued the call. Draining this on the test side proves
-			// BOTH goroutines are past acquire before we count waiters.
-			select {
-			case got429 <- struct{}{}:
-			default:
-			}
+			// Announce arrival, then park until the test releases both.
+			// Blocking here holds the 429 response back until BOTH
+			// first-attempt requests are provably in flight, so neither
+			// goroutine can retry into the still-429 window early.
+			arrived <- struct{}{}
+			<-release
 			// 3s window — the precise width only matters under fake
 			// clock as a positive number; the second 429 is guaranteed
 			// to land within it because we don't Advance until both
@@ -748,9 +751,11 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	}
 	close(start)
 
-	// DETERMINISTIC RENDEZVOUS — wait until BOTH goroutines have received a
-	// 429, i.e. both are past acquire() and heading into applyPause + the
-	// per-attempt retry Sleep.
+	// DETERMINISTIC RENDEZVOUS — wait until BOTH first-attempt requests have
+	// physically arrived at the server (both are past acquire() and have
+	// issued their HTTP call). Only then do we release the parked handlers so
+	// both 429s return, and both goroutines head into applyPause + the
+	// per-attempt retry Sleep together.
 	//
 	// Why this gate is required (root cause of the CI FAIL(5.06s) flake):
 	// acquire()'s limiter.Wait ALSO parks on a fake-clock timer when a pause
@@ -765,18 +770,20 @@ func TestClient_AdaptivePause_NoCompoundOnSecond429(t *testing.T) {
 	// almost always interleaves both 429s first (50/50 local PASS); CI's
 	// slower, -race scheduler exposes the alternate interleaving.
 	//
-	// Once both 429s have landed, neither goroutine can be stuck in acquire
-	// (both already drew their token and issued attempt 0), and no retry can
-	// begin before Advance. So the only waiters that can form are exactly the
-	// 2 per-attempt Sleeps + the single watchResume timer — making
-	// BlockUntilWaiters(3) an unambiguous barrier.
+	// Holding the handlers on `release` until BOTH have arrived means neither
+	// 429 returns until both goroutines are provably past acquire() with
+	// attempt 0 issued. No retry can begin before Advance, so the only waiters
+	// that can form are exactly the 2 per-attempt Sleeps + the single
+	// watchResume timer — making BlockUntilWaiters(3) an unambiguous barrier.
 	for range 2 {
 		select {
-		case <-got429:
+		case <-arrived:
 		case <-time.After(2 * time.Second):
-			t.Fatal("server did not receive both 429 triggers")
+			t.Fatal("server did not receive both first-attempt requests")
 		}
 	}
+	// Both first attempts are in flight; let their 429s return.
+	close(release)
 
 	// Both per-attempt Sleeps (1 waiter each) + the watchResume 3s timer (1
 	// waiter, spawned exactly ONCE — the second 429 extends/no-ops the pause,
