@@ -181,8 +181,13 @@ func bootForTest(t *testing.T) (*runtime.Bus, func()) {
 		}
 	}()
 
-	// Wait for bus to be wired.
-	deadline := time.Now().Add(10 * time.Second)
+	// Wait for bus to be wired. The budget is generous (30s) because a full
+	// server boot under -race — SQLite migrations plus complete wiring — can
+	// take many seconds when the CI runner (2 vCPU) is contended by sibling
+	// integration binaries. This is not a correctness assertion, only a
+	// readiness gate: the bus appears once boot finishes, so the wait must
+	// out-last a slow boot, not a fast dev machine's.
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		b := busRef
@@ -195,7 +200,7 @@ func bootForTest(t *testing.T) (*runtime.Bus, func()) {
 	mu.Lock()
 	bus := busRef
 	mu.Unlock()
-	require.NotNil(t, bus, "runForTest failed to expose bus within 10s")
+	require.NotNil(t, bus, "runForTest failed to expose bus within 30s")
 
 	return bus, func() {
 		cancel()

@@ -211,8 +211,19 @@ jobs:
 
       - name: Test (integration, sqlite only)
         run: |
-          PKGS="./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/... ./cmd/server/..."
+          PKGS="./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/..."
           go test -tags integration -race -timeout 15m $PKGS
+
+      # cmd/server runs in its OWN step, sequentially after the packages above.
+      # Its reload E2E suite boots the full server ~13 times (SQLite migrations +
+      # complete wiring, each under -race). On a 2-vCPU runner those boots must
+      # not contend with the other integration binaries that `go test` would
+      # otherwise schedule in parallel across GOMAXPROCS — the contention slows
+      # each boot past the test's readiness budget and flakes the lane. A
+      # dedicated step gives the boots the whole runner, matching the green
+      # isolated runs.
+      - name: Test (integration, sqlite only — cmd/server)
+        run: go test -tags integration -race -timeout 15m ./cmd/server/...
 
   integration-postgres:
     name: Integration (Postgres via services container)
