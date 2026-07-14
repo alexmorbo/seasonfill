@@ -50,6 +50,13 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
+      - name: Cache Go build (race)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gobuild-race-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
+          restore-keys: gobuild-race-${{ runner.os }}-
+
       - name: Build
         run: go build ./...
 
@@ -103,7 +110,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: web/package.json
+          cache-dependency-path: web/package-lock.json
       - name: Install module tools
         run: go install tool
       - name: Drift check
@@ -123,9 +130,32 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
+      - name: Cache Go build (race)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gobuild-race-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
+          restore-keys: gobuild-race-${{ runner.os }}-
+
+      - name: Verify integration package coverage (drift guard)
+        run: |
+          set -euo pipefail
+          ACTUAL=$(grep -rl -e '//go:build integration' -e '// +build integration' internal/ cmd/ tests/ 2>/dev/null \
+            | xargs -n1 dirname | sort -u \
+            | sed 's,^,./,' \
+            | xargs -I{} go list -tags integration {} 2>/dev/null \
+            | sed 's,^github.com/alexmorbo/seasonfill/,./,' | grep -v '/cmd/' | sort -u)
+          EXPECTED=$(go list -tags integration ./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/... 2>/dev/null \
+            | sed 's,^github.com/alexmorbo/seasonfill/,./,' | sort -u)
+          MISSING=$(comm -23 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$EXPECTED") | grep -v '^$' || true)
+          if [ -n "$MISSING" ]; then
+            echo "DRIFT: integration-tagged packages missing from sqlite explicit list:"; echo "$MISSING"; exit 1
+          fi
+          echo "OK: no integration package drift"
+
       - name: Test (integration, sqlite only)
         run: |
-          PKGS=$(go list -tags integration ./... | grep -v '/cmd/')
+          PKGS="./internal/shared/testhelpers ./internal/discovery/app/... ./internal/discovery/persistence ./internal/mediaproxy/infrastructure ./tests/..."
           go test -tags integration -race -timeout 15m $PKGS
 
   integration-postgres:
@@ -163,6 +193,13 @@ jobs:
         with:
           go-version: "1.26.5"
           cache: true
+
+      - name: Cache Go build (race)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gobuild-race-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
+          restore-keys: gobuild-race-${{ runner.os }}-
 
       - name: Test (integration, postgres backend)
         env:
