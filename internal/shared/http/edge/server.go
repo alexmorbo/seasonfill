@@ -175,16 +175,19 @@ func NewServer(
 		// per ClientIP. Independent from the login limiter so a brute-
 		// forcer with a stolen cookie can't exhaust BOTH paths.
 		passwordLimiter := auth.NewIPLimiter(auth.PasswordChangeLimit(), 3)
-		// Story 485 (N-7a): if a shared AuthRuntime pointer was supplied,
-		// seed its boot defaults (SessionTTL + SecureCookie) here so the
-		// AuthHandler and MeHandler observe the same initial values BEFORE
-		// the reload subscriber publishes the first snapshot. Without this
-		// seed, the shared atomic would carry SessionTTL=0 and Login would
-		// issue a cookie with max-age=0 on the very first request after boot.
+		// Story 485 (N-7a) + F-03 (AUDIT2-S3): if a shared AuthRuntime pointer
+		// was supplied, seed its boot defaults (SessionTTL + SecureCookie +
+		// SessionEpoch) here so the AuthHandler, MeHandler, and cookie verifier
+		// observe the same initial values BEFORE the reload subscriber publishes
+		// the first snapshot. Without the TTL seed, Login would issue a cookie
+		// with max-age=0 on the first request; without the epoch seed, a pre-bump
+		// stale cookie (Epoch < live) would validate against a default-zero epoch
+		// for the whole boot window.
 		if sharedAuthRuntime != nil {
 			sharedAuthRuntime.Store(&middleware.AuthRuntime{
 				SessionTTL:   cfg.Auth.SessionTTL,
 				SecureCookie: cfg.Auth.SecureCookie,
+				SessionEpoch: cfg.Auth.SessionEpoch,
 			})
 		}
 		authHandler := adminrest.NewAuthHandler(

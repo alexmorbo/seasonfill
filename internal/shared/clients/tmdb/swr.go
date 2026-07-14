@@ -45,15 +45,14 @@ import (
 )
 
 // swrCacheSeq is a package-level monotonic counter used to mint unique cache
-// names across multiple *Client constructions. cachewatch.New panics on
-// duplicate name and does NOT unregister on Close; in production the reload
-// subscriber Close()s the old client BEFORE building a new one, but the
-// underlying cachewatch registry retains the name. Tests construct many
-// clients per process, and the production reload path constructs N+1 before
-// closing N. The counter sidesteps both by appending a suffix: the FIRST
-// client gets "tmdb_swr", subsequent clients get "tmdb_swr_<n>".
-// Story 553 (E-1 Z4) adaptation — story §12 assumes Close unregisters but
-// the existing cachewatch implementation does not.
+// names across multiple *Client constructions. cachewatch.New panics on a
+// duplicate name. As of 853bcd8f Cache.Close() DOES unregister the name
+// (registry delete), so a strict Close-before-New reload cycle no longer
+// collides. The counter is kept as defensive belt-and-suspenders: the
+// production reload path can construct N+1 clients BEFORE closing N, and
+// per-process test fan-out builds many clients whose Close ordering is not
+// guaranteed. It sidesteps both by appending a suffix: the FIRST client gets
+// "tmdb_swr", subsequent clients get "tmdb_swr_<n>". Redundant but correct.
 var swrCacheSeq atomic.Uint64
 
 // mintSWRCacheName returns the next unique cache name in the tmdb_swr family.

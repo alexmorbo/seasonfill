@@ -91,6 +91,16 @@ func (r *UserRepository) Create(ctx context.Context, u admin.User) error {
 func (r *UserRepository) CreateFromOIDC(ctx context.Context, subject, username, email string) (admin.User, error) {
 	now := time.Now().UTC()
 	sub := subject
+	// F-08 (AUDIT2-S3): a preferred_username that collides with the reserved
+	// X-Api-Key principal sentinel ("api-key") would create a row that
+	// permanently 401s on /me — resolveUser treats "api-key" as the automation
+	// principal (no stored row), not a real user. Fall back to the OIDC subject,
+	// which is opaque, unique, and never collides with a sentinel. Post
+	// auth-refactor only "api-key" remains reserved (local/anonymous bypass
+	// concepts were removed).
+	if username == "api-key" {
+		username = subject
+	}
 	u := admin.User{
 		Username:    username,
 		OIDCSubject: &sub,

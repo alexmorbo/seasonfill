@@ -82,7 +82,10 @@ func newAuditFixture(t *testing.T, withAuth bool) *auditFixture {
 	if withAuth {
 		sessionKey, skErr := crypto.DeriveSessionHMACKey("test-key")
 		require.NoError(t, skErr)
-		api.Use(middleware.RequireAuth("test-key", sessionKey))
+		// Was middleware.RequireAuth (deleted). Epoch-0 runtime = identical behavior.
+		ptr := &middleware.AuthRuntimePointer{}
+		ptr.Store(&middleware.AuthRuntime{})
+		api.Use(middleware.RequireAuthWithRuntime("test-key", sessionKey, ptr, nil, nil))
 	}
 	api.GET("/scans", h.ListScans)
 	api.GET("/scans/:id", h.GetScan)

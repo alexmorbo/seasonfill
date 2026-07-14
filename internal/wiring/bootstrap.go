@@ -276,11 +276,14 @@ func BuildRuntimeConfig(
 	// derived in BuildPersistence — the HTTP auth layer compares
 	// against the X-Api-Key header.
 	authCfg := config.Auth{
-		Enabled:          true,
-		APIKey:           persistence.MasterKey,
-		SessionTTL:       snap.Auth.SessionTTL,
-		SecureCookie:     snap.Auth.SecureCookie,
-		TrustedProxies:   snap.Auth.TrustedProxies,
+		Enabled:        true,
+		APIKey:         persistence.MasterKey,
+		SessionTTL:     snap.Auth.SessionTTL,
+		SecureCookie:   snap.Auth.SecureCookie,
+		TrustedProxies: snap.Auth.TrustedProxies,
+		// F-03 (AUDIT2-S3): seed the boot epoch so the edge server rejects
+		// pre-bump cookies immediately, before the reload subscriber's first apply.
+		SessionEpoch:     snap.Auth.SessionEpoch,
 		OIDCClientSecret: bootCfg.Auth.OIDCClientSecret,
 	}
 	httpCfg := bootCfg.HTTP

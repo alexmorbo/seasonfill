@@ -19,7 +19,11 @@ func setupAuth(t *testing.T, apiKey string) *gin.Engine {
 	require.NoError(t, err)
 	r := gin.New()
 	api := r.Group("/api")
-	api.Use(RequireAuth(apiKey, sessionKey))
+	// Was RequireAuth (deleted). Epoch-0 runtime reproduces the old
+	// shim behavior exactly for these tests.
+	ptr := &AuthRuntimePointer{}
+	ptr.Store(&AuthRuntime{})
+	api.Use(RequireAuthWithRuntime(apiKey, sessionKey, ptr, nil, nil))
 	api.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"user": c.GetString(UsernameContextKey)})
 	})

@@ -228,15 +228,14 @@ func (h *MeHandler) ChangePassword(c *gin.Context) {
 // on the gin context by RequireAuthWithRuntime. Returns false (and writes
 // a 401 envelope) when no row matches — defensive: the middleware
 // already 401'd if the session was invalid, so this branch only fires on
-// a delete-after-login race or a misconfigured api-key / local-bypass
-// path that emits a username that has no row.
+// a delete-after-login race or the X-Api-Key principal ("api-key"), which
+// has no stored user row.
 func (h *MeHandler) resolveUser(c *gin.Context) (admin.User, bool) {
 	username := c.GetString(middleware.UsernameContextKey)
-	if username == "" || username == "api-key" || username == "local" || username == "anonymous" {
-		// Bypass / api-key / disabled-auth paths do NOT correspond to a
-		// stored user row. /me is undefined for them — 401 with a clear
-		// message so the SPA can render "log in to see your profile"
-		// rather than rendering an Object.
+	if username == "" || username == "api-key" {
+		// The X-Api-Key principal does NOT correspond to a stored user row.
+		// /me is undefined for it — 401 with a clear message so the SPA can
+		// render "log in to see your profile" rather than rendering an Object.
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"error": "no user identity for this session", "code": "UNAUTHORIZED",
 		})

@@ -160,6 +160,36 @@ func TestAdminUserRepo_CreateFromOIDC_PopulatesSubject(t *testing.T) {
 	}
 }
 
+func TestAdminUserRepo_CreateFromOIDC_ReservedUsernameFallsBackToSubject(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewUserRepository(backend.NewDB(t))
+			ctx := context.Background()
+
+			// preferred_username collides with the reserved X-Api-Key sentinel.
+			created, err := repo.CreateFromOIDC(ctx, "subject-collide", "api-key", "")
+			require.NoError(t, err)
+			assert.Equal(t, "subject-collide", created.Username,
+				"reserved username must fall back to the OIDC subject")
+			require.NotNil(t, created.OIDCSubject)
+			assert.Equal(t, "subject-collide", *created.OIDCSubject)
+
+			// The created row is resolvable by its (subject-derived) username —
+			// it would NOT be if the row had been stored as "api-key".
+			got, err := repo.GetByUsername(ctx, "subject-collide")
+			require.NoError(t, err)
+			assert.Equal(t, "subject-collide", got.Username)
+
+			// A non-reserved username is stored verbatim (control).
+			ok, err := repo.CreateFromOIDC(ctx, "subject-ok", "alice", "")
+			require.NoError(t, err)
+			assert.Equal(t, "alice", ok.Username)
+		})
+	}
+}
+
 func TestAdminUserRepo_CreateFromOIDC_MultipleUsers(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {

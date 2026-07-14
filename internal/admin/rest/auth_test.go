@@ -122,7 +122,10 @@ func setupAuthWithOpts(t *testing.T, repo ports.UserRepository, lim *auth.IPLimi
 	h := NewAuthHandler(testAPIKey, repo, time.Hour, false, lim, slog.Default(), opts...)
 	r.POST("/api/v1/auth/login", h.Login)
 	g := r.Group("")
-	g.Use(middleware.RequireAuth(testAPIKey, sessionKey))
+	// Was middleware.RequireAuth (deleted). Epoch-0 runtime = identical behavior.
+	ptr := &middleware.AuthRuntimePointer{}
+	ptr.Store(&middleware.AuthRuntime{})
+	g.Use(middleware.RequireAuthWithRuntime(testAPIKey, sessionKey, ptr, nil, nil))
 	g.DELETE("/api/v1/auth/session", h.Logout)
 	g.GET("/api/v1/auth/session", h.Session)
 	g.POST("/api/v1/auth/password", h.PasswordChange)

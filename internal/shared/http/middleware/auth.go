@@ -15,16 +15,6 @@ import (
 
 const UsernameContextKey = "auth.username"
 
-// RequireAuth preserves the pre-036a signature so existing callers
-// (tests, helm-deployed binaries that haven't been rebuilt) keep
-// compiling. Internally builds a throwaway AuthRuntimePointer seeded with
-// epoch=0 and delegates to buildAuth with the cookie path enabled.
-func RequireAuth(apiKey string, sessionKey []byte) gin.HandlerFunc {
-	ptr := &AuthRuntimePointer{}
-	ptr.Store(&AuthRuntime{})
-	return buildAuth(apiKey, sessionKey, ptr, true)
-}
-
 // RequireAuthWithRuntime gates protected non-webhook routes. Dispatch order:
 //
 //  1. X-Api-Key check (precedence — automation must never be silently

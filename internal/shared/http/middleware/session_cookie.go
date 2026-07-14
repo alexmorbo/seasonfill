@@ -16,11 +16,11 @@ const SessionCookieName = "seasonfill_session"
 
 // SessionPayload is the cookie body. Exp is unix-second; verifier
 // checks `now <= exp`. Epoch is the session-invalidation generation
-// — cookies issued before the latest mode/bypass/networks change
-// decode with an epoch strictly less than the current snapshot
-// SessionEpoch and are rejected. Default zero matches pre-036a
-// cookies (no epoch field) so existing sessions stay valid until
-// the operator explicitly changes a mode-related field.
+// — cookies decoded with an epoch strictly less than the current
+// snapshot SessionEpoch are rejected. The epoch bumps on an OIDC
+// identity/ACL change or an explicit admin session rotation (auth is
+// forms-always + OIDC-additive; there is no mode/bypass/networks model).
+// Epoch omitempty keeps the wire compact for the common epoch-0 case.
 type SessionPayload struct {
 	Username string `json:"u"`
 	Exp      int64  `json:"e"`
@@ -55,9 +55,11 @@ func SignSession(secret []byte, username string, expiresAt time.Time, epoch int6
 
 // VerifySession returns the payload on success. currentEpoch is the
 // authoritative epoch from the live AuthRuntime snapshot — payloads
-// with `Epoch < currentEpoch` return ErrSessionEpoch. Existing
-// pre-036a cookies decode with Epoch=0 and validate against the
-// default zero epoch.
+// with `Epoch < currentEpoch` return ErrSessionEpoch. The epoch is
+// bumped on an OIDC identity/ACL change or an explicit admin session
+// rotation; a cookie minted under an older epoch is revoked on the next
+// request. At boot the epoch is seeded from app_config (F-03) so pre-bump
+// cookies are rejected immediately rather than during a zero-epoch window.
 //
 // Callers MUST NOT leak which sentinel triggered the rejection.
 func VerifySession(secret []byte, token string, now time.Time, currentEpoch int64) (SessionPayload, error) {

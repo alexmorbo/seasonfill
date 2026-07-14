@@ -326,11 +326,12 @@ func New(cfg Config) (*Client, error) {
 	}
 	// Story 553 (E-1 Z4) — wire the SWR cache. The fetch closure captures
 	// `c` AFTER all other fields are set so the closure sees the fully-built
-	// client. cachewatch.New panics on duplicate name and does NOT unregister
-	// on Close; mintSWRCacheName allocates a unique suffix so the reload
-	// subscriber's Close+New cycle (and per-process test fan-out) doesn't
-	// trip the duplicate guard. First client: "tmdb_swr"; subsequent:
-	// "tmdb_swr_<n>". See swr.go::mintSWRCacheName.
+	// client. cachewatch.New panics on a duplicate name; Cache.Close() now
+	// unregisters the name (853bcd8f), so mintSWRCacheName's unique suffix is
+	// a defensive belt-and-suspenders against reload cycles that build N+1
+	// before closing N (and per-process test fan-out with unordered Close).
+	// First client: "tmdb_swr"; subsequent: "tmdb_swr_<n>". See
+	// swr.go::mintSWRCacheName.
 	c.swr = newSWRCache(mintSWRCacheName(), c.clk, c.doDirect)
 	return c, nil
 }

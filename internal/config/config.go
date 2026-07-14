@@ -48,11 +48,19 @@ func NewHealthCheckConfig(hc runtime.HealthCheckSnapshot) HealthCheckConfig {
 // For compatibility with existing HTTP handler code, we define a type that
 // bridges both sources.
 type Auth struct {
-	Enabled          bool
-	APIKey           string
-	SessionTTL       time.Duration
-	SecureCookie     bool
-	TrustedProxies   []string
+	Enabled        bool
+	APIKey         string
+	SessionTTL     time.Duration
+	SecureCookie   bool
+	TrustedProxies []string
+	// SessionEpoch is the app_config session-invalidation generation loaded
+	// at boot. Threaded through so the edge server can seed the shared
+	// AuthRuntime with the real epoch BEFORE the reload subscriber's first
+	// apply — otherwise a pre-bump (epoch < live) cookie validates during the
+	// boot window because VerifySession rejects only Epoch < currentEpoch and
+	// 0 < 0 is false. Runtime-mutable: the reload subscriber overwrites the
+	// live value from snap.Auth.SessionEpoch on every publish.
+	SessionEpoch     int64
 	OIDCClientSecret string
 	// Below are bootstrap-only; kept on this struct for test-fixture
 	// compatibility. Server runtime does not read them — see AuthBootstrap.
