@@ -376,51 +376,68 @@ func (c *Client) GrabHistoryPaged(ctx context.Context, page, pageSize int) (Hist
 }
 
 // Queue calls GET /api/v3/queue?seriesId={id}&includeSeries=true&
-// includeEpisode=true. Sonarr's /api/v3/queue IGNORES the seriesId
-// query param and returns the ENTIRE global queue, so we filter the
-// records client-side by SeriesID — otherwise every series-detail hero
-// would surface the same one global active download. Used by the
-// seriesdetail library composer to scope the hero download chip.
+// includeEpisode=true, walking pages until the global queue is drained.
+// Sonarr's /api/v3/queue IGNORES the seriesId query param and returns the
+// ENTIRE global queue, paginated — so we page through it and filter records
+// client-side by SeriesID. A single-page fetch silently drops every record of
+// the requested series that lands on page 2+ once the global queue exceeds
+// pageSize (bug: hero download chip / per-season counts show nothing). Used by
+// the seriesdetail library composer to scope the hero download chip.
+//
+// seriesID==0 preserves the original unfiltered behaviour (every record on
+// every page is returned).
 func (c *Client) Queue(ctx context.Context, seriesID shareddomain.SonarrSeriesID) (QueuePayload, error) {
-	q := url.Values{}
-	q.Set("seriesId", strconv.Itoa(int(seriesID)))
-	q.Set("includeSeries", "true")
-	q.Set("includeEpisode", "true")
-	q.Set("pageSize", "1000")
-	var dto queueDTO
-	if err := c.get(ctx, "/api/v3/queue", q, &dto); err != nil {
-		return QueuePayload{}, err
-	}
-	out := QueuePayload{
-		TotalRecords: dto.TotalRecords,
-		Records:      make([]QueueRecord, 0, len(dto.Records)),
-	}
-	for _, r := range dto.Records {
-		if seriesID != 0 && r.SeriesID != seriesID {
-			continue
+	const pageSize = 1000
+	const maxPages = 1000 // infinite-loop guard; Sonarr never paginates 1M queue rows
+
+	out := QueuePayload{Records: make([]QueueRecord, 0, pageSize)}
+	for page := 1; page <= maxPages; page++ {
+		q := url.Values{}
+		q.Set("seriesId", strconv.Itoa(int(seriesID)))
+		q.Set("includeSeries", "true")
+		q.Set("includeEpisode", "true")
+		q.Set("page", strconv.Itoa(page))
+		q.Set("pageSize", strconv.Itoa(pageSize))
+		var dto queueDTO
+		if err := c.get(ctx, "/api/v3/queue", q, &dto); err != nil {
+			return QueuePayload{}, err
 		}
-		rec := QueueRecord{
-			ID:           r.ID,
-			SeriesID:     r.SeriesID,
-			EpisodeID:    r.EpisodeID,
-			SeasonNumber: r.SeasonNumber,
-			Title:        r.Title,
-			Status:       r.Status,
-			DownloadID:   r.DownloadID,
-			Protocol:     r.Protocol,
-			Size:         r.Size,
-			SizeLeft:     r.SizeLeft,
-		}
-		if r.Episode != nil {
-			rec.EpisodeNumber = r.Episode.EpisodeNumber
-			if r.Episode.Title != "" {
-				rec.Title = r.Episode.Title
+		for _, r := range dto.Records {
+			if seriesID != 0 && r.SeriesID != seriesID {
+				continue
 			}
-			if rec.SeasonNumber == 0 {
-				rec.SeasonNumber = r.Episode.SeasonNumber
+			rec := QueueRecord{
+				ID:           r.ID,
+				SeriesID:     r.SeriesID,
+				EpisodeID:    r.EpisodeID,
+				SeasonNumber: r.SeasonNumber,
+				Title:        r.Title,
+				Status:       r.Status,
+				DownloadID:   r.DownloadID,
+				Protocol:     r.Protocol,
+				Size:         r.Size,
+				SizeLeft:     r.SizeLeft,
 			}
+			if r.Episode != nil {
+				rec.EpisodeNumber = r.Episode.EpisodeNumber
+				if r.Episode.Title != "" {
+					rec.Title = r.Episode.Title
+				}
+				if rec.SeasonNumber == 0 {
+					rec.SeasonNumber = r.Episode.SeasonNumber
+				}
+			}
+			out.Records = append(out.Records, rec)
 		}
-		out.Records = append(out.Records, rec)
+		// Last page reached: a short/empty page (fewer than pageSize rows), or
+		// we've walked past the reported total. Either terminates cleanly; the
+		// empty-page case (len==0 < pageSize) also guards the infinite loop.
+		if len(dto.Records) < pageSize || page*pageSize >= dto.TotalRecords {
+			break
+		}
 	}
+	// F-04: report the filtered count, not the global TotalRecords, so Records
+	// and TotalRecords stay consistent.
+	out.TotalRecords = len(out.Records)
 	return out, nil
 }
