@@ -245,13 +245,17 @@ func (c *Cache[K, V]) Len() int {
 	return c.store.Len()
 }
 
-// Close stops the TTL reaper. Idempotent. Safe to call multiple times.
+// Close stops the TTL reaper and releases this cache's name from the package
+// singleton registry (so a fresh Cache with the same name can be constructed
+// later — e.g. sequential server re-boots in one process, as the cmd/server
+// E2E suite does). Idempotent. Safe to call multiple times.
 // Metrics already published stay in the global VictoriaMetrics registry —
 // that is by design (operators want post-mortem cache stats).
 func (c *Cache[K, V]) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.done)
 		c.wg.Wait()
+		unregister(c.name)
 	})
 	return nil
 }

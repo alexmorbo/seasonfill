@@ -36,6 +36,17 @@ func registerOrPanic(name string, c closeable) {
 	defaultRegistry.caches[name] = c
 }
 
+// unregister removes name from the singleton registry so a Cache with the
+// same name can be constructed again later in the same process. Called by
+// Cache.Close. No-op if the name is absent. This is what lets the cmd/server
+// E2E suite boot the server repeatedly in one `go test` process: each boot's
+// Shutdown Close()s its caches, releasing the name before the next boot's New.
+func unregister(name string) {
+	defaultRegistry.mu.Lock()
+	defer defaultRegistry.mu.Unlock()
+	delete(defaultRegistry.caches, name)
+}
+
 // Names returns a sorted snapshot of registered cache names. Used by
 // /metrics debugging endpoints to enumerate live caches.
 func Names() []string {

@@ -795,7 +795,7 @@ func BuildHTTPServer(
 	discoveryHTTP *DiscoveryHTTPBundle,
 	tmdbSeasonsClient TMDBSeasonsClient,
 	log *slog.Logger,
-) *httpserver.Server {
+) (*httpserver.Server, *InstanceMetadataBundle) {
 	var discoveryHandler *discoveryrest.DiscoveryHandler
 	var discoverHandler *discoveryrest.DiscoverHandler // story 509 N-2h
 	if discoveryHTTP != nil {
@@ -829,7 +829,7 @@ func BuildHTTPServer(
 	// Story 584b — per-language poster localizer for GET
 	// /api/v1/instances/:name/series?lang=. Same GORM wrapper, media repo.
 	seriesMediaLocalizer := enrichpersistence.NewSeriesMediaTextsRepository(persistence.DB)
-	return httpserver.NewServer(
+	srv := httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
 		webhookBundle.WebhookUC,
@@ -883,4 +883,5 @@ func BuildHTTPServer(
 		seriesMediaLocalizer,
 		log,
 	)
+	return srv, instanceMetadataBundle
 }

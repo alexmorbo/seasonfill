@@ -59,6 +59,13 @@ type Server struct {
 	// Story 533 — retained so Shutdown can mark the freshener closed
 	// (subsequent EnsureFresh calls return Fresh=true cheaply).
 	seriesFreshenerHolder *adapters.SeriesFreshenerHolder
+	// AUDIT2-S2a — retained so Shutdown can Close (and thereby unregister
+	// from the cachewatch singleton) the two static-named LRU caches, so a
+	// sequential server boot in the same process (the cmd/server E2E suite)
+	// does not panic on duplicate registration. Both nil-safe; Close is
+	// idempotent.
+	discoverBundle *wiring.DiscoveryDiscoverBundle
+	metadataBundle *wiring.InstanceMetadataBundle
 }
 
 // New wires the server. The `armed` sentinel ensures bus.Close +
@@ -697,7 +704,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		tmdbSeasonsClient = enrichBundle.TMDBHolder
 	}
-	httpServer := wiring.BuildHTTPServer(
+	httpServer, instanceMetadataBundle := wiring.BuildHTTPServer(
 		persistence, runtimecfg, auth,
 		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
 		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
@@ -818,6 +825,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		onReady:                opts.OnReady,
 		onDemandEnricherHolder: seriesDetailBundle.OnDemandEnricherHolder,
 		seriesFreshenerHolder:  seriesDetailBundle.SeriesFreshenerHolder,
+		discoverBundle:         discoverBundle,
+		metadataBundle:         instanceMetadataBundle,
 	}, nil
 }
 
@@ -873,6 +882,16 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	// short-circuits to Fresh=true. Idempotent + nil-safe.
 	if s.seriesFreshenerHolder != nil {
 		s.seriesFreshenerHolder.Close()
+	}
+	// AUDIT2-S2a — Close the two static-named LRU caches so they unregister
+	// from the cachewatch singleton; a later server boot in the same process
+	// (the E2E suite) must be able to re-register the same names. Both
+	// nil-safe; Close is idempotent.
+	if s.discoverBundle != nil && s.discoverBundle.LRU != nil {
+		_ = s.discoverBundle.LRU.Close()
+	}
+	if s.metadataBundle != nil && s.metadataBundle.Cache != nil {
+		_ = s.metadataBundle.Cache.Close()
 	}
 
 	if cur := s.subSched.Current(); cur != nil {
