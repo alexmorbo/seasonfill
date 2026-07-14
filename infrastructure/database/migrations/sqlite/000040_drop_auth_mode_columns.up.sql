@@ -1,6 +1,7 @@
 -- disable the enforcement of foreign-keys constraints
 PRAGMA foreign_keys = off;
 -- create "new_app_config" table
+-- atlas:nolint destructive
 CREATE TABLE `new_app_config` (
   `id` integer NOT NULL DEFAULT 1,
   `cron_enabled` boolean NOT NULL DEFAULT true,
