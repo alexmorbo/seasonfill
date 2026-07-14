@@ -37,7 +37,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/sync/singleflight"
 
 	"github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
@@ -100,7 +99,7 @@ type DiscoveryHandler struct {
 	// onto a single TMDB fetch. Key: kind|param|lang. The shared
 	// group keeps memory usage flat — singleflight evicts the entry
 	// the moment the call returns.
-	sfGroup singleflight.Group
+	sfGroup refreshCoalescer
 }
 
 // NewDiscoveryHandler wires the handler against its narrow ports.
@@ -120,6 +119,7 @@ func NewDiscoveryHandler(
 	resolver *media.Resolver,
 	libraryInstances app.LibraryInstancesPort,
 	log *slog.Logger,
+	opts ...DiscoveryOption,
 ) *DiscoveryHandler {
 	switch {
 	case repo == nil:
@@ -135,7 +135,7 @@ func NewDiscoveryHandler(
 	case log == nil:
 		panic("discovery handler: log required")
 	}
-	return &DiscoveryHandler{
+	h := &DiscoveryHandler{
 		repo:             repo,
 		warming:          warming,
 		refresh:          refresh,
@@ -145,7 +145,12 @@ func NewDiscoveryHandler(
 		resolver:         resolver,         // nil-OK
 		libraryInstances: libraryInstances, // nil-OK
 		log:              log,
+		sfGroup:          &singleflightCoalescer{},
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // Trending serves GET /api/v1/discovery/trending.

@@ -320,7 +320,92 @@ func TestByGenre_Stale_TriggersRefresh(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `"Refreshed"`)
 }
 
-func TestByGenre_ConcurrentStaleRequests_SingleflightCollapses(t *testing.T) {
+// observableCoalescer is a deterministic, test-only refreshCoalescer.
+// Unlike x/sync/singleflight it exposes an explicit rendezvous: every
+// caller that enters Do signals `joined`, and the leader (first caller)
+// parks on `release` until the test unblocks it. This lets a test assert
+// TRUE collapse (exactly one fn invocation for N concurrent callers)
+// without racing the singleflight hook->Do window and without any sleep.
+type observableCoalescer struct {
+	mu       sync.Mutex
+	inflight map[string]*ocCall
+	joined   chan string
+	release  chan struct{}
+}
+
+type ocCall struct {
+	wg  sync.WaitGroup
+	val any
+	err error
+}
+
+func newObservableCoalescer(bufferHint int) *observableCoalescer {
+	return &observableCoalescer{
+		inflight: make(map[string]*ocCall),
+		joined:   make(chan string, bufferHint),
+		release:  make(chan struct{}),
+	}
+}
+
+func (o *observableCoalescer) Do(key string, fn func() (any, error)) (any, error, bool) {
+	o.mu.Lock()
+	if call, ok := o.inflight[key]; ok {
+		o.mu.Unlock()
+		o.joined <- key
+		call.wg.Wait() // happens-before: leader's val/err writes are visible
+		return call.val, call.err, true
+	}
+	call := &ocCall{}
+	call.wg.Add(1)
+	o.inflight[key] = call
+	o.mu.Unlock()
+
+	o.joined <- key // leader has joined
+	<-o.release     // park until the test releases the leader
+
+	call.val, call.err = fn()
+	call.wg.Done()
+
+	o.mu.Lock()
+	delete(o.inflight, key)
+	o.mu.Unlock()
+	return call.val, call.err, false
+}
+
+// releaseLeader unblocks the parked leader so it runs fn exactly once.
+func (o *observableCoalescer) releaseLeader() { close(o.release) }
+
+// newTestHandlerWithCoalescer builds the discovery engine with an
+// injected refreshCoalescer. Only the genre route is needed here.
+func newTestHandlerWithCoalescer(t *testing.T, repo discoapp.DiscoveryListRepo,
+	warming discoapp.WarmingProbe, refresh discoapp.RefreshOnDemand,
+	c *observableCoalescer,
+) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := discoveryrest.NewDiscoveryHandler(
+		repo, warming, refresh,
+		persistence.NewGenresPickerRepo(nil),
+		persistence.NewNetworksPickerRepo(nil),
+		nil, // searchUC — nil-OK
+		nil, // resolver — nil-OK
+		nil, // libraryInstances — nil-OK
+		log,
+		discoveryrest.WithRefreshCoalescer(c),
+	)
+	r := gin.New()
+	r.GET("/discovery/genre/:id", h.ByGenre)
+	return r
+}
+
+// TestByGenre_ConcurrentStaleRequests_CoalescerCollapses verifies the
+// on-demand refresh path collapses a burst of N concurrent stale reads
+// onto a SINGLE RefreshNow via the refreshCoalescer seam. It injects a
+// deterministic observableCoalescer and rendezvouses on "all N joined"
+// (zero wall-clock sleep) before releasing the leader, so the collapse
+// assertion can never race the coalescer's registration window.
+func TestByGenre_ConcurrentStaleRequests_CoalescerCollapses(t *testing.T) {
 	repo := newFakeRepo()
 	rf := &fakeRefresh{
 		repo: repo,
@@ -330,9 +415,11 @@ func TestByGenre_ConcurrentStaleRequests_SingleflightCollapses(t *testing.T) {
 		refresh: time.Now(),
 	}
 	repo.setStale(disco.KindByGenre, "18", "en-US", true)
-	r := newTestHandler(t, repo, &fakeWarming{}, rf)
 
 	const n = 16
+	coalescer := newObservableCoalescer(n)
+	r := newTestHandlerWithCoalescer(t, repo, &fakeWarming{}, rf, coalescer)
+
 	done := make(chan struct{}, n)
 	for range n {
 		go func() {
@@ -342,10 +429,15 @@ func TestByGenre_ConcurrentStaleRequests_SingleflightCollapses(t *testing.T) {
 			done <- struct{}{}
 		}()
 	}
+
+	for range n {
+		<-coalescer.joined
+	}
+	coalescer.releaseLeader()
+
 	for range n {
 		<-done
 	}
-	// Singleflight collapses the burst to ONE RefreshNow call.
 	require.Equal(t, int64(1), rf.calls.Load())
 }
 
