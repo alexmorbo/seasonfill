@@ -393,6 +393,12 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 	enrichmentMediaSyncedAt := timestampColumn(d, "enrichment_media_synced_at", false, false)
 	tmdbRatingSyncedAt := timestampColumn(d, "tmdb_rating_synced_at", false, false)
 	skeletonSyncedAt := timestampColumn(d, "skeleton_synced_at", false, false)
+	// tmdbChangedAt (W2-1) — write-once "TMDB /tv/changes last reported a
+	// change for this series" clock. NULL = never reported. Stamped ONLY by
+	// the dedicated Wave 2 changes-writer; deliberately absent from
+	// seriesUpsertAssignments() so a Sonarr scan can never null it (same
+	// invariant as skeleton_synced_at above).
+	tmdbChangedAt := timestampColumn(d, "tmdb_changed_at", false, false)
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
@@ -431,6 +437,7 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			enrichmentMediaSyncedAt,
 			tmdbRatingSyncedAt,
 			skeletonSyncedAt,
+			tmdbChangedAt,
 			createdAt,
 			updatedAt,
 		).
@@ -452,6 +459,9 @@ func buildSeriesTable(d Dialect) *atlasschema.Table {
 			atlasschema.NewIndex("series_enrichment_cast_synced_at_idx").AddColumns(enrichmentCastSyncedAt),
 			atlasschema.NewIndex("series_enrichment_recs_synced_at_idx").AddColumns(enrichmentRecsSyncedAt),
 			atlasschema.NewIndex("series_enrichment_media_synced_at_idx").AddColumns(enrichmentMediaSyncedAt),
+			partialIndex(d, "series_tmdb_changed_idx",
+				[]*atlasschema.Column{tmdbChangedAt},
+				"tmdb_changed_at IS NOT NULL"),
 		)
 	return t
 }
@@ -2073,6 +2083,7 @@ func addAdmin(s *atlasschema.Schema, d Dialect) {
 	appSecret := buildAppSecretTable(d)
 	externalServiceConfig := buildExternalServiceConfigTable(d, appSecret)
 	externalServiceQuotaState := buildExternalServiceQuotaStateTable(d)
+	tmdbChangesState := buildTMDBChangesStateTable(d)
 
 	s.AddTables(
 		sonarrInstance,
@@ -2080,6 +2091,7 @@ func addAdmin(s *atlasschema.Schema, d Dialect) {
 		appSecret,
 		externalServiceConfig,
 		externalServiceQuotaState,
+		tmdbChangesState,
 	)
 }
 
@@ -2314,6 +2326,66 @@ func buildExternalServiceQuotaStateTable(d Dialect) *atlasschema.Table {
 			atlasschema.NewIndex("external_service_quota_state_window").
 				AddColumns(windowStart),
 		)
+}
+
+// buildTMDBChangesStateTable returns tmdb_changes_state — a single-row
+// (id=1, enforced by CHECK) cursor / machine-state table for the Wave 2
+// TMDB /tv/changes firehose poller. Sibling of external_service_quota_state
+// and watchdog_state (machine state, NOT operator-editable app_config).
+//
+// Columns:
+//
+//	id              BIGINT PK, always 1 (CHECK id = 1; no DEFAULT — the app
+//	                inserts id=1 explicitly). On SQLite: integer.
+//	schema_version  INTEGER NOT NULL DEFAULT 1 — payload/state format guard.
+//	last_window_end TIMESTAMPTZ NULL — end of the last successfully-polled
+//	                /tv/changes window (the next poll's start_date).
+//	last_poll_at    TIMESTAMPTZ NULL — wall-clock of the last poll attempt.
+//	last_matched    INTEGER NOT NULL DEFAULT 0 — changed tmdb_ids that matched
+//	                a local library series on the last poll.
+//	last_firehose   INTEGER NOT NULL DEFAULT 0 — total changed tmdb_ids the
+//	                firehose returned on the last poll (match rate = matched/firehose).
+//	created_at, updated_at TIMESTAMPTZ NOT NULL DEFAULT now().
+//
+// No indexes, no FKs — standalone single-row state table.
+func buildTMDBChangesStateTable(d Dialect) *atlasschema.Table {
+	// id is a plain BIGINT (no BIGSERIAL — the app never inserts a second
+	// row; CHECK id=1 enforces). On SQLite use integer. Faithful to spec
+	// §5.2: PRIMARY KEY, NO default (app writes id=1 explicitly).
+	idType := "bigint"
+	if d == DialectSQLite {
+		idType = "integer"
+	}
+	id := atlasschema.NewIntColumn("id", idType).SetNull(false)
+
+	schemaVersion := atlasschema.NewIntColumn("schema_version", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "1"})
+	lastWindowEnd := timestampColumn(d, "last_window_end", false, false)
+	lastPollAt := timestampColumn(d, "last_poll_at", false, false)
+	lastMatched := atlasschema.NewIntColumn("last_matched", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	lastFirehose := atlasschema.NewIntColumn("last_firehose", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	singletonCheck := atlasschema.NewCheck().
+		SetName("tmdb_changes_state_single").
+		SetExpr("id = 1")
+
+	return atlasschema.NewTable("tmdb_changes_state").
+		AddColumns(
+			id,
+			schemaVersion,
+			lastWindowEnd,
+			lastPollAt,
+			lastMatched,
+			lastFirehose,
+			createdAt,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddChecks(singletonCheck)
 }
 
 // ----------------------------------------------------------------------

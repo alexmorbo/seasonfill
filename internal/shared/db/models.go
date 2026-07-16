@@ -519,9 +519,9 @@ type SeriesModel struct {
 	OriginalLanguage *string         `gorm:"column:original_language;type:text"`
 	OriginCountry    *string         `gorm:"column:origin_country;type:text"`
 	// OriginCountries is a JSON-encoded array of ISO 3166-1 alpha-2 codes
-	// (e.g. `["US","CA"]`). Migration 000041 introduced it; OriginCountry
-	// is kept in sync as the first element for compat. NULL on rows older
-	// than 000041 OR Sonarr-only cold rows that never went through TMDB.
+	// (e.g. `["US","CA"]`). Introduced in an early migration (000001);
+	// OriginCountry is kept in sync as the first element for compat. NULL on
+	// Sonarr-only cold rows that never went through TMDB.
 	OriginCountries datatypes.JSON `gorm:"column:origin_countries;type:text"`
 	Popularity      *float64       `gorm:"column:popularity"`
 	InProduction    bool           `gorm:"column:in_production;not null;default:false"`
@@ -561,11 +561,33 @@ type SeriesModel struct {
 	// seriesUpsertAssignments() → a Sonarr scan cannot null it. NULL = never
 	// skeleton-refreshed (cold → first view blocks + fetches).
 	SkeletonSyncedAt *time.Time `gorm:"column:skeleton_synced_at"`
-	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
+	// TMDBChangedAt (W2-1, migration 000041) — write-once "TMDB /tv/changes
+	// last reported a change for this series" clock. Written ONLY by the
+	// dedicated Wave 2 changes-writer; deliberately ABSENT from
+	// seriesUpsertAssignments() so a Sonarr scan/upsert can never null it
+	// (same invariant as SkeletonSyncedAt). NULL = TMDB never reported a change.
+	TMDBChangedAt *time.Time `gorm:"column:tmdb_changed_at"`
+	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (SeriesModel) TableName() string { return "series" }
+
+// TMDBChangesStateModel — single-row (id=1) cursor for the TMDB
+// /tv/changes firehose poller (Wave 2, migration 000041). Machine state,
+// sibling of QuotaStateModel; NOT operator-editable app_config.
+type TMDBChangesStateModel struct {
+	ID            int64      `gorm:"primaryKey;column:id"`
+	SchemaVersion int        `gorm:"column:schema_version;not null;default:1"`
+	LastWindowEnd *time.Time `gorm:"column:last_window_end"`
+	LastPollAt    *time.Time `gorm:"column:last_poll_at"`
+	LastMatched   int        `gorm:"column:last_matched;not null;default:0"`
+	LastFirehose  int        `gorm:"column:last_firehose;not null;default:0"`
+	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (TMDBChangesStateModel) TableName() string { return "tmdb_changes_state" }
 
 // SeriesTextModel — one localised text row per (series_id, language).
 // The §5.6 fallback helper reads against this table. EnrichedAt is

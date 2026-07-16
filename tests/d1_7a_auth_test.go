@@ -31,7 +31,7 @@ func TestD17a_SchemaHasThirtySixTables(t *testing.T) {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 56; got != want {
+			if got, want := len(s.Tables), 57; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}

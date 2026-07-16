@@ -68,7 +68,7 @@ func TestD8_Closure_AllMigrationsApply(t *testing.T) {
 }
 
 // TestD8_Closure_TableInventoryMatches verifies that the live DB after
-// Up() contains exactly the 56 names in d1AcceptanceTablesPostgres.
+// Up() contains exactly the 57 names in d1AcceptanceTablesPostgres.
 // A missing name means a migration regressed; an extra name means a
 // legacy or one-off table snuck back in. ElementsMatch — order-free.
 func TestD8_Closure_TableInventoryMatches(t *testing.T) {
@@ -127,15 +127,15 @@ func TestD8_Closure_NoLegacyTables(t *testing.T) {
 
 // TestD8_Closure_SchemaMigrationsHeadVersion verifies that after a
 // full Up() the golang-migrate tracker table reports the highest
-// expected version (40) with dirty=false. golang-migrate stores a
+// expected version (41) with dirty=false. golang-migrate stores a
 // single "current head" row (not a per-migration history), so the
-// invariant is MAX(version)=40 AND dirty=false. Catches the "I forgot
+// invariant is MAX(version)=41 AND dirty=false. Catches the "I forgot
 // to add the new migration to the embed list" failure mode and the
 // "Up() silently stopped after N" failure mode (which would leave a
 // lower version pinned), plus the "previous run crashed mid-Up"
 // failure mode (dirty=true, blocks subsequent migrations).
 func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
-	const wantHead = 40
+	const wantHead = 41
 
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
 				"read head row from schema_migrations on %s", b.name)
 			assert.Equalf(t, wantHead, head,
 				"schema_migrations.version on %s = %d; want %d "+
-					"(matches the 38 .up.sql files committed in 000001..000038)",
+					"(matches the .up.sql files committed in 000001..000041)",
 				b.name, head, wantHead)
 			assert.Falsef(t, dirty,
 				"schema_migrations.dirty=true on %s — a previous Up() crashed mid-migration; "+
