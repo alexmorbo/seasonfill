@@ -94,6 +94,7 @@ func TestResolveTier_AllRows(t *testing.T) {
 		{"search_tv", "/search/tv", 30 * time.Minute, "search_tv"},
 		{"tv_canon", "/tv/12345", 12 * time.Hour, "tv_canon"},
 		{"tv_season_shadow", "/tv/12345/season/2", 6 * time.Hour, "tv_season"},
+		{"tv_changes", "/tv/changes", 5 * time.Minute, "tv_changes"},
 		{"genre_tv_list", "/genre/tv/list", 24 * time.Hour, "genre_tv_list"},
 		{"find_external", "/find/tt1234567", 24 * time.Hour, "find_external"},
 		{"person_canon", "/person/42", 12 * time.Hour, "person_canon"},
@@ -107,6 +108,23 @@ func TestResolveTier_AllRows(t *testing.T) {
 			assert.Equal(t, tc.tier, tier)
 		})
 	}
+}
+
+// TestResolveTier_ChangesBeatsCanon guards the FIRST-MATCH-WINS ordering:
+// "/tv/changes" must resolve to the 5m tv_changes tier, NOT the generic /tv/
+// tv_canon (12h) tier that also prefix-matches it. Regression guard for the
+// WAVE2 §7.2 stale-firehose fix — if someone re-sorts ttlTiers and drops the
+// /tv/changes row below /tv/, this fails.
+func TestResolveTier_ChangesBeatsCanon(t *testing.T) {
+	ttl, tier := resolveTier("/tv/changes")
+	assert.Equal(t, 5*time.Minute, ttl)
+	assert.Equal(t, "tv_changes", tier)
+
+	// Sanity: the generic /tv/ row still resolves canon for a real series id,
+	// i.e. inserting /tv/changes did not shadow the parent.
+	canonTTL, canonTier := resolveTier("/tv/1399")
+	assert.Equal(t, 12*time.Hour, canonTTL)
+	assert.Equal(t, "tv_canon", canonTier)
 }
 
 // TestCacheKey_Stability verifies the canonical (path, query) → string

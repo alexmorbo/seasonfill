@@ -20,6 +20,7 @@ func TestTMDBEndpointFor(t *testing.T) {
 		{"/3/tv/1399/season/2/credits", "/tv/{id}/season/{n}/credits"},
 		{"/3/tv/1399/external_ids", "/tv/{id}/external_ids"},
 		{"/3/tv/1399/recommendations", "/tv/{id}/recommendations"},
+		{"/3/tv/changes", "/tv/changes"},
 		{"/3/person/525", "/person/{id}"},
 		{"/3/person/525/tv_credits", "/person/{id}/tv_credits"},
 		{"/3/find/123", "/find/{id}"},

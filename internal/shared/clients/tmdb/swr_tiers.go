@@ -46,6 +46,11 @@ var ttlTiers = []ttlTier{
 	// "/season/" because a leading /tv/ would also match the parent below.
 	// Implemented as a startsWith with the FULL leading "/tv/" prefix that
 	// resolveTier checks containment of "/season/" — see resolveTier.
+	//
+	// /tv/changes (global firehose) MUST sit above /tv/ — first-match-wins.
+	// Short 5m TTL so repeated same-window polls within a tick stay stable but
+	// never serve a stale day's firehose page (WAVE2 plan §7.2 / F17).
+	{PrefixMatch: "/tv/changes", TTL: 5 * time.Minute, Label: "tv_changes"},
 	{PrefixMatch: "/tv/", TTL: 12 * time.Hour, Label: "tv_canon"},
 	// Static catalogs.
 	{PrefixMatch: "/genre/tv/list", TTL: 24 * time.Hour, Label: "genre_tv_list"},

@@ -21,6 +21,7 @@ var tmdbEndpointRules = []struct {
 	{regexp.MustCompile(`^/tv/\d+/credits$`), "/tv/{id}/credits"},
 	{regexp.MustCompile(`^/tv/\d+/recommendations$`), "/tv/{id}/recommendations"},
 	{regexp.MustCompile(`^/tv/\d+/external_ids$`), "/tv/{id}/external_ids"},
+	{regexp.MustCompile(`^/tv/changes$`), "/tv/changes"},
 	{regexp.MustCompile(`^/tv/\d+$`), "/tv/{id}"},
 	{regexp.MustCompile(`^/person/\d+/tv_credits$`), "/person/{id}/tv_credits"},
 	{regexp.MustCompile(`^/person/\d+$`), "/person/{id}"},
