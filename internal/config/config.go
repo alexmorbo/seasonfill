@@ -164,6 +164,36 @@ type EnrichmentConfig struct {
 	// hardcoded value). Env: SEASONFILL_ENRICHMENT_REFRESH_INTERVAL_SECONDS
 	// (integer seconds, floored at 60s; 0 / unset / unparseable → default).
 	EnrichmentRefreshInterval time.Duration
+
+	// Changes (W2-6) — Wave 2 TMDB /tv/changes poller knobs. DEFAULT
+	// Enabled=false; see ChangesConfig. Nested here (not a sibling on
+	// Bootstrap) to mirror how the enrichment context owns its own knobs.
+	Changes ChangesConfig
+}
+
+// ChangesConfig carries the env-only knobs for the Wave 2 TMDB /tv/changes
+// firehose poller (plan §10). DEFAULT Enabled=false — the poller ships inert
+// (dark-launch; G4 zero-regression). server.go double-gates the loop on
+// cfg.Cron.Enabled && Enrichment.Changes.Enabled.
+type ChangesConfig struct {
+	// Enabled — SEASONFILL_TMDB_CHANGES_ENABLED. Default false.
+	Enabled bool
+	// PollInterval — SEASONFILL_TMDB_CHANGES_POLL_INTERVAL (a Go duration
+	// string, e.g. "8h"). Default 8h; min-clamped to 1h (anti-tick-storm).
+	PollInterval time.Duration
+	// OverlapDays — SEASONFILL_TMDB_CHANGES_OVERLAP_DAYS. Default 1; clamped
+	// to [1..7]. (getenvInt floors <=0 to the default, so explicit 0 is not
+	// expressible — out of scope; NewChangesPoller also floors <=0→1.)
+	OverlapDays int
+	// LookbackDays — SEASONFILL_TMDB_CHANGES_MAX_LOOKBACK_DAYS. Default 14 (=
+	// API window cap); clamped to [1..14].
+	LookbackDays int
+	// PageCap — SEASONFILL_TMDB_CHANGES_PAGE_CAP. Default 200 (pagination
+	// safety valve). getenvInt floors <=0 to the default; no upper clamp.
+	PageCap int
+	// MarkBatch — SEASONFILL_TMDB_CHANGES_MARK_BATCH. Default 500 (IN-chunk
+	// size); clamped to [50..900].
+	MarkBatch int
 }
 
 // ExternalServicesEnv carries the env-only overrides for the three
@@ -452,6 +482,7 @@ func FromEnv() (*Bootstrap, error) {
 			// integer-SECONDS helper below.
 			EnrichmentRefreshBatchSize: getenvInt("SEASONFILL_ENRICHMENT_REFRESH_BATCH_SIZE", 50),
 			EnrichmentRefreshInterval:  refreshIntervalFromEnv(),
+			Changes:                    changesConfigFromEnv(),
 		},
 		Discovery: DiscoveryConfig{
 			// Story 568 A2 — default ON. The chart values.yaml pins the
@@ -587,6 +618,56 @@ func refreshIntervalFromEnv() time.Duration {
 		return floor
 	}
 	return d
+}
+
+// changesConfigFromEnv parses the Wave 2 TMDB /tv/changes poller env block
+// (plan §10). Clamps applied AFTER the getenvInt defaults so a bad value can
+// never disable the poller nor exceed the API window cap.
+func changesConfigFromEnv() ChangesConfig {
+	return ChangesConfig{
+		Enabled:      getenvBool("SEASONFILL_TMDB_CHANGES_ENABLED", false),
+		PollInterval: changesPollIntervalFromEnv(),
+		// getenvInt floors <=0/unparseable to the default; upper-clamp to 7.
+		OverlapDays: clampInt(getenvInt("SEASONFILL_TMDB_CHANGES_OVERLAP_DAYS", 1), 1, 7),
+		// default 14 (= API cap); clamp [1..14].
+		LookbackDays: clampInt(getenvInt("SEASONFILL_TMDB_CHANGES_MAX_LOOKBACK_DAYS", 14), 1, 14),
+		// pagination safety valve; getenvInt floors <=0 to 200, no upper clamp.
+		PageCap: getenvInt("SEASONFILL_TMDB_CHANGES_PAGE_CAP", 200),
+		// IN-chunk size; clamp both bounds [50..900].
+		MarkBatch: clampInt(getenvInt("SEASONFILL_TMDB_CHANGES_MARK_BATCH", 500), 50, 900),
+	}
+}
+
+// changesPollIntervalFromEnv reads SEASONFILL_TMDB_CHANGES_POLL_INTERVAL as a
+// Go duration string (e.g. "8h", "90m"). unset / empty / unparseable / <=0 →
+// the 8h default (plan §0-G8). Min-clamped to 1h so a misconfigured tiny
+// interval cannot turn the firehose poll into a tick-storm (plan §10).
+func changesPollIntervalFromEnv() time.Duration {
+	const def = 8 * time.Hour
+	const floor = time.Hour
+	v := strings.TrimSpace(os.Getenv("SEASONFILL_TMDB_CHANGES_POLL_INTERVAL"))
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return def
+	}
+	if d < floor {
+		return floor
+	}
+	return d
+}
+
+// clampInt bounds v to [lo, hi]. lo/hi assumed lo<=hi.
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // mediaOnDemandBudgetFromEnv reads SEASONFILL_MEDIA_ONDEMAND_BUDGET as an

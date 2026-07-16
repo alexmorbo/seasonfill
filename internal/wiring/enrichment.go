@@ -190,6 +190,14 @@ type EnrichmentBundle struct {
 	// flips the loop off. server.go's LATE BIND ZONE owns the
 	// lifecycle.Go("refresh-scheduler", ...) goroutine.
 	RefreshScheduler *appenrich.RefreshScheduler
+	// ChangesPoller (W2-6) — TMDB /tv/changes firehose poller. nil when a
+	// required port is unavailable (cursor store absent, or the Series repo
+	// does not satisfy ChangedSeriesMarker) OR when NewChangesPoller errored.
+	// server.go's LATE BIND ZONE owns the lifecycle.Go("tmdb-changes-poller")
+	// goroutine, double-gated by cfg.Cron.Enabled && Enrichment.Changes.Enabled
+	// (default false). Constructed even when TMDB is unconfigured — the
+	// ClientReady gate skips each tick until a key is present.
+	ChangesPoller *appenrich.ChangesPoller
 	// TVDBResolver (W15-13) — scan-piggyback tvdb→tmdb resolver, built
 	// here where the concrete SeriesRepository + EnrichmentErrors ledger
 	// + dispatcher + TMDB holder are all in scope. server.go's LATE BIND
@@ -777,6 +785,44 @@ func BuildEnrichment(
 		refreshScheduler = rs
 	}
 
+	// W2-6 — TMDB /tv/changes firehose poller. Built only when the cursor
+	// store is supplied (production wiring) AND the Series repo satisfies the
+	// ChangedSeriesMarker seam (its concrete *SeriesRepository does — same
+	// duck-typed assertion the TVDBResolver uses below). The Lister adapts the
+	// runtime-swappable TMDB holder; ClientReady mirrors the ShouldSweep
+	// holder-gate (enrichment.go:685) so a boot-unconfigured install skips each
+	// tick cleanly. On construction error we log and leave the field nil —
+	// server.go's LATE BIND ZONE then skips the goroutine. The DEFAULT-OFF gate
+	// lives in server.go (cfg.Cron.Enabled && bootstrap.Enrichment.Changes.Enabled).
+	var changesPoller *appenrich.ChangesPoller
+	if repos.ChangesCursor != nil {
+		marker, ok := repos.Series.(appenrich.ChangedSeriesMarker)
+		if !ok {
+			enrichmentLog.WarnContext(rootCtx, "enrichment.changes_poller.disabled",
+				slog.String("reason", "series repo does not satisfy ChangedSeriesMarker"))
+		} else {
+			cp, cerr := appenrich.NewChangesPoller(appenrich.ChangesPollerDeps{
+				Lister:       changesListerFromHolder{holder: tmdbHolder},
+				Marker:       marker,
+				CursorStore:  repos.ChangesCursor,
+				Metrics:      observability.NewTMDBChangesMetrics(),
+				ClientReady:  func() bool { return tmdbHolder.Load() != nil },
+				Logger:       enrichmentLog,
+				PollInterval: bootstrap.Enrichment.Changes.PollInterval,
+				PageCap:      bootstrap.Enrichment.Changes.PageCap,
+				MarkBatch:    bootstrap.Enrichment.Changes.MarkBatch,
+				OverlapDays:  bootstrap.Enrichment.Changes.OverlapDays,
+				LookbackDays: bootstrap.Enrichment.Changes.LookbackDays,
+			})
+			if cerr != nil {
+				enrichmentLog.WarnContext(rootCtx, "enrichment.changes_poller.disabled",
+					slog.String("error", cerr.Error()))
+			} else {
+				changesPoller = cp
+			}
+		}
+	}
+
 	// W15-13: scan-piggyback tvdb→tmdb resolver. Built here where the
 	// concrete SeriesRepository (satisfies TVDBResolverSeriesRepo), the
 	// EnrichmentErrors cooldown ledger, the dispatcher, and the TMDB
@@ -828,6 +874,9 @@ func BuildEnrichment(
 		// repos.RefreshPicker is absent (defensive — production always
 		// supplies it).
 		RefreshScheduler: refreshScheduler,
+		// W2-6: TMDB /tv/changes firehose poller. nil when a required port is
+		// absent; server.go's double-gate + nil-check skip the goroutine.
+		ChangesPoller: changesPoller,
 		// W15-13: scan-piggyback tvdb→tmdb resolver (nil-OK).
 		TVDBResolver: tvdbResolver,
 		// W18-7a: on-view /ratings OMDb refresher (reused worker).
@@ -1022,6 +1071,11 @@ type EnrichmentRepoBundle struct {
 	// NewRefreshPickerAdapter. Nil-OK — when nil the scheduler is
 	// skipped at boot.
 	RefreshPicker appenrich.RefreshPicker
+	// ChangesCursor — W2-6: single-row firehose cursor store for the TMDB
+	// /tv/changes poller. Production impl is
+	// *enrichpersistence.TMDBChangesStateRepository. Nil-OK — when nil the
+	// poller is not constructed (dark-launch off / legacy callers).
+	ChangesCursor appenrich.ChangesCursorStore
 	// 213: ListLibraryWithIMDBStale source for the OMDb daily batch.
 	// Production impl wraps *SeriesRepository. Nil-OK — when nil the
 	// OMDb daily-batch closure logs and short-circuits.
@@ -1403,4 +1457,22 @@ type seriesWorkerForceAdapter struct {
 
 func (a seriesWorkerForceAdapter) HandleForced(ctx context.Context, id int64) error {
 	return a.inner.HandleForced(ctx, domain.SeriesID(id))
+}
+
+// changesListerFromHolder adapts the runtime-swappable TMDB holder to the
+// appenrich.TVChangesLister port (W2-6). Mirrors seriesWorkerForceAdapter — a
+// wiring-local port shim. Load() per call keeps it swap-safe across the reload
+// subscriber's atomic client swap; when the holder is empty the poller's
+// ClientReady gate short-circuits before this is ever called, but we still
+// return ErrTMDBClientNotReady defensively.
+type changesListerFromHolder struct {
+	holder *adapters.TMDBClientHolder
+}
+
+func (a changesListerFromHolder) GetTVChangesPage(ctx context.Context, start, end time.Time, page int) (tmdb.ChangedIDsPage, error) {
+	c := a.holder.Load()
+	if c == nil {
+		return tmdb.ChangedIDsPage{}, adapters.ErrTMDBClientNotReady
+	}
+	return c.GetTVChangesPage(ctx, start, end, page)
 }

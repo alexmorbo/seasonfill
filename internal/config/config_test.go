@@ -425,3 +425,108 @@ func TestFromEnv_InteractiveReserveFrac_NegativeToDefault(t *testing.T) {
 	assert.InDelta(t, 0.25, cfg.ExternalServices.TMDBInteractiveReserveFrac, 0.0001,
 		"negative value must fall back to the default")
 }
+
+func TestFromEnv_ChangesDefaults(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	c := cfg.Enrichment.Changes
+	assert.False(t, c.Enabled, "changes poller must default OFF (G4)")
+	assert.Equal(t, 8*time.Hour, c.PollInterval)
+	assert.Equal(t, 1, c.OverlapDays)
+	assert.Equal(t, 14, c.LookbackDays)
+	assert.Equal(t, 200, c.PageCap)
+	assert.Equal(t, 500, c.MarkBatch)
+}
+
+func TestFromEnv_ChangesEnabledParse(t *testing.T) {
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"true", true}, {"1", true}, {"yes", true}, {"on", true},
+		{"false", false}, {"0", false}, {"no", false}, {"off", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.val, func(t *testing.T) {
+			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+			t.Setenv("SEASONFILL_TMDB_CHANGES_ENABLED", tc.val)
+			cfg, err := FromEnv()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Enrichment.Changes.Enabled)
+		})
+	}
+}
+
+func TestFromEnv_ChangesPollIntervalClamp(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+		want time.Duration
+	}{
+		{"below floor clamps to 1h", "5m", time.Hour},
+		{"valid passes through", "12h", 12 * time.Hour},
+		{"garbage falls back to 8h", "not-a-duration", 8 * time.Hour},
+		{"exactly 1h stays", "1h", time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+			t.Setenv("SEASONFILL_TMDB_CHANGES_POLL_INTERVAL", tc.val)
+			cfg, err := FromEnv()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Enrichment.Changes.PollInterval)
+		})
+	}
+}
+
+func TestFromEnv_ChangesMarkBatchClamp(t *testing.T) {
+	cases := []struct {
+		val  string
+		want int
+	}{
+		{"10", 50},    // below floor
+		{"5000", 900}, // above ceil
+		{"500", 500},  // in range
+		{"50", 50},    // floor edge
+		{"900", 900},  // ceil edge
+	}
+	for _, tc := range cases {
+		t.Run(tc.val, func(t *testing.T) {
+			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+			t.Setenv("SEASONFILL_TMDB_CHANGES_MARK_BATCH", tc.val)
+			cfg, err := FromEnv()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Enrichment.Changes.MarkBatch)
+		})
+	}
+}
+
+func TestFromEnv_ChangesOverlapUpperClamp(t *testing.T) {
+	t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+	t.Setenv("SEASONFILL_TMDB_CHANGES_OVERLAP_DAYS", "9")
+	cfg, err := FromEnv()
+	require.NoError(t, err)
+	assert.Equal(t, 7, cfg.Enrichment.Changes.OverlapDays)
+}
+
+func TestFromEnv_ChangesLookbackBounds(t *testing.T) {
+	cases := []struct {
+		val  string
+		want int
+	}{
+		{"0", 14},  // getenvInt floors <=0 to default 14
+		{"20", 14}, // upper clamp
+		{"1", 1},   // lower edge
+		{"7", 7},   // in range
+	}
+	for _, tc := range cases {
+		t.Run(tc.val, func(t *testing.T) {
+			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+			t.Setenv("SEASONFILL_TMDB_CHANGES_MAX_LOOKBACK_DAYS", tc.val)
+			cfg, err := FromEnv()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Enrichment.Changes.LookbackDays)
+		})
+	}
+}

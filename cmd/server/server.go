@@ -414,7 +414,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		SeriesStaleScan:    wiring.NewSeriesStaleScanAdapter(seriesRepo),
 		PeopleStaleScan:    wiring.NewPeopleStaleScanAdapter(peopleRepo),
 		LibraryWithIMDB:    wiring.NewOMDbBatchScannerAdapter(seriesRepo),
-		RefreshPicker:      wiring.NewRefreshPickerAdapter(seriesRepo), // Story 534
+		RefreshPicker:      wiring.NewRefreshPickerAdapter(seriesRepo),          // Story 534
+		ChangesCursor:      enrichpersistence.NewTMDBChangesStateRepository(db), // Wave 2 (W2-6)
 		MediaAssets:        mediaAssetsRepo,
 		MediaStore:         mediaStoreImpl,
 	}
@@ -816,6 +817,26 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			loops.RunRefresh(ctx, enrichBundle.RefreshScheduler,
 				bootCfg.Enrichment.EnrichmentRefreshInterval, refreshLog)
 		})
+	}
+
+	// Wave 2 (W2-6) — TMDB /tv/changes poller. Double-gated: cfg.Cron.Enabled
+	// (global cron lever) AND the dark-launch bootCfg.Enrichment.Changes.Enabled
+	// (default false). Ships inert; enabling is env-only. Skips when the wirer
+	// left ChangesPoller nil (required port absent). A single boot-log line
+	// states enabled/disabled so prod can verify the dark-launch state.
+	if cfg.Cron.Enabled && bootCfg.Enrichment.Changes.Enabled &&
+		enrichBundle != nil && enrichBundle.ChangesPoller != nil {
+		changesLog := sharedports.DomainLogger(log, "enrichment")
+		changesLog.InfoContext(rootCtx, "tmdb changes poller enabled",
+			slog.Duration("interval", bootCfg.Enrichment.Changes.PollInterval))
+		lifecycle.Go(rootCtx, "tmdb-changes-poller", func(ctx context.Context) {
+			loops.RunChanges(ctx, enrichBundle.ChangesPoller,
+				bootCfg.Enrichment.Changes.PollInterval, changesLog)
+		})
+	} else {
+		log.InfoContext(rootCtx, "tmdb changes poller disabled",
+			slog.Bool("cron_enabled", cfg.Cron.Enabled),
+			slog.Bool("changes_enabled", bootCfg.Enrichment.Changes.Enabled))
 	}
 
 	// Re-publish the boot snapshot now that subscribers are alive
