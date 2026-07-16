@@ -456,6 +456,79 @@ func (r *SeriesRepository) MarkOMDBSynced(ctx context.Context, seriesID domain.S
 	return nil
 }
 
+// markChangedBatchSize caps the tmdb_id IN(...) list per UPDATE (plan §6). 500
+// stays under SQLite's default 999-variable limit and is trivial for Postgres.
+// The env SEASONFILL_TMDB_CHANGES_MARK_BATCH (clamp [50..900]) binds in W2-6;
+// this const is the default the poller passes through until then.
+const markChangedBatchSize = 500
+
+// MarkChangedByTMDBIDs is the SOLE writer of series.tmdb_changed_at (W2-3, Wave 2
+// Changes). It stamps markedAt onto every series row whose tmdb_id ∈ ids that is
+// not already marked at-or-after dedupBoundary — the simple-dedup predicate
+//
+//	tmdb_changed_at IS NULL OR tmdb_changed_at < dedupBoundary        (G7 / ADR-0004)
+//
+// The combo `<= enrichment_tmdb_synced_at` clause is deliberately NOT here.
+// dedupBoundary is the poller's prevLastWindowEnd (the RAW ChangeCursor.LastWindowEnd
+// read BEFORE the window loop advances it — NOT w.Start). A same-window repeat
+// (already marked at markedAt) falls through as 0 rows; a still-PENDING row marked
+// earlier than dedupBoundary is legitimately re-marked (deterministic next-day
+// re-mark, overhead ×2, self-terminating).
+//
+// B-07: because the predicate re-stamps still-PENDING rows, tmdb_changed_at means
+// "time of the LAST mark", NOT first detection — matters for §14.2 diagnostics.
+//
+// grep-AC: this is the ONLY writer of tmdb_changed_at. The column is ABSENT from
+// seriesUpsertAssignments() and every OnConflict.DoUpdates, so a Sonarr scan/upsert
+// can never null it (same invariant as SkeletonSyncedAt, models.go:563-569).
+//
+// L-06: this write does NOT touch series.updated_at. UpdateColumn on an explicit
+// Model targets exactly one column and skips GORM autoUpdateTime + hooks (mirror
+// of ScanRepository.IncrementSeriesScanned, scan_repository.go:82).
+//
+// ids are deduped in-memory (TMDB repeats ids across firehose pages, plan §6) and
+// chunked at markChangedBatchSize. Returns the summed RowsAffected (rows actually
+// marked). Empty ids → (0, nil) with no query issued.
+func (r *SeriesRepository) MarkChangedByTMDBIDs(
+	ctx context.Context,
+	ids []int64,
+	markedAt, dedupBoundary time.Time,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	uniq := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniq = append(uniq, id)
+	}
+
+	markedUTC := markedAt.UTC()
+	boundaryUTC := dedupBoundary.UTC()
+
+	var total int64
+	for start := 0; start < len(uniq); start += markChangedBatchSize {
+		end := min(start+markChangedBatchSize, len(uniq))
+		chunk := uniq[start:end]
+
+		res := dbFromContext(ctx, r.db).WithContext(ctx).
+			Model(&database.SeriesModel{}).
+			Where("tmdb_id IN ?", chunk).
+			Where("tmdb_changed_at IS NULL OR tmdb_changed_at < ?", boundaryUTC).
+			UpdateColumn("tmdb_changed_at", markedUTC)
+		if res.Error != nil {
+			return total, fmt.Errorf("mark series tmdb changed: %w", res.Error)
+		}
+		total += res.RowsAffected
+	}
+	return total, nil
+}
+
 // UpdateOMDbColumns writes the four OMDb-owned columns (imdb_rating,
 // imdb_votes, omdb_rated, omdb_awards) as PLAIN values — INCLUDING NULL —
 // onto the existing series row, keyed by id. The OMDb worker is the SOLE

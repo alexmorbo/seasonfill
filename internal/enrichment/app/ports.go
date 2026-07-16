@@ -467,3 +467,40 @@ type ColdStartScanner interface {
 	// enrichment_tmdb_synced_at IS NULL (never enriched).
 	ListMissingTMDBSync(ctx context.Context, limit int) ([]domain.SeriesID, error)
 }
+
+// ----- Wave 2 (W2-3): TMDB /tv/changes poller ports --------------------
+//
+// The ChangesPoller (W2-4) depends on these three narrow seams; W2-3 only
+// declares them. Production impls: TVChangesLister ← *tmdb.Client,
+// ChangedSeriesMarker ← *persistence.SeriesRepository, ChangesCursorStore ←
+// *persistence.TMDBChangesStateRepository. Compile assertions live next to
+// each impl (tmdb one in ports_assert_test.go here; the two persistence ones
+// in the persistence package to keep the import graph acyclic).
+
+// TVChangesLister fetches one page of the global TV changes firehose.
+// start/end are UTC calendar dates (day granularity), window ≤ 14 days.
+// Satisfied by *tmdb.Client.GetTVChangesPage.
+type TVChangesLister interface {
+	GetTVChangesPage(ctx context.Context, start, end time.Time, page int) (tmdb.ChangedIDsPage, error)
+}
+
+// ChangedSeriesMarker stamps series.tmdb_changed_at = markedAt on rows whose
+// tmdb_id ∈ ids AND (tmdb_changed_at IS NULL OR tmdb_changed_at < dedupBoundary).
+//
+// ⚠ G7 / ADR-0004: SIMPLE dedup — the `<= enrichment_tmdb_synced_at` clause
+// (combo a+b) is deliberately NOT part of the predicate. dedupBoundary =
+// prevLastWindowEnd (the raw ChangeCursor.LastWindowEnd read BEFORE the window
+// loop advances it — NOT w.Start). Same-day-double residual is accepted (caught
+// by the deterministic next-day re-mark, overhead ×2). Returns the count of rows
+// actually marked. Satisfied by *persistence.SeriesRepository.
+type ChangedSeriesMarker interface {
+	MarkChangedByTMDBIDs(ctx context.Context, ids []int64, markedAt, dedupBoundary time.Time) (int64, error)
+}
+
+// ChangesCursorStore round-trips the single-row firehose cursor. Get returns
+// ports.ErrNotFound (→ empty ChangeCursor) on first run. Satisfied by
+// *persistence.TMDBChangesStateRepository.
+type ChangesCursorStore interface {
+	Get(ctx context.Context) (enrichment.ChangeCursor, error)
+	Save(ctx context.Context, c enrichment.ChangeCursor) error
+}
