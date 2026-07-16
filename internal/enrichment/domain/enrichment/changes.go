@@ -46,6 +46,16 @@ func utcMidnight(t time.Time) time.Time {
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
+// CursorGapDays is the SINGLE authority for the whole-calendar-day gap between a
+// cursor's LastWindowEnd and now, both truncated to their UTC-midnight day. Both
+// PlanWindows (the stale-cursor reset threshold) and the poller's reset predicate
+// compute the gap through THIS helper so the two can never diverge (W2-FIX L1).
+// Result is now-day minus lastWindowEnd-day, in days; negative when lastWindowEnd
+// is in the future.
+func CursorGapDays(lastWindowEnd, now time.Time) int {
+	return int(utcMidnight(now).Sub(utcMidnight(lastWindowEnd)).Hours() / 24)
+}
+
 // PlanWindows splits [cursor.LastWindowEnd - overlapDays … today] into chronological
 // windows of at most changesMaxWindowDays inclusive days each (plan §4.3). Pure
 // function — 100% unit-testable.
@@ -72,7 +82,7 @@ func PlanWindows(cursor ChangeCursor, now time.Time, overlapDays, maxLookbackDay
 		return coldStart
 	}
 	lweDay := utcMidnight(cursor.LastWindowEnd)
-	gapDays := int(today.Sub(lweDay).Hours() / 24)
+	gapDays := CursorGapDays(cursor.LastWindowEnd, now)
 	if gapDays > maxLookbackDays {
 		return coldStart
 	}

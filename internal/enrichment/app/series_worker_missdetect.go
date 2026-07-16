@@ -97,12 +97,12 @@ func (w *SeriesWorker) recordChangesMissIfDetected(ctx context.Context, before s
 // whitelisted canon field. Popularity / TMDBRating / TMDBVotes are intentionally
 // NOT compared (aggregate drift is excluded — see recordChangesMissIfDetected).
 func changesWhitelistCanonDiff(before, after series.Canon) bool {
-	return !missStrEqual(before.Status, after.Status) ||
-		!missTimeEqual(before.FirstAirDate, after.FirstAirDate) ||
-		!missTimeEqual(before.LastAirDate, after.LastAirDate) ||
-		!missTimeEqual(before.NextAirDate, after.NextAirDate) ||
-		!missIntEqual(before.RuntimeMinutes, after.RuntimeMinutes) ||
-		!missStrEqual(before.OriginalTitle, after.OriginalTitle)
+	return missStrChanged(before.Status, after.Status) ||
+		missTimeChanged(before.FirstAirDate, after.FirstAirDate) ||
+		missTimeChanged(before.LastAirDate, after.LastAirDate) ||
+		missTimeChanged(before.NextAirDate, after.NextAirDate) ||
+		missIntChanged(before.RuntimeMinutes, after.RuntimeMinutes) ||
+		missStrChanged(before.OriginalTitle, after.OriginalTitle)
 }
 
 // utcDatePlusDay returns UTC-midnight of t plus 24h — the M-03 coverage threshold
@@ -112,25 +112,21 @@ func utcDatePlusDay(t time.Time) time.Time {
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, 1)
 }
 
-// missStrEqual / missIntEqual / missTimeEqual: dereferenced-value equality with
-// nil-safe semantics (both nil → equal; one nil → differ; both set → compare).
-func missStrEqual(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
+// missStrChanged / missIntChanged / missTimeChanged report an ASYMMETRIC change:
+// a field counts as changed only when the AFTER value is non-nil AND differs from
+// before. An empty TMDB field is mapped to a nil pointer by MapTVToCanon
+// (nonEmptyPtr / parseDate / nonZeroIntPtr), and the COALESCE-guarded write
+// persists nothing for it — so a non-nil→nil transition must NOT count as a miss
+// (W2-FIX L4, COALESCE-consistency). For strings a non-nil after is already
+// non-empty (nonEmptyPtr maps "" → nil), so no extra empty check is needed.
+func missStrChanged(before, after *string) bool {
+	return after != nil && (before == nil || *before != *after)
 }
 
-func missIntEqual(a, b *int) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
+func missIntChanged(before, after *int) bool {
+	return after != nil && (before == nil || *before != *after)
 }
 
-func missTimeEqual(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return a.Equal(*b)
+func missTimeChanged(before, after *time.Time) bool {
+	return after != nil && (before == nil || !before.Equal(*after))
 }

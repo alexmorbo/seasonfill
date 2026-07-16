@@ -486,10 +486,10 @@ func TestFromEnv_ChangesMarkBatchClamp(t *testing.T) {
 		want int
 	}{
 		{"10", 50},    // below floor
-		{"5000", 900}, // above ceil
-		{"500", 500},  // in range
+		{"5000", 500}, // above ceil → clamps to hard cap 500
+		{"501", 500},  // just above ceil → clamps to 500
+		{"500", 500},  // ceil edge
 		{"50", 50},    // floor edge
-		{"900", 900},  // ceil edge
 	}
 	for _, tc := range cases {
 		t.Run(tc.val, func(t *testing.T) {

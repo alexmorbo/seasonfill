@@ -288,3 +288,38 @@ func TestMissDetector_OncePerHandle(t *testing.T) {
 	assert.Equal(t, 1, rec.n, "miss-detector must fire exactly once across a 2-language Handle")
 	require.Equal(t, 2, f.tmdb.getTVHit, "sanity: both language passes fetched (2 GetTV)")
 }
+
+// W2-FIX L4: an EMPTY TMDB field (after canon nil) must NOT count as a diff — the
+// COALESCE-guarded write persists nothing for empty values, so treating a
+// non-nil→nil transition as a change is a FALSE miss. before.Status "Ended",
+// after payload Status "" (→ nil canon), all other whitelist fields equal.
+func TestMissDetector_EmptyAfterField_NotCounted(t *testing.T) {
+	t.Parallel()
+	before := missBefore(missTV())
+	before.Status = new("Ended")
+	after := missTV()
+	after.Status = "" // MapTVToCanon → Status nil
+
+	rec := &recordingMissMetric{}
+	w := missWorker(rec, coveredCursor())
+	w.recordChangesMissIfDetected(context.Background(), before, after, quietLogger())
+
+	assert.Equal(t, 0, rec.n, "empty TMDB field (nil after) must not count as a miss (COALESCE-consistency)")
+}
+
+// W2-FIX L4 pure-fn: changesWhitelistCanonDiff is FALSE for an empty after-value
+// and TRUE for a real value change — locks the "after non-nil AND differs" rule.
+func TestChangesWhitelistCanonDiff_EmptyAfterVsRealChange(t *testing.T) {
+	t.Parallel()
+	// (1) non-nil before, nil after (empty TMDB field) → NOT a change.
+	assert.False(t,
+		changesWhitelistCanonDiff(series.Canon{Status: new("Ended")}, series.Canon{}),
+		"nil after-value (empty TMDB field) must not count as a change")
+
+	// (2) real Status change → still a change.
+	assert.True(t,
+		changesWhitelistCanonDiff(
+			series.Canon{Status: new("Returning Series")},
+			series.Canon{Status: new("Ended")}),
+		"a real Status change must still be detected")
+}

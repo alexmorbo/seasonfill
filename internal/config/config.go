@@ -192,7 +192,8 @@ type ChangesConfig struct {
 	// safety valve). getenvInt floors <=0 to the default; no upper clamp.
 	PageCap int
 	// MarkBatch — SEASONFILL_TMDB_CHANGES_MARK_BATCH. Default 500 (IN-chunk
-	// size); clamped to [50..900].
+	// size); clamped to [50..500]. 500 is the repo's SQLite-variable-safe hard
+	// cap (markChangedBatchSize); the knob cannot exceed it.
 	MarkBatch int
 }
 
@@ -633,8 +634,10 @@ func changesConfigFromEnv() ChangesConfig {
 		LookbackDays: clampInt(getenvInt("SEASONFILL_TMDB_CHANGES_MAX_LOOKBACK_DAYS", 14), 1, 14),
 		// pagination safety valve; getenvInt floors <=0 to 200, no upper clamp.
 		PageCap: getenvInt("SEASONFILL_TMDB_CHANGES_PAGE_CAP", 200),
-		// IN-chunk size; clamp both bounds [50..900].
-		MarkBatch: clampInt(getenvInt("SEASONFILL_TMDB_CHANGES_MARK_BATCH", 500), 50, 900),
+		// IN-chunk size; clamp both bounds [50..500]. 500 is the repo's
+		// SQLite-variable-safe hard cap (markChangedBatchSize) — the knob cannot
+		// exceed it.
+		MarkBatch: clampInt(getenvInt("SEASONFILL_TMDB_CHANGES_MARK_BATCH", 500), 50, 500),
 	}
 }
 

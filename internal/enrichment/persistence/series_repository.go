@@ -458,7 +458,7 @@ func (r *SeriesRepository) MarkOMDBSynced(ctx context.Context, seriesID domain.S
 
 // markChangedBatchSize caps the tmdb_id IN(...) list per UPDATE (plan §6). 500
 // stays under SQLite's default 999-variable limit and is trivial for Postgres.
-// The env SEASONFILL_TMDB_CHANGES_MARK_BATCH (clamp [50..900]) binds in W2-6;
+// The env SEASONFILL_TMDB_CHANGES_MARK_BATCH (clamp [50..500]) binds in W2-6;
 // this const is the default the poller passes through until then.
 const markChangedBatchSize = 500
 

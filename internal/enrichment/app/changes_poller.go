@@ -213,14 +213,14 @@ func (p *ChangesPoller) poll(ctx context.Context) (pollResult, error) {
 	// NEXT tick. Rationale: keeps poll_total{result} mutually exclusive (one Inc
 	// per tick); PlanWindows remains the safety net; a rare >14d/corrupt cursor
 	// costs one extra interval — negligible vs the TTL-sweep fallback.
-	lookbackDuration := time.Duration(p.lookbackDays) * 24 * time.Hour
 	if !cursor.LastWindowEnd.IsZero() &&
-		(now.Before(cursor.LastWindowEnd) || now.Sub(cursor.LastWindowEnd) > lookbackDuration) {
+		(now.Before(cursor.LastWindowEnd) ||
+			enrichdomain.CursorGapDays(cursor.LastWindowEnd, now) > p.lookbackDays) {
 		reason := "stale"
 		if now.Before(cursor.LastWindowEnd) {
 			reason = "future"
 		}
-		gapDays := int(now.Sub(cursor.LastWindowEnd).Hours() / 24)
+		gapDays := enrichdomain.CursorGapDays(cursor.LastWindowEnd, now)
 		p.deps.Logger.WarnContext(ctx, "tmdb.changes.cursor.reset",
 			slog.String("reason", reason),
 			slog.Int("gap_days", gapDays),
@@ -237,16 +237,26 @@ func (p *ChangesPoller) poll(ctx context.Context) (pollResult, error) {
 		return pollResult{Result: "cursor_reset"}, nil
 	}
 
-	// (6) R-A01: dedupBoundary = cursor.LastWindowEnd, read ONCE before the window
-	// loop; NOT w.Start. Constant for the whole poll (plan §0-G7 / ADR-0004).
-	dedupBoundary := cursor.LastWindowEnd
-
-	// (7) plan windows.
+	// (7) plan windows FIRST — the cold-start dedupBoundary below reuses
+	// windows[0].Start so it can never drift from PlanWindows' own cold-start Start.
 	windows := enrichdomain.PlanWindows(cursor, now, p.overlapDays, p.lookbackDays)
+
+	// (6) dedupBoundary read ONCE before the window loop; NOT w.Start. Constant for
+	// the whole poll (plan §0-G7 / ADR-0004).
+	// R-A01 INVARIANT: for a NON-EMPTY cursor dedupBoundary stays EXACTLY the raw
+	// cursor.LastWindowEnd (no overlap shift) — steady-state path unchanged. Only
+	// the empty / post-reset cursor is special-cased (W2-FIX L2): a zero boundary
+	// makes the mark predicate (tmdb_changed_at < '0001-01-01') skip every settled
+	// row that changed inside the cold-start window, so we anchor the boundary to
+	// that window's Start (= utcMidnight(now)-1d) via windows[0].Start.
+	dedupBoundary := cursor.LastWindowEnd
+	if cursor.LastWindowEnd.IsZero() && len(windows) > 0 {
+		dedupBoundary = windows[0].Start
+	}
 
 	cursorLagDays := 0
 	if !cursor.LastWindowEnd.IsZero() {
-		cursorLagDays = int(now.Sub(cursor.LastWindowEnd).Hours() / 24)
+		cursorLagDays = enrichdomain.CursorGapDays(cursor.LastWindowEnd, now)
 	}
 	p.deps.Logger.InfoContext(ctx, "tmdb.changes.poll.start",
 		slog.Int("windows", len(windows)),

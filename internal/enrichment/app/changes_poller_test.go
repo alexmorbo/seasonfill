@@ -403,7 +403,8 @@ func TestChangesPoller_ColdStart(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC), lister.calls[0].end)
 
 	require.Len(t, marker.calls, 1)
-	assert.True(t, marker.calls[0].dedupBoundary.IsZero()) // empty cursor → zero boundary
+	// W2-FIX L2: cold-start boundary = window Start (today-1), NOT the zero time.
+	assert.Equal(t, time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC), marker.calls[0].dedupBoundary)
 
 	require.Len(t, store.saves, 1)
 	assert.Equal(t, time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC), store.saves[0].LastWindowEnd)
@@ -521,4 +522,97 @@ func TestChangesPoller_PollWrapper(t *testing.T) {
 		Lister: lister, Marker: &fakeMarker{rows: 1}, CursorStore: store, Clock: fixedClock(now),
 	})
 	require.NoError(t, p.Poll(context.Background()))
+}
+
+// W2-FIX L1: a cursor lagging exactly lookbackDays (14) CALENDAR days does NOT
+// reset when the poll runs mid-day — the reset predicate must use the same
+// UTC-midnight day-gap as PlanWindows, not a wall-clock duration. The old duration
+// compare (now.Sub(LWE) > 14*24h) tripped here because now is 14.5h past midnight.
+func TestChangesPoller_L1_FourteenDayMidDay_Recovers(t *testing.T) {
+	now := time.Date(2026, 7, 16, 14, 30, 0, 0, time.UTC)
+	origLWE := utcMid(now).AddDate(0, 0, -14) // 2026-07-02 00:00 — exactly a 14 day-gap
+	lister := &fakeLister{dflt: []recPage{
+		{page: tmdb.ChangedIDsPage{IDs: []int64{1, 2}, Page: 1, TotalPages: 1}},
+	}}
+	marker := &fakeMarker{rows: 2}
+	store := &fakeCursorStore{cur: enrichdomain.ChangeCursor{SchemaVersion: 1, LastWindowEnd: origLWE}}
+	rec := &recordingMetrics{}
+	p := newTestPoller(t, ChangesPollerDeps{
+		Lister: lister, Marker: marker, CursorStore: store, Metrics: rec, Clock: fixedClock(now),
+	})
+
+	res, err := p.poll(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "ok", res.Result, "14-day mid-day cursor must recover, not reset")
+	assert.NotContains(t, rec.polls, "cursor_reset", "must not emit cursor_reset for a 14-day gap")
+	assert.GreaterOrEqual(t, len(marker.calls), 1, "recovery path must mark matched ids")
+	assert.Equal(t, origLWE, marker.calls[0].dedupBoundary, "non-empty cursor keeps raw dedupBoundary (R-A01)")
+}
+
+// W2-FIX L1 boundary: a 15-day gap (> lookbackDays) STILL resets.
+func TestChangesPoller_L1_FifteenDayGap_StillResets(t *testing.T) {
+	now := time.Date(2026, 7, 16, 14, 30, 0, 0, time.UTC)
+	origLWE := utcMid(now).AddDate(0, 0, -15) // 2026-07-01 — a 15 day-gap > 14
+	lister := &fakeLister{}
+	store := &fakeCursorStore{cur: enrichdomain.ChangeCursor{SchemaVersion: 1, LastWindowEnd: origLWE}}
+	rec := &recordingMetrics{}
+	p := newTestPoller(t, ChangesPollerDeps{
+		Lister: lister, Marker: &fakeMarker{}, CursorStore: store, Metrics: rec, Clock: fixedClock(now),
+	})
+
+	res, err := p.poll(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "cursor_reset", res.Result, "15-day gap exceeds lookback → reset")
+	assert.Equal(t, 0, lister.callCount())
+	require.Len(t, store.saves, 1)
+	assert.True(t, store.saves[0].LastWindowEnd.IsZero())
+}
+
+// W2-FIX L2: post-reset / empty cursor tick → dedupBoundary passed to the Marker
+// is the cold-start window Start (utcMidnight(now)-1d), NON-zero, so a settled
+// series that changed inside [today-1, today] is not skipped by the mark predicate.
+func TestChangesPoller_L2_EmptyCursorDedupBoundaryIsColdStartStart(t *testing.T) {
+	now := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
+	lister := &fakeLister{dflt: []recPage{
+		{page: tmdb.ChangedIDsPage{IDs: []int64{9}, Page: 1, TotalPages: 1}},
+	}}
+	marker := &fakeMarker{rows: 1}
+	store := &fakeCursorStore{getErr: ports.ErrNotFound} // empty / post-reset cursor
+	rec := &recordingMetrics{}
+	p := newTestPoller(t, ChangesPollerDeps{
+		Lister: lister, Marker: marker, CursorStore: store, Metrics: rec, Clock: fixedClock(now),
+	})
+
+	res, err := p.poll(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "ok", res.Result)
+
+	want := utcMid(now).AddDate(0, 0, -1) // 2026-07-15
+	require.Len(t, marker.calls, 1)
+	assert.False(t, marker.calls[0].dedupBoundary.IsZero(), "empty-cursor dedupBoundary must NOT be the zero time")
+	assert.Equal(t, want, marker.calls[0].dedupBoundary, "empty-cursor dedupBoundary must equal cold-start window Start (today-1)")
+}
+
+// W2-FIX L2 R-A01 guard: a NON-EMPTY cursor keeps dedupBoundary == raw
+// cursor.LastWindowEnd (steady-state path unchanged, no overlap shift).
+func TestChangesPoller_L2_NonEmptyCursorKeepsRawBoundary(t *testing.T) {
+	now := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
+	origLWE := time.Date(2026, 7, 13, 6, 30, 0, 0, time.UTC) // non-midnight raw value
+	lister := &fakeLister{dflt: []recPage{
+		{page: tmdb.ChangedIDsPage{IDs: []int64{5}, Page: 1, TotalPages: 1}},
+	}}
+	marker := &fakeMarker{rows: 1}
+	store := &fakeCursorStore{cur: enrichdomain.ChangeCursor{SchemaVersion: 1, LastWindowEnd: origLWE}}
+	rec := &recordingMetrics{}
+	p := newTestPoller(t, ChangesPollerDeps{
+		Lister: lister, Marker: marker, CursorStore: store, Metrics: rec, Clock: fixedClock(now),
+	})
+
+	res, err := p.poll(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "ok", res.Result)
+	require.GreaterOrEqual(t, len(marker.calls), 1)
+	for i, c := range marker.calls {
+		assert.Equalf(t, origLWE, c.dedupBoundary, "mark %d: non-empty cursor must pass RAW LastWindowEnd (R-A01)", i)
+	}
 }
