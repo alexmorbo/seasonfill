@@ -579,3 +579,173 @@ func TestSeriesRepository_PickRefreshCandidates_DefaultLimit(t *testing.T) {
 		})
 	}
 }
+
+// seedTMDBChangedAt stamps series.tmdb_changed_at directly via a portable
+// UPDATE. The canon (series.Canon) carries no TMDBChangedAt field — it is
+// written only by the TMDB /tv/changes marker path (MarkChangedByTMDBIDs) — so
+// the picker tier-0 tests set it out-of-band after repo.Upsert creates the row.
+func seedTMDBChangedAt(t *testing.T, db *gorm.DB, id domain.SeriesID, at time.Time) {
+	t.Helper()
+	require.NoError(t, db.Exec(
+		"UPDATE series SET tmdb_changed_at = ? WHERE id = ?", at.UTC(), int64(id),
+	).Error)
+}
+
+// TestSeriesRepository_PickRefreshCandidates_ChangedTier0 covers the Wave 2
+// CHANGED tier-0 arm (TMDB /tv/changes marks series.tmdb_changed_at) plus the
+// R-A02 anti-dup guard on tiers 1-3:
+//
+//	(1) wins over hot: a changed+hot-stale series sorts BEFORE a plain hot
+//	    series and carries Tier=RefreshTierChanged (0),
+//	(2) R-A02: that changed+hot-stale series appears EXACTLY ONCE (the
+//	    anti-predicate removed it from the HOT arm),
+//	(3) NULL-synced changed IS picked (the tier-0 race guard's NULL-OR),
+//	(4) settled (synced > changed) NOT picked via tier-0,
+//	(5) terminal (attempts>5) changed-pending series excluded entirely,
+//	(6) 15m race guard: changed-pending stamped < 15m ago NOT picked this tick,
+//	    a sibling stamped > 15m ago IS picked.
+func TestSeriesRepository_PickRefreshCandidates_ChangedTier0(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+			d8 := now.Add(-8 * 24 * time.Hour) // > hot TTL (7d)
+			oneHourAgo := now.Add(-1 * time.Hour)
+			twoHoursAgo := now.Add(-2 * time.Hour)
+			fiveMinAgo := now.Add(-5 * time.Minute) // inside 15m race guard
+			thirtyMinAgo := now.Add(-30 * time.Minute)
+			twoMinAgo := now.Add(-2 * time.Minute)
+
+			seedLibChanged := func(title string, tmdbID int64, syncedAt *time.Time, sonarrID domain.SonarrSeriesID, changedAt *time.Time) domain.SeriesID {
+				t.Helper()
+				c := sampleCanon(title)
+				c.TMDBID = ptrTMDBID(int(tmdbID))
+				c.TVDBID = ptrTVDBID(int(tmdbID + 100000))
+				c.IMDBID = nil
+				c.EnrichmentTMDBSyncedAt = syncedAt
+				id, err := repo.Upsert(ctx, c)
+				require.NoError(t, err)
+				seedSeriesCacheRow(t, db, id, "main", sonarrID, false)
+				if changedAt != nil {
+					seedTMDBChangedAt(t, db, id, *changedAt)
+				}
+				return id
+			}
+
+			// X — HOT-eligible (series_cache), synced d8 (hot-stale) AND
+			// changed_at = now-1h (> d8 synced → changed-pending). Must be
+			// picked at tier 0, exactly once (R-A02 removes it from HOT).
+			idX := seedLibChanged("X-changed-hot", 4001, &d8, 4001, &oneHourAgo)
+			// Y — plain hot series, synced d8, NO changed. Tier 1 (HOT).
+			idY := seedLibChanged("Y-plain-hot", 4002, &d8, 4002, nil)
+			// Z — NULL sync + changed_at now-1h → changed-pending, tier 0.
+			idZ := seedLibChanged("Z-changed-null", 4003, nil, 4003, &oneHourAgo)
+			// S — settled: changed_at now-2h but synced now-1h (synced > changed)
+			//     → NOT changed-pending. Synced is TTL-fresh (< 7d) with no
+			//     poster/heal reason → not picked at all.
+			idS := seedLibChanged("S-settled", 4004, &oneHourAgo, 4004, &twoHoursAgo)
+			seedSeriesMediaTextRow(t, db, idS, "en-US", "/posters/s.jpg")
+			// T — terminal: changed-pending (synced d8, changed now-1h) but a
+			//     >5-attempt enrichment_error → excluded entirely.
+			idT := seedLibChanged("T-changed-terminal", 4005, &d8, 4005, &oneHourAgo)
+			seedEnrichmentError(t, db, enrichment.EntityTypeSeries, int64(idT), enrichment.SourceTMDBSeries, 6)
+			// R — changed-pending but synced 5m ago (inside 15m guard):
+			//     changed_at now-2m (synced < changed → pending) → NOT picked
+			//     this tick (race guard). Synced is TTL-fresh + has a poster so
+			//     no other branch selects it either.
+			idR := seedLibChanged("R-race-guard", 4006, &fiveMinAgo, 4006, &twoMinAgo)
+			seedSeriesMediaTextRow(t, db, idR, "en-US", "/posters/r.jpg")
+			// W — changed-pending, synced 30m ago (> 15m guard): changed_at
+			//     now-2m → picked at tier 0.
+			idW := seedLibChanged("W-past-guard", 4007, &thirtyMinAgo, 4007, &twoMinAgo)
+			seedSeriesMediaTextRow(t, db, idW, "en-US", "/posters/w.jpg")
+
+			rows, err := repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 50)
+			require.NoError(t, err)
+
+			byID := make(map[domain.SeriesID][]RefreshCandidate)
+			for _, r := range rows {
+				byID[r.SeriesID] = append(byID[r.SeriesID], r)
+			}
+
+			// (1)+(2) X picked, tier 0, EXACTLY ONE row (R-A02).
+			require.Len(t, byID[idX], 1, "R-A02: changed+hot-stale series must appear exactly once")
+			assert.Equal(t, enrichment.RefreshTierChanged, byID[idX][0].Tier,
+				"changed+hot-stale series must be picked at tier 0, not HOT")
+
+			// (1) ordering: X (tier 0) sorts before Y (tier 1).
+			posX, posY := -1, -1
+			for i, r := range rows {
+				switch r.SeriesID {
+				case idX:
+					posX = i
+				case idY:
+					posY = i
+				}
+			}
+			require.NotEqual(t, -1, posX, "X must be present")
+			require.NotEqual(t, -1, posY, "Y must be present")
+			assert.Less(t, posX, posY, "tier-0 changed series must sort before the plain hot series")
+			assert.Equal(t, enrichment.RefreshTierHot, byID[idY][0].Tier)
+
+			// (3) NULL-synced changed picked at tier 0.
+			require.Len(t, byID[idZ], 1, "NULL-synced changed series must be picked")
+			assert.Equal(t, enrichment.RefreshTierChanged, byID[idZ][0].Tier,
+				"NULL-synced changed series must be tier 0 (race-guard NULL-OR)")
+
+			// (4) settled not picked.
+			assert.NotContains(t, byID, idS, "settled series (synced > changed) must not be picked")
+			// (5) terminal not picked.
+			assert.NotContains(t, byID, idT, "terminal-failure changed series must be excluded")
+			// (6) race guard: R not picked, W picked (tier 0).
+			assert.NotContains(t, byID, idR, "changed series stamped < 15m ago must wait out the race guard")
+			require.Len(t, byID[idW], 1, "changed series stamped > 15m ago must be picked")
+			assert.Equal(t, enrichment.RefreshTierChanged, byID[idW][0].Tier)
+		})
+	}
+}
+
+// TestSeriesRepository_PickRefreshCandidates_ChangedTier0LimitCap seeds more
+// changed-pending series than the limit and asserts the outer LIMIT still caps
+// the union — all returned rows are tier 0 (changed drains first).
+func TestSeriesRepository_PickRefreshCandidates_ChangedTier0LimitCap(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+			oneHourAgo := now.Add(-1 * time.Hour)
+			d8 := now.Add(-8 * 24 * time.Hour)
+
+			// 5 changed-pending library series (synced d8, changed now-1h).
+			for i := range int64(5) {
+				c := sampleCanon("chg")
+				c.TMDBID = ptrTMDBID(int(4100 + i))
+				c.TVDBID = ptrTVDBID(int(104100 + i))
+				c.IMDBID = nil
+				c.EnrichmentTMDBSyncedAt = &d8
+				id, err := repo.Upsert(ctx, c)
+				require.NoError(t, err)
+				seedSeriesCacheRow(t, db, id, "main", domain.SonarrSeriesID(4100+i), false)
+				seedTMDBChangedAt(t, db, id, oneHourAgo)
+			}
+
+			rows, err := repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 3)
+			require.NoError(t, err)
+			require.Len(t, rows, 3, "LIMIT must cap the union even with tier-0 rows present")
+			for _, r := range rows {
+				assert.Equal(t, enrichment.RefreshTierChanged, r.Tier,
+					"all capped rows must be tier 0 (changed drains before hot/normal/cold)")
+			}
+		})
+	}
+}

@@ -20,8 +20,8 @@ func NewEnrichmentRefreshMetrics() *EnrichmentRefreshMetrics {
 }
 
 // IncRefresh increments the per-(tier,result) counter. Tier label
-// cardinality: 3 (hot/normal/cold). Result cardinality: 3 (ok/error/
-// skipped). 9 series total — well inside cardinality budget.
+// cardinality: 4 (changed/hot/normal/cold). Result cardinality: 3 (ok/error/
+// skipped). 12 series total — well inside cardinality budget.
 func (m *EnrichmentRefreshMetrics) IncRefresh(tier enrichment.RefreshTier, result string) {
 	metrics.GetOrCreateCounter(
 		`seasonfill_enrichment_refresh_total{tier="` + tier.String() + `",result="` + result + `"}`,

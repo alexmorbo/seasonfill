@@ -182,9 +182,15 @@ func (s *RefreshScheduler) Tick(ctx context.Context) {
 	// and the null-heal picks, emitting one metric tick + a per-series log line
 	// per reason. A row can qualify for both (F-05 overlap), so each flag is
 	// checked independently — the two counters are intentionally non-exclusive.
+	// W2-5 — additionally tally CHANGED tier-0 picks (TMDB /tv/changes) for the
+	// tick.start log; no per-series log or metric (would be noise, out of scope).
 	missingPoster := 0
 	heal := 0
+	changed := 0
 	for _, c := range candidates {
+		if c.Tier == enrichdomain.RefreshTierChanged {
+			changed++
+		}
 		if c.MissingPoster {
 			missingPoster++
 			s.deps.Metrics.IncRefreshPickedMissingPoster()
@@ -205,6 +211,7 @@ func (s *RefreshScheduler) Tick(ctx context.Context) {
 
 	s.deps.Logger.InfoContext(ctx, "enrichment.refresh.tick.start",
 		slog.Int("batch_size", len(candidates)),
+		slog.Int("changed", changed),
 		slog.Int("missing_poster", missingPoster),
 		slog.Int("heal", heal),
 	)

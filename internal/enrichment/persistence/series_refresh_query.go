@@ -9,16 +9,15 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// RefreshCandidate is one row of the Story 534 tiered picker. Tier
-// labels the source bucket (hot/normal/cold); SyncedAt is nullable
-// (NULL = never enriched, sorted first within the tier). MissingPoster
-// is true ONLY when the row qualified EXCLUSIVELY via the HOT poster
-// guard: it lacks a series_media_texts.poster_asset AND its normal
-// TTL/staleness predicate was NOT already satisfied (TTL-fresh, non-NULL
-// sync). A poster-less row that would also be picked by the normal HOT
-// staleness gate (TTL expired or NULL sync) is a NORMAL pick and carries
-// MissingPoster=false. Always false for NORMAL/COLD (poster branch is
-// HOT-only).
+// RefreshCandidate is one row of the tiered picker. Tier labels the source
+// bucket (changed/hot/normal/cold); SyncedAt is nullable (NULL = never
+// enriched, sorted first within the tier). MissingPoster is true ONLY when
+// the row qualified EXCLUSIVELY via the HOT poster guard: it lacks a
+// series_media_texts.poster_asset AND its normal TTL/staleness predicate was
+// NOT already satisfied (TTL-fresh, non-NULL sync). A poster-less row that
+// would also be picked by the normal HOT staleness gate (TTL expired or NULL
+// sync) is a NORMAL pick and carries MissingPoster=false. Always false for
+// CHANGED/NORMAL/COLD (poster branch is HOT-only).
 type RefreshCandidate struct {
 	SeriesID      domain.SeriesID
 	Tier          enrichment.RefreshTier
@@ -30,23 +29,50 @@ type RefreshCandidate struct {
 	// MissingPoster and of normal picks — an observability signal only. Drives
 	// seasonfill_enrichment_refresh_picked_heal_total so the genuinely-
 	// unfillable (crew-only / specials-only) floor is visible in Grafana.
+	// Always false for the CHANGED tier-0 arm.
 	Heal bool
 }
 
 // PickRefreshCandidates returns up to `limit` candidates across all
-// three tiers, ordered by priority (hot → cold) and within-tier by
-// staleness ascending (NULL first, then oldest first).
+// four tiers, ordered by priority (changed → hot → normal → cold) and
+// within-tier by staleness ascending (NULL first, then oldest first).
 //
 // Tier semantics:
+//   - CHANGED (tier 0): tmdb_id IS NOT NULL AND tmdb_changed_at marks the
+//     series as changed-pending (§5.4). Library-wide — NO series_cache /
+//     discovery_lists membership constraint; TMDB /tv/changes is sole truth.
 //   - HOT: EXISTS in series_cache (deleted_at IS NULL).
 //   - NORMAL: EXISTS in discovery_lists AND NOT in HOT.
 //   - COLD: tmdb_id IS NOT NULL AND NOT in HOT AND NOT in NORMAL.
 //
-// All three tiers require:
+// All four tiers require:
 //   - series.tmdb_id IS NOT NULL (TMDB-enrichable),
-//   - enrichment_tmdb_synced_at IS NULL OR < now - ttl(tier),
 //   - NOT EXISTS enrichment_errors row with attempts > 5 for this
 //     entity/source (terminal-failure exclude — matches ListStaleForTMDB).
+//
+// The HOT/NORMAL/COLD tiers additionally require the TTL staleness / poster /
+// heal predicate below. The CHANGED tier requires instead the changed-pending
+// predicate (§5.4):
+//
+//	tmdb_changed_at IS NOT NULL
+//	AND (enrichment_tmdb_synced_at IS NULL
+//	     OR enrichment_tmdb_synced_at < tmdb_changed_at)
+//
+// plus a 15-minute race guard so a series stamped mid-Handle is not yanked
+// into a concurrent refresh. Because the CHANGED arm is STANDALONE (no sibling
+// OR clause catches a NULL sync, unlike the HOT poster branch), the race guard
+// is written `(enrichment_tmdb_synced_at IS NULL OR enrichment_tmdb_synced_at
+// < ?)` — a never-synced changed series (NULL) must still be picked; a bare
+// `enrichment_tmdb_synced_at < ?` would evaluate NULL < ts = false and exclude
+// it forever (it is also excluded from tiers 1-3 by R-A02). See the
+// "15m-race-guard NULL-OR" note at the bottom of this story.
+//
+// R-A02 (plan §17 MED) — the CHANGED tier-0 arm overlaps tiers 1-3 (unlike
+// those three, mutually exclusive via EXISTS/NOT EXISTS). Without a guard a
+// changed+TTL-stale series would appear TWICE in the union → HandleForced
+// fired twice. Each of tiers 1-3 therefore carries an anti-predicate
+// `AND NOT (<changed-pending>)`, using only column refs (zero new bind
+// params), so a changed-pending series appears EXACTLY ONCE, in tier 0.
 //
 // W17-1 — the HOT branch additionally selects a library series whose
 // TMDB sync is otherwise fresh but which has NO series_media_texts row
@@ -63,7 +89,7 @@ type RefreshCandidate struct {
 // lives INSIDE the HOT branch, so it inherits tmdb_id IS NOT NULL and
 // the series_cache scope — tmdb-less Sonarr stubs are never selected.
 //
-// #1090b — ALL THREE tiers select a series that has media_type='tv'
+// #1090b — ALL THREE TTL tiers select a series that has media_type='tv'
 // person_credits rows but NONE carries a non-NULL last_appearance_season,
 // so the #1090 aggregate_credits backfill lands promptly instead of
 // waiting up to the per-tier TTL. The predicate was originally HOT-only
@@ -87,12 +113,14 @@ type RefreshCandidate struct {
 //
 // The query is one UNION ALL'd round-trip so the LIMIT applies across
 // the priority-ordered union, NOT per-tier — which is the desired
-// budget behaviour ("drain hot first, then normal, then cold").
+// budget behaviour ("drain changed first, then hot, then normal, then cold").
 //
 // Portable across Postgres + SQLite: literal '1970-01-01' for NULL
 // sentinel ordering, literal 'tv' discriminator, EXISTS/NOT EXISTS only
-// (no array_agg, no JSON aggregation, no dialect casts). The terminal-
-// failure guard is the same NOT EXISTS shape `ListStaleForTMDB` ships
+// (no array_agg, no JSON aggregation, no dialect casts). The changed-pending
+// and R-A02 predicates are plain column-vs-column compares
+// (enrichment_tmdb_synced_at < tmdb_changed_at) — portable, no casts. The
+// terminal-failure guard is the same NOT EXISTS shape `ListStaleForTMDB` ships
 // today (see series_repository.go:391-401) and travels through the
 // same `enrichment_errors_pk_lookup` index; the null-heal EXISTS pair
 // travels through the person_credits_media index (media_type,tmdb_media_id).
@@ -110,7 +138,8 @@ func (r *SeriesRepository) PickRefreshCandidates(
 	coldCutoff := now.UTC().Add(-ttl.Cold)
 	// W17-1 poster-branch race guard: a series stamped inside the last
 	// 15 minutes may be mid-Handle (poster seed not yet committed) — do
-	// not yank it into a concurrent refresh.
+	// not yank it into a concurrent refresh. Reused by the CHANGED tier-0
+	// arm as its own mid-Handle race guard.
 	posterGuardCutoff := now.UTC().Add(-15 * time.Minute)
 	// #1090b null-heal cooldown: HandleForced stamps
 	// enrichment_tmdb_synced_at=now on every heal, so this 6h backoff
@@ -123,6 +152,22 @@ func (r *SeriesRepository) PickRefreshCandidates(
 	const errSrc = "tmdb_series"
 	const sqlTmpl = `
 SELECT * FROM (
+  SELECT s.id AS series_id, 0 AS tier, s.enrichment_tmdb_synced_at AS synced_at,
+         0 AS missing_poster, 0 AS heal
+    FROM series s
+   WHERE s.tmdb_id IS NOT NULL
+     AND s.tmdb_changed_at IS NOT NULL
+     AND (
+           s.enrichment_tmdb_synced_at IS NULL
+        OR s.enrichment_tmdb_synced_at < s.tmdb_changed_at)
+     AND (
+           s.enrichment_tmdb_synced_at IS NULL
+        OR s.enrichment_tmdb_synced_at < ?)
+     AND NOT EXISTS (
+       SELECT 1 FROM enrichment_errors ee
+        WHERE ee.entity_type = 'series' AND ee.entity_id = s.id
+          AND ee.source = ? AND ee.attempts > 5)
+  UNION ALL
   SELECT s.id AS series_id, 1 AS tier, s.enrichment_tmdb_synced_at AS synced_at,
          -- F-05: this poster-guard label is NOT exclusive of the heal branch
          -- below — a poster-less, TTL-fresh, all-NULL last_appearance row
@@ -146,6 +191,9 @@ SELECT * FROM (
               THEN 1 ELSE 0 END AS heal
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
+     AND NOT (s.tmdb_changed_at IS NOT NULL
+              AND (s.enrichment_tmdb_synced_at IS NULL
+                   OR s.enrichment_tmdb_synced_at < s.tmdb_changed_at))
      AND (
            s.enrichment_tmdb_synced_at IS NULL
         OR s.enrichment_tmdb_synced_at < ?
@@ -182,6 +230,9 @@ SELECT * FROM (
               THEN 1 ELSE 0 END AS heal
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
+     AND NOT (s.tmdb_changed_at IS NOT NULL
+              AND (s.enrichment_tmdb_synced_at IS NULL
+                   OR s.enrichment_tmdb_synced_at < s.tmdb_changed_at))
      AND (
            s.enrichment_tmdb_synced_at IS NULL
         OR s.enrichment_tmdb_synced_at < ?
@@ -216,6 +267,9 @@ SELECT * FROM (
               THEN 1 ELSE 0 END AS heal
     FROM series s
    WHERE s.tmdb_id IS NOT NULL
+     AND NOT (s.tmdb_changed_at IS NOT NULL
+              AND (s.enrichment_tmdb_synced_at IS NULL
+                   OR s.enrichment_tmdb_synced_at < s.tmdb_changed_at))
      AND (
            s.enrichment_tmdb_synced_at IS NULL
         OR s.enrichment_tmdb_synced_at < ?
@@ -258,6 +312,8 @@ LIMIT ?
 	var rows []row
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
 		Raw(sqlTmpl,
+			// CHANGED tier-0: 15m race guard (posterGuardCutoff), errSrc.
+			posterGuardCutoff, errSrc,
 			// HOT: missing_poster CASE (hotCutoff), heal CASE (healGuardCutoff),
 			// then WHERE normal (hotCutoff), poster (posterGuardCutoff),
 			// heal (healGuardCutoff), errSrc.

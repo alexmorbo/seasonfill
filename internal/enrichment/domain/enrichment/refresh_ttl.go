@@ -16,10 +16,20 @@ package enrichment
 
 import "time"
 
-// RefreshTier identifies one of the three Story 534 tiers.
+// RefreshTier identifies one of the four refresh tiers. RefreshTierChanged
+// (Wave 2 / TMDB /tv/changes) is a flag-driven tier — a series enters it
+// when tmdb_changed_at marks it as changed, not because a TTL window
+// elapsed — and is deliberately valued 0 so `ORDER BY tier ASC` drains it
+// before the three Story 534 TTL tiers.
 type RefreshTier int
 
 const (
+	// RefreshTierChanged — series that TMDB /tv/changes flagged as changed
+	// (series.tmdb_changed_at set, enrichment_tmdb_synced_at not yet caught
+	// up). Value 0 so it sorts FIRST in the tiered picker. Not a TTL tier:
+	// RefreshTTL.For never returns a duration for it (the picker's tier-0
+	// arm is gated on the changed-pending predicate, not a cutoff).
+	RefreshTierChanged RefreshTier = 0
 	// RefreshTierHot — series present in at least one Sonarr library
 	// (series_cache row exists, deleted_at IS NULL). User cares most.
 	RefreshTierHot RefreshTier = 1
@@ -32,9 +42,11 @@ const (
 )
 
 // String returns the label used in metric tags and slog attrs. Must
-// stay low-cardinality (3 values) — never include a series id here.
+// stay low-cardinality (4 values) — never include a series id here.
 func (t RefreshTier) String() string {
 	switch t {
+	case RefreshTierChanged:
+		return "changed"
 	case RefreshTierHot:
 		return "hot"
 	case RefreshTierNormal:
@@ -70,6 +82,9 @@ func DefaultRefreshTTL() RefreshTTL {
 // For returns the per-tier duration; falls through to Cold when the
 // tier is unrecognised so a misconfigured caller cannot accidentally
 // schedule a 0-TTL ("refresh everything every tick") sweep.
+// RefreshTierChanged has no TTL (the picker's tier-0 arm is gated on the
+// changed-pending predicate, not a cutoff), so it intentionally has no
+// case here — a caller must never pass it to For.
 func (t RefreshTTL) For(tier RefreshTier) time.Duration {
 	switch tier {
 	case RefreshTierHot:
