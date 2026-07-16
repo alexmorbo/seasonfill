@@ -176,7 +176,7 @@ func TestRefreshOneLanguage_FanoutFetchesAllSeasons(t *testing.T) {
 	w := fanoutWorker(t, fake, 4)
 
 	pe, pw, oe := false, false, false
-	err := w.refreshOneLanguage(context.Background(), fanoutCanon(), "en-US", false, &pe, &pw, &oe, quietLogger())
+	err := w.refreshOneLanguage(context.Background(), fanoutCanon(), "en-US", false, &pe, &pw, &oe, new(bool), quietLogger())
 	require.NoError(t, err)
 
 	got := fake.fetchedSeasons()
@@ -192,7 +192,7 @@ func TestRefreshOneLanguage_FanoutFirstErrorPropagates(t *testing.T) {
 	w := fanoutWorker(t, fake, 3)
 
 	pe, pw, oe := false, false, false
-	err := w.refreshOneLanguage(context.Background(), fanoutCanon(), "ru-RU", false, &pe, &pw, &oe, quietLogger())
+	err := w.refreshOneLanguage(context.Background(), fanoutCanon(), "ru-RU", false, &pe, &pw, &oe, new(bool), quietLogger())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "GetSeason(")
 	assert.Contains(t, err.Error(), "GetSeason(4,ru-RU)")
@@ -208,7 +208,7 @@ func TestRefreshOneLanguage_FanoutRespectsConcurrencyLimit(t *testing.T) {
 	w := fanoutWorker(t, fake, limit)
 
 	pe, pw, oe := false, false, false
-	err := w.refreshOneLanguage(context.Background(), fanoutCanon(), "en-US", false, &pe, &pw, &oe, quietLogger())
+	err := w.refreshOneLanguage(context.Background(), fanoutCanon(), "en-US", false, &pe, &pw, &oe, new(bool), quietLogger())
 	require.NoError(t, err)
 
 	assert.LessOrEqual(t, fake.maxConcurrent(), limit, "max in-flight GetSeason must not exceed SetLimit")
@@ -224,7 +224,7 @@ func TestRefreshOneLanguage_FanoutClampsToSequential(t *testing.T) {
 	w := fanoutWorker(t, fake, 0) // must clamp to 1
 
 	pe, pw, oe := false, false, false
-	err := w.refreshOneLanguage(context.Background(), fanoutCanon(), "en-US", false, &pe, &pw, &oe, quietLogger())
+	err := w.refreshOneLanguage(context.Background(), fanoutCanon(), "en-US", false, &pe, &pw, &oe, new(bool), quietLogger())
 	require.NoError(t, err)
 	assert.Equal(t, 1, fake.maxConcurrent(), "clamp-to-1 must serialise GetSeason")
 	assert.ElementsMatch(t, []int{1, 2, 3, 4, 5}, fake.fetchedSeasons())
@@ -253,7 +253,7 @@ func TestRefreshOneLanguage_FanoutPreservesSeasonGate(t *testing.T) {
 	canon.EnrichmentTMDBSyncedAt = &synced
 
 	pe, pw, oe := false, false, false
-	err := w.refreshOneLanguage(context.Background(), canon, "en-US", false, &pe, &pw, &oe, quietLogger())
+	err := w.refreshOneLanguage(context.Background(), canon, "en-US", false, &pe, &pw, &oe, new(bool), quietLogger())
 	require.NoError(t, err)
 	got := fake.fetchedSeasons()
 	assert.NotContains(t, got, 0, "season 0 must be skipped on refresh")

@@ -148,6 +148,20 @@ type SeriesWorkerDeps struct {
 	// here (vs. a new SeriesWorkerNarrowDeps struct) to keep the
 	// constructor surface unchanged.
 	Probe freshener.Probe
+
+	// ChangesCursor — W2-8 miss-detector (G3 / ADR-0002). READ-ONLY single-row
+	// firehose cursor, consulted by recordChangesMissIfDetected for the M-03
+	// coverage guard only. nil-OK — when nil the miss-detector no-ops (also the
+	// natural dark-launch state: poller OFF ⇒ cursor never advances ⇒ guard
+	// false). Production wiring passes the same
+	// *persistence.TMDBChangesStateRepository the poller uses. Placed here (vs. the
+	// required cluster) so existing test fixtures that omit it stay green — mirrors
+	// the Probe / OMDbBudget nil-OK posture.
+	ChangesCursor ChangesCursorStore
+	// ChangesMiss — W2-8: observability-only miss counter seam. nil-OK — when nil
+	// the miss-detector no-ops. Production wiring passes
+	// *observability.TMDBChangesMetrics (IncMiss → seasonfill_tmdb_changes_miss_total).
+	ChangesMiss ChangesMissMetric
 }
 
 // SeriesWorker is the bound worker. Construct via NewSeriesWorker.
@@ -473,12 +487,13 @@ func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.Serie
 	personsEnqueued := false
 	prewarmEnqueued := false
 	omdbEnqueued := false
+	missChecked := false // W2-8: once-per-Handle guard for the miss-detector
 	failedLangs := make([]string, 0, len(w.deps.Languages))
 	succeededLangs := make([]string, 0, len(w.deps.Languages))
 	var firstErr error
 	for _, lang := range w.deps.Languages {
 		langLog := log.With(slog.String("language", lang))
-		if err := w.refreshOneLanguage(ctx, canon, lang, force, &personsEnqueued, &prewarmEnqueued, &omdbEnqueued, langLog); err != nil {
+		if err := w.refreshOneLanguage(ctx, canon, lang, force, &personsEnqueued, &prewarmEnqueued, &omdbEnqueued, &missChecked, langLog); err != nil {
 			failedLangs = append(failedLangs, lang)
 			if firstErr == nil {
 				firstErr = err
@@ -531,12 +546,22 @@ func (w *SeriesWorker) refreshOneLanguage(
 	personsEnqueued *bool,
 	prewarmEnqueued *bool,
 	omdbEnqueued *bool,
+	missChecked *bool,
 	log *slog.Logger,
 ) error {
 	// 3a. Fetch TV payload + active seasons in this language.
 	tv, err := w.deps.TMDB.GetTV(ctx, int64(*canon.TMDBID), lang)
 	if err != nil {
 		return fmt.Errorf("GetTV(%s): %w", lang, err)
+	}
+	// 3a′. W2-8 (G3/ADR-0002) miss-detector — observability ONLY. Runs ONCE per
+	// Handle (the whitelist fields are language-independent). `canon` is the
+	// Handle-start before-snapshot; `tv` is the freshly-fetched after-payload.
+	// The helper writes nothing, returns nothing, and never affects this refresh
+	// — missChecked flips regardless of the helper's internal outcome.
+	if !*missChecked {
+		w.recordChangesMissIfDetected(ctx, canon, tv, log)
+		*missChecked = true
 	}
 	// Story 549: force=true (HandleForced / freshener-driven refresh)
 	// uses firstHydration semantics so missing-lang population fetches

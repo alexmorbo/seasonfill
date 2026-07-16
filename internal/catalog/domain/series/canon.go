@@ -104,8 +104,16 @@ type Canon struct {
 	// commit — the dedicated freshness clock for the SectionSkeleton SWR gate.
 	// NULL = never skeleton-refreshed; the gate then treats the row as cold.
 	SkeletonSyncedAt *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// TMDBChangedAt (W2-8) mirrors the series.tmdb_changed_at column written by the
+	// Wave 2 /tv/changes marker (MarkChangedByTMDBIDs, migration 000041). Carried on
+	// canon READ-ONLY so the miss-detector (recordChangesMissIfDetected) can compare
+	// it against EnrichmentTMDBSyncedAt WITHOUT a second query. NO write path copies
+	// it: it is ABSENT from fromCanon() and seriesUpsertAssignments() — the marker
+	// stays the sole writer (same sole-writer invariant as SkeletonSyncedAt). Only
+	// the toCanon() read projector populates it. NULL = TMDB never reported a change.
+	TMDBChangedAt *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // CanonSeason is one row of `seasons`. SeriesID is a foreign reference

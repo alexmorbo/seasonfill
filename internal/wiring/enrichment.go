@@ -493,6 +493,10 @@ func BuildEnrichment(
 		// Story 1096 (Fix B): bounded-parallel per-season GetSeason fan-out.
 		SeasonConcurrency: bootstrap.Enrichment.EnrichmentSeasonConcurrency,
 		Logger:            enrichmentLog,
+		// W2-8 miss-detector (G3/ADR-0002) — both nil-OK; detector is inert until
+		// the poller advances the cursor (dark-launch safe).
+		ChangesCursor: repos.ChangesCursor,
+		ChangesMiss:   observability.NewTMDBChangesMetrics(),
 	})
 	if err != nil {
 		return nil, err

@@ -56,3 +56,11 @@ func (m *TMDBChangesMetrics) ObservePollDuration(d time.Duration) {
 func (m *TMDBChangesMetrics) SetCursorLag(d time.Duration) {
 	metrics.GetOrCreateGauge(`seasonfill_tmdb_changes_cursor_lag_seconds`, nil).Set(d.Seconds())
 }
+
+// IncMiss increments the firehose recall-miss counter (W2-8 / G3, plan §9.1). Fired
+// by the series worker's miss-detector when a real canon-field change was observed
+// on refresh that the /tv/changes firehose failed to flag ahead of the last sync
+// (and the firehose window covered the interval). No labels.
+func (m *TMDBChangesMetrics) IncMiss() {
+	metrics.GetOrCreateCounter(`seasonfill_tmdb_changes_miss_total`).Inc()
+}

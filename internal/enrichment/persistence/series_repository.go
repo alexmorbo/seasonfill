@@ -1138,6 +1138,7 @@ func toCanon(m database.SeriesModel) series.Canon {
 		EnrichmentMediaSyncedAt: m.EnrichmentMediaSyncedAt,
 		TMDBRatingSyncedAt:      m.TMDBRatingSyncedAt,
 		SkeletonSyncedAt:        m.SkeletonSyncedAt,
+		TMDBChangedAt:           m.TMDBChangedAt,
 		CreatedAt:               m.CreatedAt,
 		UpdatedAt:               m.UpdatedAt,
 	}
