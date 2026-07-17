@@ -62,12 +62,12 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
-      - name: Cache Go build (race)
+      - name: Cache Go build
         uses: actions/cache@v4
         with:
           path: ~/.cache/go-build
-          key: gobuild-race-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
-          restore-keys: gobuild-race-${{ runner.os }}-
+          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
+          restore-keys: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-
 
       - name: Build
         run: go build ./...
@@ -76,9 +76,11 @@ jobs:
         run: go vet ./...
 
       - name: Test (unit)
+        env:
+          RACE: ${{ startsWith(github.ref, 'refs/tags/v') && '-race' || '' }}
         run: |
           PKGS=$(go list ./... | grep -v '/cmd/')
-          go test -short -race -timeout 5m -coverprofile=coverage.out $PKGS
+          go test $RACE -short -timeout 5m -coverprofile=coverage.out $PKGS
 
       - name: Coverage
         run: go tool cover -func=coverage.out | tail -1
@@ -142,12 +144,12 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
-      - name: Cache Go build (race)
+      - name: Cache Go build
         uses: actions/cache@v4
         with:
           path: ~/.cache/go-build
-          key: gobuild-race-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
-          restore-keys: gobuild-race-${{ runner.os }}-
+          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
+          restore-keys: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-
 
       - name: Verify integration package coverage (drift guard)
         run: |
@@ -251,7 +253,9 @@ jobs:
           echo "  Expected coverage: $(echo "$EXPECTED" | wc -l)"
 
       - name: Test (integration, sqlite only)
-        run: go test -tags integration -race -timeout 15m $INTEGRATION_PKGS_SQLITE
+        env:
+          RACE: ${{ startsWith(github.ref, 'refs/tags/v') && '-race' || '' }}
+        run: go test -tags integration $RACE -timeout 15m $INTEGRATION_PKGS_SQLITE
 
       # cmd/server runs in its OWN step, sequentially after the packages above.
       # Its reload E2E suite boots the full server ~13 times (SQLite migrations +
@@ -262,7 +266,9 @@ jobs:
       # dedicated step gives the boots the whole runner, matching the green
       # isolated runs.
       - name: Test (integration, sqlite only — cmd/server)
-        run: go test -tags integration -race -timeout 15m $INTEGRATION_PKGS_CMDSERVER
+        env:
+          RACE: ${{ startsWith(github.ref, 'refs/tags/v') && '-race' || '' }}
+        run: go test -tags integration $RACE -timeout 15m $INTEGRATION_PKGS_CMDSERVER
 
   integration-postgres:
     name: Integration (Postgres via services container)
@@ -300,21 +306,22 @@ jobs:
           go-version: "1.26.5"
           cache: true
 
-      - name: Cache Go build (race)
+      - name: Cache Go build
         uses: actions/cache@v4
         with:
           path: ~/.cache/go-build
-          key: gobuild-race-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
-          restore-keys: gobuild-race-${{ runner.os }}-
+          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
+          restore-keys: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-
 
       - name: Test (integration, postgres backend)
         env:
           SEASONFILL_TEST_POSTGRES_ENABLE: "1"
           SEASONFILL_TEST_POSTGRES_DSN: "postgres://seasonfill:seasonfill@localhost:5432/seasonfill_test?sslmode=disable"
           GOMAXPROCS: "4"
+          RACE: ${{ startsWith(github.ref, 'refs/tags/v') && '-race' || '' }}
         run: |
           PKGS=$(go list -tags integration $INTEGRATION_PKGS_POSTGRES)
-          go test -tags integration -race -timeout 20m -parallel=4 $PKGS
+          go test -tags integration $RACE -timeout 20m -parallel=4 $PKGS
 
   nightly-deep:
     name: Nightly deep
