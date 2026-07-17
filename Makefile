@@ -8,7 +8,7 @@ help:
 	@echo "Atlas (dev-time schema tooling): atlas-install migrations-diff NAME=foo migrations-lint migrations-apply-dev"
 
 build:
-	CGO_ENABLED=0 go build -ldflags='-w -s' -trimpath -o bin/$(BINARY) ./cmd/server
+	CGO_ENABLED=0 go build -ldflags='-w -s -X main.version=$(shell git rev-parse --short HEAD 2>/dev/null || echo dev)' -trimpath -o bin/$(BINARY) ./cmd/server
 
 test:
 	go test ./... -short -cover

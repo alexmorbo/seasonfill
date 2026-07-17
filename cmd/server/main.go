@@ -15,6 +15,9 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
+// version is stamped at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
 		if err := commands.ResetPassword(os.Args[2:]); err != nil {

@@ -1,0 +1,37 @@
+# .git excluded — the server build uses -buildvcs=false
+.git
+
+# Web SPA ships as a SEPARATE image (web/Dockerfile) — not needed to compile the server
+/web
+
+# Local build artifacts & binaries (root-anchored so cmd/server is NOT matched)
+/bin
+/server
+/middleware.test
+/coverage.out
+/cover.out
+/cmd_cover.out
+/coverage.txt
+*.test
+
+# Notes / meta not needed to compile the server
+/documentation
+/.thoughts
+/.claude
+/.github
+/README.md
+/README.ru.md
+/LICENSE
+
+# Deploy assets — the Dockerfile is read via `-f`, unaffected by .dockerignore
+/deploy
+
+# Tooling / config not needed at build time
+/.golangci.yml
+/.gremlins.yaml
+/.pre-commit-config.yaml
+/.swaggo
+/atlas.hcl
+/config.local.yaml
+/Makefile
+.DS_Store

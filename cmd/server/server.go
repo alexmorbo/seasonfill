@@ -89,6 +89,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// applies its own DomainLogger wrap internally per F-4b rule #1.
 	bootLog := sharedports.DomainLogger(log, "boot")
 	shutLog := sharedports.DomainLogger(log, "shutdown")
+	bootLog.Info("seasonfill starting", slog.String("version", version))
 	bootLog.Info("starting seasonfill (bootstrap config)",
 		slog.String("driver", bootCfg.Database.Driver))
 
