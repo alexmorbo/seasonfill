@@ -165,6 +165,37 @@ func buildTemplate(pc *PostgresContainer) {
 		_ = sqlDB.Close()
 	}
 
+	// golang-migrate's postgres driver checks out a dedicated *sql.Conn for its
+	// advisory-lock session and only releases it on driver.Close(), which
+	// database.Migrate never calls; gorm's sqlDB.Close() above does not reclaim
+	// that leaked backend. Terminate any lingering connections and disallow new
+	// ones so CREATE DATABASE ... TEMPLATE (a datallowconn=false DB is still a
+	// valid clone source, cf. template0) never hits SQLSTATE 55006.
+	admin, err = sql.Open("pgx", pc.DSN)
+	if err != nil {
+		pgErr = fmt.Errorf("template harden open admin: %w", err)
+		return
+	}
+	if _, err := admin.ExecContext(
+		context.Background(),
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+		   WHERE datname = $1 AND pid <> pg_backend_pid()`,
+		templateName,
+	); err != nil {
+		_ = admin.Close()
+		pgErr = fmt.Errorf("template terminate backends %s: %w", templateName, err)
+		return
+	}
+	if _, err := admin.ExecContext(
+		context.Background(),
+		fmt.Sprintf("ALTER DATABASE %q WITH ALLOW_CONNECTIONS false", templateName),
+	); err != nil {
+		_ = admin.Close()
+		pgErr = fmt.Errorf("template disallow connections %s: %w", templateName, err)
+		return
+	}
+	_ = admin.Close()
+
 	pc.templateName = templateName
 }
 
