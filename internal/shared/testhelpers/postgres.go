@@ -45,6 +45,11 @@ type PostgresContainer struct {
 	// Used to issue CREATE DATABASE / DROP DATABASE for per-test isolation.
 	DSN string
 
+	// templateName is the per-process pre-migrated template DB. Per-test DBs
+	// are cloned from it via CREATE DATABASE ... TEMPLATE (file-copy speed)
+	// instead of re-running all migrations each time.
+	templateName string
+
 	container testcontainers.Container
 }
 
@@ -74,35 +79,36 @@ func StartPostgres(t testing.TB) *PostgresContainer {
 	pgOnce.Do(func() {
 		if envDSN := os.Getenv(envOverrideDSN); envDSN != "" {
 			pgSingleton = &PostgresContainer{DSN: envDSN}
-			return
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+
+			container, err := tcpostgres.Run(ctx, postgresImage,
+				tcpostgres.WithDatabase("postgres"),
+				tcpostgres.WithUsername("seasonfill"),
+				tcpostgres.WithPassword("seasonfill"),
+				testcontainers.WithWaitStrategy(
+					wait.ForLog("database system is ready to accept connections").
+						WithOccurrence(2).
+						WithStartupTimeout(60*time.Second),
+				),
+			)
+			if err != nil {
+				pgErr = fmt.Errorf("start postgres container: %w", err)
+				return
+			}
+
+			adminDSN, err := container.ConnectionString(ctx, "sslmode=disable")
+			if err != nil {
+				_ = container.Terminate(ctx)
+				pgErr = fmt.Errorf("derive admin dsn: %w", err)
+				return
+			}
+
+			pgSingleton = &PostgresContainer{DSN: adminDSN, container: container}
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
-
-		container, err := tcpostgres.Run(ctx, postgresImage,
-			tcpostgres.WithDatabase("postgres"),
-			tcpostgres.WithUsername("seasonfill"),
-			tcpostgres.WithPassword("seasonfill"),
-			testcontainers.WithWaitStrategy(
-				wait.ForLog("database system is ready to accept connections").
-					WithOccurrence(2).
-					WithStartupTimeout(60*time.Second),
-			),
-		)
-		if err != nil {
-			pgErr = fmt.Errorf("start postgres container: %w", err)
-			return
-		}
-
-		adminDSN, err := container.ConnectionString(ctx, "sslmode=disable")
-		if err != nil {
-			_ = container.Terminate(ctx)
-			pgErr = fmt.Errorf("derive admin dsn: %w", err)
-			return
-		}
-
-		pgSingleton = &PostgresContainer{DSN: adminDSN, container: container}
+		buildTemplate(pgSingleton)
 	})
 
 	if pgErr != nil {
@@ -111,9 +117,61 @@ func StartPostgres(t testing.TB) *PostgresContainer {
 	return pgSingleton
 }
 
-// NewDB creates a fresh isolated database inside the shared container,
-// runs all embedded migrations against it, and returns a *gorm.DB pointing
-// at the new DB. The database is DROPped on t.Cleanup.
+// buildTemplate migrates a single per-process template DB that every per-test
+// DB is later cloned from. The template name carries an 8-byte-hex suffix so
+// that `go test ./pkgA ./pkgB` — which spawns one process per package against
+// a shared external Postgres — never collides on the template DB.
+//
+// On any error it sets the package-level pgErr so StartPostgres' t.Fatalf
+// fires; callers never observe a pgSingleton without a usable template.
+func buildTemplate(pc *PostgresContainer) {
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		pgErr = fmt.Errorf("template rand: %w", err)
+		return
+	}
+	templateName := "seasonfill_test_template_" + hex.EncodeToString(raw[:])
+
+	admin, err := sql.Open("pgx", pc.DSN)
+	if err != nil {
+		pgErr = fmt.Errorf("template open admin: %w", err)
+		return
+	}
+	if _, err := admin.ExecContext(
+		context.Background(),
+		fmt.Sprintf("CREATE DATABASE %q", templateName),
+	); err != nil {
+		_ = admin.Close()
+		pgErr = fmt.Errorf("create template db %s: %w", templateName, err)
+		return
+	}
+	_ = admin.Close()
+
+	db, err := gorm.Open(postgres.Open(pc.dsn(templateName)), &gorm.Config{})
+	if err != nil {
+		pgErr = fmt.Errorf("template gorm open: %w", err)
+		return
+	}
+	if err := database.Migrate(db); err != nil {
+		pgErr = fmt.Errorf("template migrate: %w", err)
+		return
+	}
+
+	// The template must have zero open connections: CREATE DATABASE ... TEMPLATE
+	// fails with "source database is being accessed by other users" otherwise.
+	// Clones serialize on the template's brief ACCESS EXCLUSIVE lock, which is
+	// milliseconds for a small schema DB.
+	if sqlDB, err := db.DB(); err == nil {
+		_ = sqlDB.Close()
+	}
+
+	pc.templateName = templateName
+}
+
+// NewDB creates a fresh isolated database inside the shared container by
+// cloning the pre-migrated template (CREATE DATABASE ... TEMPLATE, file-copy
+// speed) and returns a *gorm.DB pointing at it. The database is DROPped on
+// t.Cleanup.
 //
 // Database naming: seasonfill_test_<8-byte-hex>. The randomness eliminates
 // any test-order coupling so t.Parallel() is safe.
@@ -134,7 +192,7 @@ func (pc *PostgresContainer) NewDB(t testing.TB) *gorm.DB {
 
 	if _, err := admin.ExecContext(
 		context.Background(),
-		fmt.Sprintf("CREATE DATABASE %q", dbName),
+		fmt.Sprintf("CREATE DATABASE %q TEMPLATE %q", dbName, pc.templateName),
 	); err != nil {
 		t.Fatalf("create db %s: %v", dbName, err)
 	}
@@ -162,10 +220,6 @@ func (pc *PostgresContainer) NewDB(t testing.TB) *gorm.DB {
 	db, err := gorm.Open(postgres.Open(pc.dsn(dbName)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("gorm open: %v", err)
-	}
-
-	if err := database.Migrate(db); err != nil {
-		t.Fatalf("migrate: %v", err)
 	}
 
 	return db
