@@ -301,6 +301,38 @@ func TestGenresRepository_Set_ReplacesAndIdempotent(t *testing.T) {
 	}
 }
 
+// TestGenresRepository_Set_DedupesDuplicateIDs covers TMDB returning
+// duplicate genre ids (series 880027 in prod resolved to a duplicate
+// canonical genre_id). Without dedup the batch insert violates the
+// unique (series_id, genre_id) constraint and enrichment hot-loops.
+func TestGenresRepository_Set_DedupesDuplicateIDs(t *testing.T) {
+
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewGenresRepository(db)
+
+			seriesID, err := NewSeriesRepository(db).Upsert(ctx, sampleCanon("Duped"))
+			require.NoError(t, err)
+			g10, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(18)})
+			require.NoError(t, err)
+			g20, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(35)})
+			require.NoError(t, err)
+			g30, err := repo.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(10765)})
+			require.NoError(t, err)
+
+			require.NoError(t, repo.Set(ctx, seriesID, []int64{g10, g20, g10, g30, g20}))
+			rows, err := repo.ListBySeries(ctx, seriesID)
+			require.NoError(t, err)
+			assert.Equal(t, []int64{g10, g20, g30}, rows,
+				"duplicates dropped, first-occurrence order and contiguous positions preserved")
+		})
+	}
+}
+
 // Story 552 (E-1 Z3) — batched ListByIDsWithFallback tests.
 
 func TestGenresRepository_ListByIDsWithFallback_LangPreferred(t *testing.T) {

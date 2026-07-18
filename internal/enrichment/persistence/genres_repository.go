@@ -280,6 +280,7 @@ func (r *GenresRepository) Set(ctx context.Context, seriesID domain.SeriesID, ge
 		if len(genreIDs) == 0 {
 			return nil
 		}
+		genreIDs = dedupInt64Preserve(genreIDs)
 		rows := make([]database.SeriesGenreModel, 0, len(genreIDs))
 		for i, gid := range genreIDs {
 			pos := i
