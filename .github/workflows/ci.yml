@@ -63,7 +63,7 @@ jobs:
           cache: true
 
       - name: Cache Go build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
@@ -145,7 +145,7 @@ jobs:
           cache: true
 
       - name: Cache Go build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
@@ -307,7 +307,7 @@ jobs:
           cache: true
 
       - name: Cache Go build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.5-${{ hashFiles('**/go.sum') }}
