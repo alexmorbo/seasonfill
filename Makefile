@@ -70,7 +70,7 @@ vuln-go: ## Scan Go code for known vulnerabilities (govulncheck, reachability mo
 	go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
 
 vuln-web: ## Audit web dependencies for high+ severity vulnerabilities
-	cd web && npm audit --audit-level=high
+	cd web && npx audit-ci --config audit-ci.jsonc
 
 run:
 	go run ./cmd/server -config config.yaml
