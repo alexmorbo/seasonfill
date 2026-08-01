@@ -29,6 +29,14 @@ const (
 	MetricWebhookProcessingFailures       = `seasonfill_webhook_processing_failures_total`
 	MetricWebhookReconcileTotal           = `seasonfill_webhook_reconcile_total`
 	MetricWebhookReconcileDurationSeconds = `seasonfill_webhook_reconcile_duration_seconds`
+	// ADR 0005 (E3) — durable webhook-inbox drainer metrics.
+	// webhook_inbox_outcome_total{result} is bumped once per drain
+	// attempt (result ∈ {success,retry,dead}); webhook_inbox_dead_total
+	// ONLY on dead-letter (label-free — a raw dead-letter rate);
+	// webhook_inbox_pending is the current pending-row depth gauge.
+	MetricWebhookInboxOutcome = `seasonfill_webhook_inbox_outcome_total`
+	MetricWebhookInboxDead    = `seasonfill_webhook_inbox_dead_total`
+	MetricWebhookInboxPending = `seasonfill_webhook_inbox_pending`
 	// 046b — scan pre-filter counter. Emitted once per skipped season
 	// inside scan_usecase.processScan when the pre-filter short-circuits
 	// the per-season SearchReleases / ListEpisodes round-trips. Labels:
@@ -301,6 +309,28 @@ func IncWebhookReconcileResult(instance domain.InstanceName, result string) {
 // Reconcile.
 func ObserveWebhookReconcileDuration(instance domain.InstanceName, seconds float64) {
 	metrics.GetOrCreateHistogram(`seasonfill_webhook_reconcile_duration_seconds{instance="` + string(instance) + `"}`).Update(seconds)
+}
+
+// IncWebhookInboxOutcome bumps the per-result drain-outcome counter.
+// result ∈ {"success","retry","dead"} — one increment per drain attempt
+// (a retry and its eventual success both count). ADR 0005 (E3).
+func IncWebhookInboxOutcome(result string) {
+	metrics.GetOrCreateCounter(`seasonfill_webhook_inbox_outcome_total{result="` + result + `"}`).Inc()
+}
+
+// IncWebhookInboxDead bumps the dead-letter counter. Fires ONLY when a
+// row is promoted to status=dead (attempt ceiling or non-retryable logic
+// error) — the visible-degradation signal the original silent failures
+// lacked (ADR Decision 6).
+func IncWebhookInboxDead() {
+	metrics.GetOrCreateCounter(`seasonfill_webhook_inbox_dead_total`).Inc()
+}
+
+// SetWebhookInboxPending records the current count of pending inbox rows.
+// Sampled once per drain pass from the drainer's optional
+// PendingDepthCounter.
+func SetWebhookInboxPending(n float64) {
+	metrics.GetOrCreateGauge(`seasonfill_webhook_inbox_pending`, nil).Set(n)
 }
 
 // IncParseRelease bumps the per-instance, per-result parse counter.

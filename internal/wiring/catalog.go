@@ -28,6 +28,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
+	"github.com/alexmorbo/seasonfill/internal/shared/clock"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -368,6 +369,10 @@ type WebhookBundle struct {
 	TorrentSeriesMapRepo *catalogpersistence.TorrentSeriesMapRepository
 	EpisodeStatesRepo    *catalogpersistence.EpisodeStatesRepository
 	SeasonStatsRepo      *catalogpersistence.SeasonStatsRepository
+	// InboxDrainer is the ADR-0005 (E3) durable webhook-inbox FIFO
+	// drainer. Registered on the lifecycle group in server.go as
+	// "webhook_inbox_drainer".
+	InboxDrainer *webhookuc.Drainer
 }
 
 // BuildWebhook wires the webhook UC + Syncer + Reconciler + StatusCache
@@ -548,6 +553,18 @@ func BuildWebhook(
 		Logger:    webhookLog,
 	})
 
+	// ADR 0005 (E3) — durable webhook-inbox drainer. Re-uses the webhook
+	// UseCase.Process as its unit of work; the inbox repo doubles as the
+	// pending-depth counter (concrete CountPending, not the E2 port).
+	webhookInboxRepo := catalogpersistence.NewWebhookInboxRepository(db)
+	webhookInboxDrainer := webhookuc.NewDrainer(webhookuc.DrainerDeps{
+		Inbox:          webhookInboxRepo,
+		Process:        webhookUC.Process,
+		Clock:          clock.Real(),
+		Logger:         webhookLog,
+		PendingCounter: webhookInboxRepo,
+	})
+
 	return &WebhookBundle{
 		WebhookUC:            webhookUC,
 		Syncer:               webhookSeriesSyncer,
@@ -557,6 +574,7 @@ func BuildWebhook(
 		TorrentSeriesMapRepo: torrentSeriesMapRepo,
 		EpisodeStatesRepo:    webhookEpisodeStatesRepo,
 		SeasonStatsRepo:      webhookSeasonStatsRepo,
+		InboxDrainer:         webhookInboxDrainer,
 	}, nil
 }
 

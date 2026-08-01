@@ -351,6 +351,15 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		webhookReconcileLoopVal.Run(ctx)
 	})
 
+	// ADR 0005 (E3) — durable webhook-inbox drainer. Graceful shutdown is
+	// rootCtx cancel (lifecycle.Drain waits); RunForever returns on
+	// ctx.Done leaving any in-flight row leased for ReclaimStale.
+	if webhookBundle.InboxDrainer != nil {
+		lifecycle.Go(rootCtx, "webhook_inbox_drainer", func(ctx context.Context) {
+			webhookBundle.InboxDrainer.RunForever(ctx)
+		})
+	}
+
 	// Story 202 (S-2) — prime extSub eagerly so TMDB settings are
 	// available before BuildEnrichment runs. The boot publish below
 	// triggers a second apply through the subscriber's bus channel.

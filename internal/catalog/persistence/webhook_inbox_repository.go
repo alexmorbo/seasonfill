@@ -190,6 +190,20 @@ func (r *WebhookInboxRepository) ReclaimStale(ctx context.Context, now time.Time
 	return res.RowsAffected, nil
 }
 
+// CountPending returns the number of rows in status=pending. Used by the
+// E3 drainer's pending-depth gauge. NOT part of the WebhookInboxRepository
+// port — a concrete-only helper so the E2 port stays frozen.
+func (r *WebhookInboxRepository) CountPending(ctx context.Context) (int64, error) {
+	var n int64
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.WebhookInboxModel{}).
+		Where("status = ?", ports.WebhookInboxStatusPending).
+		Count(&n).Error; err != nil {
+		return 0, fmt.Errorf("count pending webhook inbox: %w", err)
+	}
+	return n, nil
+}
+
 func toWebhookInboxRow(m database.WebhookInboxModel) ports.WebhookInboxRow {
 	return ports.WebhookInboxRow{
 		ID:            m.ID,
