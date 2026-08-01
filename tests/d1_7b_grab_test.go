@@ -268,9 +268,10 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// B3a added season_texts, then to 55 after E-1 story 584a
 			// added series_media_texts, then to 56 after S-C2 added
 			// season_media_texts; S-D drops the 2 dead i18n tables → 54;
-			// S-G adds person_credits_texts → 55; 1083 people_texts → 56.
-			if len(s.Tables) != 57 {
-				t.Errorf("Schema(%s) tables = %d, want 57 (after 1083 people_texts)", d, len(s.Tables))
+			// S-G adds person_credits_texts → 55; 1083 people_texts → 56;
+			// E1 adds webhook_inbox → 58.
+			if len(s.Tables) != 58 {
+				t.Errorf("Schema(%s) tables = %d, want 58 (after E1 webhook_inbox)", d, len(s.Tables))
 			}
 		})
 	}

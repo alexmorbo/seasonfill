@@ -25,13 +25,14 @@ import (
 // series_media_texts → 55. S-C2 adds season_media_texts → 56; S-D drops
 // networks_i18n + production_companies_i18n → 54. S-G adds
 // person_credits_texts → 55. 1083 adds people_texts → 56.
+// E1 adds webhook_inbox → 58.
 func TestD17a_SchemaHasThirtySixTables(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 57; got != want {
+			if got, want := len(s.Tables), 58; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}

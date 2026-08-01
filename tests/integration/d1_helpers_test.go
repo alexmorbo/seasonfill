@@ -216,7 +216,7 @@ func d1IndexOf(s, sub string) int {
 // 000019), N-2a story 502 (discovery_lists migration 000021), and E-1
 // B3a (season_texts, always-on i18n text table alongside
 // series_texts/episode_texts).
-// 57 tables in total — schema_migrations (golang-migrate tracker) is
+// 58 tables in total — schema_migrations (golang-migrate tracker) is
 // excluded; it is not part of the seasonfill domain.
 //
 // Names are the same on both backends — the SQLite list is identical.
@@ -278,6 +278,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"videos",
 	"watchdog_blacklist",
 	"watchdog_state",
+	"webhook_inbox",
 }
 
 // liveTableNames returns the set of D-1 tables visible in the live DB

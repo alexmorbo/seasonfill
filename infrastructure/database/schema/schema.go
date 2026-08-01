@@ -339,6 +339,12 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addQbitRuntime(s, d)
 	}
 
+	// E1 (ADR 0005) — durable webhook inbox. Standalone table, no FK, no
+	// dependency on any prior table, so it is appended last and carries no
+	// dev-time skip flag (nothing splits a later migration off it — it is
+	// the newest migration, 000042).
+	addWebhookInbox(s, d)
+
 	return s
 }
 
@@ -3584,4 +3590,92 @@ func buildTorrentSeriesMapTable(d Dialect, sonarrInstance *atlasschema.Table) *a
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)
+}
+
+// ----------------------------------------------------------------------
+// E1 (ADR 0005) — durable webhook inbox.
+// ----------------------------------------------------------------------
+
+// addWebhookInbox appends webhook_inbox to s. Standalone single-table
+// migration (000042). Called last from Schema(d) — no FK, no dependency
+// on any prior table.
+func addWebhookInbox(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildWebhookInboxTable(d))
+}
+
+// buildWebhookInboxTable returns webhook_inbox — the durable inbox for
+// Sonarr webhook events (ADR 0005). 10 cols, surrogate PK id, one partial
+// index on next_attempt_at WHERE status = 'pending'.
+//
+// The webhook handler becomes a trivial "validate + insert raw body → 200"
+// path; the drainer (E2) claims pending rows via a conditional UPDATE
+// (status pending→processing) ordered by created_at (FIFO), re-maps the
+// raw payload on drain, and retries with backoff into next_attempt_at,
+// promoting to status='dead' at the attempt ceiling (forensics in
+// last_error). Retention is delete-on-success — only pending/processing/
+// dead rows persist, so the table stays tiny.
+//
+// Dialect notes:
+//   - payload is jsonb (pg) / text (sqlite) — the sqlite backend has no
+//     jsonb (same split as 000017 grab_audit / jsonColumn). Unlike the
+//     shared jsonColumn helper it is NOT NULL: a valid webhook always
+//     carries a raw body, and the drainer re-maps it on every attempt, so
+//     the row is meaningless without it.
+//   - status has no DB CHECK — the pending|processing|dead enum is owned
+//     by the drainer state machine (mirrors enrichment_errors, whose
+//     entity_type/source enums are app-enforced, not DB-constrained).
+//   - next_attempt_at / lease_until are nullable (NULL = due-now on
+//     insert / not-leased); the partial index covers only status='pending'
+//     rows, which is all the claim query scans.
+func buildWebhookInboxTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	eventType := atlasschema.NewStringColumn("event_type", "text").SetNull(false)
+	payload := webhookPayloadColumn(d)
+	status := atlasschema.NewStringColumn("status", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'pending'"})
+	attempts := atlasschema.NewIntColumn("attempts", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	nextAttemptAt := timestampColumn(d, "next_attempt_at", false /* withDefault */, false /* notNull */)
+	leaseUntil := timestampColumn(d, "lease_until", false, false)
+	lastError := atlasschema.NewNullStringColumn("last_error", "text")
+	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("webhook_inbox").
+		AddColumns(
+			id,
+			instanceName,
+			eventType,
+			payload,
+			status,
+			attempts,
+			nextAttemptAt,
+			leaseUntil,
+			lastError,
+			createdAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			partialIndex(d, "webhook_inbox_pending",
+				[]*atlasschema.Column{nextAttemptAt},
+				"status = 'pending'"),
+		)
+}
+
+// webhookPayloadColumn returns the raw-body column: jsonb (pg) / text
+// (sqlite), NOT NULL. Mirrors jsonColumn (schema.go) but flips Null to
+// false — see buildWebhookInboxTable doc for why the body is mandatory.
+func webhookPayloadColumn(d Dialect) *atlasschema.Column {
+	if d == DialectSQLite {
+		return atlasschema.NewStringColumn("payload", "text").SetNull(false)
+	}
+	c := &atlasschema.Column{Name: "payload"}
+	c.Type = &atlasschema.ColumnType{
+		Type: &atlasschema.JSONType{T: postgres.TypeJSONB},
+		Raw:  postgres.TypeJSONB,
+		Null: false,
+	}
+	return c
 }
