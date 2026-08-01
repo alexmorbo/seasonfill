@@ -835,7 +835,9 @@ func BuildHTTPServer(
 	srv := httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
-		webhookBundle.WebhookUC,
+		webhookBundle.InboxRepo,
+		scanBundle.Txr,
+		webhookBundle.InboxDrainer.Poke,
 		watchdogBundle.Checker,
 		scanBundle.ScanRepo,
 		scanBundle.DecisionRepo,

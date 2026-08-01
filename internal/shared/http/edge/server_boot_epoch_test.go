@@ -35,7 +35,9 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 	return NewServer(
 		cfg,                            // cfg
 		nil,                            // scanUC
-		nil,                            // webhookUC
+		nil,                            // webhookInbox
+		nil,                            // webhookTxr
+		nil,                            // webhookPoke
 		nil,                            // checker
 		nil,                            // scanRepo
 		nil,                            // decisionRepo

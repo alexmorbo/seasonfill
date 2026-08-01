@@ -25,7 +25,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
-	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
@@ -189,12 +188,6 @@ func (noopGrabRepo) UpdateParsed(_ context.Context, _ uuid.UUID, _ *grab.Parsed,
 	return nil
 }
 
-type noopWebhookUC struct{}
-
-func (noopWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error {
-	panic("fake Process unexpectedly called - this stub is not configured for webhook events")
-}
-
 // stubAdminRepo is the http package's local fake. The handlers package
 // has its own copy (different package); duplicating 25 lines beats
 // adding a shared testutil dependency.
@@ -303,7 +296,7 @@ func buildServer(t *testing.T) *Server {
 		IdleTimeout:     time.Second,
 		ShutdownTimeout: time.Second,
 		Auth:            config.AuthConfig{Enabled: false},
-	}, scanUC, noopWebhookUC{}, checker,
+	}, scanUC, nil, nil, nil, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
 		catalogrest.InstanceRegistry{},
@@ -334,10 +327,6 @@ func buildServer(t *testing.T) *Server {
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
 		lg)
 }
-
-type okWebhookUC struct{}
-
-func (okWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error { return nil }
 
 func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 	t.Helper()
@@ -376,7 +365,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 			WebUser:      "admin",
 			SecureCookie: false,
 		},
-	}, scanUC, okWebhookUC{}, checker,
+	}, scanUC, nil, nil, nil, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		adminRepo, nil, nil,
 		catalogrest.InstanceRegistry{Load: func() map[string]scan.Instance {
@@ -454,7 +443,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 			WebUser:      "admin",
 			SecureCookie: false,
 		},
-	}, scanUC, okWebhookUC{}, checker,
+	}, scanUC, nil, nil, nil, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		adminRepo, nil, nil,
 		catalogrest.InstanceRegistry{Load: func() map[string]scan.Instance {
@@ -681,7 +670,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 			Enabled:        false,
 			TrustedProxies: []string{"127.0.0.1", "::1"},
 		},
-	}, scanUC, noopWebhookUC{}, checker,
+	}, scanUC, nil, nil, nil, checker,
 		noopScanRepo{}, noopDecRepo{}, noopGrabRepo{},
 		&stubAdminRepo{}, nil, nil,
 		catalogrest.InstanceRegistry{},

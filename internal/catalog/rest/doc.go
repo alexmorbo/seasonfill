@@ -32,8 +32,6 @@
 //   - InstanceLister — minimal `ListNames(ctx) []string` shape consumed
 //     by WebhooksAggregateHandler (this package) and
 //     internal/watchdog/rest WatchdogRollupHandler.
-//   - WebhookProcessor — the Process(ctx, evt) port the webhook handler
-//     dispatches against; satisfied by internal/catalog/app/webhook.UseCase.
 //
 // Local helpers (helpers.go + media_hash.go) duplicate the small
 // write-error / poster-hash helpers from interface/http/handlers so the

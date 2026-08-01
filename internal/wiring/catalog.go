@@ -373,6 +373,10 @@ type WebhookBundle struct {
 	// drainer. Registered on the lifecycle group in server.go as
 	// "webhook_inbox_drainer".
 	InboxDrainer *webhookuc.Drainer
+	// InboxRepo is the ADR-0005 durable-inbox repository. Exposed so the
+	// edge webhook handler (E4) enqueues through the same instance the
+	// drainer claims from.
+	InboxRepo ports.WebhookInboxRepository
 }
 
 // BuildWebhook wires the webhook UC + Syncer + Reconciler + StatusCache
@@ -553,16 +557,24 @@ func BuildWebhook(
 		Logger:    webhookLog,
 	})
 
-	// ADR 0005 (E3) — durable webhook-inbox drainer. Re-uses the webhook
-	// UseCase.Process as its unit of work; the inbox repo doubles as the
-	// pending-depth counter (concrete CountPending, not the E2 port).
+	// ADR 0005 (E3 drainer, E4 env knobs) — durable webhook-inbox drainer.
+	// Re-uses the webhook UseCase.Process as its unit of work; the inbox
+	// repo doubles as the pending-depth counter (concrete CountPending, not
+	// the E2 port). F-16: knobs are env-driven; NewDrainer re-defaults any
+	// zero, so the boot config is belt-and-suspenders only.
 	webhookInboxRepo := catalogpersistence.NewWebhookInboxRepository(db)
+	inboxCfg := config.WebhookInboxConfigFromEnv()
 	webhookInboxDrainer := webhookuc.NewDrainer(webhookuc.DrainerDeps{
 		Inbox:          webhookInboxRepo,
 		Process:        webhookUC.Process,
 		Clock:          clock.Real(),
 		Logger:         webhookLog,
 		PendingCounter: webhookInboxRepo,
+		Tick:           inboxCfg.DrainInterval,
+		ClaimLimit:     inboxCfg.ClaimLimit,
+		PerJobTimeout:  inboxCfg.JobTimeout,
+		AttemptCap:     inboxCfg.MaxAttempts,
+		LeaseTTL:       inboxCfg.LeaseTTL,
 	})
 
 	return &WebhookBundle{
@@ -575,6 +587,7 @@ func BuildWebhook(
 		EpisodeStatesRepo:    webhookEpisodeStatesRepo,
 		SeasonStatsRepo:      webhookSeasonStatsRepo,
 		InboxDrainer:         webhookInboxDrainer,
+		InboxRepo:            webhookInboxRepo,
 	}, nil
 }
 

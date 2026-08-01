@@ -12,47 +12,52 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
-	domainwebhook "github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/config"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
-	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-type fakeProcessor struct {
-	mu       sync.Mutex
-	calls    int
-	lastEvt  domainwebhook.Event
-	returnFn func(evt domainwebhook.Event) error
-}
+// passthroughTxr is a unit-test Transactor: it runs fn with the same ctx,
+// no real transaction. The durable atomicity is exercised by the E2
+// repository integration tests (testcontainers Postgres), not here.
+type passthroughTxr struct{}
 
-func (f *fakeProcessor) Process(_ context.Context, evt domainwebhook.Event) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls++
-	f.lastEvt = evt
-	if f.returnFn != nil {
-		return f.returnFn(evt)
-	}
-	return nil
+func (passthroughTxr) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
 }
 
 type webhookFixture struct {
-	proc   *fakeProcessor
-	router *gin.Engine
+	inbox     *ports.WebhookInboxRepositoryMock
+	mu        sync.Mutex
+	inserted  []ports.WebhookInboxRow
+	pokeCount atomic.Int32
+	insertErr error // when non-nil, InsertFunc returns it (and records nothing)
+	router    *gin.Engine
 }
 
 func newWebhookFixture(t *testing.T, known map[string]struct{}) *webhookFixture {
 	t.Helper()
 
-	proc := &fakeProcessor{}
+	f := &webhookFixture{}
+	f.inbox = &ports.WebhookInboxRepositoryMock{
+		InsertFunc: func(_ context.Context, row ports.WebhookInboxRow) error {
+			if f.insertErr != nil {
+				return f.insertErr
+			}
+			f.mu.Lock()
+			f.inserted = append(f.inserted, row)
+			f.mu.Unlock()
+			return nil
+		},
+	}
+	poke := func() { f.pokeCount.Add(1) }
 	lg := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	reg := InstanceRegistry{}
@@ -63,14 +68,14 @@ func newWebhookFixture(t *testing.T, known map[string]struct{}) *webhookFixture 
 		}
 		reg.Load = func() map[string]scan.Instance { return state }
 	}
-	h := NewWebhookHandler(proc, reg, lg)
+	h := NewWebhookHandler(f.inbox, passthroughTxr{}, poke, reg, lg)
 
 	r := gin.New()
 	api := r.Group("/api/v1")
 	wh := api.Group("/webhook/sonarr/:instance_name")
 	wh.POST("", h.Handle)
-
-	return &webhookFixture{proc: proc, router: r}
+	f.router = r
+	return f
 }
 
 func (f *webhookFixture) post(t *testing.T, instance string, body []byte) *httptest.ResponseRecorder {
@@ -81,6 +86,14 @@ func (f *webhookFixture) post(t *testing.T, instance string, body []byte) *httpt
 	w := httptest.NewRecorder()
 	f.router.ServeHTTP(w, req)
 	return w
+}
+
+func (f *webhookFixture) rows() []ports.WebhookInboxRow {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]ports.WebhookInboxRow, len(f.inserted))
+	copy(out, f.inserted)
+	return out
 }
 
 func importedPayload() []byte {
@@ -118,81 +131,95 @@ func seriesDeletePayload() []byte {
 	}`)
 }
 
-// --- Happy paths ----------------------------------------------------------
+// --- Happy paths: assert the durable INSERT, not Process ------------------
 
-func TestWebhookHandler_Imported_200(t *testing.T) {
+func TestWebhookHandler_Imported_Enqueued_200(t *testing.T) {
 	f := newWebhookFixture(t, nil)
-	w := f.post(t, "sonarr-main", importedPayload())
+	body := importedPayload()
+	w := f.post(t, "sonarr-main", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	require.JSONEq(t, `{"ok": true}`, w.Body.String())
-	assert.Equal(t, 1, f.proc.calls)
-	assert.Equal(t, domainwebhook.EventTypeImported, f.proc.lastEvt.Type)
-	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName,
-		"InstanceName must come from URL path, not payload")
-	assert.Equal(t, "ABC123", f.proc.lastEvt.DownloadID)
+
+	rows := f.rows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, ports.WebhookInboxStatusPending, rows[0].Status)
+	assert.Equal(t, "sonarr-main", rows[0].InstanceName,
+		"InstanceName must come from URL path, not the payload's instanceName:ignored")
+	assert.Equal(t, "Download", rows[0].EventType, "raw Sonarr eventType stored verbatim (D6)")
+	assert.Equal(t, body, rows[0].Payload, "raw body stored verbatim for the drainer to re-map")
+	assert.Contains(t, string(rows[0].Payload), `"downloadId":"ABC123"`,
+		"downloadId is preserved in the stored body — parsing is deferred to the drainer")
+	assert.GreaterOrEqual(t, f.pokeCount.Load(), int32(1), "drainer poked after a successful enqueue")
 }
 
-func TestWebhookHandler_ImportFailed_200(t *testing.T) {
+func TestWebhookHandler_ImportFailed_Enqueued_200(t *testing.T) {
 	f := newWebhookFixture(t, nil)
 	w := f.post(t, "sonarr-main", importFailedPayload())
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, domainwebhook.EventTypeImportFailed, f.proc.lastEvt.Type)
+	rows := f.rows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "ManualInteractionRequired", rows[0].EventType)
 }
 
-func TestWebhookHandler_UnsupportedEvent_200(t *testing.T) {
+func TestWebhookHandler_Grabbed_FortyCharHex_Enqueued_200(t *testing.T) {
 	f := newWebhookFixture(t, nil)
-	w := f.post(t, "sonarr-main", unsupportedPayload())
+	body := grabPayloadWithHash()
+	w := f.post(t, "sonarr-main", body)
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, 1, f.proc.calls)
-	assert.Equal(t, domainwebhook.EventTypeUnsupported, f.proc.lastEvt.Type)
+	rows := f.rows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "Grab", rows[0].EventType)
+	assert.Equal(t, body, rows[0].Payload)
+	assert.Contains(t, string(rows[0].Payload),
+		"0123456789abcdef0123456789abcdef01234567",
+		"40-char hex downloadId reaches the inbox verbatim — parsing happens in the drainer")
 }
 
-func TestWebhookHandler_Grabbed_FortyCharHex_200(t *testing.T) {
-	f := newWebhookFixture(t, nil)
-	w := f.post(t, "sonarr-main", grabPayloadWithHash())
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, 1, f.proc.calls)
-	assert.Equal(t, domainwebhook.EventTypeGrabbed, f.proc.lastEvt.Type)
-	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567",
-		f.proc.lastEvt.DownloadID,
-		"40-char hex downloadId must reach the use case verbatim — parsing happens application-side")
-	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName)
-}
-
-func TestWebhookHandler_Grabbed_ShortDownloadId_StillReaches_200(t *testing.T) {
+func TestWebhookHandler_Grabbed_ShortDownloadId_Enqueued_200(t *testing.T) {
 	f := newWebhookFixture(t, nil)
 	w := f.post(t, "sonarr-main", grabPayloadShortHash())
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, 1, f.proc.calls)
-	assert.Equal(t, "ABC123", f.proc.lastEvt.DownloadID,
-		"the HTTP handler does NOT pre-filter malformed hashes — the application layer's ParseTorrentHash decides")
+	rows := f.rows()
+	require.Len(t, rows, 1)
+	assert.Contains(t, string(rows[0].Payload), `"downloadId":"ABC123"`,
+		"the handler does NOT pre-filter malformed hashes — the drainer's ParseTorrentHash decides")
 }
 
-func TestWebhookHandler_SeriesAdd_ReachesProcessor_200(t *testing.T) {
+func TestWebhookHandler_SeriesAdd_Enqueued_200(t *testing.T) {
 	f := newWebhookFixture(t, nil)
-	w := f.post(t, "sonarr-main", seriesAddPayload())
+	body := seriesAddPayload()
+	w := f.post(t, "sonarr-main", body)
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, 1, f.proc.calls)
-	assert.Equal(t, domainwebhook.EventTypeSeriesAdd, f.proc.lastEvt.Type)
-	assert.Equal(t, domain.SonarrSeriesID(42), f.proc.lastEvt.SeriesID)
-	assert.Equal(t, "Black-ish", f.proc.lastEvt.SeriesTitle)
-	assert.Equal(t, "black-ish", f.proc.lastEvt.SeriesTitleSlug)
-	assert.Equal(t, domain.TVDBID(269578), f.proc.lastEvt.SeriesTVDBID)
-	assert.Equal(t, domain.IMDBID("tt3487356"), f.proc.lastEvt.SeriesIMDBID)
-	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName)
+	rows := f.rows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "SeriesAdd", rows[0].EventType)
+	assert.Equal(t, "sonarr-main", rows[0].InstanceName)
+	assert.Equal(t, body, rows[0].Payload,
+		"series fields (tvdbId/imdbId/slug) travel in the stored body — the drainer re-maps them")
 }
 
-func TestWebhookHandler_SeriesDelete_ReachesProcessor_200(t *testing.T) {
+func TestWebhookHandler_SeriesDelete_Enqueued_200(t *testing.T) {
 	f := newWebhookFixture(t, nil)
 	w := f.post(t, "sonarr-main", seriesDeletePayload())
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, 1, f.proc.calls)
-	assert.Equal(t, domainwebhook.EventTypeSeriesDeleted, f.proc.lastEvt.Type)
-	assert.Equal(t, domain.SonarrSeriesID(42), f.proc.lastEvt.SeriesID)
-	assert.Equal(t, domain.InstanceName("sonarr-main"), f.proc.lastEvt.InstanceName)
+	rows := f.rows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "SeriesDelete", rows[0].EventType)
+	assert.Equal(t, "sonarr-main", rows[0].InstanceName)
 }
 
-// --- 400 paths ------------------------------------------------------------
+// --- Unsupported: classify-at-ingest -> 200 with NO insert (D1 step 5) -----
+
+func TestWebhookHandler_UnsupportedEvent_200_NoInsert(t *testing.T) {
+	f := newWebhookFixture(t, nil)
+	w := f.post(t, "sonarr-main", unsupportedPayload())
+	require.Equal(t, http.StatusOK, w.Code)
+	require.JSONEq(t, `{"ok": true}`, w.Body.String())
+	assert.Empty(t, f.rows(), "unsupported events are dropped at ingest, never enqueued")
+	assert.Equal(t, int32(0), f.pokeCount.Load(), "no enqueue -> no poke")
+}
+
+// --- 400 paths: reject pre-insert, zero rows ------------------------------
 
 func TestWebhookHandler_MalformedJSON_400(t *testing.T) {
 	f := newWebhookFixture(t, nil)
@@ -201,21 +228,21 @@ func TestWebhookHandler_MalformedJSON_400(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "malformed payload", body["error"])
-	assert.Zero(t, f.proc.calls)
+	assert.Empty(t, f.rows())
 }
 
 func TestWebhookHandler_EmptyBody_400(t *testing.T) {
 	f := newWebhookFixture(t, nil)
 	w := f.post(t, "sonarr-main", nil)
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Zero(t, f.proc.calls)
+	assert.Empty(t, f.rows())
 }
 
 func TestWebhookHandler_MissingEventType_400(t *testing.T) {
 	f := newWebhookFixture(t, nil)
 	w := f.post(t, "sonarr-main", []byte(`{"instanceName":"x"}`))
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Zero(t, f.proc.calls)
+	assert.Empty(t, f.rows())
 }
 
 func TestWebhookHandler_OversizeBody_400(t *testing.T) {
@@ -230,75 +257,52 @@ func TestWebhookHandler_OversizeBody_400(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "payload too large", body["error"])
-	assert.Zero(t, f.proc.calls)
+	assert.Empty(t, f.rows())
 }
+
+// --- Instance gating: 404 stays pre-insert --------------------------------
 
 func TestWebhook_UnknownInstance_404(t *testing.T) {
 	t.Parallel()
-	r := gin.New()
-	reg := InstanceRegistry{Load: func() map[string]scan.Instance {
-		return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
-	}}
-	h := NewWebhookHandler(&okWebhookUC{}, reg, slog.Default())
-	r.POST("/api/v1/webhook/sonarr/:instance_name", h.Handle)
-
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
-		"/api/v1/webhook/sonarr/ghost", bytes.NewReader([]byte(`{}`)))
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	f := newWebhookFixture(t, map[string]struct{}{"main": {}})
+	w := f.post(t, "ghost", []byte(`{}`))
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Empty(t, f.rows())
 }
 
-func TestWebhook_KnownInstance_200(t *testing.T) {
+func TestWebhook_KnownInstance_Enqueued_200(t *testing.T) {
 	t.Parallel()
 	f := newWebhookFixture(t, map[string]struct{}{"sonarr-main": {}, "sonarr-tv": {}})
 	w := f.post(t, "sonarr-tv", importedPayload())
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, 1, f.proc.calls)
+	rows := f.rows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "sonarr-tv", rows[0].InstanceName)
 }
 
-func TestWebhook_NilKnownInstances_AcceptsAny(t *testing.T) {
+func TestWebhook_NilKnownInstances_AcceptsAny_Enqueued(t *testing.T) {
 	t.Parallel()
 	f := newWebhookFixture(t, nil)
 	w := f.post(t, "sonarr-anything", importedPayload())
 	require.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, f.rows(), 1)
 }
 
-// --- 5xx + metric paths --------------------------------------------------
+// --- Enqueue failure -> 500 (F-11: the ONLY 500 path) ---------------------
 
-func TestWebhookHandler_TransientUseCaseError_500(t *testing.T) {
+func TestWebhookHandler_InsertFails_500(t *testing.T) {
 	f := newWebhookFixture(t, nil)
-	f.proc.returnFn = func(_ domainwebhook.Event) error {
-		return fmt.Errorf("match: %w: %w", ports.ErrDBUnavailable, errors.New("conn refused"))
-	}
+	f.insertErr = errors.New("db down")
 	w := f.post(t, "sonarr-main", importedPayload())
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "transient failure, retry", body["error"])
+	assert.Equal(t, "enqueue failed", body["error"])
+	assert.Empty(t, f.rows(), "a failed insert records nothing")
+	assert.Equal(t, int32(0), f.pokeCount.Load(), "no poke on a failed enqueue")
 }
 
-func TestWebhookHandler_NonTransientUseCaseError_200_EmitsMetric(t *testing.T) {
-	f := newWebhookFixture(t, nil)
-	f.proc.returnFn = func(_ domainwebhook.Event) error {
-		return errors.New("some logic error")
-	}
-	w := f.post(t, "sonarr-main", importedPayload())
-	require.Equal(t, http.StatusOK, w.Code,
-		"non-transient must NOT 500 — Sonarr retries would pollute the failure rate")
-
-	mrouter := gin.New()
-	mrouter.GET("/metrics", adminrest.MetricsHandler())
-	mreq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil)
-	mw := httptest.NewRecorder()
-	mrouter.ServeHTTP(mw, mreq)
-	body := mw.Body.String()
-	assert.Contains(t, body, "seasonfill_webhook_processing_failures_total")
-	assert.Contains(t, body, `instance="sonarr-main"`)
-	assert.Contains(t, body, `error_kind="other"`)
-}
-
-// --- Race smoke -----------------------------------------------------------
+// --- Race smoke: N concurrent posts -> N rows -----------------------------
 
 func TestWebhookHandler_Concurrent_Race(t *testing.T) {
 	f := newWebhookFixture(t, nil)
@@ -315,14 +319,6 @@ func TestWebhookHandler_Concurrent_Race(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	f.proc.mu.Lock()
-	calls := f.proc.calls
-	f.proc.mu.Unlock()
-	assert.Equal(t, n, calls)
+	assert.Len(t, f.rows(), n)
+	assert.Equal(t, int32(n), f.pokeCount.Load())
 }
-
-// okWebhookUC is a minimal accept-all processor used by tests that
-// only need to exercise the handler's routing/validation surface.
-type okWebhookUC struct{}
-
-func (*okWebhookUC) Process(_ context.Context, _ domainwebhook.Event) error { return nil }

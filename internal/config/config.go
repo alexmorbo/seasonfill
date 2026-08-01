@@ -662,6 +662,41 @@ func changesPollIntervalFromEnv() time.Duration {
 	return d
 }
 
+// WebhookInboxConfig holds the ADR-0005 durable-inbox drainer knobs
+// (F-16), read once at boot. Any zero value is re-defaulted by
+// webhook.NewDrainer (belt-and-suspenders), so a misconfig can never
+// hot-loop the drainer nor break the F-13 lease invariant.
+type WebhookInboxConfig struct {
+	DrainInterval time.Duration
+	JobTimeout    time.Duration
+	LeaseTTL      time.Duration
+	MaxAttempts   int
+	ClaimLimit    int
+}
+
+// WebhookInboxConfigFromEnv parses the drainer env block. Duration knobs
+// use the *_SECONDS idiom (see refreshIntervalFromEnv); getenvInt floors
+// <=0/unparseable to the default.
+func WebhookInboxConfigFromEnv() WebhookInboxConfig {
+	return WebhookInboxConfig{
+		DrainInterval: webhookInboxDurationFromEnv("SEASONFILL_WEBHOOK_INBOX_DRAIN_INTERVAL_SECONDS", 2*time.Second),
+		JobTimeout:    webhookInboxDurationFromEnv("SEASONFILL_WEBHOOK_INBOX_JOB_TIMEOUT_SECONDS", 30*time.Second),
+		LeaseTTL:      webhookInboxDurationFromEnv("SEASONFILL_WEBHOOK_INBOX_LEASE_TTL_SECONDS", 60*time.Second),
+		MaxAttempts:   getenvInt("SEASONFILL_WEBHOOK_INBOX_MAX_ATTEMPTS", 12),
+		ClaimLimit:    getenvInt("SEASONFILL_WEBHOOK_INBOX_CLAIM_LIMIT", 50),
+	}
+}
+
+// webhookInboxDurationFromEnv reads name as an int number of seconds;
+// <=0/unset/unparseable -> def.
+func webhookInboxDurationFromEnv(name string, def time.Duration) time.Duration {
+	secs := getenvInt(name, 0)
+	if secs <= 0 {
+		return def
+	}
+	return time.Duration(secs) * time.Second
+}
+
 // clampInt bounds v to [lo, hi]. lo/hi assumed lo<=hi.
 func clampInt(v, lo, hi int) int {
 	if v < lo {

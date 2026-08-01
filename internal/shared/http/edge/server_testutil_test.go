@@ -19,7 +19,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	admin := &stubAdminRepo{}
-	return NewServer(cfg, nil, nil, nil, nil, nil, nil,
+	return NewServer(cfg, nil, nil, nil, nil, nil, nil, nil, nil,
 		admin, nil, nil,
 		catalogrest.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache

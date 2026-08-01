@@ -44,7 +44,9 @@ type Server struct {
 func NewServer(
 	cfg config.HTTPConfig,
 	scanUC *scan.UseCase,
-	webhookUC catalogrest.WebhookProcessor,
+	webhookInbox ports.WebhookInboxRepository,
+	webhookTxr ports.Transactor,
+	webhookPoke func(),
 	checker *healthcheck.Checker,
 	scanRepo ports.ScanRepository,
 	decisionRepo ports.DecisionRepository,
@@ -156,7 +158,7 @@ func NewServer(
 		WithSeriesCache(seriesCacheRepo).
 		WithMediaPending(mediaPending).
 		WithLocalizer(seriesTitleLocalizer)
-	webhookHandler := catalogrest.NewWebhookHandler(webhookUC, instanceReg, logger)
+	webhookHandler := catalogrest.NewWebhookHandler(webhookInbox, webhookTxr, webhookPoke, instanceReg, logger)
 	grabHandler := grabrest.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 
 	r.GET("/healthz", healthHandler.Live)
