@@ -329,6 +329,13 @@ type DatabaseConfig struct {
 	Driver   string
 	SQLite   SQLiteConfig
 	Postgres PostgresConfig
+	// GormLogLevel is the validated SEASONFILL_GORM_LOG_LEVEL value —
+	// one of silent|error|warn|info (default warn). Carried as a string so
+	// this package stays gorm-free; database.Open maps it to a
+	// gormlogger.LogLevel. Decouples the gorm SQL firehose from the global
+	// slog level (ADR-0006 Axis 1): default warn logs only slow+error queries
+	// even when the app runs at slog DEBUG.
+	GormLogLevel string
 }
 
 type SQLiteConfig struct {
@@ -402,7 +409,8 @@ func FromEnv() (*Bootstrap, error) {
 			WebhookBaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("SEASONFILL_WEBHOOK_BASE_URL")), "/"),
 		},
 		Database: DatabaseConfig{
-			Driver: getenv("SEASONFILL_DATABASE_DRIVER", "sqlite"),
+			Driver:       getenv("SEASONFILL_DATABASE_DRIVER", "sqlite"),
+			GormLogLevel: gormLogLevelFromEnv(),
 			SQLite: SQLiteConfig{
 				Path: getenv("SEASONFILL_DATABASE_SQLITE_PATH", "./data/seasonfill.db"),
 			},
@@ -496,6 +504,20 @@ func FromEnv() (*Bootstrap, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// gormLogLevelFromEnv reads SEASONFILL_GORM_LOG_LEVEL and normalizes it to one
+// of silent|error|warn|info (case-insensitive). Unset / empty / unrecognized
+// → the safe "warn" default (slow+error queries only, no SQL firehose). See
+// ADR-0006 Axis 1 — this decouples the gorm logger from the global slog level.
+func gormLogLevelFromEnv() string {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("SEASONFILL_GORM_LOG_LEVEL")))
+	switch v {
+	case "silent", "error", "warn", "info":
+		return v
+	default:
+		return "warn"
+	}
 }
 
 func getenv(name, def string) string {

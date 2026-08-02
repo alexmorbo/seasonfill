@@ -35,7 +35,7 @@ func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		Logger: applogger.NewGormLogger(nil, applogger.GormConfig{
 			SlowThreshold:             applogger.DefaultSlowThreshold,
 			IgnoreRecordNotFoundError: true,
-			LogLevel:                  gormlogger.Warn,
+			LogLevel:                  gormLogLevelFromString(cfg.GormLogLevel),
 		}),
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
@@ -101,4 +101,24 @@ func Ping(ctx context.Context, db *gorm.DB) error {
 		return fmt.Errorf("driver: %w", err)
 	}
 	return sqlDB.PingContext(ctx)
+}
+
+// gormLogLevelFromString maps the validated SEASONFILL_GORM_LOG_LEVEL string
+// (config already normalizes to one of silent|error|warn|info) to a
+// gormlogger.LogLevel. The config package stays gorm-free by carrying the
+// string; the gorm dependency lives here. Any unexpected value defaults to
+// Warn (slow+error only, no firehose) — the safe production default.
+func gormLogLevelFromString(s string) gormlogger.LogLevel {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "silent":
+		return gormlogger.Silent
+	case "error":
+		return gormlogger.Error
+	case "info":
+		return gormlogger.Info
+	case "warn":
+		return gormlogger.Warn
+	default:
+		return gormlogger.Warn
+	}
 }

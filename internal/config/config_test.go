@@ -530,3 +530,42 @@ func TestFromEnv_ChangesLookbackBounds(t *testing.T) {
 		})
 	}
 }
+
+// LOG-1 — SEASONFILL_GORM_LOG_LEVEL parse: case-insensitive, unset/empty/
+// invalid → "warn". Asserted through FromEnv → DatabaseConfig.GormLogLevel so
+// the wiring (not just the helper) is covered.
+func TestFromEnv_GormLogLevel(t *testing.T) {
+	cases := []struct {
+		name string
+		set  bool
+		env  string
+		want string
+	}{
+		{"unset_defaults_warn", false, "", "warn"},
+		{"empty_defaults_warn", true, "", "warn"},
+		{"silent", true, "silent", "silent"},
+		{"error", true, "error", "error"},
+		{"warn", true, "warn", "warn"},
+		{"info", true, "info", "info"},
+		{"uppercase_info", true, "INFO", "info"},
+		{"mixed_case_warn", true, "WaRn", "warn"},
+		{"padded_info", true, "  info  ", "info"},
+		{"invalid_defaults_warn", true, "verbose", "warn"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Driver required for Validate to pass.
+			t.Setenv("SEASONFILL_DATABASE_DRIVER", "sqlite")
+			if tc.set {
+				t.Setenv("SEASONFILL_GORM_LOG_LEVEL", tc.env)
+			}
+			cfg, err := FromEnv()
+			if err != nil {
+				t.Fatalf("FromEnv: %v", err)
+			}
+			if got := cfg.Database.GormLogLevel; got != tc.want {
+				t.Fatalf("GormLogLevel = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/alexmorbo/seasonfill/internal/config"
 )
@@ -148,4 +149,44 @@ func TestPing_Error(t *testing.T) {
 	require.NoError(t, sqlDB.Close())
 
 	assert.Error(t, Ping(context.Background(), db))
+}
+
+// LOG-1 — gormLogLevelFromString maps the validated config string to the
+// gorm level. Config already normalizes input, so this only needs to cover the
+// four valid values plus a defensive fallback.
+func TestGormLogLevelFromString(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in   string
+		want gormlogger.LogLevel
+	}{
+		{"silent", gormlogger.Silent},
+		{"error", gormlogger.Error},
+		{"warn", gormlogger.Warn},
+		{"info", gormlogger.Info},
+		{"INFO", gormlogger.Info},     // defensive: case-insensitive
+		{"  warn  ", gormlogger.Warn}, // defensive: trimmed
+		{"", gormlogger.Warn},         // defensive: default
+		{"garbage", gormlogger.Warn},  // defensive: default
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, gormLogLevelFromString(tc.in))
+		})
+	}
+}
+
+// LOG-1 — smoke: Open honors GormLogLevel without erroring on a real handle.
+func TestOpen_SQLite_WithGormLogLevel(t *testing.T) {
+	t.Parallel()
+	db, err := Open(config.DatabaseConfig{
+		Driver:       "sqlite",
+		GormLogLevel: "info",
+		SQLite:       config.SQLiteConfig{Path: ":memory:"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, db)
+	assert.NoError(t, Ping(context.Background(), db))
 }
