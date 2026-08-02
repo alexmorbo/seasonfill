@@ -112,6 +112,17 @@ export function mediaUrl(hash: string | undefined | null): string | undefined {
   return `/api/v1/media/${encodeURIComponent(hash)}`;
 }
 
+// REC-2: FE mirror of the BE missing-art seed hash —
+// sha256("seasonfill:media:sentinel:missing:v1"). A COLD recommendation
+// item carries this exact hash in `poster_asset` until its art warms.
+// /media/{sentinel} resolves to a 200 SVG (not a 404), so MediaImage's
+// <img onError> fallback never fires — the SeriesCard Poster must detect
+// this value and render a monogram instead of fetching the sentinel blob.
+// Single source of truth on the FE. If the BE ever bumps the seed suffix
+// (…:missing:v2), this constant is the documented FE follow-up point.
+export const SENTINEL_MISSING_HASH =
+  '1e928ecaa67235a5614a177318016cd336d37a8f49007d5a7e279fbedd7edda1';
+
 // Story 495 / N-1e: source tokens emitted by the composer's degraded[]
 // field. Widened from the prior stale set ('tmdb'/'omdb'/...) which
 // silently never matched live data — composer has emitted *_series /

@@ -7,6 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
 import { SeriesCard } from './SeriesCard';
 import type { DiscoverySeriesItem } from '@/api/discovery';
+import { SENTINEL_MISSING_HASH } from '@/api/series';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -176,5 +177,32 @@ describe('<SeriesCard />', () => {
     expect(card.querySelector('.bg-ok')).toBeNull();
     expect(card).not.toHaveTextContent(/ago|назад/i);
     expect(card).not.toHaveTextContent(/TMDB only|ТОЛЬКО TMDB/i);
+  });
+
+  it('renders a monogram (not a raw sentinel img) when posterAsset is the missing-art sentinel', () => {
+    r(<SeriesCard title="Cold Show" seriesId={1} posterAsset={SENTINEL_MISSING_HASH} />);
+    // the MediaImage monogram fallback is rendered…
+    expect(screen.getByTestId('monogram-fallback')).toBeInTheDocument();
+    // …and specifically NO raw poster img, and NO <img> pointing at the sentinel blob
+    expect(screen.queryByTestId('series-card-poster-img')).toBeNull();
+    const card = screen.getByTestId('series-card');
+    expect(
+      card.querySelector(`img[src="/api/v1/media/${SENTINEL_MISSING_HASH}"]`),
+    ).toBeNull();
+  });
+
+  it('renders a raw poster <img> for a real (non-sentinel) posterAsset hash', () => {
+    const hash = 'abc123def4567890';
+    r(<SeriesCard title="Warm Show" seriesId={2} posterAsset={hash} />);
+    const img = screen.getByTestId('series-card-poster-img');
+    expect(img).toHaveAttribute('src', `/api/v1/media/${hash}`);
+    expect(screen.queryByTestId('monogram-fallback')).toBeNull();
+  });
+
+  it('renders the letter fallback when there is no poster hash or asset', () => {
+    r(<SeriesCard title="Zeta" seriesId={3} />);
+    expect(screen.getByTestId('series-card-poster-fallback')).toHaveTextContent('Z');
+    expect(screen.queryByTestId('series-card-poster-img')).toBeNull();
+    expect(screen.queryByTestId('monogram-fallback')).toBeNull();
   });
 });

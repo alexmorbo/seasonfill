@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { mediaUrl } from '@/api/series';
+import { mediaUrl, SENTINEL_MISSING_HASH } from '@/api/series';
 import { formatSeriesTitle } from '@/lib/title';
 import { MediaImage } from '@/components/MediaImage';
 import { AddToSonarrButton } from '@/components/discovery/AddToSonarrButton';
@@ -49,6 +49,22 @@ function Poster({
     return (
       <MediaImage
         hash={posterHash}
+        kind="series_poster"
+        title={title}
+        fallback="monogram"
+        aspectRatio="aspect-auto"
+        className="absolute inset-0"
+      />
+    );
+  }
+  // REC-2: a cold recommendation item carries the missing-art SENTINEL hash
+  // in posterAsset. /media/{sentinel} returns a 200 SVG so MediaImage's
+  // onError never fires — detect it here and render the SAME monogram the
+  // posterHash branch renders, never a raw <img> pointing at the sentinel.
+  if (posterAsset === SENTINEL_MISSING_HASH) {
+    return (
+      <MediaImage
+        hash={null}
         kind="series_poster"
         title={title}
         fallback="monogram"

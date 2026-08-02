@@ -36,8 +36,11 @@ export function seriesRecommendationsQueryKey(
   return ['series-recommendations', seriesId, limit, offset, lang] as const;
 }
 
-const HOT_SOURCES = new Set<string>(['tmdb_series']);
-function isHotDegraded(resp: SeriesRecommendationsResponse | undefined): boolean {
+// REC-2: 'media_cold' is the BE degraded tag set while any recommendation
+// poster is still cold (missing-art sentinel). Including it keeps
+// pollWhileDegraded re-polling until every rec poster warms.
+const HOT_SOURCES = new Set<string>(['tmdb_series', 'media_cold']);
+export function isHotDegraded(resp: SeriesRecommendationsResponse | undefined): boolean {
   if (!resp || !resp.degraded || resp.degraded.length === 0) return false;
   return resp.degraded.some((s) => HOT_SOURCES.has(s));
 }

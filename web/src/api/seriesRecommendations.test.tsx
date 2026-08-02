@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useSeriesRecommendations, seriesRecommendationsQueryKey } from './seriesRecommendations';
+import {
+  useSeriesRecommendations,
+  seriesRecommendationsQueryKey,
+  isHotDegraded,
+  type SeriesRecommendationsResponse,
+} from './seriesRecommendations';
 
 const mockApi = vi.fn();
 vi.mock('@/lib/api', async () => {
@@ -81,5 +86,38 @@ describe('useSeriesRecommendations', () => {
       { wrapper: wrapper() },
     );
     expect(mockApi).not.toHaveBeenCalled();
+  });
+});
+
+function resp(degraded: string[]): SeriesRecommendationsResponse {
+  return {
+    instance: 'alpha',
+    sonarr_series_id: 1,
+    series_id: 140,
+    items: [],
+    total_count: 0,
+    has_more: false,
+    limit: 20,
+    offset: 0,
+    degraded,
+  } as unknown as SeriesRecommendationsResponse;
+}
+
+describe('isHotDegraded (REC-2 media_cold re-poll)', () => {
+  it('is true when degraded contains the REC-1 media_cold tag', () => {
+    expect(isHotDegraded(resp(['media_cold']))).toBe(true);
+  });
+
+  it('is true when degraded contains the legacy tmdb_series tag', () => {
+    expect(isHotDegraded(resp(['tmdb_series']))).toBe(true);
+  });
+
+  it('is false when degraded carries only non-hot tags', () => {
+    expect(isHotDegraded(resp(['sonarr_queue']))).toBe(false);
+  });
+
+  it('is false for empty degraded and for an undefined response', () => {
+    expect(isHotDegraded(resp([]))).toBe(false);
+    expect(isHotDegraded(undefined)).toBe(false);
   });
 });
