@@ -78,9 +78,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 
 	log := logger.New(logger.Config{
-		Level:  bootCfg.Log.Level,
-		Format: bootCfg.Log.Format,
-		Output: os.Stdout,
+		Level:              bootCfg.Log.Level,
+		Format:             bootCfg.Log.Format,
+		Output:             os.Stdout,
+		DomainLevels:       bootCfg.Log.DomainLevels,
+		DefaultDomainLevel: bootCfg.Log.DefaultDomainLevel,
 	})
 	slog.SetDefault(log)
 	// F-4b-8: derive pre-domained loggers for the composition root's own

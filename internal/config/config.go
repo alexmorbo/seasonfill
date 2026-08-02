@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -308,6 +309,14 @@ func (e ExternalServicesEnv) Lookup() func(string) string {
 type LogConfig struct {
 	Level  string
 	Format string
+	// DomainLevels holds per-domain slog level overrides parsed from
+	// SEASONFILL_LOG_DOMAIN_LEVELS (ADR-0006 Axis 2), e.g.
+	// "webhook=debug,enrichment=info". Nil when the env is unset/empty — a
+	// strict no-op that leaves every domain at the app Level.
+	DomainLevels map[string]slog.Level
+	// DefaultDomainLevel is the parsed `default=` entry, nil when absent so
+	// logger.New falls back to the app Level (zero behavior change).
+	DefaultDomainLevel *slog.Level
 }
 
 type HTTPConfig struct {
@@ -500,6 +509,9 @@ func FromEnv() (*Bootstrap, error) {
 			PreWarmEnabled: getenvBool("SEASONFILL_DISCOVERY_PREWARM_ENABLED", true),
 		},
 	}
+	// ADR-0006 Axis 2: per-domain log level overrides. Parsed after the
+	// literal because domainLevelsFromEnv returns two values.
+	cfg.Log.DomainLevels, cfg.Log.DefaultDomainLevel = domainLevelsFromEnv()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -517,6 +529,62 @@ func gormLogLevelFromEnv() string {
 		return v
 	default:
 		return "warn"
+	}
+}
+
+// domainLevelsFromEnv parses SEASONFILL_LOG_DOMAIN_LEVELS (ADR-0006 Axis 2).
+// Form: "webhook=debug,enrichment=info,default=info". Returns the per-domain
+// override map (nil when there are no real-domain entries) and the optional
+// `default=` level (nil when absent). Tolerant like gormLogLevelFromEnv:
+// blank/malformed segments and unknown level names are skipped, so a typo
+// silently no-ops that one entry rather than failing boot. Unset/empty env →
+// (nil, nil) = strict no-op (every domain logs at the app level).
+func domainLevelsFromEnv() (map[string]slog.Level, *slog.Level) {
+	raw := strings.TrimSpace(os.Getenv("SEASONFILL_LOG_DOMAIN_LEVELS"))
+	if raw == "" {
+		return nil, nil
+	}
+	levels := make(map[string]slog.Level)
+	var def *slog.Level
+	for part := range strings.SplitSeq(raw, ",") {
+		key, val, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		lvl, ok := parseSlogLevelName(strings.TrimSpace(val))
+		if !ok || key == "" {
+			continue
+		}
+		if key == "default" {
+			l := lvl
+			def = &l
+			continue
+		}
+		levels[key] = lvl
+	}
+	if len(levels) == 0 {
+		return nil, def
+	}
+	return levels, def
+}
+
+// parseSlogLevelName maps a case-insensitive level name to an slog.Level.
+// Mirrors logger.parseLevel but kept local so the config package does not
+// depend on the logger package (same duplication trade-off as
+// gormLogLevelFromString in the db layer, ADR-0006 Axis 1).
+func parseSlogLevelName(s string) (slog.Level, bool) {
+	switch strings.ToLower(s) {
+	case "debug":
+		return slog.LevelDebug, true
+	case "info":
+		return slog.LevelInfo, true
+	case "warn", "warning":
+		return slog.LevelWarn, true
+	case "error":
+		return slog.LevelError, true
+	default:
+		return 0, false
 	}
 }
 

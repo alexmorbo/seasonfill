@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -567,5 +568,71 @@ func TestFromEnv_GormLogLevel(t *testing.T) {
 				t.Fatalf("GormLogLevel = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDomainLevelsFromEnv_Valid(t *testing.T) {
+	t.Setenv("SEASONFILL_LOG_DOMAIN_LEVELS", "webhook=debug,enrichment=info,default=warn")
+	levels, def := domainLevelsFromEnv()
+	require.NotNil(t, levels)
+	assert.Equal(t, slog.LevelDebug, levels["webhook"])
+	assert.Equal(t, slog.LevelInfo, levels["enrichment"])
+	_, hasDefault := levels["default"]
+	assert.False(t, hasDefault, "default must not leak into the domain map")
+	require.NotNil(t, def)
+	assert.Equal(t, slog.LevelWarn, *def)
+}
+
+func TestDomainLevelsFromEnv_UnsetIsNoOp(t *testing.T) {
+	t.Setenv("SEASONFILL_LOG_DOMAIN_LEVELS", "")
+	levels, def := domainLevelsFromEnv()
+	assert.Nil(t, levels)
+	assert.Nil(t, def)
+}
+
+func TestDomainLevelsFromEnv_OnlyDefault(t *testing.T) {
+	t.Setenv("SEASONFILL_LOG_DOMAIN_LEVELS", "default=error")
+	levels, def := domainLevelsFromEnv()
+	assert.Nil(t, levels)
+	require.NotNil(t, def)
+	assert.Equal(t, slog.LevelError, *def)
+}
+
+func TestDomainLevelsFromEnv_MalformedTolerant(t *testing.T) {
+	// webhook  → no '=' → skip
+	// enrichment=bogus → unknown level → skip
+	// =info → empty key → skip
+	// (blank segment) → skip
+	// foo=warn → kept (unknown domain key is tolerated — never matches a real
+	//            logger, harmless)
+	// default=debug → default level
+	t.Setenv("SEASONFILL_LOG_DOMAIN_LEVELS", "webhook,enrichment=bogus,=info, ,foo=warn,default=debug")
+	levels, def := domainLevelsFromEnv()
+	require.NotNil(t, levels)
+	assert.Equal(t, map[string]slog.Level{"foo": slog.LevelWarn}, levels)
+	require.NotNil(t, def)
+	assert.Equal(t, slog.LevelDebug, *def)
+}
+
+func TestParseSlogLevelName(t *testing.T) {
+	cases := map[string]struct {
+		want slog.Level
+		ok   bool
+	}{
+		"debug":   {slog.LevelDebug, true},
+		"DEBUG":   {slog.LevelDebug, true},
+		"info":    {slog.LevelInfo, true},
+		"warn":    {slog.LevelWarn, true},
+		"warning": {slog.LevelWarn, true},
+		"error":   {slog.LevelError, true},
+		"":        {0, false},
+		"bogus":   {0, false},
+	}
+	for in, exp := range cases {
+		got, ok := parseSlogLevelName(in)
+		assert.Equal(t, exp.ok, ok, "ok for %q", in)
+		if exp.ok {
+			assert.Equal(t, exp.want, got, "level for %q", in)
+		}
 	}
 }

@@ -26,6 +26,15 @@ type Config struct {
 	Level  string
 	Format string
 	Output io.Writer
+
+	// DomainLevels holds per-domain slog level overrides (ADR-0006 Axis 2),
+	// keyed by the "domain" attribute value (webhook, enrichment, …). Nil or
+	// empty means no per-domain overrides.
+	DomainLevels map[string]slog.Level
+	// DefaultDomainLevel is the threshold applied to records whose domain has
+	// no explicit override (and to records with no domain). Nil = fall back to
+	// the app Level, so an unset SEASONFILL_LOG_DOMAIN_LEVELS is a strict no-op.
+	DefaultDomainLevel *slog.Level
 }
 
 type contextHandler struct {
@@ -40,9 +49,32 @@ func (h contextHandler) Handle(ctx context.Context, r slog.Record) error {
 }
 
 func New(cfg Config) *slog.Logger {
-	level := parseLevel(cfg.Level)
+	appLevel := parseLevel(cfg.Level)
+
+	// ADR-0006 Axis 2: resolve the default domain threshold. A nil
+	// DefaultDomainLevel means "no explicit default" → use the app level so an
+	// unset env changes nothing.
+	defaultLevel := appLevel
+	if cfg.DefaultDomainLevel != nil {
+		defaultLevel = *cfg.DefaultDomainLevel
+	}
+
+	// Wrap ONLY when the operator actually configured domain verbosity. No
+	// overrides AND a default equal to the app level → strict no-op: the base
+	// handler keeps the app level and behaves exactly as before this change.
+	wrap := len(cfg.DomainLevels) > 0 || defaultLevel != appLevel
+
+	// When wrapping, the DomainLevelHandler owns all gating; the base handler
+	// must not gate below any configured threshold. Drop the base floor to the
+	// minimum of every threshold so an elevated per-domain DEBUG still reaches
+	// output even when the app level is INFO.
+	baseLevel := appLevel
+	if wrap {
+		baseLevel = minLevel(defaultLevel, cfg.DomainLevels)
+	}
+
 	opts := &slog.HandlerOptions{
-		Level: level,
+		Level: baseLevel,
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				if t, ok := a.Value.Any().(time.Time); ok {
@@ -60,7 +92,28 @@ func New(cfg Config) *slog.Logger {
 		base = slog.NewJSONHandler(cfg.Output, opts)
 	}
 
-	return slog.New(contextHandler{Handler: base})
+	var h slog.Handler = contextHandler{Handler: base}
+	if wrap {
+		h = &DomainLevelHandler{
+			inner:        h,
+			levels:       cfg.DomainLevels,
+			defaultLevel: defaultLevel,
+		}
+	}
+
+	return slog.New(h)
+}
+
+// minLevel returns the lowest (most verbose) level across the default and all
+// per-domain thresholds.
+func minLevel(defaultLevel slog.Level, domains map[string]slog.Level) slog.Level {
+	m := defaultLevel
+	for _, l := range domains {
+		if l < m {
+			m = l
+		}
+	}
+	return m
 }
 
 func parseLevel(l string) slog.Level {
