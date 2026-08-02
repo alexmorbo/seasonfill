@@ -199,7 +199,8 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 	rec, err := u.grabs.MatchLatest(ctx, key)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
-			u.logger.InfoContext(ctx, "webhook_orphan_event",
+			observability.IncWebhookOrphan("status", string(evt.Type))
+			u.logger.WarnContext(ctx, "webhook_orphan_event",
 				slog.String("instance", string(evt.InstanceName)),
 				slog.String("event_type", string(evt.Type)),
 				slog.String("download_id", evt.DownloadID),
@@ -336,7 +337,8 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 	rec, err := u.grabs.MatchLatest(ctx, key)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
-			u.logger.InfoContext(ctx, "webhook_grab_orphan_no_row",
+			observability.IncWebhookOrphan("grab", string(evt.Type))
+			u.logger.WarnContext(ctx, "webhook_grab_orphan_no_row",
 				slog.String("instance", string(evt.InstanceName)),
 				slog.String("download_id", evt.DownloadID),
 				slog.String("release_title", evt.ReleaseTitle),
