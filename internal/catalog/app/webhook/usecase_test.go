@@ -233,6 +233,11 @@ func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
 	f.upsertedEntry = e
 	return nil
 }
+func (f *fakeSeriesCache) UpsertStub(ctx context.Context, e series.CacheEntry) error {
+	// SI-6: webhook now calls UpsertStub; delegate so the existing
+	// upsertCalls / upsertedEntry / upsertErr assertions still apply.
+	return f.Upsert(ctx, e)
+}
 func (f *fakeSeriesCache) SoftDelete(_ context.Context, instance domain.InstanceName, id domain.SonarrSeriesID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

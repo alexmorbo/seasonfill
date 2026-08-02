@@ -1466,6 +1466,9 @@ func (f *fakeSeriesCache) Upsert(_ context.Context, e series.CacheEntry) error {
 	f.upserted = append(f.upserted, e)
 	return nil
 }
+func (f *fakeSeriesCache) UpsertStub(ctx context.Context, e series.CacheEntry) error {
+	return f.Upsert(ctx, e)
+}
 func (f *fakeSeriesCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) error {
 	return nil
 }

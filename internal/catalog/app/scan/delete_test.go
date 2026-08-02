@@ -22,7 +22,8 @@ type cascadeFakeCache struct {
 func (f *cascadeFakeCache) Get(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
-func (f *cascadeFakeCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
+func (f *cascadeFakeCache) Upsert(_ context.Context, _ series.CacheEntry) error     { return nil }
+func (f *cascadeFakeCache) UpsertStub(_ context.Context, _ series.CacheEntry) error { return nil }
 func (f *cascadeFakeCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) error {
 	f.softDeleteCalls.Add(1)
 	return f.softDeleteErr

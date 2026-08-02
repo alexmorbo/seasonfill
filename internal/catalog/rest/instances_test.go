@@ -740,7 +740,8 @@ type stubSeriesCache struct {
 func (s *stubSeriesCache) Get(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID) (series.CacheEntry, error) {
 	return series.CacheEntry{}, ports.ErrNotFound
 }
-func (s *stubSeriesCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
+func (s *stubSeriesCache) Upsert(_ context.Context, _ series.CacheEntry) error     { return nil }
+func (s *stubSeriesCache) UpsertStub(_ context.Context, _ series.CacheEntry) error { return nil }
 func (s *stubSeriesCache) SoftDelete(_ context.Context, _ shareddomain.InstanceName, _ shareddomain.SonarrSeriesID) error {
 	return nil
 }

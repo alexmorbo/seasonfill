@@ -466,6 +466,20 @@ type SeriesCacheRepository interface {
 	// refresh UpdatedAt to now.
 	Upsert(ctx context.Context, entry series.CacheEntry) error
 
+	// UpsertStub is the thin-writer sibling of Upsert for callers that
+	// carry only identity + slug and no real stats (the webhook SeriesAdd
+	// fallback). Its conflict-update set is a STRICT SUBSET of Upsert's:
+	// it refreshes series_id / title_slug / updated_at / deleted_at only
+	// and PRESERVES monitored + missing_count / episode_file_count /
+	// size_on_disk_bytes / aired_episode_count on an existing row, so a
+	// stat-less writer can never zero a real cached stat. On INSERT the
+	// zero stats land (self-heals on the next scan).
+	//
+	// Unrelated to (*SeriesRepository).UpsertStub, which COALESCE-preserves
+	// canon columns on the `series` table — this one omit-preserves stat
+	// columns on `series_cache`.
+	UpsertStub(ctx context.Context, entry series.CacheEntry) error
+
 	// SoftDelete sets deleted_at to now on the matching row.
 	// ports.ErrNotFound on miss.
 	SoftDelete(ctx context.Context, instanceName domain.InstanceName, sonarrSeriesID domain.SonarrSeriesID) error

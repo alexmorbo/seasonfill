@@ -22,7 +22,8 @@ type refreshFakeCache struct {
 func (f *refreshFakeCache) Get(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) (series.CacheEntry, error) {
 	return f.entry, f.err
 }
-func (f *refreshFakeCache) Upsert(_ context.Context, _ series.CacheEntry) error { return nil }
+func (f *refreshFakeCache) Upsert(_ context.Context, _ series.CacheEntry) error     { return nil }
+func (f *refreshFakeCache) UpsertStub(_ context.Context, _ series.CacheEntry) error { return nil }
 func (f *refreshFakeCache) SoftDelete(_ context.Context, _ domain.InstanceName, _ domain.SonarrSeriesID) error {
 	return nil
 }

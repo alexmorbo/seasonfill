@@ -462,7 +462,9 @@ func (u *UseCase) handleSeriesAdd(ctx context.Context, evt webhook.Event) error 
 		return nil
 	}
 	entry := webhookSeriesToCacheEntry(evt)
-	if err := u.seriesCache.Upsert(ctx, entry); err != nil {
+	// SI-6: thin webhook payload — use the stat-preserving stub writer so a
+	// SeriesAdd for an already-cached series can't zero real monitored/stats.
+	if err := u.seriesCache.UpsertStub(ctx, entry); err != nil {
 		u.logger.WarnContext(ctx, "webhook_series_add_upsert_failed",
 			slog.String("instance", string(evt.InstanceName)),
 			slog.Int("series_id", int(evt.SeriesID)),

@@ -198,7 +198,49 @@ func (r *SeriesCacheRepository) Get(ctx context.Context, instanceName domain.Ins
 // E-1 will replace this with the merge-policy writer). The cache
 // path always sets deleted_at = NULL — callers wanting soft-delete
 // use SoftDelete.
+//
+// Upsert is the RICH writer (scan / sonarr_sync): its conflict set
+// includes monitored + all four stat columns, so a legit 0 (e.g.
+// missing_count 5→0 after a season completes) is written through.
+// The thin webhook path must NOT use this method — see UpsertStub.
 func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEntry) error {
+	return r.upsertWithConflictColumns(ctx, entry, []string{
+		"series_id", "title_slug", "monitored", "missing_count",
+		"episode_file_count", "size_on_disk_bytes",
+		"aired_episode_count",
+		"updated_at", "deleted_at",
+	})
+}
+
+// UpsertStub is the THIN writer for the webhook SeriesAdd fallback,
+// where the payload carries no stats and hardcodes monitored=true.
+// Its conflict set is a STRICT SUBSET of Upsert's — it updates only
+// series_id / title_slug / updated_at / deleted_at and OMITS
+// monitored + the four stat columns. On INSERT (new series) the
+// struct's monitored:true + zero stats still land (harmless — the
+// next scan overwrites with real numbers); on CONFLICT (existing
+// row) the rich monitored + stats written by sonarr_sync/scan are
+// preserved, so a thin webhook write can never zero a real stat.
+//
+// DISTINCT FROM (*SeriesRepository).UpsertStub in
+// internal/enrichment/persistence/series_repository.go: that one
+// COALESCE-preserves canon columns on the `series` table; THIS one
+// omit-preserves stat columns on the `series_cache` table. Different
+// receiver, different package, different table — no relation beyond
+// the shared name.
+func (r *SeriesCacheRepository) UpsertStub(ctx context.Context, entry series.CacheEntry) error {
+	return r.upsertWithConflictColumns(ctx, entry, []string{
+		"series_id", "title_slug", "updated_at", "deleted_at",
+	})
+}
+
+// upsertWithConflictColumns is the shared body behind Upsert (rich)
+// and UpsertStub (thin). The ONLY difference between the two writers
+// is updateCols — the OnConflict DoUpdates assignment set. Everything
+// else (validation, canon resolve-or-create, the row build, and the
+// S-E1 base-lang series_texts{en-US} seed) is identical and lives here
+// once to prevent the two paths from drifting.
+func (r *SeriesCacheRepository) upsertWithConflictColumns(ctx context.Context, entry series.CacheEntry, updateCols []string) error {
 	if entry.InstanceName == "" {
 		return fmt.Errorf("upsert series_cache: instance_name must be non-empty")
 	}
@@ -232,12 +274,7 @@ func (r *SeriesCacheRepository) Upsert(ctx context.Context, entry series.CacheEn
 			{Name: "instance_name"},
 			{Name: "sonarr_series_id"},
 		},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"series_id", "title_slug", "monitored", "missing_count",
-			"episode_file_count", "size_on_disk_bytes",
-			"aired_episode_count",
-			"updated_at", "deleted_at",
-		}),
+		DoUpdates: clause.AssignmentColumns(updateCols),
 	}).Create(&m)
 	if res.Error != nil {
 		return fmt.Errorf("upsert series_cache: %w", res.Error)
