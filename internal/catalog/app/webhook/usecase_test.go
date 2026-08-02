@@ -39,6 +39,7 @@ type fakeGrabRepo struct {
 	hashUpdateVal   string
 	hashUpdateCall  int
 	lastUpdatedSize int64
+	sizeUpdateCall  int
 }
 
 func (r *fakeGrabRepo) Create(context.Context, grab.Record) error {
@@ -98,6 +99,7 @@ func (r *fakeGrabRepo) UpdateSizeBytes(_ context.Context, _ uuid.UUID, size int6
 	if r.updateErr != nil {
 		return r.updateErr
 	}
+	r.sizeUpdateCall++
 	r.lastUpdatedSize = size
 	return nil
 }
@@ -1190,4 +1192,135 @@ func TestProcess_EpisodeFileDelete_NilSyncer_NoOp(t *testing.T) {
 		Type: domainwebhook.EventTypeEpisodeFileDelete, InstanceName: "main", SeriesID: 140,
 	})
 	require.NoError(t, err)
+}
+
+// --- SI-9 AF-2 tx-fold: hash + size fold into a single transaction. ---
+
+// Both hash and size present + NULL → BOTH written inside ONE transaction,
+// alongside the torrent_series_map row.
+func TestProcess_Grabbed_HashAndSize_SingleTx(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	rec.SizeBytes = nil
+	rec.SeriesID = 122
+	rec.SeasonNumber = 2
+	g := &fakeGrabRepo{match: rec}
+	tx := &fakeTransactor{}
+	tsm := &fakeTorrentSeriesMap{}
+	uc := New(Deps{
+		Grabs:              g,
+		Cooldowns:          &fakeCooldownRepo{},
+		Tx:                 tx,
+		TorrentSeriesMap:   tsm,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
+	})
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:         domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID:   hash,
+		ReleaseSize:  13_325_829_734,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, tx.called, "hash + size + map must all run in a SINGLE transaction")
+	assert.True(t, tx.committed, "the merged tx must commit")
+	assert.Equal(t, 1, g.hashUpdateCall)
+	assert.Equal(t, 1, g.sizeUpdateCall)
+	assert.Equal(t, int64(13_325_829_734), g.lastUpdatedSize)
+	require.Len(t, tsm.rows, 1, "map row still written inside the same tx")
+}
+
+// Size-only (no hash parsed) still opens the tx and writes size; no hash
+// write, no map row. Proves the size path is now tx-scoped.
+func TestProcess_Grabbed_SizeOnly_OpensTxNoHashWrite(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	rec.SizeBytes = nil
+	g := &fakeGrabRepo{match: rec}
+	tx := &fakeTransactor{}
+	tsm := &fakeTorrentSeriesMap{}
+	uc := New(Deps{
+		Grabs:              g,
+		Cooldowns:          &fakeCooldownRepo{},
+		Tx:                 tx,
+		TorrentSeriesMap:   tsm,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
+	})
+
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:         domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID:   "not-a-torrent-hash", // ParseTorrentHash → nil
+		ReleaseSize:  777,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, tx.called, "size write now runs inside a tx even with no hash")
+	assert.True(t, tx.committed)
+	assert.Equal(t, 0, g.hashUpdateCall, "no hash parsed → no hash write")
+	assert.Equal(t, 1, g.sizeUpdateCall)
+	assert.Equal(t, int64(777), g.lastUpdatedSize)
+	assert.Empty(t, tsm.rows, "no hash → no map row")
+}
+
+// Hash-only (ReleaseSize==0) → hash written, no size write. tx still opens.
+func TestProcess_Grabbed_HashOnly_NoSizeWrite(t *testing.T) {
+	t.Parallel()
+	rec := sampleRecord()
+	rec.TorrentHash = nil
+	rec.SizeBytes = nil
+	g := &fakeGrabRepo{match: rec}
+	tx := &fakeTransactor{}
+	uc := newUseCase(t, g, &fakeCooldownRepo{}, tx)
+
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:         domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID:   hash,
+		ReleaseSize:  0,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, tx.called)
+	assert.Equal(t, 1, g.hashUpdateCall)
+	assert.Equal(t, 0, g.sizeUpdateCall, "ReleaseSize==0 → no size write")
+	assert.Equal(t, int64(0), g.lastUpdatedSize)
+}
+
+// Neither write has work (hash already set AND size already set), yet we
+// passed the early metadata guard (ReleaseSize>0) → NO transaction opened.
+func TestProcess_Grabbed_BothAlreadySet_NoTx(t *testing.T) {
+	t.Parallel()
+	existingHash := domain.QbitHash("0123456789abcdef0123456789abcdef01234567")
+	existingSize := int64(9_999_999)
+	rec := sampleRecord()
+	rec.TorrentHash = &existingHash
+	rec.SizeBytes = &existingSize
+	g := &fakeGrabRepo{match: rec}
+	tx := &fakeTransactor{}
+	tsm := &fakeTorrentSeriesMap{}
+	uc := New(Deps{
+		Grabs:              g,
+		Cooldowns:          &fakeCooldownRepo{},
+		Tx:                 tx,
+		TorrentSeriesMap:   tsm,
+		GUIDCooldownLookup: fixedLookup(),
+		Logger:             quietLogger(),
+	})
+
+	err := uc.Process(context.Background(), domainwebhook.Event{
+		Type:         domainwebhook.EventTypeGrabbed,
+		InstanceName: "main",
+		DownloadID:   "fedcba9876543210fedcba9876543210fedcba98",
+		ReleaseSize:  13_325_829_734,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, tx.called, "both values already set → no transaction opened")
+	assert.Equal(t, 0, g.hashUpdateCall)
+	assert.Equal(t, 0, g.sizeUpdateCall)
+	assert.Empty(t, tsm.rows)
 }

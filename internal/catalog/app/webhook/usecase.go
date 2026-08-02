@@ -350,14 +350,35 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 		return fmt.Errorf("match grab record (grabbed branch): %w: %w", ports.ErrDBUnavailable, err)
 	}
 
-	if parsed != nil {
-		if rec.TorrentHash != nil {
-			u.logger.DebugContext(ctx, "webhook_grab_hash_already_set",
-				slog.String("instance", string(evt.InstanceName)),
-				slog.String("grab_id", rec.ID.String()))
-		} else {
-			hash := strings.ToLower(string(*parsed))
-			work := func(txCtx context.Context) error {
+	doHash := parsed != nil && rec.TorrentHash == nil
+	doSize := evt.ReleaseSize > 0 && rec.SizeBytes == nil
+
+	// "Already set" DEBUG logs are pure logging (no DB) — keep them outside
+	// the tx decision. Idempotency: a webhook re-delivery must never
+	// overwrite a hash or size already captured.
+	if parsed != nil && rec.TorrentHash != nil {
+		u.logger.DebugContext(ctx, "webhook_grab_hash_already_set",
+			slog.String("instance", string(evt.InstanceName)),
+			slog.String("grab_id", rec.ID.String()))
+	}
+	if evt.ReleaseSize > 0 && rec.SizeBytes != nil {
+		u.logger.DebugContext(ctx, "webhook_grab_size_already_set",
+			slog.String("instance", string(evt.InstanceName)),
+			slog.String("grab_id", rec.ID.String()),
+			slog.Int64("existing_size", *rec.SizeBytes))
+	}
+
+	// AF-2 (SI-9): fold hash-capture + size-write into ONE transaction so a
+	// crash can never leave hash-set / size-NULL. The size write is
+	// independent of hash-parse, so both live in a single work closure
+	// behind internal guards; the tx opens only when there is work to do.
+	if doHash || doSize {
+		var hash string
+		if doHash {
+			hash = strings.ToLower(string(*parsed))
+		}
+		work := func(txCtx context.Context) error {
+			if doHash {
 				if err := u.grabs.UpdateTorrentHash(txCtx, rec.ID, hash); err != nil {
 					return fmt.Errorf("update torrent_hash: %w", err)
 				}
@@ -374,23 +395,30 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 						return fmt.Errorf("upsert torrent_series_map (webhook): %w", err)
 					}
 				}
+			}
+			if doSize {
+				if err := u.grabs.UpdateSizeBytes(txCtx, rec.ID, evt.ReleaseSize); err != nil {
+					return fmt.Errorf("update size_bytes: %w", err)
+				}
+			}
+			return nil
+		}
+		var txErr error
+		if u.tx != nil {
+			txErr = u.tx.Transaction(ctx, work)
+		} else {
+			txErr = work(ctx)
+		}
+		if txErr != nil {
+			if errors.Is(txErr, ports.ErrNotFound) {
+				u.logger.InfoContext(ctx, "webhook_grab_row_vanished",
+					slog.String("instance", string(evt.InstanceName)),
+					slog.String("grab_id", rec.ID.String()))
 				return nil
 			}
-			var txErr error
-			if u.tx != nil {
-				txErr = u.tx.Transaction(ctx, work)
-			} else {
-				txErr = work(ctx)
-			}
-			if txErr != nil {
-				if errors.Is(txErr, ports.ErrNotFound) {
-					u.logger.InfoContext(ctx, "webhook_grab_row_vanished",
-						slog.String("instance", string(evt.InstanceName)),
-						slog.String("grab_id", rec.ID.String()))
-					return nil
-				}
-				return fmt.Errorf("webhook grab hash+map: %w: %w", ports.ErrDBUnavailable, txErr)
-			}
+			return fmt.Errorf("webhook grab hash+size: %w: %w", ports.ErrDBUnavailable, txErr)
+		}
+		if doHash {
 			u.logger.InfoContext(ctx, "webhook_grab_hash_captured",
 				slog.String("instance", string(evt.InstanceName)),
 				slog.String("grab_id", rec.ID.String()),
@@ -401,23 +429,7 @@ func (u *UseCase) handleGrabbed(ctx context.Context, evt webhook.Event) error {
 				slog.String("source", string(torrentsync.MapSourceWebhook)),
 			)
 		}
-	}
-
-	if evt.ReleaseSize > 0 {
-		if rec.SizeBytes != nil {
-			u.logger.DebugContext(ctx, "webhook_grab_size_already_set",
-				slog.String("instance", string(evt.InstanceName)),
-				slog.String("grab_id", rec.ID.String()),
-				slog.Int64("existing_size", *rec.SizeBytes))
-		} else if err := u.grabs.UpdateSizeBytes(ctx, rec.ID, evt.ReleaseSize); err != nil {
-			if errors.Is(err, ports.ErrNotFound) {
-				u.logger.InfoContext(ctx, "webhook_grab_size_row_vanished",
-					slog.String("instance", string(evt.InstanceName)),
-					slog.String("grab_id", rec.ID.String()))
-				return nil
-			}
-			return fmt.Errorf("update size_bytes: %w: %w", ports.ErrDBUnavailable, err)
-		} else {
+		if doSize {
 			u.logger.InfoContext(ctx, "webhook_grab_size_captured",
 				slog.String("instance", string(evt.InstanceName)),
 				slog.String("grab_id", rec.ID.String()),
