@@ -107,7 +107,7 @@ type SeriesCanon struct {
 //	PosterAsset    TMDB > Sonarr
 //	BackdropAsset  TMDB > Sonarr
 //	TMDBID         Sonarr > TMDB (Sonarr already carries tmdbId)
-//	TVDBID         Sonarr only
+//	TVDBID         Sonarr > TMDB (fill-empty; immutable external id)
 //	IMDBID         Sonarr > TMDB
 //
 // Returns the canon with applied patch + updated Hydration:
@@ -243,6 +243,13 @@ func MergeSeries(canon SeriesCanon, patch SeriesPatch, source Source) SeriesCano
 		}
 		if patch.IMDBID != nil && (canon.IMDBID == nil || *canon.IMDBID == "") {
 			canon.IMDBID = patch.IMDBID
+		}
+		// tvdb_id is an immutable external id; TMDB /tv/external_ids carries it
+		// for ~95% of discovery series (no Sonarr membership). Fill-empty so a
+		// TMDB-discovered series gains its tvdb while a Sonarr-supplied tvdb
+		// (identity key) keeps precedence. Both sources assert the same value.
+		if patch.TVDBID != nil && canon.TVDBID == nil {
+			canon.TVDBID = patch.TVDBID
 		}
 		// TMDB write lifts hydration to full (authoritative payload).
 		canon.Hydration = LevelFull

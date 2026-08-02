@@ -749,3 +749,155 @@ func TestSeriesRepository_PickRefreshCandidates_ChangedTier0LimitCap(t *testing.
 		})
 	}
 }
+
+// TestSeriesRepository_PickRefreshCandidates_TVDBBackfill covers the B-40
+// tvdb backfill OR-branch: a series with tmdb_id present but tvdb_id NULL is
+// re-picked for enrichment (so the B-40 merge fix lands the tvdb_id on the
+// next TMDB pass), bounded by the same 6h cooldown as #1090b and idempotent
+// once tvdb_id fills. The branch rides tiers 1/2/3 (HOT/NORMAL/COLD):
+//
+//	(a) NORMAL (discovery) tvdb-NULL, tmdb-present, synced 12h ago → PICKED,
+//	(b) COLD (neither) tvdb-NULL, synced 12h ago → PICKED,
+//	(c) HOT (library) tvdb-NULL, synced 12h ago (TTL-fresh) → PICKED,
+//	(d) idempotent: an identical row WITH tvdb_id set → NOT picked (drops out),
+//	(e) tvdb-NULL but synced 1h ago (inside 6h cooldown) → NOT picked.
+//
+// Every tvdb-NULL fixture carries a poster and has zero tv-row person_credits
+// and is TTL-fresh, so neither the W17-1 poster branch, the #1090b heal branch,
+// nor the normal staleness gate can select it — the tvdb OR-branch is isolated.
+func TestSeriesRepository_PickRefreshCandidates_TVDBBackfill(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+			twelveHoursAgo := now.Add(-12 * time.Hour) // TTL-fresh for all tiers, past 6h cooldown
+			oneHourAgo := now.Add(-1 * time.Hour)      // TTL-fresh BUT inside the 6h cooldown
+
+			// seedTVDB upserts a series with tmdb_id set and tvdb_id either NULL
+			// (nilTVDB=true) or present. Poster seeded so the poster branch never
+			// fires; NO tv-row credits so the heal branch never fires. When
+			// discovery is true it lands in discovery_lists (tier 2 NORMAL);
+			// when library is true it lands in series_cache (tier 1 HOT);
+			// otherwise it is neither (tier 3 COLD).
+			seedTVDB := func(title string, tmdbID int64, syncedAt *time.Time, nilTVDB, library, discovery bool, sonarrID domain.SonarrSeriesID, position int) domain.SeriesID {
+				t.Helper()
+				c := sampleCanon(title)
+				c.TMDBID = ptrTMDBID(int(tmdbID))
+				if nilTVDB {
+					c.TVDBID = nil
+				} else {
+					c.TVDBID = ptrTVDBID(int(tmdbID + 100000))
+				}
+				c.IMDBID = nil
+				c.EnrichmentTMDBSyncedAt = syncedAt
+				id, err := repo.Upsert(ctx, c)
+				require.NoError(t, err)
+				if library {
+					seedSeriesCacheRow(t, db, id, "main", sonarrID, false)
+				}
+				if discovery {
+					seedDiscoveryListsRow(t, db, id, position)
+				}
+				// Poster present → W17-1 poster branch cannot select it.
+				seedSeriesMediaTextRow(t, db, id, "en-US", "/posters/"+title+".jpg")
+				return id
+			}
+
+			// (a) NORMAL, tvdb-NULL, synced 12h ago → PICKED at tier NORMAL.
+			idN := seedTVDB("N-normal-tvdbnull", 9001, &twelveHoursAgo, true, false, true, 9001, 1)
+			// (b) COLD, tvdb-NULL, synced 12h ago → PICKED at tier COLD.
+			idC := seedTVDB("C-cold-tvdbnull", 9002, &twelveHoursAgo, true, false, false, 9002, 0)
+			// (c) HOT, tvdb-NULL, synced 12h ago (< 7d, TTL-fresh) → PICKED at tier HOT.
+			idH := seedTVDB("H-hot-tvdbnull", 9003, &twelveHoursAgo, true, true, false, 9003, 0)
+			// (d) NORMAL, tvdb SET, synced 12h ago → NOT picked (idempotent drop-out).
+			idSet := seedTVDB("S-normal-tvdbset", 9004, &twelveHoursAgo, false, false, true, 9004, 2)
+			// (e) NORMAL, tvdb-NULL BUT synced 1h ago (inside 6h cooldown) → NOT picked.
+			idCool := seedTVDB("D-cooldown-tvdbnull", 9005, &oneHourAgo, true, false, true, 9005, 3)
+
+			rows, err := repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 50)
+			require.NoError(t, err)
+
+			picked := make(map[domain.SeriesID]RefreshCandidate, len(rows))
+			for _, r := range rows {
+				picked[r.SeriesID] = r
+			}
+
+			// (a) NORMAL tvdb-null pick.
+			require.Contains(t, picked, idN, "NORMAL tvdb-NULL series must be backfill-picked (tier 2)")
+			assert.Equal(t, enrichment.RefreshTierNormal, picked[idN].Tier)
+			// (b) COLD tvdb-null pick.
+			require.Contains(t, picked, idC, "COLD tvdb-NULL series must be backfill-picked (tier 3)")
+			assert.Equal(t, enrichment.RefreshTierCold, picked[idC].Tier)
+			// (c) HOT tvdb-null pick.
+			require.Contains(t, picked, idH, "HOT tvdb-NULL series must be backfill-picked (tier 1)")
+			assert.Equal(t, enrichment.RefreshTierHot, picked[idH].Tier)
+			// A tvdb-only pick carries neither poster nor heal attribution.
+			assert.False(t, picked[idN].MissingPoster, "tvdb pick has a poster → not a poster pick")
+			assert.False(t, picked[idN].Heal, "tvdb pick has no tv credits → not a heal pick")
+
+			// (d) idempotent: tvdb already set → dropped out.
+			assert.NotContains(t, picked, idSet, "series with tvdb_id set must not be backfill-picked")
+			// (e) inside 6h cooldown → not picked.
+			assert.NotContains(t, picked, idCool, "tvdb-NULL series stamped < 6h ago must wait out the cooldown")
+		})
+	}
+}
+
+// TestSeriesRepository_PickRefreshCandidates_TVDBBackfillDrainsOut asserts the
+// backfill is self-clearing: a tvdb-NULL series is picked, then after tvdb_id is
+// filled (simulating the B-40 merge fix landing on the next TMDB pass) the same
+// series stops matching on the next pick — no perpetual re-pick.
+func TestSeriesRepository_PickRefreshCandidates_TVDBBackfillDrainsOut(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+			twelveHoursAgo := now.Add(-12 * time.Hour)
+
+			c := sampleCanon("drain-tvdbnull")
+			c.TMDBID = ptrTMDBID(9101)
+			c.TVDBID = nil
+			c.IMDBID = nil
+			c.EnrichmentTMDBSyncedAt = &twelveHoursAgo
+			id, err := repo.Upsert(ctx, c)
+			require.NoError(t, err)
+			seedDiscoveryListsRow(t, db, id, 1)
+			seedSeriesMediaTextRow(t, db, id, "en-US", "/posters/drain.jpg")
+
+			// Before: picked (tvdb NULL).
+			rows, err := repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 50)
+			require.NoError(t, err)
+			pickedBefore := false
+			for _, r := range rows {
+				if r.SeriesID == id {
+					pickedBefore = true
+				}
+			}
+			require.True(t, pickedBefore, "tvdb-NULL series must be picked before backfill")
+
+			// Fill tvdb_id (portable UPDATE — simulates the merge fix writing it).
+			require.NoError(t, db.Exec(
+				"UPDATE series SET tvdb_id = ? WHERE id = ?", 463308, int64(id),
+			).Error)
+
+			// After: dropped out (still TTL-fresh, still has poster, no tv credits;
+			// tvdb no longer NULL → no branch selects it).
+			rows, err = repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 50)
+			require.NoError(t, err)
+			for _, r := range rows {
+				assert.NotEqual(t, id, r.SeriesID,
+					"series must drop out of the picker once tvdb_id is filled")
+			}
+		})
+	}
+}

@@ -209,6 +209,8 @@ SELECT * FROM (
               SELECT 1 FROM person_credits pc2
                WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
                  AND pc2.last_appearance_season IS NOT NULL))
+        OR (s.enrichment_tmdb_synced_at < ?
+            AND s.tvdb_id IS NULL)
          )
      AND EXISTS (
        SELECT 1 FROM series_cache sc
@@ -244,6 +246,8 @@ SELECT * FROM (
               SELECT 1 FROM person_credits pc2
                WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
                  AND pc2.last_appearance_season IS NOT NULL))
+        OR (s.enrichment_tmdb_synced_at < ?
+            AND s.tvdb_id IS NULL)
          )
      AND NOT EXISTS (
        SELECT 1 FROM series_cache sc
@@ -281,6 +285,8 @@ SELECT * FROM (
               SELECT 1 FROM person_credits pc2
                WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
                  AND pc2.last_appearance_season IS NOT NULL))
+        OR (s.enrichment_tmdb_synced_at < ?
+            AND s.tvdb_id IS NULL)
          )
      AND NOT EXISTS (
        SELECT 1 FROM series_cache sc
@@ -316,14 +322,14 @@ LIMIT ?
 			posterGuardCutoff, errSrc,
 			// HOT: missing_poster CASE (hotCutoff), heal CASE (healGuardCutoff),
 			// then WHERE normal (hotCutoff), poster (posterGuardCutoff),
-			// heal (healGuardCutoff), errSrc.
-			hotCutoff, healGuardCutoff, hotCutoff, posterGuardCutoff, healGuardCutoff, errSrc,
+			// heal (healGuardCutoff), tvdb-heal (healGuardCutoff), errSrc.
+			hotCutoff, healGuardCutoff, hotCutoff, posterGuardCutoff, healGuardCutoff, healGuardCutoff, errSrc,
 			// NORMAL: heal CASE (healGuardCutoff), WHERE normal (normalCutoff),
-			// heal (healGuardCutoff), errSrc.
-			healGuardCutoff, normalCutoff, healGuardCutoff, errSrc,
+			// heal (healGuardCutoff), tvdb-heal (healGuardCutoff), errSrc.
+			healGuardCutoff, normalCutoff, healGuardCutoff, healGuardCutoff, errSrc,
 			// COLD: heal CASE (healGuardCutoff), WHERE cold (coldCutoff),
-			// heal (healGuardCutoff), errSrc.
-			healGuardCutoff, coldCutoff, healGuardCutoff, errSrc,
+			// heal (healGuardCutoff), tvdb-heal (healGuardCutoff), errSrc.
+			healGuardCutoff, coldCutoff, healGuardCutoff, healGuardCutoff, errSrc,
 			nullSentinel, limit,
 		).Scan(&rows).Error
 	if err != nil {

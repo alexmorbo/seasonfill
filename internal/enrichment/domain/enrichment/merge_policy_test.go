@@ -457,15 +457,47 @@ func TestMergeSeries(t *testing.T) {
 				assert.Equal(t, 333, *g.TMDBID)
 			},
 		},
-		// --- TVDBID: Sonarr only ---
+		// --- TVDBID: Sonarr > TMDB (fill-empty; immutable external id) ---
 		{
 			name:   "TVDBID Sonarr writes",
-			rule:   "TVDBID: Sonarr only",
+			rule:   "TVDBID: Sonarr authority",
 			canon:  SeriesCanon{},
 			patch:  SeriesPatch{TVDBID: new(99999)},
 			source: SourceSonarr,
 			assert: func(t *testing.T, g SeriesCanon) {
 				assert.Equal(t, 99999, *g.TVDBID)
+			},
+		},
+		{
+			name:   "TVDBID Sonarr overwrites existing canon",
+			rule:   "TVDBID: Sonarr > TMDB",
+			canon:  SeriesCanon{TVDBID: new(111)},
+			patch:  SeriesPatch{TVDBID: new(222)},
+			source: SourceSonarr,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Equal(t, 222, *g.TVDBID)
+			},
+		},
+		{
+			name:   "TVDBID TMDB fills empty canon",
+			rule:   "TVDBID: TMDB fallback (external_ids)",
+			canon:  SeriesCanon{},
+			patch:  SeriesPatch{TVDBID: new(310224)},
+			source: SourceTMDBSeries,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.NotNil(t, g.TVDBID)
+				assert.Equal(t, 310224, *g.TVDBID)
+			},
+		},
+		{
+			name:   "TVDBID TMDB does NOT overwrite existing canon",
+			rule:   "TVDBID: Sonarr precedence preserved",
+			canon:  SeriesCanon{TVDBID: new(99999)},
+			patch:  SeriesPatch{TVDBID: new(310224)},
+			source: SourceTMDBSeries,
+			assert: func(t *testing.T, g SeriesCanon) {
+				assert.Equal(t, 99999, *g.TVDBID,
+					"Sonarr-supplied tvdb must win; TMDB is fill-empty only")
 			},
 		},
 		// --- IMDBID: Sonarr > TMDB ---
