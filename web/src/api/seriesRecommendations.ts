@@ -1,6 +1,10 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { components } from '@/api/schema';
+import {
+  useDegradedPollInterval,
+  type DegradedPollConfig,
+} from '@/hooks/useDegradedPollInterval';
 // Re-export the visibility composer so RecommendationsCarousel can
 // gate fetches behind viewport-intersection without a second import.
 export { useIsSectionVisible } from '@/api/seriesTorrents';
@@ -45,6 +49,27 @@ export function isHotDegraded(resp: SeriesRecommendationsResponse | undefined): 
   return resp.degraded.some((s) => HOT_SOURCES.has(s));
 }
 
+// HARDEN-1: bound the degraded poll. 6 ticks at 4s ≈ 24s ceiling, mirroring
+// useSeries's POLL_MAX_TICKS. 'length-reset' — the counter resets when
+// `degraded[].length` changes so a fresh degraded wave re-earns the budget,
+// but a stuck media_cold poster (blob never downloads) stops polling instead
+// of re-fetching forever. Exported so the cap is unit-testable via
+// createDegradedPollInterval.
+const RECS_POLL_MS = 4_000;
+const RECS_MAX_TICKS = 6;
+export function recommendationsPollConfig(
+  pollWhileDegraded: boolean,
+): DegradedPollConfig<SeriesRecommendationsResponse> {
+  return {
+    enabled: pollWhileDegraded,
+    isDegraded: isHotDegraded,
+    intervalFor: () => RECS_POLL_MS,
+    maxTicks: RECS_MAX_TICKS,
+    mode: 'length-reset',
+    degradedLen: (d) => d?.degraded?.length ?? 0,
+  };
+}
+
 export function useSeriesRecommendations({
   seriesId,
   limit,
@@ -57,6 +82,9 @@ export function useSeriesRecommendations({
   const effectiveOffset = offset ?? DEFAULT_OFFSET;
   const effectiveLang = lang ?? '';
   const ready = (enabled ?? true) && typeof seriesId === 'number' && seriesId > 0;
+  const refetchInterval = useDegradedPollInterval(
+    recommendationsPollConfig(!!pollWhileDegraded),
+  );
   return useQuery<SeriesRecommendationsResponse>({
     queryKey: ready
       ? seriesRecommendationsQueryKey(seriesId as number, effectiveLimit, effectiveOffset, effectiveLang)
@@ -70,9 +98,6 @@ export function useSeriesRecommendations({
     enabled: ready,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
-    refetchInterval: (q) => {
-      if (!pollWhileDegraded) return false;
-      return isHotDegraded(q.state.data) ? 4_000 : false;
-    },
+    refetchInterval,
   });
 }

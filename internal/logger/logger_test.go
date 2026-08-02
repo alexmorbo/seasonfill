@@ -42,6 +42,50 @@ func TestNew_JSON_PropagatesTraceIDFromContext(t *testing.T) {
 	assert.Equal(t, "hello", entry["msg"])
 }
 
+// REGRESSION: a derived logger (.With) must keep injecting trace_id. Without a
+// re-wrapping WithAttrs on contextHandler, logger.With(...) unwraps the context
+// handler and trace_id silently stops flowing.
+func TestNew_JSON_DerivedLogger_KeepsTraceID_PlainHandler(t *testing.T) {
+	t.Parallel()
+
+	buf := &bytes.Buffer{}
+	lg := New(Config{Level: "debug", Format: "json", Output: buf})
+
+	derived := lg.With(slog.String("domain", "webhook"))
+	derived.InfoContext(WithTraceID(context.Background(), "trace-99"), "hi")
+
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &entry))
+	assert.Equal(t, "trace-99", entry["trace_id"])
+	assert.Equal(t, "webhook", entry["domain"])
+	assert.Equal(t, "hi", entry["msg"])
+}
+
+// REGRESSION: same guarantee on the real production path where a
+// DomainLevelHandler wraps the contextHandler. The re-wrap must survive both the
+// outer DomainLevelHandler.WithAttrs promotion AND the inner contextHandler
+// WithAttrs re-wrap so trace_id keeps flowing through a DomainLogger.
+func TestNew_JSON_DerivedLogger_KeepsTraceID_DomainLevelHandler(t *testing.T) {
+	t.Parallel()
+
+	buf := &bytes.Buffer{}
+	lg := New(Config{
+		Level:        "debug",
+		Format:       "json",
+		Output:       buf,
+		DomainLevels: map[string]slog.Level{"webhook": slog.LevelDebug},
+	})
+
+	derived := lg.With(slog.String("domain", "webhook"))
+	derived.InfoContext(WithTraceID(context.Background(), "trace-99"), "hi")
+
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &entry))
+	assert.Equal(t, "trace-99", entry["trace_id"])
+	assert.Equal(t, "webhook", entry["domain"])
+	assert.Equal(t, "hi", entry["msg"])
+}
+
 func TestNew_JSON_NoTraceID_NoFieldAdded(t *testing.T) {
 	t.Parallel()
 

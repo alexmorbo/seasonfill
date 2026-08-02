@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { SeriesCard } from '@/components/series/SeriesCard';
 import { DiscoverSkeleton } from './DiscoverSkeleton';
 import { WarmingBanner } from './WarmingBanner';
-import { useDegradedPolling, degradedRefetchInterval } from './useDegradedPolling';
+import { useDegradedPolling, useDegradedRefetchInterval } from './useDegradedPolling';
 
 const GRID_CLASS =
   'grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
@@ -37,7 +37,8 @@ function GridSkeleton() {
 // the user doesn't get spammed while React Query keeps a stale error).
 export function TrendingGrid() {
   const { t, i18n } = useTranslation();
-  const q = useDiscoveryTrending(toBcp47(i18n.resolvedLanguage), degradedRefetchInterval);
+  const refetchInterval = useDegradedRefetchInterval();
+  const q = useDiscoveryTrending(toBcp47(i18n.resolvedLanguage), refetchInterval);
   const polling = useDegradedPolling(q.data);
   const toastedRef = useRef(false);
   useEffect(() => {

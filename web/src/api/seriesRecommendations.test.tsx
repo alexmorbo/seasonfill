@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createDegradedPollInterval } from '@/hooks/useDegradedPollInterval';
 import {
   useSeriesRecommendations,
   seriesRecommendationsQueryKey,
   isHotDegraded,
+  recommendationsPollConfig,
   type SeriesRecommendationsResponse,
 } from './seriesRecommendations';
 
@@ -119,5 +121,35 @@ describe('isHotDegraded (REC-2 media_cold re-poll)', () => {
   it('is false for empty degraded and for an undefined response', () => {
     expect(isHotDegraded(resp([]))).toBe(false);
     expect(isHotDegraded(undefined)).toBe(false);
+  });
+});
+
+// HARDEN-1: a stuck media_cold poster (blob never downloads) must not poll
+// forever. Drive the hook's exact config via the non-React factory.
+describe('recommendations degraded poll cap', () => {
+  const hot = resp(['media_cold']); // length 1, hot
+
+  it('stops after 6 ticks at a stable degraded length', () => {
+    const poll = createDegradedPollInterval(recommendationsPollConfig(true));
+    for (let i = 0; i < 6; i += 1) expect(poll(hot)).toBe(4_000);
+    expect(poll(hot)).toBe(false);
+  });
+
+  it('resets the counter when degraded length changes (poll resumes)', () => {
+    const poll = createDegradedPollInterval(recommendationsPollConfig(true));
+    for (let i = 0; i < 6; i += 1) poll(hot);
+    expect(poll(hot)).toBe(false); // capped
+    expect(poll(resp(['media_cold', 'tmdb_series']))).toBe(4_000); // length 2 → resume
+  });
+
+  it('never polls when pollWhileDegraded is false', () => {
+    const poll = createDegradedPollInterval(recommendationsPollConfig(false));
+    expect(poll(hot)).toBe(false);
+  });
+
+  it('does not poll when the response is not hot-degraded', () => {
+    const poll = createDegradedPollInterval(recommendationsPollConfig(true));
+    expect(poll(resp(['sonarr_queue']))).toBe(false);
+    expect(poll(resp([]))).toBe(false);
   });
 });

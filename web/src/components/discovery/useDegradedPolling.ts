@@ -1,6 +1,10 @@
 import type { Query } from '@tanstack/react-query';
 import type { ApiError } from '@/lib/api';
 import type { DiscoveryListResponse } from '@/api/discovery';
+import {
+  useDegradedPollInterval,
+  type DegradedPollConfig,
+} from '@/hooks/useDegradedPollInterval';
 
 // Story 517 / N-3e: derives polling interval from `degraded`.
 // Pure utilities — no React state. Cold-start polls every 5s; TMDB
@@ -54,10 +58,40 @@ export function useDegradedPolling(
 
 // Stable callback form for React Query's `refetchInterval` option.
 // Reads the latest `query.state.data` on every poll so the interval
-// adapts as the server transitions degraded → healthy.
+// adapts as the server transitions degraded → healthy. Pure (uncapped)
+// interval mapping — the capped hook below wraps this via intervalFor.
 export function degradedRefetchInterval(
   query: Query<DiscoveryListResponse, ApiError>,
 ): number | false {
   const data = query.state.data;
   return intervalFor(classify(data), data);
+}
+
+// HARDEN-1: absolute tick ceiling for the discovery grids. Cold-start polls
+// the `intervalFor` interval (5s warming / retry_after_seconds throttle);
+// ~24 ticks ≈ 2 min gives comfortable headroom over the BE's default
+// warming_estimate_seconds=30s so a legitimate long cold-start is never cut
+// off, yet a poster that never warms cannot poll forever. Unlike overview/
+// recs, the discovery degraded flag is STABLE during warm-up, so a
+// length-reset would never fire — this is a pure ABSOLUTE ceiling on total
+// consecutive degraded ticks (the retry_after throttle VALUE is preserved).
+const DISCOVERY_MAX_TICKS = 24;
+export function discoveryPollConfig(): DegradedPollConfig<DiscoveryListResponse> {
+  return {
+    enabled: true,
+    isDegraded: (data) => classify(data) !== null,
+    intervalFor: (data) => intervalFor(classify(data), data),
+    maxTicks: DISCOVERY_MAX_TICKS,
+    mode: 'absolute',
+  };
+}
+
+// Hook wrapper the grids call: holds the tick counter across re-renders and
+// returns the `refetchInterval` callback the `useDiscovery*` hooks accept.
+// Because `degradedRefetchInterval` was passed bare, the stateful counter
+// now lives here (one instance per grid), replacing the uncapped bare fn.
+export function useDegradedRefetchInterval(): (
+  query: Query<DiscoveryListResponse, ApiError>,
+) => number | false {
+  return useDegradedPollInterval<DiscoveryListResponse>(discoveryPollConfig());
 }

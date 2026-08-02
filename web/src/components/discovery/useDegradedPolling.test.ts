@@ -3,7 +3,12 @@ import { renderHook } from '@testing-library/react';
 import type { Query } from '@tanstack/react-query';
 import type { ApiError } from '@/lib/api';
 import type { DiscoveryListResponse } from '@/api/discovery';
-import { useDegradedPolling, degradedRefetchInterval } from './useDegradedPolling';
+import { createDegradedPollInterval } from '@/hooks/useDegradedPollInterval';
+import {
+  useDegradedPolling,
+  degradedRefetchInterval,
+  discoveryPollConfig,
+} from './useDegradedPolling';
 
 describe('useDegradedPolling', () => {
   it('returns healthy state when data is undefined', () => {
@@ -83,5 +88,39 @@ describe('degradedRefetchInterval', () => {
     expect(degradedRefetchInterval(fakeQuery({
       items: [{ series_id: 1, tmdb_id: 1, title: 't' }],
     }))).toBe(false);
+  });
+});
+
+// HARDEN-1: the cold-start warming flag is STABLE, so the discovery poll uses
+// an ABSOLUTE tick ceiling (~24 ≈ 2 min) instead of a length-reset — a legit
+// long cold-start runs to the cap, a never-warming slice can't poll forever.
+describe('discoveryPollConfig — absolute cap', () => {
+  const warming: DiscoveryListResponse = { items: [], degraded: ['discovery_warming'] };
+  const healthy: DiscoveryListResponse = {
+    items: [{ series_id: 1, tmdb_id: 1, title: 't' }],
+  };
+
+  it('does NOT stop before the absolute cap (24 warming ticks at 5s)', () => {
+    const poll = createDegradedPollInterval(discoveryPollConfig());
+    for (let i = 0; i < 24; i += 1) expect(poll(warming)).toBe(5000);
+  });
+
+  it('stops exactly at the absolute cap even though the flag never changes', () => {
+    const poll = createDegradedPollInterval(discoveryPollConfig());
+    for (let i = 0; i < 24; i += 1) poll(warming);
+    expect(poll(warming)).toBe(false); // 25th tick — capped
+  });
+
+  it('honors the throttle interval value while under the cap', () => {
+    const poll = createDegradedPollInterval(discoveryPollConfig());
+    const throttled: DiscoveryListResponse = {
+      items: [], degraded: ['tmdb_throttled'], retry_after_seconds: 6,
+    };
+    expect(poll(throttled)).toBe(6000);
+  });
+
+  it('returns false when the slice is healthy', () => {
+    const poll = createDegradedPollInterval(discoveryPollConfig());
+    expect(poll(healthy)).toBe(false);
   });
 });

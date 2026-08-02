@@ -48,6 +48,14 @@ func (h contextHandler) Handle(ctx context.Context, r slog.Record) error {
 	return h.Handler.Handle(ctx, r)
 }
 
+func (h contextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return contextHandler{Handler: h.Handler.WithAttrs(attrs)}
+}
+
+func (h contextHandler) WithGroup(name string) slog.Handler {
+	return contextHandler{Handler: h.Handler.WithGroup(name)}
+}
+
 func New(cfg Config) *slog.Logger {
 	appLevel := parseLevel(cfg.Level)
 

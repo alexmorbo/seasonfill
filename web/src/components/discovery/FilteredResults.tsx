@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { SeriesCard } from '@/components/series/SeriesCard';
 import { DiscoverSkeleton } from './DiscoverSkeleton';
 import { WarmingBanner } from './WarmingBanner';
-import { useDegradedPolling, degradedRefetchInterval } from './useDegradedPolling';
+import { useDegradedPolling, useDegradedRefetchInterval } from './useDegradedPolling';
 
 const GRID_CLASS =
   'grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
@@ -32,8 +32,9 @@ export function FilteredResults({ filter, hasActiveFilter }: FilteredResultsProp
   const [page, setPage] = useState(1);
   // Local page wins over any URL `page`; resets when filter changes.
   const merged: DiscoveryFilter = { ...filter, page };
+  const refetchInterval = useDegradedRefetchInterval();
   const q = useDiscover(
-    merged, toBcp47(i18n.resolvedLanguage), hasActiveFilter, degradedRefetchInterval,
+    merged, toBcp47(i18n.resolvedLanguage), hasActiveFilter, refetchInterval,
   );
   const polling = useDegradedPolling(q.data);
   const toastedRef = useRef(false);
