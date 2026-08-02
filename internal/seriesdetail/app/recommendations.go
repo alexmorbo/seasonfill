@@ -52,6 +52,13 @@ const (
 	RecommendationsLimitMin     = 1
 )
 
+// RecPosterColdDegradedTag flags the recommendations response as degraded while
+// at least one rec poster's w342 blob is not yet warm (stored). Story REC-1 —
+// reuses the existing Degraded []string contract (NO new DTO field). The FE recs
+// query (REC-2) adds this exact string to its HOT_SOURCES set so pollWhileDegraded
+// re-polls until every cold rec poster warms and the tag drops.
+const RecPosterColdDegradedTag = "media_cold"
+
 // GetRecommendations returns the paginated recommendations slice for a
 // series. Hard-required path: cache → canon-id. Recommendations list
 // failure degrades with a "tmdb_series" tag rather than failing the
@@ -280,7 +287,12 @@ func (c *Composer) GetRecommendations(
 		end := min(offset+limit, len(resolved))
 		out.Items = resolved[offset:end]
 		out.HasMore = end < len(resolved)
-		c.resolveRecommendationsMedia(ctx, out.Items, localisedMedia, lang)
+		// REC-1 — per-item warm-gate: cold posters return the sentinel + a hot-lane
+		// warm enqueue; the response is degraded while any visible rec is un-warmed,
+		// so the FE re-polls (pollWhileDegraded) until every poster lands.
+		if c.resolveRecommendationsMedia(ctx, out.Items, localisedMedia, lang) {
+			out.Degraded = append(out.Degraded, RecPosterColdDegradedTag)
+		}
 	}
 
 	c.d.Logger.InfoContext(ctx, "series_recommendations_composed",
@@ -305,16 +317,27 @@ func (c *Composer) GetRecommendations(
 // reason-labeled counter + an Info log so the placeholder cause is observable in
 // prod. CHEAP: the common path (a real hash) does one pointer-deref compare and
 // no logging/labeling.
+//
+// Story REC-1 — per-item warm-gate. ResolveWarm returns (hash, warm): a stored
+// blob → real hash + warm=true (identical to the prior Resolve hit); a real path
+// whose blob is NOT yet stored → missing-art sentinel + warm=false AND a hot-lane
+// (interactive) warm enqueue of that w342 (mediaproxy priority pre-warm, NOT the
+// tier-3 batch scheduler). A rec with no poster at all (nil/empty raw) → sentinel
+// + warm=true (terminal monogram — nothing to warm, so it does NOT degrade).
+// Returns anyCold = true when at least one visible item is un-warmed, so the
+// caller flips the response degraded flag. The all-warm path (every real path
+// stored + any no-poster recs) is byte-for-byte identical to the prior behavior.
 func (c *Composer) resolveRecommendationsMedia(
 	ctx context.Context,
 	items []RecommendationDetail,
 	mediaByID map[domain.SeriesID]series.SeriesMediaText,
 	lang string,
-) {
+) bool {
 	r := c.d.MediaResolver
 	if r == nil {
-		return
+		return false
 	}
+	anyCold := false
 	for i := range items {
 		// S-E3a — poster raw path comes ONLY from series_media_texts
 		// (lang → en-US); canon carries no poster_asset. A miss → nil →
@@ -331,8 +354,11 @@ func (c *Composer) resolveRecommendationsMedia(
 				}
 			}
 		}
-		resolved := r.Resolve(ctx, raw, "w342", "poster_w342")
+		resolved, warm := r.ResolveWarm(ctx, raw, "w342", "poster_w342")
 		items[i].PosterAsset = resolved
+		if !warm {
+			anyCold = true
+		}
 
 		if reason, sentinel := classifyRecPosterSentinel(resolved, rowPresent, rawNonEmpty); sentinel {
 			observability.IncRecPosterSentinel(reason)
@@ -342,6 +368,7 @@ func (c *Composer) resolveRecommendationsMedia(
 				slog.String("reason", reason))
 		}
 	}
+	return anyCold
 }
 
 // classifyRecPosterSentinel returns (reason, true) when resolved is the

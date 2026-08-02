@@ -213,6 +213,63 @@ func (r *Resolver) Resolve(ctx context.Context, rawPath *string, size, kind stri
 	return r.resolveMiss(ctx, url, *rawPath, kind, unified)
 }
 
+// ResolveWarm is the recommendations cold-miss variant of Resolve (Story REC-1).
+// Alongside the wire hash it reports whether the blob is already WARM (stored),
+// so the recommendations composer can flip the response `degraded` flag while
+// any rec poster is still un-warmed.
+//
+// Contract under the unified always-emit-hash contract (production default):
+//   - nil / empty rawPath → (sentinel, warm=true). No poster to warm; the FE
+//     renders a monogram permanently. Terminal, so it does NOT degrade.
+//   - empty built URL     → (sentinel, warm=true). Same terminal case.
+//   - stored hit          → (real hash, warm=true). Byte-identical to Resolve.
+//   - store MISS (real path, blob not yet stored) → (sentinel, warm=false) AND a
+//     fire-and-forget HOT-LANE enqueue onto the mediaproxy priority pre-warm
+//     pipeline (NOT the tier-3 batch scheduler) so the blob warms out-of-band.
+//     The composer sets degraded=true; the FE re-polls until the blob lands and
+//     the next ResolveWarm returns the real hash.
+//
+// Unlike Resolve, the miss path returns the SENTINEL (→ FE monogram) instead of
+// the eager content-hash (→ /media cold-miss placeholder SVG), and does NOT write
+// an EnsurePending row: the hot enqueue carries the source URL itself, and the
+// downloader Upserts the stored row on success (source_url match on next poll).
+//
+// Unified contract OFF (env kill-switch): delegates to Resolve verbatim and
+// reports warm=true — legacy nil-on-miss behavior preserved, no new degrade signal.
+func (r *Resolver) ResolveWarm(ctx context.Context, rawPath *string, size, kind string) (*string, bool) {
+	if r == nil || r.lookup == nil {
+		return nil, true
+	}
+	if !r.unifiedResolve.Load() {
+		return r.Resolve(ctx, rawPath, size, kind), true
+	}
+	if rawPath == nil || *rawPath == "" {
+		r.emitSentinel(ctx, "nil_path", kind, "")
+		h := appmedia.SentinelMissingHash
+		return &h, true
+	}
+	url := appmedia.BuildTMDBImageURL(size, *rawPath)
+	if url == "" {
+		r.emitSentinel(ctx, "empty_url", kind, *rawPath)
+		h := appmedia.SentinelMissingHash
+		return &h, true
+	}
+	hash, err := r.lookup.HashForSourceURL(ctx, url)
+	if err == nil && hash != "" {
+		return &hash, true
+	}
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
+		r.logger.DebugContext(ctx, "media_resolver.lookup_error",
+			slog.String("kind", kind),
+			slog.String("source_url", url),
+			slog.String("error", err.Error()))
+	}
+	// Store miss — hot-lane warm + sentinel (→ FE monogram) + degrade signal.
+	r.enqueueAsync(ctx, url, kind, appmedia.ExtractExt(*rawPath))
+	h := appmedia.SentinelMissingHash
+	return &h, false
+}
+
 // resolveMiss runs the post-lookup miss path shared by Resolve and ResolveBatch.
 // url is the already-built CDN URL (non-empty); rawPath is the original path
 // (for the extension); unified is the loaded flag snapshot. Byte-identical to the

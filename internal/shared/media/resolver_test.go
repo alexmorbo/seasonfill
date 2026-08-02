@@ -553,3 +553,93 @@ func TestResolver_ResolveBatch_UnifiedParity(t *testing.T) {
 	require.Len(t, bLookup.ensureCalls, 1)
 	assert.Equal(t, oLookup.ensureCalls[0].sourceURL, bLookup.ensureCalls[0].sourceURL)
 }
+
+func TestResolver_ResolveWarm_Table(t *testing.T) {
+	storedHash := "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	const storedURL = "https://image.tmdb.org/t/p/w342/abc.jpg"
+	sentinel := appmedia.SentinelMissingHash
+	stored := "/abc.jpg"
+	cold := "/cold.jpg"
+	empty := ""
+	blank := "   "
+
+	cases := []struct {
+		name        string
+		unified     bool
+		raw         *string
+		wantHashPtr *string // nil = expect nil pointer
+		wantWarm    bool
+		wantEnqueue []string // upstream URLs expected on the hot lane
+	}{
+		{
+			name:    "stored_hit_real_hash_warm_no_enqueue",
+			unified: true, raw: &stored,
+			wantHashPtr: &storedHash, wantWarm: true, wantEnqueue: nil,
+		},
+		{
+			name:    "store_miss_sentinel_cold_hot_enqueue",
+			unified: true, raw: &cold,
+			wantHashPtr: &sentinel, wantWarm: false,
+			wantEnqueue: []string{"https://image.tmdb.org/t/p/w342/cold.jpg"},
+		},
+		{
+			name:    "nil_raw_sentinel_warm_no_enqueue",
+			unified: true, raw: nil,
+			wantHashPtr: &sentinel, wantWarm: true, wantEnqueue: nil,
+		},
+		{
+			name:    "empty_raw_sentinel_warm_no_enqueue",
+			unified: true, raw: &empty,
+			wantHashPtr: &sentinel, wantWarm: true, wantEnqueue: nil,
+		},
+		{
+			name:    "blank_raw_empty_url_sentinel_warm_no_enqueue",
+			unified: true, raw: &blank,
+			wantHashPtr: &sentinel, wantWarm: true, wantEnqueue: nil,
+		},
+		{
+			// Kill-switch: legacy contract → delegates to Resolve (nil on miss),
+			// reports warm=true (no degrade signal). Resolve's legacy miss still
+			// async-enqueues, so the hot lane sees the cold URL.
+			name:    "legacy_off_miss_nil_warm",
+			unified: false, raw: &cold,
+			wantHashPtr: nil, wantWarm: true,
+			wantEnqueue: []string{"https://image.tmdb.org/t/p/w342/cold.jpg"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enq := &stubEnqueuer{}
+			r := NewResolver(&fakeMediaLookup{byURL: map[string]string{storedURL: storedHash}},
+				enq, nil, silentResolverLogger())
+			r.SetUnifiedResolve(tc.unified)
+
+			got, warm := r.ResolveWarm(context.Background(), tc.raw, "w342", "poster_w342")
+
+			assert.Equal(t, tc.wantWarm, warm, "warm")
+			if tc.wantHashPtr == nil {
+				assert.Nil(t, got)
+			} else {
+				require.NotNil(t, got)
+				assert.Equal(t, *tc.wantHashPtr, *got)
+			}
+
+			var gotURLs []string
+			for _, batch := range enq.calls {
+				for _, req := range batch {
+					gotURLs = append(gotURLs, req.UpstreamURL)
+				}
+			}
+			assert.Equal(t, tc.wantEnqueue, gotURLs, "hot-lane enqueue URLs")
+		})
+	}
+}
+
+func TestResolver_ResolveWarm_NopResolver(t *testing.T) {
+	r := NewNopResolver()
+	p := "/abc.jpg"
+	got, warm := r.ResolveWarm(context.Background(), &p, "w342", "poster_w342")
+	assert.Nil(t, got)
+	assert.True(t, warm)
+}

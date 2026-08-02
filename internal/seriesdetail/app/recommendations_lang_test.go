@@ -13,6 +13,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // recFakeTextsBatch implements SeriesTextsPort. Per-id map lets tests
@@ -139,8 +140,14 @@ func TestComposerGetRecommendations_LangLocalisesPresentPosters(t *testing.T) {
 			10: {SeriesID: 10, Language: "ru-RU", PosterAsset: new("/ru.jpg")},
 		},
 	}
-	resolver := skEagerResolver()
-	resolver.SetUnifiedResolve(true) // Resolve mints eager hash on miss
+	// REC-1 — the recs path now warm-gates via ResolveWarm: a cold store-miss
+	// returns the sentinel (not the eager hash), so to prove the ru-RU raw path
+	// reaches the resolver the /ru.jpg w342 blob is stored → its real hash.
+	const hashRu = "cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333"
+	resolver := media.NewResolver(
+		&warmFakeLookup{stored: map[string]string{warmURL("/ru.jpg"): hashRu}},
+		nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	resolver.SetUnifiedResolve(true)
 	c := NewComposer(Deps{
 		SeriesCache:      &ovFakeCache{entries: cache},
 		Series:           &ovFakeSeries{rows: canonByID},
@@ -155,10 +162,10 @@ func TestComposerGetRecommendations_LangLocalisesPresentPosters(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, len(out.Items))
 	require.NotNil(t, out.Items[0].PosterAsset)
-	require.Equal(t, skEagerHash("/ru.jpg", "w342"), *out.Items[0].PosterAsset,
-		"localised poster wins when ru-RU row present")
-	// S-E3a — no per-lang row → nil raw path; the unified-resolve resolver mints
-	// the missing-sentinel hash (FE renders the monogram). No canon fallback.
+	require.Equal(t, hashRu, *out.Items[0].PosterAsset,
+		"localised poster wins when ru-RU row present (warm hit → real hash)")
+	// S-E3a — no per-lang row → nil raw path; ResolveWarm mints the missing
+	// sentinel hash (FE renders the monogram). No canon fallback.
 	require.NotNil(t, out.Items[1].PosterAsset)
 	require.Equal(t, appmedia.SentinelMissingHash, *out.Items[1].PosterAsset,
 		"no per-lang row → sentinel-missing hash (canon poster fallback removed in S-E3a)")
