@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -334,6 +335,7 @@ func (u *UseCase) publish(ctx context.Context) error {
 		GlobalRateLimit: row.GlobalRateLimit, Auth: row.Auth,
 		Instances: insts,
 	}
+	observability.CheckRateOversubscription(ctx, u.logger, snap.GlobalRateLimit.RPM, insts)
 	if u.bus != nil {
 		u.bus.Publish(ctx, snap)
 	}

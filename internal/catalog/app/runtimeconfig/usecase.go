@@ -17,6 +17,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -277,6 +278,7 @@ func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error
 		Instances:    insts,
 		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), row.GUIDRewrites...),
 	}
+	observability.CheckRateOversubscription(ctx, u.logger, snap.GlobalRateLimit.RPM, insts)
 	if u.bus != nil {
 		u.bus.Publish(ctx, snap)
 	}

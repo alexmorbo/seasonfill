@@ -853,6 +853,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 
 	// Re-publish the boot snapshot now that subscribers are alive
 	// — they all apply it once and increment their success metric.
+	observability.CheckRateOversubscription(rootCtx, log, snap.GlobalRateLimit.RPM, snap.Instances)
 	bus.Publish(rootCtx, snap)
 
 	// No-op in production (testcontext_stub.go); E2E builds use it to
