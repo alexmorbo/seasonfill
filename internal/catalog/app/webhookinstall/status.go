@@ -76,22 +76,19 @@ func PublicURLFromContext(ctx context.Context) string {
 	return ""
 }
 
-// PublicURLWithFallback returns a PublicURLFunc that resolves the
-// per-request X-Forwarded public URL from context, falling back to the
-// configured base URL (SEASONFILL_WEBHOOK_BASE_URL) when the context
-// value is empty. This lets the context-less background 5-min reconcile
-// and the pod-restart lazy reconcile resolve a base URL out of the box.
+// PublicURLWithFallback returns a PublicURLFunc that resolves to the
+// configured base URL (SEASONFILL_WEBHOOK_BASE_URL). It deliberately does
+// NOT consult the per-request X-Forwarded value: Sonarr calls seasonfill
+// in-cluster (http://seasonfill:8080, env always set), so a public
+// X-Forwarded host derived from a browser request would be an actively
+// wrong install URL for an internal caller (SI-3).
 //
-// Precedence, top to bottom: the per-instance WebhookURLOverride is
-// applied on top by snap.WebhookBaseURL inside the reconciler, then the
-// per-request context value returned here, then the configured
-// fallback. When all three are empty the reconciler keeps its existing
+// Precedence, top to bottom: the per-instance WebhookURLOverride is applied
+// on top by snap.WebhookBaseURL inside the reconciler, then this configured
+// fallback. When both are empty the reconciler keeps its existing
 // "public_url undetermined" sentinel.
 func PublicURLWithFallback(fallback string) PublicURLFunc {
-	return func(ctx context.Context) string {
-		if v := PublicURLFromContext(ctx); v != "" {
-			return v
-		}
+	return func(context.Context) string {
 		return fallback
 	}
 }

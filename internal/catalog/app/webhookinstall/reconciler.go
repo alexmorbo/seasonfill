@@ -144,14 +144,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, instanceName string) (Status
 	}
 
 	if match == nil {
-		created, err := notifier.CreateNotification(ctx, sonarr.NotificationPayload{
+		payload := sonarr.NotificationPayload{
 			Name:           "seasonfill",
 			URL:            expectedURL,
 			APIKeyHeader:   r.apiKey,
 			TemplateFields: pickTemplateFields(existing),
-		})
+		}
+		created, err := notifier.CreateNotification(ctx, payload)
 		if err != nil {
 			return r.recordFailure(ctx, instanceName, now, "create_notification", err), err
+		}
+		// Gate: only mark Installed once Sonarr proves it can actually
+		// deliver to us (URL reachable + auth accepted). A failed round-trip
+		// records LastError + NextRetryAt and does NOT flip Installed:true.
+		if err := notifier.TestNotification(ctx, payload); err != nil {
+			return r.recordFailure(ctx, instanceName, now, "test_notification", err), err
 		}
 		r.rememberAchieved(instanceName, created)
 		st := r.successStatus(now, created.ID, expectedURL)
@@ -170,11 +177,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, instanceName string) (Status
 		return st, nil
 	}
 
-	updated, err := notifier.UpdateNotification(ctx, *match, sonarr.NotificationPayload{
+	updatePayload := sonarr.NotificationPayload{
 		Name: "seasonfill", URL: expectedURL, APIKeyHeader: r.apiKey,
-	})
+	}
+	updated, err := notifier.UpdateNotification(ctx, *match, updatePayload)
 	if err != nil {
 		return r.recordFailure(ctx, instanceName, now, "update_notification", err), err
+	}
+	// Gate: same round-trip verification as the create path. updatePayload
+	// mirrors exactly what UpdateNotification received, so the test exercises
+	// the URL + auth we just wrote.
+	if err := notifier.TestNotification(ctx, updatePayload); err != nil {
+		return r.recordFailure(ctx, instanceName, now, "test_notification", err), err
 	}
 	r.rememberAchieved(instanceName, updated)
 	st := r.successStatus(now, updated.ID, expectedURL)

@@ -231,6 +231,49 @@ func (c *Client) CreateNotification(ctx context.Context, p NotificationPayload) 
 	return notificationFromDTO(resp), nil
 }
 
+// TestNotification asks Sonarr to exercise the Webhook notification
+// end-to-end via POST /api/v3/notification/test. Sonarr builds the same
+// payload a real event would and POSTs it to our URL with the configured
+// headers; a 2xx means Sonarr could reach seasonfill AND our auth was
+// accepted. Any non-2xx or transport error is returned verbatim (mapped
+// to *StatusError / ErrInstanceUnauthorized / ErrInstanceNetwork by the
+// transport layer) so a webhook that installs but cannot actually deliver
+// surfaces instead of being silently marked Installed.
+//
+// The body mirrors CreateNotification exactly (Webhook + WebhookSettings +
+// buildNotificationFields + the full desired trigger set) so the round-trip
+// tests the shape we persist. The test endpoint returns no body we need,
+// hence out=nil — decoding an empty response would yield a false EOF error,
+// which is why this does NOT route through submitNotification.
+//
+// Unsupported-trigger fallback matches submitNotification: an older Sonarr
+// that rejects a newer trigger with HTTP 400 gets exactly one retry with the
+// newer triggers dropped, so the gate does not false-fail on the same Sonarr
+// versions Create/Update already accommodate. All other errors propagate.
+func (c *Client) TestNotification(ctx context.Context, p NotificationPayload) error {
+	body := notificationDTO{
+		Name:           p.Name,
+		Implementation: "Webhook",
+		ConfigContract: "WebhookSettings",
+		Fields:         buildNotificationFields(p),
+	}
+	setDesiredTriggers(&body)
+	const endpoint = "/api/v3/notification/test"
+	err := c.post(ctx, endpoint, body, nil)
+	if err == nil {
+		return nil
+	}
+	if !isUnsupportedTriggerErr(err) {
+		return err
+	}
+	c.logger.WarnContext(ctx, "sonarr_notification_test_unsupported_triggers_fallback",
+		slog.String("instance", string(c.name)),
+		slog.String("error", err.Error()),
+	)
+	dropUnsupportedTriggers(&body)
+	return c.post(ctx, endpoint, body, nil)
+}
+
 // UpdateNotification PUTs an existing Webhook notification by ID,
 // rewriting `url` + `headers` while preserving any other field the
 // caller carried in `existing.Fields` (version-variance defence —

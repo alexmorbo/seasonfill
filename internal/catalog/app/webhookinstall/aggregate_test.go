@@ -35,6 +35,10 @@ func (n *fakeReconcileNotifier) UpdateNotification(_ context.Context, existing s
 	return existing, nil
 }
 
+func (n *fakeReconcileNotifier) TestNotification(context.Context, sonarr.NotificationPayload) error {
+	return nil
+}
+
 func (n *fakeReconcileNotifier) DeleteNotification(context.Context, int) error { return nil }
 
 func TestAggregate_MixedInstalledAndError(t *testing.T) {

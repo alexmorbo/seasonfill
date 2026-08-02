@@ -22,18 +22,21 @@ import (
 // persisting exactly what it accepted, so the next reconcile's LIST
 // sees the achieved set.
 type fakeNotifier struct {
-	list             []sonarr.Notification
-	listErr          error
-	createCall       *sonarr.NotificationPayload
-	createResp       sonarr.Notification
-	createErr        error
-	updateExisting   *sonarr.Notification
-	updateResp       sonarr.Notification
-	updateErr        error
-	updateCalls      int
-	syncListOnUpdate bool
-	deleteIDs        []int
-	deleteErr        error
+	list               []sonarr.Notification
+	listErr            error
+	createCall         *sonarr.NotificationPayload
+	createResp         sonarr.Notification
+	createErr          error
+	updateExisting     *sonarr.Notification
+	updateResp         sonarr.Notification
+	updateErr          error
+	updateCalls        int
+	testNotificationFn func(sonarr.NotificationPayload) error
+	testCall           *sonarr.NotificationPayload
+	testCalls          int
+	syncListOnUpdate   bool
+	deleteIDs          []int
+	deleteErr          error
 }
 
 func (f *fakeNotifier) ListNotifications(context.Context) ([]sonarr.Notification, error) {
@@ -63,6 +66,15 @@ func (f *fakeNotifier) UpdateNotification(_ context.Context, e sonarr.Notificati
 		}}
 	}
 	return f.updateResp, f.updateErr
+}
+func (f *fakeNotifier) TestNotification(_ context.Context, p sonarr.NotificationPayload) error {
+	pp := p
+	f.testCall = &pp
+	f.testCalls++
+	if f.testNotificationFn != nil {
+		return f.testNotificationFn(p)
+	}
+	return nil
 }
 func (f *fakeNotifier) DeleteNotification(_ context.Context, id int) error {
 	f.deleteIDs = append(f.deleteIDs, id)
@@ -369,5 +381,83 @@ func TestReconcile_NoRetryStormWhenOldSonarrDropsTriggers(t *testing.T) {
 	}
 	if n.updateCalls != 1 {
 		t.Fatalf("retry storm: expected updates to stay at 1, got %d", n.updateCalls)
+	}
+}
+
+func TestReconcile_CreateTestNotificationPassesInstalls(t *testing.T) {
+	t.Parallel()
+	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
+	n := &fakeNotifier{createResp: sonarr.Notification{ID: 7, Implementation: "Webhook"}}
+	r, _ := newReconciler(t, snap, n, "https://sf.example")
+	st, err := r.Reconcile(context.Background(), "alpha")
+	if err != nil || !st.Installed || st.NotificationID == nil || *st.NotificationID != 7 {
+		t.Fatalf("expected Installed on passing test: %+v err=%v", st, err)
+	}
+	if n.testCalls != 1 {
+		t.Fatalf("expected TestNotification called exactly once, got %d", n.testCalls)
+	}
+	if n.testCall == nil || n.testCall.URL != "https://sf.example/api/v1/webhook/sonarr/alpha" {
+		t.Fatalf("test payload must mirror the create URL: %+v", n.testCall)
+	}
+}
+
+func TestReconcile_CreateTestNotificationFailsBlocksInstalled(t *testing.T) {
+	t.Parallel()
+	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
+	n := &fakeNotifier{
+		createResp:         sonarr.Notification{ID: 7, Implementation: "Webhook"},
+		testNotificationFn: func(sonarr.NotificationPayload) error { return errors.New("sonarr could not reach seasonfill") },
+	}
+	r, cache := newReconciler(t, snap, n, "https://sf.example")
+	st, err := r.Reconcile(context.Background(), "alpha")
+	if err == nil {
+		t.Fatalf("expected error when the test round-trip fails")
+	}
+	if st.Installed {
+		t.Fatalf("webhook must NOT be Installed when Sonarr cannot deliver: %+v", st)
+	}
+	if st.LastError == nil || st.NextRetryAt == nil {
+		t.Fatalf("expected LastError + NextRetryAt on test failure: %+v", st)
+	}
+	if n.createCall == nil {
+		t.Fatalf("create must be attempted before the test gate")
+	}
+	if n.testCalls != 1 {
+		t.Fatalf("expected exactly one TestNotification call, got %d", n.testCalls)
+	}
+	cur, _ := cache.Get("alpha")
+	if cur.Installed {
+		t.Fatalf("cache must not carry Installed=true after a failed test")
+	}
+}
+
+func TestReconcile_UpdateTestNotificationFailsBlocksInstalled(t *testing.T) {
+	t.Parallel()
+	snap := runtime.InstanceSnapshot{Name: "alpha", WebhookInstallEnabled: true}
+	// URL differs from expected → the reconciler takes the update path.
+	n := &fakeNotifier{
+		list: []sonarr.Notification{{
+			ID: 42, Implementation: "Webhook",
+			Fields: []sonarr.NotificationField{{Name: "url", Value: "https://old.example/api/v1/webhook/sonarr/alpha"}},
+		}},
+		updateResp:         sonarr.Notification{ID: 42, Implementation: "Webhook"},
+		testNotificationFn: func(sonarr.NotificationPayload) error { return errors.New("401 from seasonfill") },
+	}
+	r, _ := newReconciler(t, snap, n, "https://sf.example")
+	st, err := r.Reconcile(context.Background(), "alpha")
+	if err == nil {
+		t.Fatalf("expected error when the update test round-trip fails")
+	}
+	if st.Installed {
+		t.Fatalf("webhook must NOT be Installed when the update test fails: %+v", st)
+	}
+	if n.updateExisting == nil {
+		t.Fatalf("update must be attempted before the test gate")
+	}
+	if n.testCalls != 1 {
+		t.Fatalf("expected exactly one TestNotification call, got %d", n.testCalls)
+	}
+	if st.LastError == nil || st.NextRetryAt == nil {
+		t.Fatalf("expected LastError + NextRetryAt on test failure: %+v", st)
 	}
 }

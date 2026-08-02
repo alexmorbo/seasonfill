@@ -38,6 +38,9 @@ func (s *stubNotifier) CreateNotification(_ context.Context, _ sonarr.Notificati
 func (s *stubNotifier) UpdateNotification(_ context.Context, _ sonarr.Notification, _ sonarr.NotificationPayload) (sonarr.Notification, error) {
 	return sonarr.Notification{}, nil
 }
+func (s *stubNotifier) TestNotification(_ context.Context, _ sonarr.NotificationPayload) error {
+	return nil
+}
 func (s *stubNotifier) DeleteNotification(_ context.Context, _ int) error { return nil }
 
 func newInstallTestRig(t *testing.T, snap runtime.InstanceSnapshot, n webhookinstall.SonarrNotifier, publicURL string) *gin.Engine {

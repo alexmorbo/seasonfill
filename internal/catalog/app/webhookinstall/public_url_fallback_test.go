@@ -10,12 +10,16 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
-func TestPublicURLWithFallback_ContextValueWins(t *testing.T) {
+func TestPublicURLWithFallback_ContextValueIgnored(t *testing.T) {
 	t.Parallel()
+	// SI-3: the per-request X-Forwarded value is deliberately ignored — an
+	// internal Sonarr caller must resolve to the configured env base URL, not
+	// a public browser-derived host. The configured fallback wins even when a
+	// context value is present.
 	f := PublicURLWithFallback("https://configured.example")
 	ctx := context.WithValue(context.Background(), RequestPublicURLKey{}, "https://request.example")
-	if got := f(ctx); got != "https://request.example" {
-		t.Fatalf("expected context value to win, got %q", got)
+	if got := f(ctx); got != "https://configured.example" {
+		t.Fatalf("expected configured fallback to win over per-request context, got %q", got)
 	}
 }
 

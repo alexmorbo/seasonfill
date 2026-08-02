@@ -41,6 +41,9 @@ func (n *aggFakeNotifier) CreateNotification(_ context.Context, w sonarr.Notific
 func (n *aggFakeNotifier) UpdateNotification(_ context.Context, existing sonarr.Notification, w sonarr.NotificationPayload) (sonarr.Notification, error) {
 	return existing, nil
 }
+func (n *aggFakeNotifier) TestNotification(context.Context, sonarr.NotificationPayload) error {
+	return nil
+}
 func (n *aggFakeNotifier) DeleteNotification(context.Context, int) error { return nil }
 
 func TestWebhooksAggregateHandler_MixedStatesRoundTrip(t *testing.T) {

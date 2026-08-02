@@ -16,6 +16,11 @@ type SonarrNotifier interface {
 	ListNotifications(ctx context.Context) ([]sonarr.Notification, error)
 	CreateNotification(ctx context.Context, p sonarr.NotificationPayload) (sonarr.Notification, error)
 	UpdateNotification(ctx context.Context, existing sonarr.Notification, p sonarr.NotificationPayload) (sonarr.Notification, error)
+	// TestNotification asks Sonarr to exercise the webhook end-to-end
+	// (POST /api/v3/notification/test). The reconciler gates Installed:true
+	// on its success so a webhook that installs but cannot deliver surfaces
+	// as LastError rather than a silent green badge.
+	TestNotification(ctx context.Context, p sonarr.NotificationPayload) error
 	DeleteNotification(ctx context.Context, id int) error
 }
 

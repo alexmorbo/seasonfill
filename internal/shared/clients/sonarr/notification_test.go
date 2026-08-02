@@ -457,3 +457,102 @@ func TestNotificationFromDTO_SurfacesSeriesTriggers(t *testing.T) {
 	assert.True(t, n.OnSeriesAdd)
 	assert.False(t, n.OnSeriesDelete)
 }
+
+func TestClient_TestNotification_Success(t *testing.T) {
+	t.Parallel()
+	var gotPath, gotBody string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification/test", func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		buf, _ := io.ReadAll(r.Body)
+		gotBody = string(buf)
+		w.WriteHeader(http.StatusOK)
+	})
+	c := newNotifTestClient(t, mux)
+	err := c.TestNotification(context.Background(), NotificationPayload{
+		Name: "seasonfill", URL: "https://x/y", APIKeyHeader: "k",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v3/notification/test", gotPath)
+	assert.Contains(t, gotBody, `"implementation":"Webhook"`)
+	assert.Contains(t, gotBody, `"configContract":"WebhookSettings"`)
+	assert.Contains(t, gotBody, `"onGrab":true`)
+	assert.Contains(t, gotBody, `"onDownload":true`)
+	assert.Contains(t, gotBody, `"value":"https://x/y"`)
+	assert.Contains(t, gotBody, `"key":"X-Api-Key"`)
+	assert.Contains(t, gotBody, `"value":"k"`)
+}
+
+func TestClient_TestNotification_Non2xxReturnsError(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification/test", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"Unable to connect to seasonfill"}`))
+	})
+	c := newNotifTestClient(t, mux)
+	err := c.TestNotification(context.Background(), NotificationPayload{
+		Name: "seasonfill", URL: "https://x/y", APIKeyHeader: "k",
+	})
+	require.Error(t, err, "a non-2xx test result must surface so Installed is NOT set")
+	var se *StatusError
+	require.True(t, errors.As(err, &se))
+	assert.Equal(t, http.StatusBadRequest, se.Status)
+}
+
+func TestClient_TestNotification_500ReturnsError(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification/test", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	c := newNotifTestClient(t, mux)
+	err := c.TestNotification(context.Background(), NotificationPayload{
+		Name: "seasonfill", URL: "https://x/y", APIKeyHeader: "k",
+	})
+	require.Error(t, err)
+	var se *StatusError
+	require.True(t, errors.As(err, &se))
+	assert.Equal(t, http.StatusInternalServerError, se.Status)
+}
+
+func TestClient_TestNotification_Unauthorized(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification/test", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	c := newNotifTestClient(t, mux)
+	err := c.TestNotification(context.Background(), NotificationPayload{
+		Name: "seasonfill", URL: "https://x/y", APIKeyHeader: "k",
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
+}
+
+func TestClient_TestNotification_FallbackOnUnknownTrigger(t *testing.T) {
+	t.Parallel()
+	var bodies []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/notification/test", func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(buf))
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errors":[{"propertyName":"OnSeriesAdd","errorMessage":"is not a recognized trigger"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	c := newNotifTestClient(t, mux)
+	err := c.TestNotification(context.Background(), NotificationPayload{
+		Name: "seasonfill", URL: "https://x/y", APIKeyHeader: "k",
+	})
+	require.NoError(t, err, "an old Sonarr rejecting a newer trigger must retry without it, mirroring Create/Update")
+	require.Len(t, bodies, 2, "exactly two POSTs: original + fallback")
+	assert.Contains(t, bodies[0], `"onSeriesAdd":true`, "first attempt includes the newer trigger")
+	assert.NotContains(t, bodies[1], `"onSeriesAdd":true`, "fallback drops onSeriesAdd (omitempty)")
+	assert.Contains(t, bodies[1], `"onGrab":true`, "fallback keeps the Phase-10 core")
+	assert.Contains(t, bodies[1], `"onDownload":true`)
+	assert.Contains(t, bodies[1], `"onDownloadFailure":true`)
+}
