@@ -14,9 +14,11 @@ import {
   useInstanceDetail,
   useSaveInstanceWithQbit,
   useTestInstance,
+  useInstanceMetadataProbe,
   type InstanceCreateRequest,
   type InstanceUpdateRequest,
   type InstanceDetail,
+  type InstanceMetadataResponse,
 } from '@/lib/instances-mutations';
 import {
   DtoInstanceCooldownMode,
@@ -146,6 +148,8 @@ const baseShape = {
   retry_max_backoff_sec: int(0, 3600, 'retry_max_backoff'),
   health_recheck_auth_sec: int(10, 86400, 'health_recheck_auth'),
   health_recheck_network_sec: int(10, 86400, 'health_recheck_network'),
+  default_quality_profile_id: z.number().int().nullable(),
+  default_root_folder_path: z.string().nullable(),
 };
 
 const qbitShape = {
@@ -242,6 +246,8 @@ function formFromDetail(d: InstanceDetail): Omit<FormValues, keyof typeof WATCHD
     retry_max_backoff_sec: d.retry?.max_backoff_sec ?? FORM_DEFAULTS.retry_max_backoff_sec,
     health_recheck_auth_sec: d.health_check?.recheck_auth_sec ?? FORM_DEFAULTS.health_recheck_auth_sec,
     health_recheck_network_sec: d.health_check?.recheck_network_sec ?? FORM_DEFAULTS.health_recheck_network_sec,
+    default_quality_profile_id: d.default_quality_profile_id ?? null,
+    default_root_folder_path: d.default_root_folder_path ?? null,
   };
 }
 
@@ -297,6 +303,16 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
   if (pu !== '') out = { ...out, public_url: pu };
   const wo = v.webhook_url_override.trim();
   if (wo !== '') out = { ...out, webhook_url_override: wo };
+  // ADR-0009 S7: default pickers. Omit when null (== BE clear-to-NULL).
+  // Always carries the seeded value on an untouched edit, so save never
+  // wipes a stored default (no COALESCE guard on the BE PUT path).
+  if (v.default_quality_profile_id != null) {
+    out = { ...out, default_quality_profile_id: v.default_quality_profile_id };
+  }
+  const rf = (v.default_root_folder_path ?? '').trim();
+  if (rf !== '') {
+    out = { ...out, default_root_folder_path: rf };
+  }
   return out;
 }
 
@@ -307,7 +323,12 @@ export function InstanceFormDialog({
   const isEdit = mode === 'edit';
   const probe = useTestInstance();
   const save = useSaveInstanceWithQbit();
+  const metadataProbe = useInstanceMetadataProbe();
   const [probeResult, setProbeResult] = useState<string | null>(null);
+  // ADR-0009 S7: metadata for the default pickers. Lifted into local state
+  // (mirrors probeResult) so a background detail/qbit refetch of the
+  // form-populate effect can't wipe it. Cleared on the close transition.
+  const [metadata, setMetadata] = useState<InstanceMetadataResponse | null>(null);
   // Accordion open keys — local state so background refetches cannot
   // collapse the user's section. Default = connection open only.
   const [openSections, setOpenSections] = useState<string[]>(['connection']);
@@ -344,7 +365,15 @@ export function InstanceFormDialog({
   // Reset the open-transition gate whenever the dialog closes. Next
   // open-transition will be allowed to seed openSections exactly once.
   useEffect(() => {
-    if (!open) openedRef.current = false;
+    if (!open) {
+      openedRef.current = false;
+      // reason: close-transition reset of the metadata side-state (mirrors
+      // the setProbeResult(null) reset in the form-populate effect). A
+      // derive-during-render refactor would need a prev-open tuple; not
+      // worth it for a one-shot clear on close.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMetadata(null);
+    }
   }, [open]);
 
   // Section-seed: runs ONLY on the open-transition. Decoupled from
@@ -476,6 +505,7 @@ export function InstanceFormDialog({
 
   const onTest = async () => {
     setProbeResult(null);
+    setMetadata(null);
     const { url, api_key } = getValues();
     if (!url || !api_key) {
       setProbeResult(t('settings.instances.form.probeNeedsCredentials'));
@@ -487,6 +517,15 @@ export function InstanceFormDialog({
         setProbeResult(resp.version && resp.version.length > 0
           ? t('settings.instances.form.probeConnected', { version: resp.version })
           : t('settings.instances.form.probeConnectedUnknownVersion'));
+        // ADR-0009 S7: connectivity is good → load the default-picker
+        // metadata with the SAME creds. Best-effort; a failure leaves the
+        // dropdowns empty (probeResult already reported success).
+        try {
+          const meta = await metadataProbe.mutateAsync({ url, api_key });
+          setMetadata(meta);
+        } catch {
+          setMetadata(null);
+        }
       } else {
         setProbeResult(resp.reason || t('settings.instances.form.probeConnectionFailed'));
       }
@@ -582,6 +621,10 @@ export function InstanceFormDialog({
                 register={register as unknown as any}
                 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
                 errors={errors as unknown as any}
+                qualityProfiles={metadata?.quality_profiles ?? []}
+                rootFolders={metadata?.root_folders ?? []}
+                metadataReady={Boolean(metadata)}
+                metadataLoading={metadataProbe.isPending}
                 tValidationError={tValErr}
               />
             </AccordionSection>

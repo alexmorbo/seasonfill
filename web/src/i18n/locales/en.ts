@@ -1437,6 +1437,13 @@ export const en = {
           tagsExcludeLabel: 'Tags exclude',
           tagsExcludePlaceholder: '—',
           advancedHeading: 'Advanced',
+          defaultsHeading: 'Add-to-Sonarr defaults',
+          defaultsNeedTestHint: 'Test the connection to load quality profiles and root folders.',
+          defaultsLoading: 'Loading…',
+          defaultQualityProfileLabel: 'Default quality profile',
+          defaultQualityProfilePlaceholder: 'No default',
+          defaultRootFolderLabel: 'Default root folder',
+          defaultRootFolderPlaceholder: 'No default',
         },
         // === 057a4 added ===
         sections: {
@@ -1671,6 +1678,7 @@ export const en = {
     probePrivateBlocked: 'URL resolves to a private or loopback address',
     probeBadRequest: 'Bad request',
     probeFailed: 'Probe failed: {{error}}',
+    metadataProbeUnreachable: 'Could not reach Sonarr to load quality profiles / root folders',
     regrabQueued: 'Re-grab queued',
     regrabFailed: 'Re-grab failed: {{error}}',
   },

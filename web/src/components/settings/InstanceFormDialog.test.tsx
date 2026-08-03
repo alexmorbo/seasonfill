@@ -39,6 +39,8 @@ interface FetchSetup {
   webhookInstalled?: boolean;
   qbitPutFails?: boolean;
   capture?: { calls: FetchCall[] };
+  testOk?: boolean;
+  metadataBody?: Record<string, unknown> | null;
 }
 
 function setupFetch({
@@ -47,6 +49,8 @@ function setupFetch({
   webhookInstalled = true,
   qbitPutFails = false,
   capture,
+  testOk,
+  metadataBody,
 }: FetchSetup = {}) {
   globalThis.fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
     const u = typeof url === 'string' ? url : url.toString();
@@ -123,6 +127,28 @@ function setupFetch({
         username: 'admin',
         category: 'sonarr',
         name: 'qbit',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    if (u.endsWith('/instances/test') && method === 'POST') {
+      return Promise.resolve(new Response(JSON.stringify({
+        ok: testOk ?? true, version: '4.0.0',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    if (u.endsWith('/instances/metadata') && method === 'POST') {
+      if (metadataBody === null) {
+        return Promise.resolve(new Response(JSON.stringify({
+          error: 'sonarr unreachable', code: 'SONARR_UNREACHABLE',
+        }), { status: 502, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response(JSON.stringify(metadataBody ?? {
+        quality_profiles: [
+          { id: 1, name: 'HD-1080p' },
+          { id: 2, name: 'Any' },
+        ],
+        root_folders: [
+          { id: 1, path: '/tv', accessible: true, free_space: 123 },
+          { id: 2, path: '/tv2', accessible: false, free_space: 0 },
+        ],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     }
     return Promise.resolve(new Response('{}', { status: 200 }));
@@ -615,6 +641,96 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
       await screen.findByTestId('connection-section');
       const nameInput = await screen.findByLabelText(/^name$/i) as HTMLInputElement;
       await waitFor(() => expect(nameInput.value).toBe('homelab'));
+    });
+  });
+
+  describe('ADR-0009 S7 — Add-to-Sonarr default dropdowns', () => {
+    // (a) after a successful Test the pickers populate from
+    // /admin/instances/metadata.
+    it('populates the default pickers after a successful Test (create mode)', async () => {
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />,
+      ));
+      await screen.findByTestId('connection-section');
+      await user.type(screen.getByLabelText(/^name$/i), 'newinst');
+      const urlA = screen.getByLabelText(/^url$/i) as HTMLInputElement;
+      await user.clear(urlA);
+      await user.type(urlA, 'http://sonarr:80');
+      await user.type(screen.getByLabelText(/api key/i), 'KEY');
+      // Fire the Test — success triggers the metadata probe.
+      await user.click(screen.getByTestId('inst-test-button'));
+      // Open the Tuning accordion so the pickers are mounted.
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      const qp = await screen.findByTestId('inst-default-qp');
+      // Enabled once metadata resolved (Radix trigger is a <button>).
+      await waitFor(() => expect(qp).not.toBeDisabled());
+      // Open the quality-profile Select — the fetched options render.
+      // Query by role: Radix also emits a hidden native <option> for form
+      // participation, so findByText would match twice; the aria-hidden
+      // native select is excluded from the accessibility tree.
+      await user.click(qp);
+      expect(await screen.findByRole('option', { name: 'HD-1080p' })).toBeInTheDocument();
+    });
+
+    // (b) saving sends both fields in the payload.
+    it('sends default_quality_profile_id and default_root_folder_path in the create POST', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />,
+      ));
+      await screen.findByTestId('connection-section');
+      await user.type(screen.getByLabelText(/^name$/i), 'newinst');
+      const urlB = screen.getByLabelText(/^url$/i) as HTMLInputElement;
+      await user.clear(urlB);
+      await user.type(urlB, 'http://sonarr:80');
+      await user.type(screen.getByLabelText(/api key/i), 'KEY');
+      await user.click(screen.getByTestId('inst-test-button'));
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      const qp = await screen.findByTestId('inst-default-qp');
+      await waitFor(() => expect(qp).not.toBeDisabled());
+      // Pick quality profile "HD-1080p" (id 1). Role query avoids the
+      // hidden native <option> duplicate that Radix renders for forms.
+      await user.click(qp);
+      await user.click(await screen.findByRole('option', { name: 'HD-1080p' }));
+      // Pick root folder "/tv".
+      const rf = screen.getByTestId('inst-default-rf');
+      await user.click(rf);
+      await user.click(await screen.findByRole('option', { name: '/tv' }));
+      await user.click(screen.getByTestId('dirty-footer-save'));
+      await waitFor(() => {
+        const post = capture.calls.find(
+          (c) => c.method === 'POST' && c.url.endsWith('/instances'),
+        );
+        expect(post).toBeTruthy();
+        const body = post!.body as Record<string, unknown>;
+        expect(body.default_quality_profile_id).toBe(1);
+        expect(body.default_root_folder_path).toBe('/tv');
+      });
+    });
+
+    // (c) a saved default absent from the fresh metadata renders cleared
+    // (placeholder), never crashes.
+    it('renders the picker cleared when the saved default is missing from metadata (edit mode)', async () => {
+      // detail carries a stale profile id 999 that the metadata list omits.
+      setupFetch({ homelabBody: { default_quality_profile_id: 999 } });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await screen.findByTestId('connection-section');
+      // Provide the api_key so the Test/metadata probe can fire in edit mode.
+      await user.type(screen.getByLabelText(/api key/i), 'KEY');
+      await user.click(screen.getByTestId('inst-test-button'));
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      const qp = await screen.findByTestId('inst-default-qp');
+      await waitFor(() => expect(qp).not.toBeDisabled());
+      // Radix renders the placeholder when the value (999) has no matching
+      // item — no crash, no "999" label leaked.
+      expect(qp.textContent).toContain('No default');
+      expect(qp.textContent).not.toContain('999');
     });
   });
 });

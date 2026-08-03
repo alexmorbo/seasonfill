@@ -188,22 +188,25 @@ export function ConnectionSection({
         </div>
       </div>
 
-      {!isEdit && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="self-start gap-1.5"
-          onClick={onTest}
-          disabled={testing}
-          data-testid="inst-test-button"
-        >
-          {testing
-            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            : <PlugZap className="w-3.5 h-3.5" />}
-          {t('settings.instances.form.testConnection')}
-        </Button>
-      )}
+      {/* ADR-0009 S7: the Test button is now available in edit mode too —
+          re-entering the api_key and re-testing is the only way to
+          (re)load the Add-to-Sonarr default-picker metadata for an
+          existing instance (stored keys come back blank per the dirty-bit
+          invariant). Create mode is unchanged. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-start gap-1.5"
+        onClick={onTest}
+        disabled={testing}
+        data-testid="inst-test-button"
+      >
+        {testing
+          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          : <PlugZap className="w-3.5 h-3.5" />}
+        {t('settings.instances.form.testConnection')}
+      </Button>
       {probeResult && (
         <p role="status" className="text-[12px] text-foreground-2">
           {probeResult}

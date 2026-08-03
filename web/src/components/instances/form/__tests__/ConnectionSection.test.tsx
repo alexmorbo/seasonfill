@@ -43,14 +43,16 @@ function Harness({
 }
 
 describe('<ConnectionSection />', () => {
-  it('renders the Test button only in create mode', () => {
+  it('renders the Test button in create mode', () => {
     render(<Harness mode="create" />);
     expect(screen.getByTestId('inst-test-button')).toBeInTheDocument();
   });
 
-  it('omits the Test button in edit mode', () => {
+  // ADR-0009 S7: the Test button is now available in edit mode too so the
+  // operator can re-load the Add-to-Sonarr default-picker metadata.
+  it('renders the Test button in edit mode', () => {
     render(<Harness mode="edit" />);
-    expect(screen.queryByTestId('inst-test-button')).toBeNull();
+    expect(screen.getByTestId('inst-test-button')).toBeInTheDocument();
   });
 
   it('disables the Name input in edit mode', () => {

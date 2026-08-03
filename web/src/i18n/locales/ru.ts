@@ -1445,6 +1445,13 @@ export const ru: Translations = {
           tagsExcludeLabel: 'Tags exclude',
           tagsExcludePlaceholder: '—',
           advancedHeading: 'Advanced',
+          defaultsHeading: 'Дефолты Add-to-Sonarr',
+          defaultsNeedTestHint: 'Проверьте соединение, чтобы подгрузить профили качества и корневые папки.',
+          defaultsLoading: 'Загрузка…',
+          defaultQualityProfileLabel: 'Дефолтный профиль качества',
+          defaultQualityProfilePlaceholder: 'Без дефолта',
+          defaultRootFolderLabel: 'Дефолтная корневая папка',
+          defaultRootFolderPlaceholder: 'Без дефолта',
         },
         // === 057a4 added ===
         sections: {
@@ -1669,6 +1676,7 @@ export const ru: Translations = {
     probePrivateBlocked: 'URL ведёт на приватный или loopback адрес',
     probeBadRequest: 'Некорректный запрос',
     probeFailed: 'Не удалось проверить: {{error}}',
+    metadataProbeUnreachable: 'Не удалось получить у Sonarr профили качества / корневые папки',
     regrabQueued: 'Перезапрос отправлен',
     regrabFailed: 'Не удалось перезапросить: {{error}}',
   },

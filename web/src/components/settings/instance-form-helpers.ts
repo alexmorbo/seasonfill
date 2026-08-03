@@ -52,6 +52,11 @@ export const FORM_DEFAULTS = {
   retry_max_backoff_sec: 30,
   health_recheck_auth_sec: 300,
   health_recheck_network_sec: 60,
+  // ADR-0009 S7: per-instance Add-to-Sonarr defaults. null = not set →
+  // omitted on the wire (BE stores NULL). Seeded from detail on edit;
+  // dropdowns only become editable after a successful in-dialog Test.
+  default_quality_profile_id: null as number | null,
+  default_root_folder_path: null as string | null,
 };
 
 // 057b1: qBittorrent / Watchdog defaults lifted from the old

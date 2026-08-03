@@ -4,6 +4,12 @@ import { Controller } from 'react-hook-form';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import type {
+  InstanceMetadataQualityProfile, InstanceMetadataRootFolder,
+} from '@/lib/instances-mutations';
 import { SegmentedField } from './SegmentedField';
 import {
   NumberField, TagListEditor,
@@ -17,15 +23,125 @@ export interface TuningSectionProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly errors: FieldErrors<any>;
   readonly tValidationError: (msg: string | undefined) => string;
+  // ADR-0009 S7 — Add-to-Sonarr default pickers.
+  readonly qualityProfiles?: readonly InstanceMetadataQualityProfile[];
+  readonly rootFolders?: readonly InstanceMetadataRootFolder[];
+  readonly metadataReady?: boolean;
+  readonly metadataLoading?: boolean;
 }
 
 export function TuningSection({
   control, register, errors, tValidationError,
+  qualityProfiles = [], rootFolders = [], metadataReady = false, metadataLoading = false,
 }: TuningSectionProps) {
   void register;
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-4" data-testid="tuning-section">
+      {/* ADR-0009 S7 — Add-to-Sonarr defaults. Enabled only after a
+          successful in-dialog Test populates the metadata lists. Soft
+          validation: a saved id/path absent from the fresh list is shown
+          as the placeholder ("cleared, not crashed") by passing the Radix
+          Select an empty DISPLAY value — Radix only renders the placeholder
+          for an empty controlled value, so a value with no matching item
+          would otherwise render as blank text. The underlying RHF field
+          value is left UNTOUCHED (gotcha #2), so an untouched save still
+          round-trips the original id (no COALESCE guard on the BE PUT). */}
+      <div className="flex flex-col gap-3.5" data-testid="tuning-defaults">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-tx-faint">
+          {t('settings.instances.form.tuning.defaultsHeading')}
+        </span>
+        {!metadataReady && (
+          <p className="text-[11.5px] text-tx-muted" data-testid="tuning-defaults-hint">
+            {t('settings.instances.form.tuning.defaultsNeedTestHint')}
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-3.5">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="inst-default-qp">
+              {t('settings.instances.form.tuning.defaultQualityProfileLabel')}
+            </Label>
+            <Controller
+              control={control}
+              name="default_quality_profile_id"
+              render={({ field }) => {
+                const raw = field.value == null ? '' : String(field.value);
+                const inList = qualityProfiles.some(
+                  (qp) => qp.id != null && String(qp.id) === raw,
+                );
+                return (
+                <Select
+                  value={inList ? raw : ''}
+                  onValueChange={(v) => field.onChange(v === '' ? null : Number(v))}
+                  disabled={!metadataReady}
+                >
+                  <SelectTrigger id="inst-default-qp" data-testid="inst-default-qp">
+                    <SelectValue
+                      placeholder={metadataLoading
+                        ? t('settings.instances.form.tuning.defaultsLoading')
+                        : t('settings.instances.form.tuning.defaultQualityProfilePlaceholder')}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {qualityProfiles
+                      .filter((qp) => qp.id != null)
+                      .map((qp) => (
+                        <SelectItem key={qp.id} value={String(qp.id)}>
+                          {qp.name ?? String(qp.id)}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                );
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="inst-default-rf">
+              {t('settings.instances.form.tuning.defaultRootFolderLabel')}
+            </Label>
+            <Controller
+              control={control}
+              name="default_root_folder_path"
+              render={({ field }) => {
+                const raw = (field.value as string | null) ?? '';
+                const inList = rootFolders.some(
+                  (rf) => rf.path != null && rf.path !== '' && rf.path === raw,
+                );
+                return (
+                <Select
+                  value={inList ? raw : ''}
+                  onValueChange={(v) => field.onChange(v === '' ? null : v)}
+                  disabled={!metadataReady}
+                >
+                  <SelectTrigger id="inst-default-rf" data-testid="inst-default-rf">
+                    <SelectValue
+                      placeholder={metadataLoading
+                        ? t('settings.instances.form.tuning.defaultsLoading')
+                        : t('settings.instances.form.tuning.defaultRootFolderPlaceholder')}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rootFolders
+                      .filter((rf) => rf.path != null && rf.path !== '')
+                      .map((rf) => (
+                        <SelectItem
+                          key={rf.id ?? rf.path}
+                          value={rf.path as string}
+                          disabled={rf.accessible === false}
+                        >
+                          {rf.path}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                );
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Cooldown segmented */}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="cooldown-mode">{t('settings.instances.form.cooldownModeLabel')}</Label>

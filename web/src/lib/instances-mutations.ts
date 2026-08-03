@@ -16,6 +16,9 @@ export type InstanceCreateRequest = components['schemas']['dto.InstanceCreateReq
 export type InstanceUpdateRequest = components['schemas']['dto.InstanceUpdateRequest'];
 export type InstanceTestRequest = components['schemas']['dto.InstanceTestRequest'];
 export type InstanceTestResponse = components['schemas']['dto.InstanceTestResponse'];
+export type InstanceMetadataResponse = components['schemas']['dto.InstanceMetadataResponse'];
+export type InstanceMetadataQualityProfile = components['schemas']['dto.InstanceMetadataQualityProfile'];
+export type InstanceMetadataRootFolder = components['schemas']['dto.InstanceMetadataRootFolder'];
 
 export interface InstanceDetailWithMeta {
   readonly detail: InstanceDetail;
@@ -228,6 +231,31 @@ export function useTestInstance() {
         return;
       }
       toast.error(i18n.t('toasts.probeFailed', { error: err.message }));
+    },
+  });
+}
+
+// ADR-0009 S7 — stateless metadata probe. Fired AFTER a successful
+// connectivity Test (useTestInstance) with the SAME url+api_key so the
+// Add-to-Sonarr default pickers can be populated in both create and edit
+// mode without the instance existing yet. Deliberately a useMutation (not
+// useQuery): the inputs are transient form values, not a cache-keyable
+// resource, and it must be user-initiated (piggy-backs the Test button).
+export function useInstanceMetadataProbe() {
+  return useMutation<InstanceMetadataResponse, ApiError, InstanceTestRequest>({
+    mutationFn: ({ url, api_key }) =>
+      jsonFetch<InstanceMetadataResponse>('/api/v1/admin/instances/metadata', {
+        method: 'POST',
+        body: JSON.stringify({ url, api_key }),
+      }).then(({ data }) => data),
+    // Best-effort: on failure the dialog simply leaves the dropdowns empty.
+    // Only the 502 SONARR_UNREACHABLE case gets a toast so the operator knows
+    // why the pickers stayed blank; other failures are silent (the inline
+    // probeResult already told them the connection is bad).
+    onError: (err) => {
+      if (err.status === 502) {
+        toast.error(i18n.t('toasts.metadataProbeUnreachable'));
+      }
     },
   });
 }
