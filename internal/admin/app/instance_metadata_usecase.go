@@ -16,7 +16,7 @@ import (
 // name. The wiring adapts catalogrest.InstanceRegistry into this; the
 // use case stays free of any rest-layer import.
 type InstanceLookup interface {
-	Lookup(name string) (id int64, client ports.SonarrClient, ok bool)
+	Lookup(name string) (client ports.SonarrClient, ok bool)
 }
 
 // CacheStatus values for metadata responses.
@@ -95,11 +95,11 @@ func (uc *InstanceMetadataUseCase) WithSeasonsResolver(r SeasonsResolver) *Insta
 // Sonarr error + hit never reaches Sonarr — the cache serves the entry
 // for the rest of the TTL window (graceful degradation).
 func (uc *InstanceMetadataUseCase) GetQualityProfiles(ctx context.Context, instanceName string) (QualityProfilesResult, error) {
-	id, client, ok := uc.lookup.Lookup(instanceName)
+	client, ok := uc.lookup.Lookup(instanceName)
 	if !ok {
 		return QualityProfilesResult{}, instanceNotFound(instanceName)
 	}
-	if cached, hit := uc.cache.GetQualityProfiles(id); hit {
+	if cached, hit := uc.cache.GetQualityProfiles(instanceName); hit {
 		return QualityProfilesResult{
 			Items: cached, RefreshedAt: uc.clock(),
 			CacheStatus: CacheStatusHit, InstanceName: instanceName,
@@ -109,7 +109,7 @@ func (uc *InstanceMetadataUseCase) GetQualityProfiles(ctx context.Context, insta
 	if err != nil {
 		return QualityProfilesResult{}, sonarrUnreachable(instanceName, err)
 	}
-	uc.cache.SetQualityProfiles(id, items)
+	uc.cache.SetQualityProfiles(instanceName, items)
 	return QualityProfilesResult{
 		Items: items, RefreshedAt: uc.clock(),
 		CacheStatus: CacheStatusMiss, InstanceName: instanceName,
@@ -118,11 +118,11 @@ func (uc *InstanceMetadataUseCase) GetQualityProfiles(ctx context.Context, insta
 
 // GetRootFolders mirrors GetQualityProfiles for /api/v3/rootfolder.
 func (uc *InstanceMetadataUseCase) GetRootFolders(ctx context.Context, instanceName string) (RootFoldersResult, error) {
-	id, client, ok := uc.lookup.Lookup(instanceName)
+	client, ok := uc.lookup.Lookup(instanceName)
 	if !ok {
 		return RootFoldersResult{}, instanceNotFound(instanceName)
 	}
-	if cached, hit := uc.cache.GetRootFolders(id); hit {
+	if cached, hit := uc.cache.GetRootFolders(instanceName); hit {
 		return RootFoldersResult{
 			Items: cached, RefreshedAt: uc.clock(),
 			CacheStatus: CacheStatusHit, InstanceName: instanceName,
@@ -132,7 +132,7 @@ func (uc *InstanceMetadataUseCase) GetRootFolders(ctx context.Context, instanceN
 	if err != nil {
 		return RootFoldersResult{}, sonarrUnreachable(instanceName, err)
 	}
-	uc.cache.SetRootFolders(id, items)
+	uc.cache.SetRootFolders(instanceName, items)
 	return RootFoldersResult{
 		Items: items, RefreshedAt: uc.clock(),
 		CacheStatus: CacheStatusMiss, InstanceName: instanceName,
@@ -155,7 +155,7 @@ func (uc *InstanceMetadataUseCase) GetRootFolders(ctx context.Context, instanceN
 // shape). The resolver is best-effort: any error or empty result keeps
 // the Sonarr seasons unchanged — never blocks the add-to-sonarr flow.
 func (uc *InstanceMetadataUseCase) LookupSeries(ctx context.Context, instanceName string, tvdbID int) (SonarrLookupResult, error) {
-	_, client, ok := uc.lookup.Lookup(instanceName)
+	client, ok := uc.lookup.Lookup(instanceName)
 	if !ok {
 		return SonarrLookupResult{}, instanceNotFound(instanceName)
 	}
@@ -215,11 +215,10 @@ func sonarrTVDBTerm(tvdbID int) string {
 
 // RefreshMetadata evicts both caches for the named instance.
 func (uc *InstanceMetadataUseCase) RefreshMetadata(_ context.Context, instanceName string) error {
-	id, _, ok := uc.lookup.Lookup(instanceName)
-	if !ok {
+	if _, ok := uc.lookup.Lookup(instanceName); !ok {
 		return instanceNotFound(instanceName)
 	}
-	uc.cache.InvalidateInstance(id)
+	uc.cache.InvalidateInstance(instanceName)
 	return nil
 }
 

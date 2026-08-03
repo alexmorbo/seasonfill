@@ -499,18 +499,14 @@ func TestCRUD_Create_TypedCode_RetryMaxAttemptsOutOfRange(t *testing.T) {
 	assert.Equal(t, "INVALID_INSTANCE_RETRY_MAX_ATTEMPTS_OUT_OF_RANGE", resp["code"])
 }
 
-// TestCRUD_Create_TypedCode_ReservedName locks L-3 end-to-end:
-// reserved name "test" surfaces the typed reserved-name code on the
-// wire (not the generic BAD_REQUEST it produced before).
-func TestCRUD_Create_TypedCode_ReservedName(t *testing.T) {
+// TestCRUD_Create_TestName_201 locks ADR-0008 S1-A end-to-end: POST with
+// name "test" now returns 201 (previously 400
+// INVALID_INSTANCE_NAME_RESERVED).
+func TestCRUD_Create_TestName_201(t *testing.T) {
 	t.Parallel()
 	r, _ := setupCRUD(t)
-	body := createBody("test") // reserved
-	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", body, nil)
-	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "INVALID_INSTANCE_NAME_RESERVED", resp["code"])
+	w := doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("test"), nil)
+	require.Equal(t, http.StatusCreated, w.Code, "body=%s", w.Body.String())
 }
 
 // TestCRUD_Create_OmitsHealthCheck_201 locks H-3 at the handler level:
@@ -630,16 +626,16 @@ func TestCRUD_Update_WebhookInstallEnabled_PointerFalseHonoured(t *testing.T) {
 
 // --- Story 521 (N-4d) — metadata-cache invalidation hook ---
 
-// fakeInvalidator records every InvalidateInstance call so the tests
-// can assert (a) it was called, and (b) the ID matches the row the
-// handler operated on. Sync via mutex is unnecessary — the gin engine
-// in setupCRUD serializes requests on the calling goroutine.
+// fakeInvalidator records every InvalidateInstance call so the tests can
+// assert (a) it was called, and (b) the name matches the row the handler
+// operated on. Sync via mutex is unnecessary — the gin engine in
+// setupCRUD serializes requests on the calling goroutine.
 type fakeInvalidator struct {
-	calls []int64
+	calls []string
 }
 
-func (f *fakeInvalidator) InvalidateInstance(id int64) {
-	f.calls = append(f.calls, id)
+func (f *fakeInvalidator) InvalidateInstance(name string) {
+	f.calls = append(f.calls, name)
 }
 
 // setupCRUDWithInvalidator mirrors setupCRUD but wires a recording
@@ -666,11 +662,9 @@ func setupCRUDWithInvalidator(t *testing.T) (*gin.Engine, *crudFakeRepo, *fakeIn
 // URL or API key.
 func TestCRUD_Put_InvalidatesMetadataCache(t *testing.T) {
 	t.Parallel()
-	r, repo, inv := setupCRUDWithInvalidator(t)
+	r, _, inv := setupCRUDWithInvalidator(t)
 	createResp := doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
 	require.Equal(t, http.StatusCreated, createResp.Code, "body=%s", createResp.Body.String())
-	wantID := int64(repo.rows["alpha"].ID)
-	require.NotZero(t, wantID, "fake repo must assign a non-zero ID on Create")
 
 	body := createBody("alpha")
 	body["url"] = "http://updated-sonarr:8989"
@@ -678,8 +672,7 @@ func TestCRUD_Put_InvalidatesMetadataCache(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
 
 	require.Len(t, inv.calls, 1, "PUT must invalidate exactly once")
-	assert.Equal(t, wantID, inv.calls[0],
-		"invalidation ID must match the stored row")
+	assert.Equal(t, "alpha", inv.calls[0], "invalidation key must be the instance name")
 }
 
 // TestCRUD_Delete_InvalidatesMetadataCache exercises the Story 521
@@ -687,17 +680,15 @@ func TestCRUD_Put_InvalidatesMetadataCache(t *testing.T) {
 // cache eviction has a usable key (post-delete the ID is gone).
 func TestCRUD_Delete_InvalidatesMetadataCache(t *testing.T) {
 	t.Parallel()
-	r, repo, inv := setupCRUDWithInvalidator(t)
+	r, _, inv := setupCRUDWithInvalidator(t)
 	createResp := doJSON(t, r, http.MethodPost, "/api/v1/instances", createBody("alpha"), nil)
 	require.Equal(t, http.StatusCreated, createResp.Code)
-	wantID := int64(repo.rows["alpha"].ID)
-	require.NotZero(t, wantID)
 
 	w := doJSON(t, r, http.MethodDelete, "/api/v1/instances/alpha", nil, nil)
 	require.Equal(t, http.StatusNoContent, w.Code)
 
 	require.Len(t, inv.calls, 1, "DELETE must invalidate exactly once")
-	assert.Equal(t, wantID, inv.calls[0])
+	assert.Equal(t, "alpha", inv.calls[0])
 }
 
 // TestCRUD_Put_StaleWrite_DoesNotInvalidate guards the negative path:

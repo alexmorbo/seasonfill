@@ -17,15 +17,75 @@ import (
 
 type stubLookup struct {
 	name   string
-	id     int64
 	client ports.SonarrClient
 }
 
-func (s stubLookup) Lookup(name string) (int64, ports.SonarrClient, bool) {
+func (s stubLookup) Lookup(name string) (ports.SonarrClient, bool) {
 	if name != s.name {
-		return 0, nil, false
+		return nil, false
 	}
-	return s.id, s.client, true
+	return s.client, true
+}
+
+// multiLookup resolves several names to distinct clients — used to prove
+// the metadata cache no longer collides two instances onto one key.
+type multiLookup struct {
+	clients map[string]ports.SonarrClient
+}
+
+func (m multiLookup) Lookup(name string) (ports.SonarrClient, bool) {
+	c, ok := m.clients[name]
+	return c, ok
+}
+
+// TestUC_TwoInstances_NoKeyCollision locks ADR-0008 S1-C: two instances
+// with different Sonarr profiles/root-folders each return their OWN data
+// through a SHARED cache. Pre-fix both keyed on the always-zero int64 id,
+// so the second instance got a cache-hit with the first's data.
+func TestUC_TwoInstances_NoKeyCollision(t *testing.T) {
+	t.Parallel()
+	mockA := newMetadataMock()
+	mockA.qpItems = []ports.QualityProfile{{ID: 1, Name: "A-Any"}}
+	mockA.rfItems = []ports.RootFolder{{ID: 1, Path: "/tv-a"}}
+	mockB := newMetadataMock()
+	mockB.qpItems = []ports.QualityProfile{{ID: 2, Name: "B-HD"}}
+	mockB.rfItems = []ports.RootFolder{{ID: 2, Path: "/tv-b"}}
+
+	cache := admininfra.NewMetadataCache("_uc_multi_" + t.Name())
+	t.Cleanup(func() { _ = cache.Close() })
+	uc := NewInstanceMetadataUseCase(multiLookup{clients: map[string]ports.SonarrClient{
+		"homelab":     mockA,
+		"sonarr-test": mockB,
+	}}, cache, nil)
+
+	// homelab populates the shared cache first — pre-fix this poisoned key 0.
+	resA, err := uc.GetQualityProfiles(context.Background(), "homelab")
+	require.NoError(t, err)
+	require.Len(t, resA.Items, 1)
+	assert.Equal(t, "A-Any", resA.Items[0].Name)
+
+	// sonarr-test MUST fetch its own profiles, not a cache-hit on homelab's.
+	resB, err := uc.GetQualityProfiles(context.Background(), "sonarr-test")
+	require.NoError(t, err)
+	assert.Equal(t, CacheStatusMiss, resB.CacheStatus,
+		"pre-fix sonarr-test collided on key 0 and served homelab's cache")
+	require.Len(t, resB.Items, 1)
+	assert.Equal(t, "B-HD", resB.Items[0].Name)
+	assert.Equal(t, int32(1), mockB.qpCalls.Load(),
+		"sonarr-test must reach its own Sonarr client, not serve a collision hit")
+
+	// Root folders scope by name too.
+	rfB, err := uc.GetRootFolders(context.Background(), "sonarr-test")
+	require.NoError(t, err)
+	require.Len(t, rfB.Items, 1)
+	assert.Equal(t, "/tv-b", rfB.Items[0].Path)
+
+	// homelab re-read still hits ITS entry (not overwritten by sonarr-test).
+	resA2, err := uc.GetQualityProfiles(context.Background(), "homelab")
+	require.NoError(t, err)
+	assert.Equal(t, CacheStatusHit, resA2.CacheStatus)
+	require.Len(t, resA2.Items, 1)
+	assert.Equal(t, "A-Any", resA2.Items[0].Name)
 }
 
 type metadataMock struct {
@@ -58,7 +118,7 @@ func newUC(t *testing.T, mock *metadataMock) *InstanceMetadataUseCase {
 	t.Helper()
 	cache := admininfra.NewMetadataCache("_uc_" + t.Name())
 	t.Cleanup(func() { _ = cache.Close() })
-	return NewInstanceMetadataUseCase(stubLookup{name: "main", id: 7, client: mock}, cache, nil)
+	return NewInstanceMetadataUseCase(stubLookup{name: "main", client: mock}, cache, nil)
 }
 
 func TestUC_QualityProfiles_MissThenHit(t *testing.T) {
@@ -294,7 +354,7 @@ func TestUC_Clock_Override(t *testing.T) {
 	cache := admininfra.NewMetadataCache("_uc_clock_" + t.Name())
 	t.Cleanup(func() { _ = cache.Close() })
 	uc := NewInstanceMetadataUseCase(
-		stubLookup{name: "main", id: 3, client: newMetadataMock()},
+		stubLookup{name: "main", client: newMetadataMock()},
 		cache,
 		func() time.Time { return frozen },
 	)

@@ -95,7 +95,11 @@ func (r *Registry) set(name string, to Health, lastErr string, at time.Time) (He
 	prev.LastCheckAt = at
 	prev.LastError = lastErr
 	changed := from != to
-	if changed {
+	// ADR-0008 S1-B: the first convergence out of Bootstrapping is the
+	// expected startup transition, not an instability flip. Count only
+	// real Available <-> Unavailable* changes so TransitionsCount reflects
+	// genuine flapping and no longer reports "1 flip" after every restart.
+	if changed && from != HealthBootstrapping {
 		prev.TransitionsCount++
 	}
 	r.entries[name] = prev

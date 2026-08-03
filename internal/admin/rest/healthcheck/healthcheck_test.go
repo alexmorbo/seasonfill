@@ -126,8 +126,8 @@ func TestPreflight_TransitionsOutOfBootstrapping(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, instance.HealthAvailable, snap.Health,
 		"expected post-preflight transition Bootstrapping → Available")
-	assert.Equal(t, 1, snap.TransitionsCount,
-		"expected exactly one transition (Bootstrapping → Available)")
+	assert.Equal(t, 0, snap.TransitionsCount,
+		"ADR-0008 S1-B: Bootstrapping -> Available convergence is not counted as a flip")
 }
 
 func TestChecker_Preflight_AllUp(t *testing.T) {

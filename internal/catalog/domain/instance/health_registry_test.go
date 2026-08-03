@@ -50,7 +50,8 @@ func TestRegistry_MarkAvailable_Transition(t *testing.T) {
 	assert.True(t, changed)
 	s, _ := r.Get("a")
 	assert.Equal(t, HealthAvailable, s.Health)
-	assert.Equal(t, 1, s.TransitionsCount)
+	assert.Equal(t, 0, s.TransitionsCount,
+		"ADR-0008 S1-B: Bootstrapping -> Available is startup convergence, not a flip")
 	assert.True(t, r.AnyAvailable())
 	listener.mu.Lock()
 	defer listener.mu.Unlock()
@@ -94,16 +95,16 @@ func TestRegistry_MarkUnavailable_Variants(t *testing.T) {
 func TestRegistry_MarkUnavailable_TracksTransitionCount(t *testing.T) {
 	t.Parallel()
 	r := NewRegistry([]string{"a"})
-	// 1: Bootstrapping -> Available (Story 488 — seed is Bootstrapping)
+	// Bootstrapping -> Available: startup convergence, NOT counted (S1-B)
 	r.MarkAvailable("a", time.Now().UTC())
-	// 2: Available -> Auth
+	// 1: Available -> Auth
 	r.MarkUnavailable("a", HealthUnavailableAuth, "x", time.Now().UTC())
 	// no-op
 	r.MarkUnavailable("a", HealthUnavailableAuth, "x", time.Now().UTC())
-	// 3: Auth -> Available
+	// 2: Auth -> Available
 	r.MarkAvailable("a", time.Now().UTC())
 	s, _ := r.Get("a")
-	assert.Equal(t, 3, s.TransitionsCount)
+	assert.Equal(t, 2, s.TransitionsCount)
 }
 
 func TestRegistry_Snapshot_StableCopy(t *testing.T) {
@@ -257,7 +258,27 @@ func TestRegistry_Transition_OutOfBootstrapping(t *testing.T) {
 	assert.Equal(t, HealthBootstrapping, from)
 	snap, _ := r.Get("gamma")
 	assert.Equal(t, HealthAvailable, snap.Health)
-	assert.Equal(t, 1, snap.TransitionsCount)
+	assert.Equal(t, 0, snap.TransitionsCount,
+		"ADR-0008 S1-B: first convergence out of Bootstrapping is not counted")
+}
+
+// TestRegistry_RealFlipsCountedAfterBootstrap locks ADR-0008 S1-B: the
+// first Bootstrapping -> Available convergence is not counted, but every
+// genuine Available <-> Unavailable* flip afterwards is.
+func TestRegistry_RealFlipsCountedAfterBootstrap(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry([]string{"a"})
+	now := time.Now().UTC()
+	// Startup convergence — not a flip.
+	r.MarkAvailable("a", now)
+	s, _ := r.Get("a")
+	assert.Equal(t, 0, s.TransitionsCount, "bootstrap convergence must not count")
+
+	// Two real flips: Available -> Network -> Available.
+	r.MarkUnavailable("a", HealthUnavailableNetwork, "dns", now)
+	r.MarkAvailable("a", now)
+	s, _ = r.Get("a")
+	assert.Equal(t, 2, s.TransitionsCount, "two genuine flips after convergence")
 }
 
 func TestRegistry_SetNames_RaceWithMarkAvailable(t *testing.T) {

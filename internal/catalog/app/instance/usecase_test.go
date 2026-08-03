@@ -467,20 +467,17 @@ func TestCreate_OmitsHealthCheck_GetsDefaults(t *testing.T) {
 		"empty Mode must default to 'auto'")
 }
 
-// TestCreate_ReservedName_TypedError locks L-3: the reserved-name
-// branch now returns a typed *ValidationError with the new
-// INVALID_INSTANCE_NAME_RESERVED code, while still unwrapping to
-// ErrValidation for legacy callers.
-func TestCreate_ReservedName_TypedError(t *testing.T) {
+// TestCreate_TestName_Accepted locks ADR-0008 S1-A: the name "test" is
+// no longer reserved (the route collision it guarded against never
+// existed — probe is a static POST /admin/instances/test, CRUD is
+// /admin/instances/:name). Create must now succeed.
+func TestCreate_TestName_Accepted(t *testing.T) {
 	t.Parallel()
 	uc, _, _, _ := setup(t)
-	bad := validSnap("test")
-	err := uc.Create(context.Background(), bad)
-	require.Error(t, err)
-	var verr *ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Equal(t, "INVALID_INSTANCE_NAME_RESERVED", verr.Code)
-	assert.ErrorIs(t, err, ErrValidation)
+	require.NoError(t, uc.Create(context.Background(), validSnap("test")))
+	got, _, err := uc.Get(context.Background(), "test")
+	require.NoError(t, err)
+	assert.Equal(t, "test", got.Name)
 }
 
 // TestCreate_SearchTimeoutClampsToMax locks the B-1 fix: when the

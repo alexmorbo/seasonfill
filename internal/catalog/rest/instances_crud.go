@@ -23,7 +23,7 @@ import (
 // Nil is a valid value — the handler skips the eviction call so the
 // older test wirings keep compiling unchanged.
 type MetadataInvalidator interface {
-	InvalidateInstance(instanceID int64)
+	InvalidateInstance(instanceName string)
 }
 
 // InstanceCRUDHandler is the GET/POST/PUT/DELETE handler for
@@ -53,13 +53,13 @@ func (h *InstanceCRUDHandler) WithMetadataInvalidator(inv MetadataInvalidator) *
 }
 
 // invalidateMetadata is the no-op-safe wrapper around the optional port.
-// Called on PUT success and BEFORE DELETE (where the row still exists so
-// the lookup is reliable).
-func (h *InstanceCRUDHandler) invalidateMetadata(id int64) {
+// Called on PUT success and after a successful DELETE. Keyed by instance
+// name (the sonarr_instance PK) — ADR-0008 S1-C.
+func (h *InstanceCRUDHandler) invalidateMetadata(name string) {
 	if h.invalidator == nil {
 		return
 	}
-	h.invalidator.InvalidateInstance(id)
+	h.invalidator.InvalidateInstance(name)
 }
 
 // Get returns the masked detail of one instance.
@@ -175,9 +175,8 @@ func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 	// API key — evict the per-instance metadata caches so the next
 	// /admin/instances/{name}/quality_profiles call refetches from the
 	// new Sonarr endpoint rather than serving the stale snapshot. Keyed
-	// by the snapshot ID so renames (impossible today per ErrNameImmutable
-	// but defensive) still hit the right cache row.
-	h.invalidateMetadata(int64(stored.ID))
+	// by instance name (the sonarr_instance PK) — ADR-0008 S1-C.
+	h.invalidateMetadata(stored.Name)
 	c.Header("Last-Modified", ts.UTC().Format(http.TimeFormat))
 	c.JSON(http.StatusOK, snapshotToDetailDTO(stored, ts))
 }
@@ -211,26 +210,14 @@ func (h *InstanceCRUDHandler) writeStaleWrite(c *gin.Context, name string) {
 // @Router      /admin/instances/{name} [delete]
 func (h *InstanceCRUDHandler) Delete(c *gin.Context) {
 	name := c.Param("name")
-	// Story 521 (N-4d): resolve the row ID BEFORE delete so the metadata
-	// cache eviction has a usable key — post-delete the row is gone and
-	// the snapshot ID is unrecoverable. The extra Get is cheap (single
-	// indexed read by name) and only fires on a rare admin operation.
-	// A pre-delete miss (404) propagates through the actual Delete call,
-	// so we only swallow the lookup error here — the canonical 404 still
-	// flows through writeError below.
-	var lookupID int64
-	if h.invalidator != nil {
-		if snap, _, gerr := h.uc.Get(c.Request.Context(), name); gerr == nil {
-			lookupID = int64(snap.ID)
-		}
-	}
 	if err := h.uc.Delete(c.Request.Context(), name); err != nil {
 		h.writeError(c, err)
 		return
 	}
-	if lookupID != 0 {
-		h.invalidateMetadata(lookupID)
-	}
+	// ADR-0008 S1-C: evict the per-instance metadata caches by name after
+	// a successful delete so a re-created instance of the same name never
+	// serves the deleted instance's stale profiles/root-folders.
+	h.invalidateMetadata(name)
 	c.Status(http.StatusNoContent)
 }
 

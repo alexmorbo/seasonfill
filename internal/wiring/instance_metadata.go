@@ -34,12 +34,12 @@ type registryLookup struct {
 	reg catalogrest.InstanceRegistry
 }
 
-func (r registryLookup) Lookup(name string) (int64, ports.SonarrClient, bool) {
+func (r registryLookup) Lookup(name string) (ports.SonarrClient, bool) {
 	inst, ok := r.reg.Snapshot()[name]
 	if !ok {
-		return 0, nil, false
+		return nil, false
 	}
-	return int64(inst.Config.ID), inst.Client, true
+	return inst.Client, true
 }
 
 // TMDBSeasonsClient is the narrow TMDB surface the resolver consumes.

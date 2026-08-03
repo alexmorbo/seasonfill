@@ -22,15 +22,14 @@ import (
 )
 
 type fakeLookup struct {
-	id     int64
 	client ports.SonarrClient
 }
 
-func (f fakeLookup) Lookup(name string) (int64, ports.SonarrClient, bool) {
+func (f fakeLookup) Lookup(name string) (ports.SonarrClient, bool) {
 	if name != "main" {
-		return 0, nil, false
+		return nil, false
 	}
-	return f.id, f.client, true
+	return f.client, true
 }
 
 type mdSonarrClient struct {
@@ -63,7 +62,7 @@ func buildMetadataRouter(t *testing.T, cli *mdSonarrClient) *gin.Engine {
 	t.Helper()
 	cache := admininfra.NewMetadataCache("_h_" + t.Name())
 	t.Cleanup(func() { _ = cache.Close() })
-	uc := authapp.NewInstanceMetadataUseCase(fakeLookup{id: 100, client: cli}, cache, nil)
+	uc := authapp.NewInstanceMetadataUseCase(fakeLookup{client: cli}, cache, nil)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewInstanceMetadataHandler(uc, logger)
 
