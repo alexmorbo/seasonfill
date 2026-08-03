@@ -15,7 +15,7 @@
 //     `error` slug; unknown slugs fall back to the generic message. The
 //     discovery cache is invalidated inside useAddToSonarr().
 
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -93,10 +93,60 @@ export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
     null,
   );
 
+  // ADR-0009 S8: per-instance, per-field seeding trackers for the
+  // quality-profile / root-folder defaults. Each ref holds the instance name
+  // whose defaults we've already applied (independently per field). A metadata
+  // refetch for the SAME instance never re-seeds (anti-clobber of a manual
+  // choice); an instance switch (ref !== effectiveInstance) re-seeds cleanly.
+  const seededQpForRef = useRef<string | null>(null);
+  const seededRfForRef = useRef<string | null>(null);
+
   const enabled = effectiveInstance !== '';
   const qpQ = useQualityProfiles(effectiveInstance, enabled);
   const rfQ = useRootFolders(effectiveInstance, enabled);
   const lookupQ = useSonarrLookup(effectiveInstance, target.tvdbId, enabled);
+
+  // ADR-0009 S8: seed the quality-profile / root-folder selects from the
+  // chosen instance's list-DTO defaults. Gated per field on the corresponding
+  // metadata query having returned AND the default being present in that fresh
+  // list (root: present AND accessible). Soft-validate: a default absent from
+  // the fresh list leaves the field empty, no error. Covers the derived
+  // initial instance (instances[0]), which never flows through
+  // handleInstanceChange. Seeds once per instance (seeded refs), so a refetch
+  // for the same instance never clobbers a manual override.
+  useEffect(() => {
+    if (!effectiveInstance) return;
+    const inst = instances.find((i) => i.name === effectiveInstance);
+
+    if (seededQpForRef.current !== effectiveInstance && qpQ.data) {
+      seededQpForRef.current = effectiveInstance;
+      const def = inst?.default_quality_profile_id;
+      if (
+        typeof def === 'number'
+        && (qpQ.data.items ?? []).some((qp) => qp.id === def)
+      ) {
+        // Post-commit seed of local, user-overridable state from async query
+        // data; gated once-per-instance by the ref above (no loop, no clobber).
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setQualityProfileId(String(def));
+      }
+    }
+
+    if (seededRfForRef.current !== effectiveInstance && rfQ.data) {
+      seededRfForRef.current = effectiveInstance;
+      const def = inst?.default_root_folder_path;
+      if (
+        typeof def === 'string'
+        && (rfQ.data.items ?? []).some(
+          (rf) => rf.path === def && rf.accessible,
+        )
+      ) {
+        // Post-commit seed (see the qp branch above); the effect-level
+        // set-state-in-effect suppression there covers this branch too.
+        setRootFolderPath(def);
+      }
+    }
+  }, [effectiveInstance, instances, qpQ.data, rfQ.data]);
 
   function handleInstanceChange(next: string) {
     if (!next) return;
