@@ -31,9 +31,29 @@ type InstanceProbeHandler struct {
 	client  *http.Client
 	logger  *slog.Logger
 	timeout time.Duration
+	// storedKey resolves an instance's stored, decrypted Sonarr api key by
+	// name (ADR-0009 S9). nil when no lookup is wired (stateless test wiring) —
+	// an empty api_key then stays a 400.
+	storedKey StoredKeyLookup
 }
 
 type ProbeOption func(*InstanceProbeHandler)
+
+// StoredKeyLookup resolves an instance's stored, decrypted Sonarr api key by
+// name. Injected via WithStoredKeyLookup so the stateless probe handler stays
+// decoupled from persistence. Returns ErrStoredKeyUnavailable when the named
+// instance does not exist or carries no stored secret.
+type StoredKeyLookup func(ctx context.Context, name string) (string, error)
+
+// ErrStoredKeyUnavailable is returned by a StoredKeyLookup when the named
+// instance is absent or has no stored api key. The handler maps it to
+// 404 STORED_KEY_NOT_FOUND — there is no key to fall back to.
+var ErrStoredKeyUnavailable = errors.New("stored api key unavailable")
+
+// WithStoredKeyLookup wires the edit-mode stored-key fallback (ADR-0009 S9).
+func WithStoredKeyLookup(fn StoredKeyLookup) ProbeOption {
+	return func(h *InstanceProbeHandler) { h.storedKey = fn }
+}
 
 // WithProbeTimeout overrides the 10s default. Tests use it to exercise the
 // deadline branch without real wall-clock waits.
@@ -66,7 +86,9 @@ func NewInstanceProbeHandler(client *http.Client, logger *slog.Logger, opts ...P
 // @Param       body  body      dto.InstanceTestRequest   true  "URL and api_key to probe"
 // @Success     200   {object}  dto.InstanceTestResponse
 // @Failure     400   {object}  dto.ErrorResponse
+// @Failure     404   {object}  dto.ErrorResponse  "STORED_KEY_NOT_FOUND — name given but no stored key"
 // @Failure     429   {object}  dto.ErrorResponse
+// @Failure     502   {object}  dto.ErrorResponse  "STORED_KEY_LOOKUP_FAILED"
 // @Failure     504   {object}  dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
@@ -83,6 +105,11 @@ func (h *InstanceProbeHandler) Test(c *gin.Context) {
 		return
 	}
 
+	apiKey, ok := h.resolveAPIKey(c, req)
+	if !ok {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
 	defer cancel()
 
@@ -92,7 +119,7 @@ func (h *InstanceProbeHandler) Test(c *gin.Context) {
 			dto.ErrorResponse{Error: fmt.Sprintf("probe: %s", err), Code: "BAD_REQUEST"})
 		return
 	}
-	httpReq.Header.Set("X-Api-Key", req.APIKey)
+	httpReq.Header.Set("X-Api-Key", apiKey)
 	httpReq.Header.Set("Accept", "application/json")
 	httpReq.Header.Set("User-Agent", "seasonfill-probe")
 
@@ -176,12 +203,54 @@ func (h *InstanceProbeHandler) readBody(c *gin.Context) (dto.InstanceTestRequest
 			dto.ErrorResponse{Error: "url is required", Code: "BAD_REQUEST"})
 		return out, false
 	}
-	if strings.TrimSpace(out.APIKey) == "" {
+	// ADR-0009 S9: api_key may be empty IF a name is supplied — the handler then
+	// falls back to the instance's stored decrypted key. Both empty (no key, no
+	// name) stays a 400 as before.
+	if strings.TrimSpace(out.APIKey) == "" &&
+		(out.Name == nil || strings.TrimSpace(*out.Name) == "") {
 		c.AbortWithStatusJSON(http.StatusBadRequest,
-			dto.ErrorResponse{Error: "api_key is required", Code: "BAD_REQUEST"})
+			dto.ErrorResponse{Error: "api_key or name is required", Code: "BAD_REQUEST"})
 		return out, false
 	}
 	return out, true
+}
+
+// resolveAPIKey returns the effective api key for the probe. A non-empty request
+// api_key wins (typed key overrides stored). When it is empty the handler falls
+// back to the named instance's stored decrypted key via the injected lookup. On
+// any failure it writes the error response and returns ok=false. The resolved key
+// is used only to build the transient outbound request — never logged, never
+// returned to the caller.
+func (h *InstanceProbeHandler) resolveAPIKey(c *gin.Context, req dto.InstanceTestRequest) (string, bool) {
+	if strings.TrimSpace(req.APIKey) != "" {
+		return req.APIKey, true
+	}
+	name := ""
+	if req.Name != nil {
+		name = strings.TrimSpace(*req.Name)
+	}
+	if name == "" || h.storedKey == nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest,
+			dto.ErrorResponse{Error: "api_key is required", Code: "BAD_REQUEST"})
+		return "", false
+	}
+	key, err := h.storedKey(c.Request.Context(), name)
+	if err != nil {
+		if errors.Is(err, ErrStoredKeyUnavailable) {
+			c.AbortWithStatusJSON(http.StatusNotFound,
+				dto.ErrorResponse{Error: "instance has no stored api key", Code: "STORED_KEY_NOT_FOUND"})
+			return "", false
+		}
+		// Do NOT log name or key — only the request url, matching existing logs.
+		h.logger.WarnContext(c.Request.Context(), "instance.probe.stored_key_lookup_failed",
+			slog.String("event", "probe.stored_key_lookup_failed"),
+			slog.String("instance_url", req.URL),
+			slog.String("error", err.Error()))
+		c.AbortWithStatusJSON(http.StatusBadGateway,
+			dto.ErrorResponse{Error: "stored key lookup failed", Code: "STORED_KEY_LOOKUP_FAILED"})
+		return "", false
+	}
+	return key, true
 }
 
 func validateProbeURL(raw string) (string, error) {

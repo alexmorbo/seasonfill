@@ -732,5 +732,85 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
       expect(qp.textContent).toContain('No default');
       expect(qp.textContent).not.toContain('999');
     });
+
+    // (S9) edit mode — a blank api_key field sends the instance name so the BE
+    // falls back to the stored key; both probes carry name=homelab.
+    it('sends the instance name (stored-key fallback) when api_key is blank in edit', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await screen.findByTestId('connection-section');
+      // Do NOT type an api_key — the stored key lives server-side.
+      await user.click(screen.getByTestId('inst-test-button'));
+
+      await waitFor(() => {
+        const testCall = capture.calls.find(
+          (c) => c.method === 'POST' && c.url.endsWith('/instances/test'),
+        );
+        expect(testCall).toBeTruthy();
+        const body = testCall!.body as Record<string, unknown>;
+        expect(body.name).toBe('homelab');
+        expect(body.api_key).toBe('');
+      });
+      const metaCall = capture.calls.find(
+        (c) => c.method === 'POST' && c.url.endsWith('/instances/metadata'),
+      );
+      expect(metaCall).toBeTruthy();
+      expect((metaCall!.body as Record<string, unknown>).name).toBe('homelab');
+
+      // Pickers populate from the metadata response.
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      const qp = await screen.findByTestId('inst-default-qp');
+      await waitFor(() => expect(qp).not.toBeDisabled());
+    });
+
+    // (S9) a typed key in edit overrides the stored key — body carries it.
+    it('sends the typed api_key in edit when the field is filled (override)', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await screen.findByTestId('connection-section');
+      await user.type(screen.getByLabelText(/api key/i), 'TYPED');
+      await user.click(screen.getByTestId('inst-test-button'));
+      await waitFor(() => {
+        const testCall = capture.calls.find(
+          (c) => c.method === 'POST' && c.url.endsWith('/instances/test'),
+        );
+        expect(testCall).toBeTruthy();
+        expect((testCall!.body as Record<string, unknown>).api_key).toBe('TYPED');
+      });
+    });
+
+    // (S9) create still sends the typed key and NO name.
+    it('sends the typed api_key and no name in create mode', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />,
+      ));
+      await screen.findByTestId('connection-section');
+      await user.type(screen.getByLabelText(/^name$/i), 'newinst');
+      const url = screen.getByLabelText(/^url$/i) as HTMLInputElement;
+      await user.clear(url);
+      await user.type(url, 'http://sonarr:80');
+      await user.type(screen.getByLabelText(/api key/i), 'KEY');
+      await user.click(screen.getByTestId('inst-test-button'));
+      await waitFor(() => {
+        const testCall = capture.calls.find(
+          (c) => c.method === 'POST' && c.url.endsWith('/instances/test'),
+        );
+        expect(testCall).toBeTruthy();
+        const body = testCall!.body as Record<string, unknown>;
+        expect(body.api_key).toBe('KEY');
+        expect(body.name).toBeUndefined();
+      });
+    });
   });
 });

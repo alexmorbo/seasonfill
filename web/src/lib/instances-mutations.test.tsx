@@ -226,6 +226,33 @@ describe('useTestInstance()', () => {
       'Timed out — Sonarr did not respond',
     );
   });
+
+  it('forwards the instance name in the body (stored-key fallback)', async () => {
+    let sent: Record<string, unknown> | undefined;
+    globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      sent = init?.body ? JSON.parse(init.body as string) : undefined;
+      return jsonResp({ ok: true, version: '4.0.0' }, 200);
+    }) as typeof fetch;
+    const qc = makeQC();
+    const { result } = renderHook(() => useTestInstance(), { wrapper: wrap(qc) });
+    result.current.mutate({ url: 'http://x', api_key: '', name: 'homelab' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(sent?.name).toBe('homelab');
+    expect(sent?.api_key).toBe('');
+  });
+
+  it('omits name from the body when not provided', async () => {
+    let sent: Record<string, unknown> | undefined;
+    globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      sent = init?.body ? JSON.parse(init.body as string) : undefined;
+      return jsonResp({ ok: true }, 200);
+    }) as typeof fetch;
+    const qc = makeQC();
+    const { result } = renderHook(() => useTestInstance(), { wrapper: wrap(qc) });
+    result.current.mutate({ url: 'http://x', api_key: 'k' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(sent?.name).toBeUndefined();
+  });
 });
 
 describe('useSaveInstanceWithQbit()', () => {

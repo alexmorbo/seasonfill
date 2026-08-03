@@ -293,6 +293,15 @@ export type paths = {
                         readonly "application/json": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
+                /** @description STORED_KEY_NOT_FOUND — name given but no stored key */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
                 /** @description Too Many Requests */
                 readonly 429: {
                     headers: {
@@ -361,8 +370,26 @@ export type paths = {
                         readonly "application/json": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
+                /** @description STORED_KEY_NOT_FOUND — name given but no stored key */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
                 /** @description Too Many Requests */
                 readonly 429: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description STORED_KEY_LOOKUP_FAILED */
+                readonly 502: {
                     headers: {
                         readonly [name: string]: unknown;
                     };
@@ -5135,6 +5162,14 @@ export type components = {
         readonly "dto.InstanceTestRequest": {
             /** @example abcd... */
             readonly api_key?: string;
+            /**
+             * @description Name — ADR-0009 S9. Optional. When APIKey is empty AND Name is set, the
+             *     probe handlers load the named instance's stored decrypted key (edit-mode
+             *     fallback, so the browser never holds the secret). A non-empty APIKey always
+             *     overrides the stored key. Ignored when APIKey is non-empty.
+             * @example homelab
+             */
+            readonly name?: string;
             /** @example http://sonarr:8989 */
             readonly url?: string;
         };

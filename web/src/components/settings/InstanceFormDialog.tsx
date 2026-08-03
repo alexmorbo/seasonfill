@@ -19,6 +19,7 @@ import {
   type InstanceUpdateRequest,
   type InstanceDetail,
   type InstanceMetadataResponse,
+  type InstanceTestRequest,
 } from '@/lib/instances-mutations';
 import {
   DtoInstanceCooldownMode,
@@ -507,21 +508,31 @@ export function InstanceFormDialog({
     setProbeResult(null);
     setMetadata(null);
     const { url, api_key } = getValues();
-    if (!url || !api_key) {
+    // ADR-0009 S9: in edit mode the stored key lives server-side and the
+    // api_key field starts blank. Send the instance name so the BE falls back
+    // to the stored decrypted key; a typed key still overrides it. In create
+    // there is no instance yet, so a typed key is required.
+    const storedKeyName = isEdit ? (initial?.name ?? undefined) : undefined;
+    if (!url || (!api_key && !storedKeyName)) {
       setProbeResult(t('settings.instances.form.probeNeedsCredentials'));
       return;
     }
+    const probeArgs: InstanceTestRequest = {
+      url,
+      api_key,
+      ...(storedKeyName ? { name: storedKeyName } : {}),
+    };
     try {
-      const resp = await probe.mutateAsync({ url, api_key });
+      const resp = await probe.mutateAsync(probeArgs);
       if (resp.ok) {
         setProbeResult(resp.version && resp.version.length > 0
           ? t('settings.instances.form.probeConnected', { version: resp.version })
           : t('settings.instances.form.probeConnectedUnknownVersion'));
         // ADR-0009 S7: connectivity is good → load the default-picker
-        // metadata with the SAME creds. Best-effort; a failure leaves the
-        // dropdowns empty (probeResult already reported success).
+        // metadata with the SAME creds (incl. stored-key fallback). Best-effort;
+        // a failure leaves the dropdowns empty (probeResult already reported success).
         try {
-          const meta = await metadataProbe.mutateAsync({ url, api_key });
+          const meta = await metadataProbe.mutateAsync(probeArgs);
           setMetadata(meta);
         } catch {
           setMetadata(null);

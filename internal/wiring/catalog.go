@@ -1,6 +1,8 @@
 package wiring
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -880,7 +882,25 @@ func BuildInstance(
 			MaxResponseHeaderBytes: 64 << 10,
 		},
 	}
-	probeHandler := catalogrest.NewInstanceProbeHandler(probeClient, log)
+	// ADR-0009 S9: edit-mode stored-key fallback for /test + /metadata. The
+	// decrypted key is used only to build the transient probe request — it is
+	// never logged and never returned to the browser. Absent instance / no
+	// stored secret both surface as ErrStoredKeyUnavailable → 404.
+	storedKeyLookup := func(ctx context.Context, name string) (string, error) {
+		snap, err := persistence.InstanceRepo.GetByName(ctx, name, persistence.Cipher)
+		if err != nil {
+			if errors.Is(err, ports.ErrNotFound) {
+				return "", catalogrest.ErrStoredKeyUnavailable
+			}
+			return "", err
+		}
+		if snap.APIKey == "" {
+			return "", catalogrest.ErrStoredKeyUnavailable
+		}
+		return snap.APIKey, nil
+	}
+	probeHandler := catalogrest.NewInstanceProbeHandler(
+		probeClient, log, catalogrest.WithStoredKeyLookup(storedKeyLookup))
 
 	return &InstanceBundle{
 		UC:           uc,

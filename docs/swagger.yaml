@@ -1135,6 +1135,14 @@ components:
         api_key:
           example: abcd...
           type: string
+        name:
+          description: |-
+            Name — ADR-0009 S9. Optional. When APIKey is empty AND Name is set, the
+            probe handlers load the named instance's stored decrypted key (edit-mode
+            fallback, so the browser never holds the secret). A non-empty APIKey always
+            overrides the stored key. Ignored when APIKey is non-empty.
+          example: homelab
+          type: string
         url:
           example: http://sonarr:8989
           type: string
@@ -3527,6 +3535,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: STORED_KEY_NOT_FOUND — name given but no stored key
         "429":
           content:
             application/json:
@@ -3571,12 +3585,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: STORED_KEY_NOT_FOUND — name given but no stored key
         "429":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
           description: Too Many Requests
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: STORED_KEY_LOOKUP_FAILED
         "504":
           content:
             application/json:

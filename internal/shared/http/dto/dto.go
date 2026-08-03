@@ -533,6 +533,11 @@ type InstanceUpdateRequest = InstanceCreateRequest
 type InstanceTestRequest struct {
 	URL    string `json:"url"     example:"http://sonarr:8989"`
 	APIKey string `json:"api_key" example:"abcd..."`
+	// Name — ADR-0009 S9. Optional. When APIKey is empty AND Name is set, the
+	// probe handlers load the named instance's stored decrypted key (edit-mode
+	// fallback, so the browser never holds the secret). A non-empty APIKey always
+	// overrides the stored key. Ignored when APIKey is non-empty.
+	Name *string `json:"name,omitempty" example:"homelab"`
 }
 
 type InstanceTestResponse struct {

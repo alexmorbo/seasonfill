@@ -201,10 +201,12 @@ function errorCode(err: ApiError): string {
 // surface as toasts because they may have happened off-screen.
 export function useTestInstance() {
   return useMutation<InstanceTestResponse, ApiError, InstanceTestRequest>({
-    mutationFn: ({ url, api_key }) =>
+    // ADR-0009 S9: forward `name` when supplied so the BE can fall back to the
+    // instance's stored key (edit mode with a blank api_key field).
+    mutationFn: ({ url, api_key, name }) =>
       jsonFetch<InstanceTestResponse>('/api/v1/admin/instances/test', {
         method: 'POST',
-        body: JSON.stringify({ url, api_key }),
+        body: JSON.stringify({ url, api_key, ...(name ? { name } : {}) }),
       }).then(({ data }) => data),
     // Deliberately no onSuccess toasts — the dialog owns the inline
     // feedback channel. Avoid double-announcing the same event.
@@ -243,10 +245,11 @@ export function useTestInstance() {
 // resource, and it must be user-initiated (piggy-backs the Test button).
 export function useInstanceMetadataProbe() {
   return useMutation<InstanceMetadataResponse, ApiError, InstanceTestRequest>({
-    mutationFn: ({ url, api_key }) =>
+    // ADR-0009 S9: same stored-key fallback as the connectivity probe.
+    mutationFn: ({ url, api_key, name }) =>
       jsonFetch<InstanceMetadataResponse>('/api/v1/admin/instances/metadata', {
         method: 'POST',
-        body: JSON.stringify({ url, api_key }),
+        body: JSON.stringify({ url, api_key, ...(name ? { name } : {}) }),
       }).then(({ data }) => data),
     // Best-effort: on failure the dialog simply leaves the dropdowns empty.
     // Only the 502 SONARR_UNREACHABLE case gets a toast so the operator knows

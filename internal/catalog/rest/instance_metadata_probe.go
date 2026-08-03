@@ -37,6 +37,7 @@ const metadataProbeInstanceName = shareddomain.InstanceName("__metadata_probe__"
 // @Param       body  body      dto.InstanceTestRequest         true  "URL and api_key of the Sonarr to introspect"
 // @Success     200   {object}  dto.InstanceMetadataResponse
 // @Failure     400   {object}  dto.ErrorResponse
+// @Failure     404   {object}  dto.ErrorResponse  "STORED_KEY_NOT_FOUND — name given but no stored key"
 // @Failure     429   {object}  dto.ErrorResponse
 // @Failure     502   {object}  dto.ErrorResponse
 // @Security    CookieAuth
@@ -54,10 +55,15 @@ func (h *InstanceProbeHandler) Metadata(c *gin.Context) {
 		return
 	}
 
+	apiKey, ok := h.resolveAPIKey(c, req)
+	if !ok {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.timeout)
 	defer cancel()
 
-	client := sonarr.New(metadataProbeInstanceName, base, req.APIKey, h.timeout, h.logger)
+	client := sonarr.New(metadataProbeInstanceName, base, apiKey, h.timeout, h.logger)
 
 	profiles, err := client.ListQualityProfiles(ctx)
 	if err != nil {

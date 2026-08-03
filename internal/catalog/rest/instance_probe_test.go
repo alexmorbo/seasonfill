@@ -2,6 +2,7 @@ package rest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -150,9 +151,10 @@ func TestProbe_MissingAPIKey(t *testing.T) {
 	t.Parallel()
 	h := NewInstanceProbeHandler(nil, nil)
 	r := newProbeRouter(t, h)
+	// No api_key AND no name → still a 400.
 	w := doProbe(t, r, dto.InstanceTestRequest{URL: "http://x", APIKey: ""})
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "api_key is required")
+	assert.Contains(t, w.Body.String(), "api_key or name is required")
 }
 
 func TestProbe_MalformedBody(t *testing.T) {
@@ -293,4 +295,89 @@ func TestProbe_ValidateURL_ParseError(t *testing.T) {
 	w := doProbe(t, r, dto.InstanceTestRequest{URL: "http://foo\x7f.example/", APIKey: "x"})
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "BAD_REQUEST")
+}
+
+// --- ADR-0009 S9: stored-key fallback -------------------------------------
+
+// TestProbe_StoredKeyFallback: edit mode — empty api_key + name resolves the
+// stored decrypted key and the transient probe request carries it.
+func TestProbe_StoredKeyFallback(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "/api/v3/system/status", req.URL.Path)
+		assert.Equal(t, "STORED", req.Header.Get("X-Api-Key"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"version":"4.0.0.999"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	h := NewInstanceProbeHandler(srv.Client(), nil,
+		WithStoredKeyLookup(func(_ context.Context, name string) (string, error) {
+			assert.Equal(t, "homelab", name)
+			return "STORED", nil
+		}))
+	r := newProbeRouter(t, h)
+
+	name := "homelab"
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "", Name: &name})
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var got dto.InstanceTestResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.True(t, got.OK)
+	assert.Equal(t, "4.0.0.999", got.Version)
+}
+
+// TestProbe_TypedKeyOverridesStored: a non-empty api_key wins — the stored-key
+// lookup is NOT consulted even when a name is present.
+func TestProbe_TypedKeyOverridesStored(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "TYPED", req.Header.Get("X-Api-Key"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"version":"4.0.0"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	h := NewInstanceProbeHandler(srv.Client(), nil,
+		WithStoredKeyLookup(func(_ context.Context, _ string) (string, error) {
+			t.Error("stored-key lookup must NOT run when api_key is provided")
+			return "STORED", nil
+		}))
+	r := newProbeRouter(t, h)
+
+	name := "homelab"
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: srv.URL, APIKey: "TYPED", Name: &name})
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var got dto.InstanceTestResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.True(t, got.OK)
+}
+
+// TestProbe_StoredKeyNotFound: name given but no stored key (absent instance or
+// no secret) → 404 STORED_KEY_NOT_FOUND.
+func TestProbe_StoredKeyNotFound(t *testing.T) {
+	t.Parallel()
+	h := NewInstanceProbeHandler(nil, nil,
+		WithStoredKeyLookup(func(_ context.Context, _ string) (string, error) {
+			return "", ErrStoredKeyUnavailable
+		}))
+	r := newProbeRouter(t, h)
+
+	name := "ghost"
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: "http://sonarr:8989", APIKey: "", Name: &name})
+	require.Equal(t, http.StatusNotFound, w.Code, "body=%s", w.Body.String())
+	assert.Contains(t, w.Body.String(), "STORED_KEY_NOT_FOUND")
+}
+
+// TestProbe_EmptyKeyNameNoLookup: name present, api_key empty, but no lookup
+// wired (stateless wiring) → 400, same as a plain missing key.
+func TestProbe_EmptyKeyNameNoLookup(t *testing.T) {
+	t.Parallel()
+	h := NewInstanceProbeHandler(nil, nil) // no WithStoredKeyLookup
+	r := newProbeRouter(t, h)
+
+	name := "homelab"
+	w := doProbe(t, r, dto.InstanceTestRequest{URL: "http://sonarr:8989", APIKey: "", Name: &name})
+	require.Equal(t, http.StatusBadRequest, w.Code, "body=%s", w.Body.String())
+	assert.Contains(t, w.Body.String(), "api_key is required")
 }

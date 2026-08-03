@@ -1378,6 +1378,11 @@
                         "example": "abcd...",
                         "type": "string"
                     },
+                    "name": {
+                        "description": "Name — ADR-0009 S9. Optional. When APIKey is empty AND Name is set, the\nprobe handlers load the named instance's stored decrypted key (edit-mode\nfallback, so the browser never holds the secret). A non-empty APIKey always\noverrides the stored key. Ignored when APIKey is non-empty.",
+                        "example": "homelab",
+                        "type": "string"
+                    },
                     "url": {
                         "example": "http://sonarr:8989",
                         "type": "string"
@@ -4241,6 +4246,16 @@
                         },
                         "description": "Bad Request"
                     },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "STORED_KEY_NOT_FOUND — name given but no stored key"
+                    },
                     "429": {
                         "content": {
                             "application/json": {
@@ -4319,6 +4334,16 @@
                         },
                         "description": "Bad Request"
                     },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "STORED_KEY_NOT_FOUND — name given but no stored key"
+                    },
                     "429": {
                         "content": {
                             "application/json": {
@@ -4328,6 +4353,16 @@
                             }
                         },
                         "description": "Too Many Requests"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "STORED_KEY_LOOKUP_FAILED"
                     },
                     "504": {
                         "content": {
