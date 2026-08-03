@@ -176,6 +176,16 @@ type InstanceSnapshot struct {
 	// is flag-gated — flip false when investigating why seasonfill
 	// isn't picking up a seemingly-orphaned season.
 	ScanSkipHandledSeasons bool
+	// DefaultQualityProfileID is the per-instance default Sonarr quality-profile
+	// id used to pre-fill the Add-to-Sonarr modal (ADR-0009 S6). nil = no default
+	// set → empty pre-fill. A soft hint, not an FK — re-validated against the live
+	// Sonarr profile list at read time. Mirrors PublicURL pointer semantics.
+	DefaultQualityProfileID *int
+	// DefaultRootFolderPath is the per-instance default Sonarr root-folder path
+	// used to pre-fill the Add-to-Sonarr modal (ADR-0009 S6). nil = no default.
+	// Soft hint; re-validated (incl. Accessible) against the live Sonarr
+	// root-folder list at read time.
+	DefaultRootFolderPath *string
 }
 
 // UIURL returns the URL the browser should link to (D64). If PublicURL

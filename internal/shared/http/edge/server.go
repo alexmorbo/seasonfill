@@ -340,6 +340,13 @@ func NewServer(
 			probeRateLimit(loginLimiter),
 			instanceProbe.Test,
 		)
+		// ADR-0009 S6 — stateless Add-to-Sonarr defaults metadata probe. Same
+		// guarded/admin group + rate limit as /test; builds a transient Sonarr
+		// client from the posted url+api_key (no instance row required).
+		guarded.POST("/admin/instances/metadata",
+			probeRateLimit(loginLimiter),
+			instanceProbe.Metadata,
+		)
 		// Story 507 (N-2f) — curated discovery read endpoints.
 		// Nil-OK pattern: when wiring did not construct the handler
 		// (TMDB disabled at boot or test wiring) the routes are

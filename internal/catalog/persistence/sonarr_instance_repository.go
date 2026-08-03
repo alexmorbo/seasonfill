@@ -463,6 +463,8 @@ func snapshotToSettingsModel(s runtime.InstanceSnapshot) database.SonarrInstance
 		WebhookURLOverride:            s.WebhookURLOverride,
 		ParseOnGrabEnabled:            s.ParseOnGrabEnabled,
 		ScanSkipHandledSeasons:        s.ScanSkipHandledSeasons,
+		DefaultQualityProfileID:       s.DefaultQualityProfileID,
+		DefaultRootFolderPath:         s.DefaultRootFolderPath,
 	}
 }
 
@@ -546,6 +548,8 @@ func modelToSnapshot(
 	snap.WebhookURLOverride = settings.WebhookURLOverride
 	snap.ParseOnGrabEnabled = settings.ParseOnGrabEnabled
 	snap.ScanSkipHandledSeasons = settings.ScanSkipHandledSeasons
+	snap.DefaultQualityProfileID = settings.DefaultQualityProfileID
+	snap.DefaultRootFolderPath = settings.DefaultRootFolderPath
 	return snap, nil
 }
 

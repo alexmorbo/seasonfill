@@ -419,6 +419,12 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.In
 	}
 	mode := "auto"
 	var url, publicURL string
+	// ADR-0009 S6 — carry the Add-to-Sonarr defaults onto the list DTO so the
+	// modal pre-fills without a second GET. inst.Config is a
+	// runtime.InstanceSnapshot (config.SonarrInstance alias) so the pointers pass
+	// straight through; nil stays nil when the instance isn't in the registry.
+	var defaultQualityProfileID *int
+	var defaultRootFolderPath *string
 	if inst, ok := instMap[s.Name]; ok {
 		if m := inst.Config.Mode; m != "" {
 			mode = m
@@ -427,12 +433,16 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.In
 		if inst.Config.PublicURL != nil && *inst.Config.PublicURL != "" {
 			publicURL = *inst.Config.PublicURL
 		}
+		defaultQualityProfileID = inst.Config.DefaultQualityProfileID
+		defaultRootFolderPath = inst.Config.DefaultRootFolderPath
 	}
 	return dto.Instance{
 		Name: s.Name, URL: url, PublicURL: publicURL,
 		Mode: mode, Health: string(s.Health),
 		LastCheckAt: lastCheckAt, LastError: s.LastError,
-		TransitionsCount: s.TransitionsCount,
+		TransitionsCount:        s.TransitionsCount,
+		DefaultQualityProfileID: defaultQualityProfileID,
+		DefaultRootFolderPath:   defaultRootFolderPath,
 	}
 }
 

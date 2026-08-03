@@ -248,6 +248,77 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/admin/instances/metadata": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * List a Sonarr instance's quality profiles and root folders (stateless)
+         * @description Builds a transient Sonarr client from the posted url+api_key (no stored instance required) and returns quality profiles + root folders for the Add-to-Sonarr default pickers.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description URL and api_key of the Sonarr to introspect */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.InstanceTestRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.InstanceMetadataResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Too Many Requests */
+                readonly 429: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/admin/instances/test": {
         readonly parameters: {
             readonly query?: never;
@@ -4810,6 +4881,15 @@ export type components = {
         };
         readonly "dto.Instance": {
             /**
+             * @description DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6. Carried on
+             *     the list DTO so the Add-to-Sonarr modal can pre-fill defaults for the chosen
+             *     instance without a second GET. omitempty: nil pointer = no default set.
+             * @example 1
+             */
+            readonly default_quality_profile_id?: number;
+            /** @example /tv */
+            readonly default_root_folder_path?: string;
+            /**
              * @example Available
              * @enum {string}
              */
@@ -4853,6 +4933,16 @@ export type components = {
             /** @example abcd... */
             readonly api_key?: string;
             readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            /**
+             * @description DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+             *     defaults. Optional pointers: omitted/null = clear/leave-unset. Soft hints —
+             *     the application layer does NOT reject an unknown-but-non-negative profile id
+             *     or a stale root-folder path (re-validated in the UI against live Sonarr).
+             * @example 1
+             */
+            readonly default_quality_profile_id?: number;
+            /** @example /tv */
+            readonly default_root_folder_path?: string;
             readonly dry_run?: boolean;
             readonly health_check?: components["schemas"]["dto.InstanceHealthCheck"];
             readonly limits?: components["schemas"]["dto.InstanceLimits"];
@@ -4916,6 +5006,15 @@ export type components = {
             /** @example *** */
             readonly api_key?: string;
             readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            /**
+             * @description DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+             *     defaults. Always emitted; JSON `null` when no default is stored. Mirror
+             *     PublicURL (no omitempty — a stable key so the SPA can branch on null).
+             * @example 1
+             */
+            readonly default_quality_profile_id?: number;
+            /** @example /tv */
+            readonly default_root_folder_path?: string;
             readonly dry_run?: boolean;
             readonly health_check?: components["schemas"]["dto.InstanceHealthCheck"];
             readonly limits?: components["schemas"]["dto.InstanceLimits"];
@@ -4989,6 +5088,26 @@ export type components = {
         readonly "dto.InstanceList": {
             readonly instances?: readonly components["schemas"]["dto.Instance"][];
         };
+        readonly "dto.InstanceMetadataQualityProfile": {
+            /** @example 1 */
+            readonly id?: number;
+            /** @example HD-1080p */
+            readonly name?: string;
+        };
+        readonly "dto.InstanceMetadataResponse": {
+            readonly quality_profiles?: readonly components["schemas"]["dto.InstanceMetadataQualityProfile"][];
+            readonly root_folders?: readonly components["schemas"]["dto.InstanceMetadataRootFolder"][];
+        };
+        readonly "dto.InstanceMetadataRootFolder": {
+            /** @example true */
+            readonly accessible?: boolean;
+            /** @example 123456789 */
+            readonly free_space?: number;
+            /** @example 1 */
+            readonly id?: number;
+            /** @example /tv */
+            readonly path?: string;
+        };
         readonly "dto.InstanceRanking": {
             readonly indexer_priority_enabled?: boolean;
             readonly origin_bonus?: number;
@@ -5028,6 +5147,16 @@ export type components = {
             /** @example abcd... */
             readonly api_key?: string;
             readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            /**
+             * @description DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+             *     defaults. Optional pointers: omitted/null = clear/leave-unset. Soft hints —
+             *     the application layer does NOT reject an unknown-but-non-negative profile id
+             *     or a stale root-folder path (re-validated in the UI against live Sonarr).
+             * @example 1
+             */
+            readonly default_quality_profile_id?: number;
+            /** @example /tv */
+            readonly default_root_folder_path?: string;
             readonly dry_run?: boolean;
             readonly health_check?: components["schemas"]["dto.InstanceHealthCheck"];
             readonly limits?: components["schemas"]["dto.InstanceLimits"];

@@ -459,6 +459,14 @@ func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 		s.WebhookURLOverride); err != nil {
 		return err
 	}
+	// ADR-0009 S6 — soft default-quality-profile guard. Reject only a malformed
+	// negative id; an unknown (but non-negative) profile id is accepted on save
+	// and re-validated against the live Sonarr list when the UI reads it back.
+	if s.DefaultQualityProfileID != nil && *s.DefaultQualityProfileID < 0 {
+		return newValidationErr("default_quality_profile_id",
+			"INVALID_INSTANCE_DEFAULT_QUALITY_PROFILE_ID",
+			"default_quality_profile_id must be >= 0")
+	}
 	return nil
 }
 

@@ -747,6 +747,16 @@ components:
       type: object
     dto.Instance:
       properties:
+        default_quality_profile_id:
+          description: |-
+            DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6. Carried on
+            the list DTO so the Add-to-Sonarr modal can pre-fill defaults for the chosen
+            instance without a second GET. omitempty: nil pointer = no default set.
+          example: 1
+          type: integer
+        default_root_folder_path:
+          example: /tv
+          type: string
         health:
           enum:
           - Bootstrapping
@@ -823,6 +833,17 @@ components:
           type: string
         cooldown:
           $ref: '#/components/schemas/dto.InstanceCooldown'
+        default_quality_profile_id:
+          description: |-
+            DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+            defaults. Optional pointers: omitted/null = clear/leave-unset. Soft hints —
+            the application layer does NOT reject an unknown-but-non-negative profile id
+            or a stale root-folder path (re-validated in the UI against live Sonarr).
+          example: 1
+          type: integer
+        default_root_folder_path:
+          example: /tv
+          type: string
         dry_run:
           type: boolean
         health_check:
@@ -916,6 +937,16 @@ components:
           type: string
         cooldown:
           $ref: '#/components/schemas/dto.InstanceCooldown'
+        default_quality_profile_id:
+          description: |-
+            DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+            defaults. Always emitted; JSON `null` when no default is stored. Mirror
+            PublicURL (no omitempty — a stable key so the SPA can branch on null).
+          example: 1
+          type: integer
+        default_root_folder_path:
+          example: /tv
+          type: string
         dry_run:
           type: boolean
         health_check:
@@ -1015,6 +1046,43 @@ components:
           type: array
           uniqueItems: false
       type: object
+    dto.InstanceMetadataQualityProfile:
+      properties:
+        id:
+          example: 1
+          type: integer
+        name:
+          example: HD-1080p
+          type: string
+      type: object
+    dto.InstanceMetadataResponse:
+      properties:
+        quality_profiles:
+          items:
+            $ref: '#/components/schemas/dto.InstanceMetadataQualityProfile'
+          type: array
+          uniqueItems: false
+        root_folders:
+          items:
+            $ref: '#/components/schemas/dto.InstanceMetadataRootFolder'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.InstanceMetadataRootFolder:
+      properties:
+        accessible:
+          example: true
+          type: boolean
+        free_space:
+          example: 123456789
+          type: integer
+        id:
+          example: 1
+          type: integer
+        path:
+          example: /tv
+          type: string
+      type: object
     dto.InstanceRanking:
       properties:
         indexer_priority_enabled:
@@ -1087,6 +1155,17 @@ components:
           type: string
         cooldown:
           $ref: '#/components/schemas/dto.InstanceCooldown'
+        default_quality_profile_id:
+          description: |-
+            DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+            defaults. Optional pointers: omitted/null = clear/leave-unset. Soft hints —
+            the application layer does NOT reject an unknown-but-non-negative profile id
+            or a stale root-folder path (re-validated in the UI against live Sonarr).
+          example: 1
+          type: integer
+        default_root_folder_path:
+          example: /tv
+          type: string
         dry_run:
           type: boolean
         health_check:
@@ -3417,6 +3496,53 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Update a Sonarr instance
+      tags:
+      - instances
+  /admin/instances/metadata:
+    post:
+      description: Builds a transient Sonarr client from the posted url+api_key (no
+        stored instance required) and returns quality profiles + root folders for
+        the Add-to-Sonarr default pickers.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.InstanceTestRequest'
+                description: URL and api_key of the Sonarr to introspect
+                summary: body
+        description: URL and api_key of the Sonarr to introspect
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.InstanceMetadataResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "429":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Too Many Requests
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List a Sonarr instance's quality profiles and root folders (stateless)
       tags:
       - instances
   /admin/instances/test:

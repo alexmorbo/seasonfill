@@ -342,38 +342,42 @@ func (SonarrInstanceModel) TableName() string { return "sonarr_instance" }
 // 1:1 with sonarr_instance via FK CASCADE on instance_name (no
 // separate PK; instance_name IS the PK).
 type SonarrInstanceSettingsModel struct {
-	InstanceName                  string    `gorm:"primaryKey;column:instance_name;type:text"`
-	TimeoutSeconds                int       `gorm:"column:timeout_seconds;not null"`
-	SearchTimeoutSeconds          int       `gorm:"column:search_timeout_seconds;not null"`
-	DryRun                        *bool     `gorm:"column:dry_run"`
-	TagsMode                      string    `gorm:"column:tags_mode;type:text;not null"`
-	TagsInclude                   string    `gorm:"column:tags_include;type:text;not null"`
-	TagsExclude                   string    `gorm:"column:tags_exclude;type:text;not null"`
-	SearchRequireAllAired         bool      `gorm:"column:search_require_all_aired;not null"`
-	SearchSkipSpecials            bool      `gorm:"column:search_skip_specials;not null"`
-	SearchSkipAnime               bool      `gorm:"column:search_skip_anime;not null"`
-	SearchMinCustomFormatScore    int       `gorm:"column:search_min_custom_format_score;not null"`
-	RankingIndexerPriorityEnabled bool      `gorm:"column:ranking_indexer_priority_enabled;not null"`
-	RankingOriginBonus            float64   `gorm:"column:ranking_origin_bonus;not null"`
-	LimitsScanMaxSeries           int       `gorm:"column:limits_scan_max_series;not null"`
-	LimitsMaxGrabsPerScan         int       `gorm:"column:limits_max_grabs_per_scan;not null"`
-	RateLimitRPM                  int       `gorm:"column:rate_limit_rpm;not null"`
-	RateLimitBurst                int       `gorm:"column:rate_limit_burst;not null"`
-	CooldownMode                  string    `gorm:"column:cooldown_mode;type:text;not null"`
-	CooldownSeriesAfterGrabSec    int       `gorm:"column:cooldown_series_after_grab_sec;not null"`
-	CooldownGUIDFailedGrabSec     int       `gorm:"column:cooldown_guid_failed_grab_sec;not null"`
-	CooldownGUIDFailedImportSec   int       `gorm:"column:cooldown_guid_failed_import_sec;not null"`
-	RetryMaxAttempts              int       `gorm:"column:retry_max_attempts;not null"`
-	RetryInitialBackoffSec        int       `gorm:"column:retry_initial_backoff_sec;not null"`
-	RetryMaxBackoffSec            int       `gorm:"column:retry_max_backoff_sec;not null"`
-	HealthcheckRecheckAuthSec     int       `gorm:"column:healthcheck_recheck_auth_sec;not null"`
-	HealthcheckRecheckNetSec      int       `gorm:"column:healthcheck_recheck_net_sec;not null"`
-	PublicURL                     *string   `gorm:"column:public_url;type:text"`
-	WebhookInstallEnabled         bool      `gorm:"column:webhook_install_enabled;not null"`
-	WebhookURLOverride            *string   `gorm:"column:webhook_url_override;type:text"`
-	ParseOnGrabEnabled            bool      `gorm:"column:parse_on_grab_enabled;not null"`
-	ScanSkipHandledSeasons        bool      `gorm:"column:scan_skip_handled_seasons;not null"`
-	UpdatedAt                     time.Time `gorm:"column:updated_at;not null"`
+	InstanceName                  string  `gorm:"primaryKey;column:instance_name;type:text"`
+	TimeoutSeconds                int     `gorm:"column:timeout_seconds;not null"`
+	SearchTimeoutSeconds          int     `gorm:"column:search_timeout_seconds;not null"`
+	DryRun                        *bool   `gorm:"column:dry_run"`
+	TagsMode                      string  `gorm:"column:tags_mode;type:text;not null"`
+	TagsInclude                   string  `gorm:"column:tags_include;type:text;not null"`
+	TagsExclude                   string  `gorm:"column:tags_exclude;type:text;not null"`
+	SearchRequireAllAired         bool    `gorm:"column:search_require_all_aired;not null"`
+	SearchSkipSpecials            bool    `gorm:"column:search_skip_specials;not null"`
+	SearchSkipAnime               bool    `gorm:"column:search_skip_anime;not null"`
+	SearchMinCustomFormatScore    int     `gorm:"column:search_min_custom_format_score;not null"`
+	RankingIndexerPriorityEnabled bool    `gorm:"column:ranking_indexer_priority_enabled;not null"`
+	RankingOriginBonus            float64 `gorm:"column:ranking_origin_bonus;not null"`
+	LimitsScanMaxSeries           int     `gorm:"column:limits_scan_max_series;not null"`
+	LimitsMaxGrabsPerScan         int     `gorm:"column:limits_max_grabs_per_scan;not null"`
+	RateLimitRPM                  int     `gorm:"column:rate_limit_rpm;not null"`
+	RateLimitBurst                int     `gorm:"column:rate_limit_burst;not null"`
+	CooldownMode                  string  `gorm:"column:cooldown_mode;type:text;not null"`
+	CooldownSeriesAfterGrabSec    int     `gorm:"column:cooldown_series_after_grab_sec;not null"`
+	CooldownGUIDFailedGrabSec     int     `gorm:"column:cooldown_guid_failed_grab_sec;not null"`
+	CooldownGUIDFailedImportSec   int     `gorm:"column:cooldown_guid_failed_import_sec;not null"`
+	RetryMaxAttempts              int     `gorm:"column:retry_max_attempts;not null"`
+	RetryInitialBackoffSec        int     `gorm:"column:retry_initial_backoff_sec;not null"`
+	RetryMaxBackoffSec            int     `gorm:"column:retry_max_backoff_sec;not null"`
+	HealthcheckRecheckAuthSec     int     `gorm:"column:healthcheck_recheck_auth_sec;not null"`
+	HealthcheckRecheckNetSec      int     `gorm:"column:healthcheck_recheck_net_sec;not null"`
+	PublicURL                     *string `gorm:"column:public_url;type:text"`
+	WebhookInstallEnabled         bool    `gorm:"column:webhook_install_enabled;not null"`
+	WebhookURLOverride            *string `gorm:"column:webhook_url_override;type:text"`
+	ParseOnGrabEnabled            bool    `gorm:"column:parse_on_grab_enabled;not null"`
+	ScanSkipHandledSeasons        bool    `gorm:"column:scan_skip_handled_seasons;not null"`
+	// DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+	// defaults. Nullable; NULL = no default set. Mirror PublicURL pointer style.
+	DefaultQualityProfileID *int      `gorm:"column:default_quality_profile_id"`
+	DefaultRootFolderPath   *string   `gorm:"column:default_root_folder_path;type:text"`
+	UpdatedAt               time.Time `gorm:"column:updated_at;not null"`
 }
 
 func (SonarrInstanceSettingsModel) TableName() string { return "sonarr_instance_settings" }

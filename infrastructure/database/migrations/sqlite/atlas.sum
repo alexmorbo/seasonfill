@@ -1,4 +1,4 @@
-h1:dvnPSXXPjUosLYJ1jjEnSRd7tdfyArvvzekwECoHbtU=
+h1:u5ZyIcxC97vnaQ1EVM0drw2q/lNmcQfELny3j3SPKtU=
 000001_core_series.down.sql h1:g/jAztVO3BHc0O0tkKdmg68Q0lZZlgzecVvBegBQlBE=
 000001_core_series.up.sql h1:MmXX1qaneSHNwJbnxUh0lI51h1t2Ijg2A5r4P8hMxQ8=
 000002_i18n_texts.down.sql h1:XeUg6hO9QcWnT/EE/pvGZKTYq2uESNtlTw5o8c3zPwA=
@@ -83,3 +83,5 @@ h1:dvnPSXXPjUosLYJ1jjEnSRd7tdfyArvvzekwECoHbtU=
 000041_tmdb_changes.up.sql h1:WbRSCph2hCbjHaEZJFRcF9s17KMbsGabqeL0pj6F+RE=
 000042_webhook_inbox.down.sql h1:52PdYAgT6Uzo/tU82NxMaMoEDbK5Jr2Pr7K/ASBntkM=
 000042_webhook_inbox.up.sql h1:pmRb9LlFApu6R1HF+RbKhg8Wv4qWeK/WVIdPKxGc3MM=
+000043_add_to_sonarr_defaults.down.sql h1:e2GkD1QwdWTCq8R/K1f7Tn2Zs02SmG5TaYy7MVMOA8g=
+000043_add_to_sonarr_defaults.up.sql h1:KmxUxmM14pz3qBbnZcqWEkSgmuVpqnZFkyL7vwrzgDw=

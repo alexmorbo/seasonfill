@@ -2734,6 +2734,10 @@ func buildSonarrInstanceSettingsTable(d Dialect, sonarrInstance *atlasschema.Tab
 		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
 	scanSkipHandledSeasons := atlasschema.NewBoolColumn("scan_skip_handled_seasons", "boolean").
 		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	// ADR-0009 S6 — per-instance Add-to-Sonarr defaults (nullable hints;
+	// mirror public_url / webhook_url_override nullable-column style).
+	defaultQualityProfileID := atlasschema.NewNullIntColumn("default_quality_profile_id", "integer")
+	defaultRootFolderPath := atlasschema.NewNullStringColumn("default_root_folder_path", "text")
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
 	return atlasschema.NewTable("sonarr_instance_settings").
@@ -2752,6 +2756,7 @@ func buildSonarrInstanceSettingsTable(d Dialect, sonarrInstance *atlasschema.Tab
 			healthcheckRecheckAuthSec, healthcheckRecheckNetSec,
 			publicURL, webhookInstallEnabled, webhookURLOverride,
 			parseOnGrabEnabled, scanSkipHandledSeasons,
+			defaultQualityProfileID, defaultRootFolderPath,
 			updatedAt,
 		).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName)).

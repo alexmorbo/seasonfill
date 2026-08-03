@@ -98,6 +98,11 @@ type Instance struct {
 	LastCheckAt      *time.Time `json:"last_check_at,omitempty"`
 	LastError        string     `json:"last_error,omitempty"`
 	TransitionsCount int        `json:"transitions_count"`
+	// DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6. Carried on
+	// the list DTO so the Add-to-Sonarr modal can pre-fill defaults for the chosen
+	// instance without a second GET. omitempty: nil pointer = no default set.
+	DefaultQualityProfileID *int    `json:"default_quality_profile_id,omitempty" example:"1"`
+	DefaultRootFolderPath   *string `json:"default_root_folder_path,omitempty" example:"/tv"`
 }
 
 // InstanceList — body of GET /instances.
@@ -413,8 +418,13 @@ type InstanceDetail struct {
 	// UIURL is the derived browser-facing URL the SPA links to. Equals
 	// PublicURL when set, otherwise URL. Always emitted as a non-empty
 	// string so the SPA never has to compute the fallback itself.
-	UIURL     string    `json:"ui_url" example:"https://sonarr.example.com"`
-	UpdatedAt time.Time `json:"updated_at"`
+	UIURL string `json:"ui_url" example:"https://sonarr.example.com"`
+	// DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+	// defaults. Always emitted; JSON `null` when no default is stored. Mirror
+	// PublicURL (no omitempty — a stable key so the SPA can branch on null).
+	DefaultQualityProfileID *int      `json:"default_quality_profile_id" example:"1"`
+	DefaultRootFolderPath   *string   `json:"default_root_folder_path" example:"/tv"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 type InstanceTags struct {
@@ -508,6 +518,12 @@ type InstanceCreateRequest struct {
 	// pre-filter for this instance, forcing every monitored season through
 	// the full evaluator.
 	ScanSkipHandledSeasons *bool `json:"scan_skip_handled_seasons,omitempty" example:"true"`
+	// DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
+	// defaults. Optional pointers: omitted/null = clear/leave-unset. Soft hints —
+	// the application layer does NOT reject an unknown-but-non-negative profile id
+	// or a stale root-folder path (re-validated in the UI against live Sonarr).
+	DefaultQualityProfileID *int    `json:"default_quality_profile_id,omitempty" example:"1"`
+	DefaultRootFolderPath   *string `json:"default_root_folder_path,omitempty" example:"/tv"`
 }
 
 // InstanceUpdateRequest — body of PUT /api/v1/instances/:name.
@@ -523,6 +539,32 @@ type InstanceTestResponse struct {
 	OK      bool   `json:"ok"`
 	Version string `json:"version,omitempty"`
 	Reason  string `json:"reason,omitempty"`
+}
+
+// InstanceMetadataQualityProfile is one quality profile in the stateless
+// metadata probe response (ADR-0009 S6). id + name only — the modal picker
+// needs nothing richer.
+type InstanceMetadataQualityProfile struct {
+	ID   int    `json:"id"   example:"1"`
+	Name string `json:"name" example:"HD-1080p"`
+}
+
+// InstanceMetadataRootFolder is one root folder in the stateless metadata probe
+// response (ADR-0009 S6). `accessible` gates whether the modal offers it as a
+// selectable default.
+type InstanceMetadataRootFolder struct {
+	ID         int    `json:"id"         example:"1"`
+	Path       string `json:"path"       example:"/tv"`
+	Accessible bool   `json:"accessible" example:"true"`
+	FreeSpace  int64  `json:"free_space" example:"123456789"`
+}
+
+// InstanceMetadataResponse is the body of POST /admin/instances/metadata — the
+// quality profiles + root folders read from a transient Sonarr client built on
+// the passed {url, api_key}. Both slices are always JSON arrays (never null).
+type InstanceMetadataResponse struct {
+	QualityProfiles []InstanceMetadataQualityProfile `json:"quality_profiles"`
+	RootFolders     []InstanceMetadataRootFolder     `json:"root_folders"`
 }
 
 // RuntimeConfigDTO is the wire shape of GET/PUT /api/v1/config/runtime.
