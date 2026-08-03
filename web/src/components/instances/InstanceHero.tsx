@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Pencil, Play, ExternalLink, Loader2 } from 'lucide-react';
+import { Pencil, Play, RefreshCw, Trash2, ExternalLink, Loader2 } from 'lucide-react';
 import type { Instance } from '@/lib/instances';
 import { useInstanceCounters } from '@/lib/counters';
 import { useMissing } from '@/lib/missing';
@@ -21,15 +21,18 @@ import { InstanceChipRow } from './InstanceChipRow';
 export interface InstanceHeroProps {
   readonly instance: Instance;
   readonly onEdit: (name: string) => void;
+  readonly onRecheck: (name: string) => void;
+  readonly onDelete: (name: string) => void;
 }
 
 /**
- * Primary instance card. Reads counters (24h + 7d), missing count,
- * webhook status, qBit settings. Renders sparkline from the 7d
- * `counters.sparkline` slice. Degradation tint applies when
- * health != 'Available'.
+ * Rich instance card, rendered for every instance in the list. Reads
+ * counters (24h + 7d), missing count, webhook status, qBit settings.
+ * Renders sparkline from the 7d `counters.sparkline` slice. Degradation
+ * tint applies when health != 'Available' (except Bootstrapping, which
+ * stays neutral). Actions: Edit · Force-scan · Recheck · Open Sonarr · Delete.
  */
-export function InstanceHero({ instance, onEdit }: InstanceHeroProps) {
+export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: InstanceHeroProps) {
   const { t } = useTranslation();
   const name = instance.name ?? '';
   const c24 = useInstanceCounters(name, '24h');
@@ -48,6 +51,7 @@ export function InstanceHero({ instance, onEdit }: InstanceHeroProps) {
   // Self-throttled wears a warning (amber) accent rather than the red
   // danger accent — same border treatment, different colour token.
   const warn = kind === 'warning';
+  const flips = instance.transitions_count ?? 0;
   const sparkData = (c7.data?.sparkline ?? []).map((b) => b.grabs);
   const sonarrHref = pickPublicHref(instance.public_url, instance.url);
 
@@ -85,6 +89,11 @@ export function InstanceHero({ instance, onEdit }: InstanceHeroProps) {
                 {t(healthLabelKey(instance.health))} · {relativeTime(instance.last_check_at)}
               </span>
               <Badge variant="solid" mono>{instance.mode ?? 'auto'}</Badge>
+              {flips > 0 && (
+                <Badge variant="warn" mono data-testid={`hero-flips-${name}`}>
+                  {t('instances.compact.degradation.flips', { count: flips })}
+                </Badge>
+              )}
             </div>
             <div className="font-mono text-[12.5px] text-tx-muted">
               {t('instances.hero.subline', {
@@ -127,6 +136,15 @@ export function InstanceHero({ instance, onEdit }: InstanceHeroProps) {
                 ? t('instances.hero.actions.forceScanRunning')
                 : t('instances.hero.actions.forceScan')}
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onRecheck(name)}
+              data-testid={`hero-recheck-${name}`}
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              {t('instances.compact.actions.recheck')}
+            </Button>
             {sonarrHref && (
               <Button size="sm" variant="outline" asChild>
                 <a href={sonarrHref} target="_blank" rel="noreferrer"
@@ -136,6 +154,16 @@ export function InstanceHero({ instance, onEdit }: InstanceHeroProps) {
                 </a>
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onDelete(name)}
+              data-testid={`hero-delete-${name}`}
+              className="text-status-danger"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              {t('common.delete')}
+            </Button>
           </div>
         </div>
 

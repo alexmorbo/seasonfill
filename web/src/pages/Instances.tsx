@@ -6,7 +6,6 @@ import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useInstances, type Instance } from '@/lib/instances';
 import { useDeleteInstance, useInstanceDetail } from '@/lib/instances-mutations';
 import { useTriggerScan } from '@/lib/scan-mutations';
-import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,49 +16,21 @@ import {
 } from '@/components/ui/dialog';
 import { InstanceFormDialog } from '@/components/settings/InstanceFormDialog';
 import { InstanceHero } from '@/components/instances/InstanceHero';
-import { InstanceCompactRow } from '@/components/instances/InstanceCompactRow';
 import { AddInstanceGhostRow } from '@/components/instances/AddInstanceGhostRow';
 import { InstancesEmptyState } from '@/components/instances/InstancesEmptyState';
 
-function pickHero(instances: readonly Instance[], filter: string | null): {
-  hero: Instance | null;
-  rest: readonly Instance[];
-} {
-  if (instances.length === 0) return { hero: null, rest: [] };
-  if (filter) {
-    const idx = instances.findIndex((i) => i.name === filter);
-    if (idx >= 0) {
-      const hero = instances[idx];
-      return {
-        hero: hero ?? null,
-        rest: [...instances.slice(0, idx), ...instances.slice(idx + 1)],
-      };
-    }
-  }
-  const firstInst = instances[0];
-  return { hero: firstInst ?? null, rest: instances.slice(1) };
-}
-
-/**
- * TODO(050b): This implementation spans 050a + 050b due to LOC overflow (1047 total).
- * 050a: InstanceHero + InstanceStatsBlock + InstanceChipRow + hero-only rendering.
- * 050b: InstanceCompactRow + AddInstanceGhostRow + InstancesEmptyState + full layout.
- * Current state: both features are complete and integrated. No action required.
- */
 export function Instances() {
   const { t } = useTranslation();
   useSetPageTitle(t('instances.title'));
   const q = useInstances();
   const del = useDeleteInstance();
   const trigger = useTriggerScan();
-  const { filter } = useInstanceFilter();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const instances: readonly Instance[] = useMemo(
     () => q.data?.instances ?? [],
     [q.data?.instances],
   );
-  const { hero, rest } = useMemo(() => pickHero(instances, filter), [instances, filter]);
 
   // Story 494 (B-13): `?add=1` deep-link from Dashboard CTA opens
   // InstanceFormDialog in create mode on initial render. The legacy
@@ -139,14 +110,10 @@ export function Instances() {
         <InstancesEmptyState onAdd={openCreate} />
       )}
 
-      {!q.isError && !q.isPending && instances.length > 0 && hero && (
+      {!q.isError && !q.isPending && instances.length > 0 && (
         <div className="flex flex-col gap-4">
-          <InstanceHero
-            instance={hero}
-            onEdit={openEdit}
-          />
-          {rest.map((inst) => (
-            <InstanceCompactRow
+          {instances.map((inst) => (
+            <InstanceHero
               key={inst.name}
               instance={inst}
               onEdit={openEdit}

@@ -47,13 +47,16 @@ const wrap = (ui: ReactElement) => (
 );
 
 describe('<Instances />', () => {
-  it('renders hero + 1 compact row + ghost row with two instances', async () => {
+  it('renders a rich card for every instance + ghost row', async () => {
     renderWithProviders(wrap(<Instances />));
     await waitFor(() => {
       expect(screen.getByTestId('instance-hero-homelab')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('instance-row-4k')).toBeInTheDocument();
+    expect(screen.getByTestId('instance-hero-4k')).toBeInTheDocument();
     expect(screen.getByTestId('instance-add-ghost')).toBeInTheDocument();
+    // 4k is Unreachable with transitions_count: 3 → degraded card + flips badge.
+    expect(screen.getByTestId('instance-hero-4k').className).toMatch(/border-l-status-danger/);
+    expect(screen.getByTestId('hero-flips-4k')).toHaveTextContent('3');
   });
 
   it('shows empty state when zero instances', async () => {
@@ -65,19 +68,6 @@ describe('<Instances />', () => {
       expect(screen.getByTestId('instances-empty-state')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('instance-add-ghost')).toBeNull();
-  });
-
-  it('respects instance filter for hero selection', async () => {
-    const ctx = { filter: '4k', setFilter: vi.fn() };
-    renderWithProviders(
-      <InstanceFilterCtx.Provider value={ctx}>
-        <Instances />
-      </InstanceFilterCtx.Provider>,
-    );
-    await waitFor(() => {
-      expect(screen.getByTestId('instance-hero-4k')).toBeInTheDocument();
-    });
-    expect(screen.getByTestId('instance-row-homelab')).toBeInTheDocument();
   });
 
   it('sets the topbar page title via useSetPageTitle', async () => {

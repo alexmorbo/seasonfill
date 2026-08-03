@@ -96,6 +96,8 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={inst}
         onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     await waitFor(() => {
@@ -125,6 +127,8 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={degraded}
         onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     const card = screen.getByTestId('instance-hero-homelab');
@@ -143,6 +147,8 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={withPublic}
         onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     const link = await screen.findByTestId('hero-sonarr-link-homelab');
@@ -159,6 +165,8 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={noPublic}
         onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     const link = await screen.findByTestId('hero-sonarr-link-homelab');
@@ -184,6 +192,8 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={omitted}
         onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     const link = await screen.findByTestId('hero-sonarr-link-homelab');
@@ -204,6 +214,8 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={throttled}
         onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     const card = screen.getByTestId('instance-hero-homelab');
@@ -229,6 +241,8 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={bootstrapping}
         onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     expect(screen.getByTestId('hero-health-spinner-homelab')).toBeInTheDocument();
@@ -249,11 +263,73 @@ describe('<InstanceHero />', () => {
       <InstanceHero
         instance={bare}
         onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     // Wait for a stable render via an unrelated chip query.
     await screen.findByTestId('chip-missing');
     expect(screen.queryByTestId('hero-sonarr-link-homelab')).toBeNull();
+  });
+
+  it('Recheck button fires onRecheck with the instance name', async () => {
+    const onRecheck = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <InstanceHero
+        instance={inst}
+        onEdit={() => undefined}
+        onRecheck={onRecheck}
+        onDelete={() => undefined}
+      />,
+    );
+    const btn = await screen.findByTestId('hero-recheck-homelab');
+    await user.click(btn);
+    expect(onRecheck).toHaveBeenCalledWith('homelab');
+  });
+
+  it('Delete button fires onDelete with the instance name', async () => {
+    const onDelete = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <InstanceHero
+        instance={inst}
+        onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={onDelete}
+      />,
+    );
+    const btn = await screen.findByTestId('hero-delete-homelab');
+    await user.click(btn);
+    expect(onDelete).toHaveBeenCalledWith('homelab');
+  });
+
+  it('renders the flips badge when transitions_count > 0', async () => {
+    const flipping = { ...(inst as object), transitions_count: 3 } as never;
+    renderWithProviders(
+      <InstanceHero
+        instance={flipping}
+        onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
+      />,
+    );
+    const badge = await screen.findByTestId('hero-flips-homelab');
+    expect(badge).toHaveTextContent('3');
+  });
+
+  it('hides the flips badge when transitions_count is 0', async () => {
+    renderWithProviders(
+      <InstanceHero
+        instance={inst}
+        onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
+      />,
+    );
+    // Wait for a stable render via an unrelated chip query.
+    await screen.findByTestId('chip-missing');
+    expect(screen.queryByTestId('hero-flips-homelab')).toBeNull();
   });
 });
 
@@ -275,7 +351,7 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
 
   it('starts in idle state when no scan is running for the instance', async () => {
     // Default fetch mock returns `{}` for /scans → no running scan
-    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} onRecheck={() => undefined} onDelete={() => undefined} />);
     const btn = await screen.findByTestId('hero-force-scan-homelab');
     expect(btn).toHaveAttribute('data-busy', 'false');
     expect(btn).not.toBeDisabled();
@@ -302,7 +378,7 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
       return new Response('{}', { status: 200 });
     }) as never;
 
-    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} onRecheck={() => undefined} onDelete={() => undefined} />);
     await waitFor(() => {
       const btn = screen.getByTestId('hero-force-scan-homelab');
       expect(btn).toHaveAttribute('data-busy', 'true');
@@ -341,7 +417,7 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
     }) as never;
 
     const user = userEvent.setup();
-    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} onRecheck={() => undefined} onDelete={() => undefined} />);
     const btn = await screen.findByTestId('hero-force-scan-homelab');
     expect(btn).not.toBeDisabled();
 
@@ -379,7 +455,7 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
     }) as never;
 
     const user = userEvent.setup();
-    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} onRecheck={() => undefined} onDelete={() => undefined} />);
     const btn = await screen.findByTestId('hero-force-scan-homelab');
     await user.click(btn);
 
@@ -412,7 +488,7 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
     globalThis.fetch = fetchSpy as never;
 
     const user = userEvent.setup();
-    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} onRecheck={() => undefined} onDelete={() => undefined} />);
     await waitFor(() => {
       expect(screen.getByTestId('hero-force-scan-homelab')).toHaveAttribute('data-busy', 'true');
     });
@@ -469,7 +545,7 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
     }) as never;
 
     const user = userEvent.setup();
-    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} onRecheck={() => undefined} onDelete={() => undefined} />);
     const btn = await screen.findByTestId('hero-force-scan-homelab');
     await user.click(btn);
 
@@ -520,7 +596,7 @@ describe('<InstanceHero /> — B-50 i18n (ru localization for Edit + Force scan)
     // operator saw "Edit" / "Force scan" on the ru UI. Lock the
     // localized strings in.
     await i18n.changeLanguage('ru');
-    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} />);
+    renderWithProviders(<InstanceHero instance={inst} onEdit={() => undefined} onRecheck={() => undefined} onDelete={() => undefined} />);
     // Wait for a stable render via the chip row.
     await screen.findByTestId('chip-missing');
     // Edit button is rendered as the literal localized text alongside
