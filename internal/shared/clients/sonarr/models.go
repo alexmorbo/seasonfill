@@ -194,14 +194,24 @@ type addSeriesAddOptions struct {
 // Story 524 N-4 per-season picker: `seasons` is omitempty — when
 // absent Sonarr falls back to addOptions.monitor as the sole driver;
 // when present each entry sets a per-season monitored override.
+//
+// ADR-0010 S1: `title`, `titleSlug`, `year`, `images` are now sent on
+// the body — Sonarr rejects POST /api/v3/series with "Title must not be
+// empty" when only tvdbId is provided; it does not resolve the series
+// object from the id alone. The values are sourced from a preceding
+// GET /api/v3/series/lookup?term=tvdb:{id} call.
 type addSeriesRequest struct {
 	TVDBID           int                  `json:"tvdbId"`
+	Title            string               `json:"title"`
+	TitleSlug        string               `json:"titleSlug"`
+	Year             int                  `json:"year"`
 	QualityProfileID int                  `json:"qualityProfileId"`
 	RootFolderPath   string               `json:"rootFolderPath"`
 	Monitored        bool                 `json:"monitored"`
 	AddOptions       addSeriesAddOptions  `json:"addOptions"`
 	Tags             []int                `json:"tags,omitempty"`
 	Seasons          []addSeriesSeasonDTO `json:"seasons,omitempty"`
+	Images           []imageDTO           `json:"images,omitempty"`
 }
 
 // addSeriesSeasonDTO is one entry in addSeriesRequest.seasons. Story
@@ -217,6 +227,7 @@ type addSeriesSeasonDTO struct {
 // from its metadata provider. We project the subset N-4 surfaces.
 type lookupResultDTO struct {
 	Title        string      `json:"title"`
+	TitleSlug    string      `json:"titleSlug"`
 	Year         int         `json:"year"`
 	TVDBID       int         `json:"tvdbId"`
 	TMDBID       int         `json:"tmdbId"`

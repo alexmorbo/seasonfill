@@ -1012,11 +1012,13 @@ func TestClient_LookupSeries_Success(t *testing.T) {
 		_, _ = w.Write([]byte(`[
 			{
 				"title":"Rick and Morty",
+				"titleSlug":"rick-and-morty",
 				"year":2013,
 				"tvdbId":275274,
 				"tmdbId":60625,
 				"overview":"smart guy with a dumb sidekick",
 				"remotePoster":"https://example.com/poster.jpg",
+				"images":[{"coverType":"poster","url":"/MediaCover/1/poster.jpg","remoteUrl":"https://example.com/poster.jpg"}],
 				"seasons":[
 					{"seasonNumber":0,"monitored":false,"statistics":{"episodeCount":3,"totalEpisodeCount":5}},
 					{"seasonNumber":1,"monitored":true,"statistics":{"episodeCount":11,"totalEpisodeCount":11}},
@@ -1038,6 +1040,11 @@ func TestClient_LookupSeries_Success(t *testing.T) {
 
 	row := out[0]
 	assert.Equal(t, "Rick and Morty", row.Title)
+	assert.Equal(t, "rick-and-morty", row.TitleSlug)
+	require.Len(t, row.Images, 1)
+	assert.Equal(t, "poster", row.Images[0].CoverType)
+	assert.Equal(t, "https://example.com/poster.jpg", row.Images[0].RemoteURL)
+	assert.Equal(t, "/MediaCover/1/poster.jpg", row.Images[0].URL)
 	assert.Equal(t, 2013, row.Year)
 	assert.Equal(t, 275274, row.TVDBID)
 	assert.Equal(t, 60625, row.TMDBID)
@@ -1174,4 +1181,89 @@ func TestClient_AddSeries_NoSeasons_OmitsField(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.NotContains(t, gotBody, `"seasons"`)
+}
+
+// TestClient_AddSeries_SendsTitleAndImages verifies ADR-0010 S1: the
+// wire body carries title, titleSlug, year, and the images[] array so
+// Sonarr accepts POST /api/v3/series.
+func TestClient_AddSeries_SendsTitleAndImages(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		gotBody string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotBody = string(buf)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.AddSeries(context.Background(), ports.AddSeriesPayload{
+		TVDBID:           275274,
+		Title:            "Rick and Morty",
+		TitleSlug:        "rick-and-morty",
+		Year:             2013,
+		QualityProfileID: 1,
+		RootFolderPath:   "/tv",
+		Monitored:        true,
+		MonitorMode:      "all",
+		Images: []ports.LookupImage{
+			{CoverType: "poster", RemoteURL: "https://img/p.jpg", URL: "/MediaCover/1/poster.jpg"},
+		},
+	})
+	require.NoError(t, err)
+	mu.Lock()
+	defer mu.Unlock()
+	var decoded struct {
+		Title     string `json:"title"`
+		TitleSlug string `json:"titleSlug"`
+		Year      int    `json:"year"`
+		Images    []struct {
+			CoverType string `json:"coverType"`
+			URL       string `json:"url"`
+			RemoteURL string `json:"remoteUrl"`
+		} `json:"images"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(gotBody), &decoded))
+	assert.Equal(t, "Rick and Morty", decoded.Title)
+	assert.NotEmpty(t, decoded.Title)
+	assert.Equal(t, "rick-and-morty", decoded.TitleSlug)
+	assert.NotEmpty(t, decoded.TitleSlug)
+	assert.Equal(t, 2013, decoded.Year)
+	require.Len(t, decoded.Images, 1)
+	assert.Equal(t, "poster", decoded.Images[0].CoverType)
+	assert.Equal(t, "https://img/p.jpg", decoded.Images[0].RemoteURL)
+	assert.Equal(t, "/MediaCover/1/poster.jpg", decoded.Images[0].URL)
+}
+
+// TestClient_AddSeries_NoImages_OmitsField asserts the images[] key is
+// omitted when AddSeriesPayload.Images is nil.
+func TestClient_AddSeries_NoImages_OmitsField(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		gotBody string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotBody = string(buf)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":8}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.AddSeries(context.Background(), ports.AddSeriesPayload{
+		TVDBID: 1, QualityProfileID: 1, RootFolderPath: "/tv",
+		Monitored: true, MonitorMode: "all",
+	})
+	require.NoError(t, err)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.NotContains(t, gotBody, `"images"`)
 }

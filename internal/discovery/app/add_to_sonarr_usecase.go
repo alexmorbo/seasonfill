@@ -130,29 +130,41 @@ func (uc *AddToSonarrUseCase) Add(ctx context.Context, req AddRequest) (AddResul
 		payload.Tags = []int{tagID}
 	}
 
+	// ADR-0010 S1: look up the full series object on every add. Sonarr
+	// rejects POST /api/v3/series unless the body carries title +
+	// titleSlug (+ images/year) — it does not resolve them from tvdbId
+	// alone. One extra round-trip per add is acceptable for an explicit,
+	// low-frequency operator action.
+	results, err := client.LookupSeries(ctx, fmt.Sprintf("tvdb:%d", req.TVDBID))
+	if err != nil {
+		return AddResult{}, &sharedErrors.SonarrUnreachableError{
+			Instance: req.InstanceName,
+			Cause:    fmt.Errorf("lookup series: %w", err),
+		}
+	}
+	if len(results) == 0 {
+		// Sonarr's metadata provider returned no rows for the TVDB id.
+		// Surface as not_found via the typed instance error joined to
+		// ErrNotFound — the handler maps to 404 via F-2c.
+		return AddResult{}, errors.Join(
+			&sharedErrors.InstanceNotFoundError{Name: req.InstanceName},
+			ports.ErrNotFound,
+		)
+	}
+
+	found := results[0]
+	payload.Title = found.Title
+	payload.TitleSlug = found.TitleSlug
+	payload.Year = found.Year
+	payload.Images = found.Images
+
 	if len(req.MonitoredSeasons) > 0 {
-		results, err := client.LookupSeries(ctx, fmt.Sprintf("tvdb:%d", req.TVDBID))
-		if err != nil {
-			return AddResult{}, &sharedErrors.SonarrUnreachableError{
-				Instance: req.InstanceName,
-				Cause:    fmt.Errorf("lookup series: %w", err),
-			}
-		}
-		if len(results) == 0 {
-			// Sonarr's metadata provider returned no rows for the TVDB id.
-			// Surface as not_found via the typed instance error joined to
-			// ErrNotFound — the handler maps to 404 via F-2c.
-			return AddResult{}, errors.Join(
-				&sharedErrors.InstanceNotFoundError{Name: req.InstanceName},
-				ports.ErrNotFound,
-			)
-		}
 		wanted := make(map[int]bool, len(req.MonitoredSeasons))
 		for _, n := range req.MonitoredSeasons {
 			wanted[n] = true
 		}
-		seasons := make([]ports.SeasonSelection, 0, len(results[0].Seasons))
-		for _, s := range results[0].Seasons {
+		seasons := make([]ports.SeasonSelection, 0, len(found.Seasons))
+		for _, s := range found.Seasons {
 			seasons = append(seasons, ports.SeasonSelection{
 				SeasonNumber: s.SeasonNumber,
 				Monitored:    wanted[s.SeasonNumber],

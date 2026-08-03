@@ -102,6 +102,9 @@ func TestAddToSonarrHandler_HappyPath_200(t *testing.T) {
 		CreateTagFunc: func(_ context.Context, label string) (ports.Tag, error) {
 			return ports.Tag{ID: 99, Label: label}, nil
 		},
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return []ports.SonarrLookupResult{{Title: "X", TitleSlug: "x", Year: 2020}}, nil
+		},
 		AddSeriesFunc: func(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
 			return ports.AddSeriesResult{SonarrSeriesID: 555}, nil
 		},
@@ -173,6 +176,9 @@ func TestAddToSonarrHandler_SonarrUnreachable_502(t *testing.T) {
 		},
 		CreateTagFunc: func(_ context.Context, label string) (ports.Tag, error) {
 			return ports.Tag{ID: 99, Label: label}, nil
+		},
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return []ports.SonarrLookupResult{{Title: "X", TitleSlug: "x", Year: 2020}}, nil
 		},
 		AddSeriesFunc: func(_ context.Context, _ ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
 			return ports.AddSeriesResult{}, errors.New("dial tcp: refused")

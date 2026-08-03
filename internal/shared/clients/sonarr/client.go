@@ -674,6 +674,9 @@ func (c *Client) AddSeries(ctx context.Context, p ports.AddSeriesPayload) (ports
 	}
 	body := addSeriesRequest{
 		TVDBID:           p.TVDBID,
+		Title:            p.Title,
+		TitleSlug:        p.TitleSlug,
+		Year:             p.Year,
 		QualityProfileID: p.QualityProfileID,
 		RootFolderPath:   p.RootFolderPath,
 		Monitored:        p.Monitored,
@@ -682,6 +685,16 @@ func (c *Client) AddSeries(ctx context.Context, p ports.AddSeriesPayload) (ports
 			SearchForMissingEpisodes: p.SearchOnAdd,
 		},
 		Tags: p.Tags,
+	}
+	if len(p.Images) > 0 {
+		body.Images = make([]imageDTO, 0, len(p.Images))
+		for _, img := range p.Images {
+			body.Images = append(body.Images, imageDTO{
+				CoverType: img.CoverType,
+				URL:       img.URL,
+				RemoteURL: img.RemoteURL,
+			})
+		}
 	}
 	if len(p.Seasons) > 0 {
 		body.Seasons = make([]addSeriesSeasonDTO, 0, len(p.Seasons))
@@ -744,14 +757,24 @@ func (c *Client) LookupSeries(ctx context.Context, term string) ([]ports.SonarrL
 				Monitored:    s.Monitored,
 			})
 		}
+		images := make([]ports.LookupImage, 0, len(d.Images))
+		for _, i := range d.Images {
+			images = append(images, ports.LookupImage{
+				CoverType: i.CoverType,
+				RemoteURL: i.RemoteURL,
+				URL:       i.URL,
+			})
+		}
 		out = append(out, ports.SonarrLookupResult{
-			Title:    d.Title,
-			Year:     d.Year,
-			TVDBID:   d.TVDBID,
-			TMDBID:   d.TMDBID,
-			Overview: d.Overview,
-			ImageURL: img,
-			Seasons:  seasons,
+			Title:     d.Title,
+			TitleSlug: d.TitleSlug,
+			Year:      d.Year,
+			TVDBID:    d.TVDBID,
+			TMDBID:    d.TMDBID,
+			Overview:  d.Overview,
+			ImageURL:  img,
+			Images:    images,
+			Seasons:   seasons,
 		})
 	}
 	return out, nil

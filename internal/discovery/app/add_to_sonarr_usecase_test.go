@@ -46,6 +46,14 @@ func buildClient(t *testing.T,
 		CreateTagFunc: func(_ context.Context, label string) (ports.Tag, error) {
 			return ports.Tag{ID: 99, Label: label}, nil
 		},
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return []ports.SonarrLookupResult{{
+				Title:     "Default Series",
+				TitleSlug: "default-series",
+				Year:      2020,
+				TVDBID:    81189,
+			}}, nil
+		},
 		AddSeriesFunc: addFn,
 	}
 }
@@ -285,4 +293,107 @@ func TestAdd_MonitoredSeasons_LookupError(t *testing.T) {
 	require.Error(t, err)
 	var su *sharedErrors.SonarrUnreachableError
 	require.ErrorAs(t, err, &su)
+}
+
+// TestAdd_ForwardsTitleAndSlugFromLookup verifies ADR-0010 S1: the add
+// flow always looks up the series and forwards title, titleSlug, year,
+// and images onto the payload even with no per-season override.
+func TestAdd_ForwardsTitleAndSlugFromLookup(t *testing.T) {
+	t.Parallel()
+	var captured ports.AddSeriesPayload
+	cli := &ports.SonarrClientMock{
+		ListTagsFunc:  func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, l string) (ports.Tag, error) { return ports.Tag{ID: 1, Label: l}, nil },
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return []ports.SonarrLookupResult{{
+				Title:     "Severance",
+				TitleSlug: "severance",
+				Year:      2022,
+				Images:    []ports.LookupImage{{CoverType: "poster", RemoteURL: "https://img/x.jpg"}},
+			}}, nil
+		},
+		AddSeriesFunc: func(_ context.Context, p ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+			captured = p
+			return ports.AddSeriesResult{SonarrSeriesID: 42}, nil
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToSonarrUseCase(
+		fakeLookup{name: "main", client: cli},
+		fakeUsers{user: &admin.User{ID: 1, Username: "alex"}},
+		resolver,
+		discardLog(),
+	)
+
+	_, err := uc.Add(t.Context(), AddRequest{
+		InstanceName: "main", TVDBID: 12345, QualityProfileID: 1, RootFolderPath: "/tv",
+		Username: "alex",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Severance", captured.Title)
+	assert.NotEmpty(t, captured.Title)
+	assert.Equal(t, "severance", captured.TitleSlug)
+	assert.NotEmpty(t, captured.TitleSlug)
+	assert.Equal(t, 2022, captured.Year)
+	require.Len(t, captured.Images, 1)
+	assert.Equal(t, "poster", captured.Images[0].CoverType)
+	assert.Equal(t, "https://img/x.jpg", captured.Images[0].RemoteURL)
+}
+
+// TestAdd_EmptyLookup_NotFound verifies the empty-lookup path surfaces
+// 404 even without a per-season override (lookup now runs always).
+func TestAdd_EmptyLookup_NotFound(t *testing.T) {
+	t.Parallel()
+	cli := &ports.SonarrClientMock{
+		ListTagsFunc:  func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, l string) (ports.Tag, error) { return ports.Tag{ID: 1, Label: l}, nil },
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return nil, nil
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToSonarrUseCase(
+		fakeLookup{name: "main", client: cli},
+		fakeUsers{user: &admin.User{ID: 1, Username: "alex"}},
+		resolver,
+		discardLog(),
+	)
+
+	_, err := uc.Add(t.Context(), AddRequest{
+		InstanceName: "main", TVDBID: 999, QualityProfileID: 1, RootFolderPath: "/tv",
+		Username: "alex",
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ports.ErrNotFound))
+	var nf *sharedErrors.InstanceNotFoundError
+	assert.ErrorAs(t, err, &nf)
+}
+
+// TestAdd_LookupError_502 verifies a lookup network failure surfaces
+// sonarr_unreachable even without a per-season override.
+func TestAdd_LookupError_502(t *testing.T) {
+	t.Parallel()
+	cli := &ports.SonarrClientMock{
+		ListTagsFunc:  func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, l string) (ports.Tag, error) { return ports.Tag{ID: 1, Label: l}, nil },
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return nil, errors.New("dial: refused")
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToSonarrUseCase(
+		fakeLookup{name: "main", client: cli},
+		fakeUsers{user: &admin.User{ID: 1, Username: "alex"}},
+		resolver,
+		discardLog(),
+	)
+
+	_, err := uc.Add(t.Context(), AddRequest{
+		InstanceName: "main", TVDBID: 1, QualityProfileID: 1, RootFolderPath: "/tv",
+		Username: "alex",
+	})
+	require.Error(t, err)
+	var su *sharedErrors.SonarrUnreachableError
+	require.ErrorAs(t, err, &su)
+	assert.Equal(t, "main", string(su.Instance))
 }

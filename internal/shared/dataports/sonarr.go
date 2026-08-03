@@ -73,6 +73,9 @@ type Tag struct {
 // driver.
 type AddSeriesPayload struct {
 	TVDBID           int
+	Title            string
+	TitleSlug        string
+	Year             int
 	QualityProfileID int
 	RootFolderPath   string
 	Monitored        bool
@@ -80,6 +83,7 @@ type AddSeriesPayload struct {
 	SearchOnAdd      bool
 	Tags             []int
 	Seasons          []SeasonSelection
+	Images           []LookupImage
 }
 
 // SeasonSelection is one entry in AddSeriesPayload.Seasons — Sonarr's
@@ -97,14 +101,31 @@ type SeasonSelection struct {
 // ImageURL is best-effort: Sonarr returns `remotePoster` for lookup
 // results (the series is not yet added so there is no local MediaCover
 // proxy). The FE consumes it as-is via the existing mediaUrl helper.
+//
+// ADR-0010 S1: TitleSlug and the full Images list are carried so the
+// AddToSonarrUseCase can forward the complete series spec Sonarr
+// requires on POST /api/v3/series (a lookup-less add is rejected with
+// "Title must not be empty").
 type SonarrLookupResult struct {
-	Title    string
-	Year     int
-	TVDBID   int
-	TMDBID   int
-	Overview string
-	ImageURL string
-	Seasons  []SeasonInfo
+	Title     string
+	TitleSlug string
+	Year      int
+	TVDBID    int
+	TMDBID    int
+	Overview  string
+	ImageURL  string
+	Images    []LookupImage
+	Seasons   []SeasonInfo
+}
+
+// LookupImage is one entry in Sonarr's lookup images[] list, mirrored
+// verbatim so the add flow can echo the exact coverType + URL Sonarr
+// returned. RemoteURL is the fully-qualified source; URL may be a
+// relative /MediaCover path for already-added series.
+type LookupImage struct {
+	CoverType string
+	RemoteURL string
+	URL       string
 }
 
 // SeasonInfo is one season entry in the lookup preview. EpisodeCount
