@@ -96,7 +96,6 @@ export function GenreResultsGrid({ genreId }: GenreResultsGridProps) {
               posterAsset={it.poster_hash || it.poster_path}
               rating={it.tmdb_rating}
               libraryBadge={inLib ? 'inLibrary' : undefined}
-              addToSonarr={inLib ? undefined : it}
             />
           );
         })}

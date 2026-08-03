@@ -7,6 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
 import { PageTitleProvider } from '@/components/shell/page-title-context';
 import { SeriesDetail } from './SeriesDetail';
+import { AddToSonarrProvider } from '@/components/discovery/AddToSonarrProvider';
 
 const mockApi = vi.fn();
 vi.mock('@/lib/api', async () => {
@@ -41,10 +42,12 @@ function renderRoute(path: string) {
         <QueryClientProvider client={qc}>
           <TooltipProvider delayDuration={0}>
             <MemoryRouter initialEntries={[path]}>
-              <Routes>
-                {/* Story 495 / N-1e: global URL — `:instance` segment dropped. */}
-                <Route path="/series/:id" element={<SeriesDetail />} />
-              </Routes>
+              <AddToSonarrProvider>
+                <Routes>
+                  {/* Story 495 / N-1e: global URL — `:instance` segment dropped. */}
+                  <Route path="/series/:id" element={<SeriesDetail />} />
+                </Routes>
+              </AddToSonarrProvider>
             </MemoryRouter>
           </TooltipProvider>
         </QueryClientProvider>
@@ -273,6 +276,24 @@ describe('<SeriesDetail />', () => {
     mockApi.mockImplementation(() => Promise.reject(new Error('boom')));
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-detail-error')).toBeInTheDocument());
+  });
+
+  it('renders the hero Add-to-Sonarr button when the series is in no library', async () => {
+    installRoutes({ skeleton: { in_library_instances: [] } });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    expect(screen.getByTestId('hero-action-add-to-sonarr')).toBeInTheDocument();
+    // Not-in-library ⇒ the "Open in Sonarr" button is absent.
+    expect(screen.queryByTestId('hero-action-sonarr')).toBeNull();
+  });
+
+  it('hides the hero Add-to-Sonarr button when the series is in a library', async () => {
+    installRoutes(); // default in_library_instances: ['homelab']
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    expect(screen.queryByTestId('hero-action-add-to-sonarr')).toBeNull();
+    // In-library ⇒ the "Open in Sonarr" button IS present.
+    expect(screen.getByTestId('hero-action-sonarr')).toBeInTheDocument();
   });
 
   it('renders the invalid-params alert when the id is NaN', () => {

@@ -6,9 +6,6 @@ import { cn } from '@/lib/utils';
 import { mediaUrl, SENTINEL_MISSING_HASH } from '@/api/series';
 import { formatSeriesTitle } from '@/lib/title';
 import { MediaImage } from '@/components/MediaImage';
-import { AddToSonarrButton } from '@/components/discovery/AddToSonarrButton';
-import type { AddToSonarrTarget } from '@/components/discovery/add-to-sonarr-context';
-import type { DiscoverySeriesItem } from '@/api/discovery';
 import { useResolveSeriesNav } from './useResolveSeriesNav';
 
 export interface SeriesCardProps {
@@ -28,8 +25,6 @@ export interface SeriesCardProps {
   readonly missingCount?: number | undefined;
   /** "In library" badge (top-left). */
   readonly libraryBadge?: 'inLibrary' | null | undefined;
-  /** Discovery item → renders the Add-to-Sonarr button when not in library. */
-  readonly addToSonarr?: DiscoverySeriesItem | undefined;
   /** Muted role line under the title (person page). */
   readonly characterName?: string | undefined;
   /** Extra slot below the meta line (instance label / dept pill). */
@@ -118,27 +113,12 @@ export function SeriesCard({
   tmdbId,
   missingCount,
   libraryBadge,
-  addToSonarr,
   characterName,
   footer,
   className,
 }: SeriesCardProps) {
   const { t } = useTranslation();
   const { resolveAndNavigate, pending } = useResolveSeriesNav();
-
-  const inLibrary = (addToSonarr?.in_library_instances ?? []).length > 0;
-  const sonarrTarget: AddToSonarrTarget | null =
-    addToSonarr && !inLibrary
-      ? {
-          title: addToSonarr.title,
-          ...(typeof addToSonarr.tvdb_id === 'number'
-            ? { tvdbId: addToSonarr.tvdb_id }
-            : {}),
-          ...(typeof addToSonarr.tmdb_id === 'number'
-            ? { tmdbId: addToSonarr.tmdb_id }
-            : {}),
-        }
-      : null;
 
   const hasDirectId = typeof seriesId === 'number' && seriesId > 0;
   const hasTmdb = typeof tmdbId === 'number' && tmdbId > 0;
@@ -169,12 +149,6 @@ export function SeriesCard({
           >
             {t('series.tile.missing', { count: missingCount })}
           </span>
-        )}
-
-        {sonarrTarget && (
-          <div className="absolute right-2 top-2 z-20">
-            <AddToSonarrButton target={sonarrTarget} />
-          </div>
         )}
 
         {(showYear || showRating) && (

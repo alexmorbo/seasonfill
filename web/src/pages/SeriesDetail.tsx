@@ -22,6 +22,7 @@ import { useSeriesSeasons } from '@/api/seriesSeasons';
 import { useSeriesLibrary } from '@/api/seriesLibrary';
 import { useSeriesRatings } from '@/api/seriesRatings';
 import { SeriesHero } from '@/components/series-detail/SeriesHero';
+import type { AddToSonarrTarget } from '@/components/discovery/add-to-sonarr-context';
 import { DegradedChip } from '@/components/series-detail/DegradedChip';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
 import { RailCard } from '@/components/series-detail/RailCard';
@@ -68,6 +69,20 @@ export function SeriesDetail() {
   );
   const status = parseStatus(hero?.status);
   const sonarrOnly = useMemo(() => isSonarrOnly(hero), [hero]);
+
+  // TMDB-only series (no primary instance ⇒ not in any Sonarr library) get an
+  // "Add to Sonarr" hero button. Identity comes from external_links (tvdb/tmdb)
+  // — NOT skeleton.series_id (that's the internal id). The modal tolerates a
+  // missing tvdb, so the button is NOT gated on tvdb presence.
+  const addToSonarrTarget = useMemo<AddToSonarrTarget | undefined>(() => {
+    if (primaryInstance !== undefined) return undefined;
+    const links = skeleton?.external_links;
+    return {
+      title: hero?.title ?? '',
+      ...(links?.tvdb_id !== undefined ? { tvdbId: links.tvdb_id } : {}),
+      ...(links?.tmdb_id !== undefined ? { tmdbId: links.tmdb_id } : {}),
+    };
+  }, [primaryInstance, skeleton?.external_links, hero?.title]);
 
   // Story 529 — overview block loads from its own endpoint.
   const overviewQ = useSeriesOverview({
@@ -260,6 +275,7 @@ export function SeriesDetail() {
             {...(imdbStaleAt ? { imdbStaleAt } : {})}
             {...(tmdbSeriesDegraded ? { tmdbSeriesDegraded: true } : {})}
             {...(imdbLoading ? { imdbLoading: true } : {})}
+            {...(addToSonarrTarget ? { addToSonarrTarget } : {})}
             onScrollToTorrents={scrollToTorrents}
           />
 

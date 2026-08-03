@@ -6,8 +6,6 @@ import { MemoryRouter } from 'react-router-dom';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
 import { SeriesCard } from './SeriesCard';
-import { AddToSonarrProvider } from '@/components/discovery/AddToSonarrProvider';
-import type { DiscoverySeriesItem } from '@/api/discovery';
 import { SENTINEL_MISSING_HASH } from '@/api/series';
 
 const mockNavigate = vi.fn();
@@ -146,46 +144,6 @@ describe('<SeriesCard />', () => {
       </I18nextProvider>,
     );
     expect(screen.getByTestId('series-card-library-badge')).toBeInTheDocument();
-  });
-
-  it('renders the Add-to-Sonarr button when addToSonarr is provided', () => {
-    const item: DiscoverySeriesItem = {
-      series_id: 0,
-      tmdb_id: 123,
-      title: 'Show',
-      in_library_instances: [],
-    };
-    render(
-      <I18nextProvider i18n={i18n}>
-        <TooltipProvider delayDuration={0}>
-          <MemoryRouter>
-            <AddToSonarrProvider>
-              <SeriesCard title="Show" tmdbId={123} addToSonarr={item} />
-            </AddToSonarrProvider>
-          </MemoryRouter>
-        </TooltipProvider>
-      </I18nextProvider>,
-    );
-    expect(screen.getByTestId('add-to-sonarr-button')).toBeInTheDocument();
-  });
-
-  it('hides the Add-to-Sonarr button when the series is already in a library', () => {
-    const item: DiscoverySeriesItem = {
-      series_id: 0, tmdb_id: 123, title: 'Show',
-      in_library_instances: ['sonarr-main'],
-    };
-    render(
-      <I18nextProvider i18n={i18n}>
-        <TooltipProvider delayDuration={0}>
-          <MemoryRouter>
-            <AddToSonarrProvider>
-              <SeriesCard title="Show" tmdbId={123} addToSonarr={item} />
-            </AddToSonarrProvider>
-          </MemoryRouter>
-        </TooltipProvider>
-      </I18nextProvider>,
-    );
-    expect(screen.queryByTestId('add-to-sonarr-button')).toBeNull();
   });
 
   it('renders the footer slot when provided', () => {

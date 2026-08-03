@@ -114,8 +114,9 @@ describe('<TrendingGrid />', () => {
       expect.arrayContaining(['8.7', '8.4']),
     );
 
-    // Not-in-library → Add-to-Sonarr button; in-library → badge
-    expect(screen.getByTestId('add-to-sonarr-button')).toBeInTheDocument();
+    // The discovery poster pill was removed — the hero button is the sole
+    // Add-to-Sonarr entry point now; in-library cards still show the badge.
+    expect(screen.queryByTestId('add-to-sonarr-button')).toBeNull();
     expect(screen.getByTestId('series-card-library-badge')).toBeInTheDocument();
 
     // Poster/title click routes internally to /series/:id

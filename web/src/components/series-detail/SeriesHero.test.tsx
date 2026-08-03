@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider } from 'react-i18next';
@@ -7,6 +7,8 @@ import i18n from '@/i18n';
 import type { SeriesHero as HeroDTO } from '@/api/series';
 import type { SeriesRatingsResponse } from '@/api/seriesRatings';
 import { SeriesHero } from './SeriesHero';
+import { AddToSonarrProvider } from '@/components/discovery/AddToSonarrProvider';
+import type { AddToSonarrTarget } from '@/components/discovery/add-to-sonarr-context';
 
 // The hero single-sources its ★ from useSeriesRatings; mock the hook so each
 // test drives a controlled /ratings response without a QueryClient/network.
@@ -15,16 +17,25 @@ vi.mock('@/api/seriesRatings', () => ({
   useSeriesRatings: () => ({ data: heroRatings }),
 }));
 
+const origFetch = globalThis.fetch;
 beforeEach(() => {
   heroRatings = undefined;
+  globalThis.fetch = vi.fn(async () =>
+    new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  ) as typeof fetch;
 });
+afterEach(() => { globalThis.fetch = origFetch; });
 
 function wrap(ui: React.ReactElement) {
-  const qc = new QueryClient();
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+  });
   return (
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <I18nextProvider i18n={i18n}>{ui}</I18nextProvider>
+        <I18nextProvider i18n={i18n}>
+          <AddToSonarrProvider>{ui}</AddToSonarrProvider>
+        </I18nextProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -139,5 +150,43 @@ describe('SeriesHero — single-source ratings (#1059 / F-11-FE)', () => {
     const tmdb = screen.getByTestId('rating-tmdb');
     expect(tmdb).toHaveTextContent('9.9');
     expect(tmdb).not.toHaveTextContent('7.5');
+  });
+});
+
+describe('SeriesHero — Add to Sonarr (not-in-library)', () => {
+  const target: AddToSonarrTarget = {
+    title: 'For All Mankind', tvdbId: 355093, tmdbId: 87917,
+  };
+
+  it('renders the hero Add-to-Sonarr button for a TMDB-only series (no instance)', () => {
+    render(wrap(<SeriesHero
+      instance={undefined}
+      seriesId={369}
+      hero={baseHero as unknown as HeroDTO}
+      addToSonarrTarget={target}
+    />));
+    expect(screen.getByTestId('hero-action-add-to-sonarr')).toBeInTheDocument();
+    // Mutually exclusive with the in-library "Open in Sonarr" button.
+    expect(screen.queryByTestId('hero-action-sonarr')).toBeNull();
+  });
+
+  it('opens the Add-to-Sonarr modal on click', () => {
+    render(wrap(<SeriesHero
+      instance={undefined}
+      seriesId={369}
+      hero={baseHero as unknown as HeroDTO}
+      addToSonarrTarget={target}
+    />));
+    fireEvent.click(screen.getByTestId('hero-action-add-to-sonarr'));
+    expect(screen.getByTestId('add-to-sonarr-modal')).toBeInTheDocument();
+  });
+
+  it('does NOT render the Add-to-Sonarr button when no target is provided', () => {
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={baseHero as unknown as HeroDTO}
+    />));
+    expect(screen.queryByTestId('hero-action-add-to-sonarr')).toBeNull();
   });
 });

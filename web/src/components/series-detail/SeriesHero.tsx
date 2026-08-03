@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Play, BookmarkCheck, Ellipsis, ChevronLeft } from 'lucide-react';
+import { ExternalLink, Play, BookmarkCheck, Ellipsis, ChevronLeft, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
@@ -21,6 +21,10 @@ import { TrailerModal } from './TrailerModal';
 import { MonogramFallback } from '@/components/MonogramFallback';
 import { NextEpisodeCard } from './NextEpisodeCard';
 import { HeroLibraryStrip } from './HeroLibraryStrip';
+import {
+  useAddToSonarrLauncher,
+  type AddToSonarrTarget,
+} from '@/components/discovery/add-to-sonarr-context';
 
 export interface SeriesHeroProps {
   // Story 495 / N-1e: now optional — TMDB-only series carry no
@@ -42,6 +46,11 @@ export interface SeriesHeroProps {
   // Story 495 / N-1e (B-20): when true AND no imdb_rating, render a
   // skeleton chip on the IMDb side of `<RatingDuo>`.
   readonly imdbLoading?: boolean | undefined;
+  // TMDB-only (not-in-library) series carry an add target; SeriesDetail
+  // builds it only when `in_library_instances[0]` is undefined. Presence here
+  // ⇒ render the hero "Add to Sonarr" button (mutually exclusive with the
+  // "Open in Sonarr" button, which needs a resolved instance href).
+  readonly addToSonarrTarget?: AddToSonarrTarget | undefined;
 }
 
 function yearRange(start: number | undefined, end: number | undefined, status: string): string {
@@ -53,9 +62,10 @@ function yearRange(start: number | undefined, end: number | undefined, status: s
 
 export function SeriesHero({
   instance, seriesId, hero, library, download, tmdbStaleAt, imdbStaleAt, titleSlug,
-  onScrollToTorrents, tmdbSeriesDegraded, imdbLoading,
+  onScrollToTorrents, tmdbSeriesDegraded, imdbLoading, addToSonarrTarget,
 }: SeriesHeroProps) {
   const { t } = useTranslation();
+  const { openAddToSonarr } = useAddToSonarrLauncher();
   // `useInstancePublicURL` tolerates undefined — returns undefined,
   // which makes `sonarrHref` undefined and hides the Sonarr button.
   const sonarrPublic = useInstancePublicURL(instance ?? '');
@@ -244,6 +254,17 @@ export function SeriesHero({
                       <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
                       {t('common.openInSonarr')}
                     </a>
+                  </Button>
+                )}
+                {addToSonarrTarget && !sonarrHref && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="hero-action-add-to-sonarr"
+                    onClick={() => openAddToSonarr(addToSonarrTarget)}
+                  >
+                    <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                    {t('discovery.add.button')}
                   </Button>
                 )}
                 {showTrailer && trailerKey && (
