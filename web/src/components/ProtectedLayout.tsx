@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 
 import { AppShell } from "./shell/AppShell"
+import { AddToSonarrProvider } from "./discovery/AddToSonarrProvider"
 import { PageTitleProvider } from "./shell/page-title-context"
 import { NetBanner } from "./NetBanner"
 import { NewScanModal } from "./NewScanModal"
@@ -59,12 +60,14 @@ export function ProtectedLayout() {
   return (
     <InstanceFilterProvider>
       <PageTitleProvider defaultTitle={t("nav.dashboard")}>
-        <AutoGenPasswordBanner />
-        <AppShell>
-          <Outlet />
-        </AppShell>
-        <NetBanner />
-        <NewScanModal open={scanModalOpen} onOpenChange={setScanModalOpen} />
+        <AddToSonarrProvider>
+          <AutoGenPasswordBanner />
+          <AppShell>
+            <Outlet />
+          </AppShell>
+          <NetBanner />
+          <NewScanModal open={scanModalOpen} onOpenChange={setScanModalOpen} />
+        </AddToSonarrProvider>
       </PageTitleProvider>
     </InstanceFilterProvider>
   )

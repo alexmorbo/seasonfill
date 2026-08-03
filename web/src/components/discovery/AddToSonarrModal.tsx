@@ -1,28 +1,28 @@
-// Story 522 / N-4e: modal that drives POST /api/v1/discovery/add-to-sonarr.
+// S5 / ADR-0008: Add-to-Sonarr modal, rewritten on clean state. The modal is
+// rendered by AddToSonarrProvider (app-shell level), never inside a card, so
+// no interaction here can navigate the host surface. Lifecycle (open/close
+// reset) is handled by provider mount/unmount; this component holds only its
+// own transient field state and never mutates state during render.
 //
-// Wiring contract:
-//   - `useInstances()` populates the instance dropdown. Seasonfill only
-//     supports Sonarr today, so every instance in the list is a valid
-//     target — no kind filter needed.
+// Wiring contract (unchanged from story 522/524):
+//   - useInstances() populates the instance dropdown (all instances are valid
+//     Sonarr targets today; no kind filter).
 //   - Quality profile + root folder dropdowns are gated on a selected
-//     instance (the BE returns 404 if asked before then).
-//   - The "Will be tagged as sf-{username}" badge previews the BE's
-//     resolver. Bypass / api-key / local / anonymous all collapse to
-//     "sf-system" server-side (see add_to_sonarr_handler.go line 102).
-//   - Submit toasts on success and on error. Errors are mapped from the
-//     F-2c envelope's `error` slug (`instance_not_found`,
-//     `sonarr_unreachable`, `invalid_request`); anything else falls back
-//     to the generic message. The discovery cache is invalidated inside
-//     `useAddToSonarr()` so cards refetch their `in_library_instances`.
+//     instance (the BE 404s if asked before then).
+//   - The "sf-{username}" badge previews the BE resolver; bypass/api-key/
+//     local/anonymous collapse to "sf-system" server-side.
+//   - Submit toasts on success/error. Errors map from the F-2c envelope's
+//     `error` slug; unknown slugs fall back to the generic message. The
+//     discovery cache is invalidated inside useAddToSonarr().
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
   type AddToSonarrMonitorMode,
-  type DiscoverySeriesItem,
   useAddToSonarr,
 } from '@/api/discovery';
+import type { AddToSonarrTarget } from './add-to-sonarr-context';
 import { useQualityProfiles, useRootFolders } from '@/hooks/useInstanceMetadata';
 import { useSonarrLookup } from '@/hooks/useSonarrLookup';
 import { useMe } from '@/hooks/useMe';
@@ -56,9 +56,8 @@ const ERROR_SLUGS = new Set([
 ]);
 
 export interface AddToSonarrModalProps {
-  readonly open: boolean;
-  readonly onOpenChange: (open: boolean) => void;
-  readonly item: DiscoverySeriesItem;
+  readonly target: AddToSonarrTarget;
+  readonly onClose: () => void;
 }
 
 function previewTag(username: string | undefined): string {
@@ -69,9 +68,7 @@ function previewTag(username: string | undefined): string {
   return `sf-${u}`;
 }
 
-export function AddToSonarrModal({
-  open, onOpenChange, item,
-}: AddToSonarrModalProps) {
+export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
   const { t } = useTranslation();
   const me = useMe();
   const instancesQ = useInstances();
@@ -80,85 +77,55 @@ export function AddToSonarrModal({
     [instancesQ.data],
   );
 
-  const [instanceName, setInstanceName] = useState('');
-  const [qualityProfileId, setQualityProfileId] = useState<string>('');
-  const [rootFolderPath, setRootFolderPath] = useState<string>('');
+  // User's explicit instance choice ('' = not yet chosen). The EFFECTIVE
+  // instance auto-falls back to the first available one — derived, so no
+  // render-phase setState is needed to "auto-pick".
+  const [explicitInstance, setExplicitInstance] = useState('');
+  const effectiveInstance = explicitInstance || (instances[0]?.name ?? '');
+
+  const [qualityProfileId, setQualityProfileId] = useState('');
+  const [rootFolderPath, setRootFolderPath] = useState('');
   const [monitorMode, setMonitorMode] =
     useState<AddToSonarrMonitorMode>('all');
-  const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(
-    new Set(),
-  );
-  const [seasonsInitialized, setSeasonsInitialized] = useState(false);
-
-  // "Adjust state during render" — React's preferred shape for both
-  // the open/close lifecycle reset AND the instance-change reset.
-  // The lint rule `react-hooks/set-state-in-effect` (React 19) explicitly
-  // pushes derived-state mutations out of effects; this branch is
-  // cheaper and avoids the cascading-render warning.
-  const [wasOpen, setWasOpen] = useState(open);
-  if (wasOpen !== open) {
-    setWasOpen(open);
-    if (!open) {
-      setInstanceName('');
-      setQualityProfileId('');
-      setRootFolderPath('');
-      setMonitorMode('all');
-      setSelectedSeasons(new Set());
-      setSeasonsInitialized(false);
-    } else if (!instanceName) {
-      const first = instances[0]?.name ?? '';
-      if (first) setInstanceName(first);
-    }
-  }
-
-  const qpQ = useQualityProfiles(instanceName, open && instanceName !== '');
-  const rfQ = useRootFolders(instanceName, open && instanceName !== '');
-  const lookupQ = useSonarrLookup(
-    instanceName,
-    item.tvdb_id,
-    open && instanceName !== '',
+  // null = "untouched" → render the lookup-derived default selection.
+  // Any explicit toggle snapshots the current effective set into a Set.
+  const [seasonOverride, setSeasonOverride] = useState<Set<number> | null>(
+    null,
   );
 
-  // Auto-pick the first instance once the list resolves. Without this
-  // branch the modal sits at "Select instance" forever in the (rare)
-  // case the dropdown loads after the dialog opens — pretty common in
-  // tests + slow connections.
-  if (open && instanceName === '' && instances.length > 0) {
-    const first = instances[0]?.name ?? '';
-    if (first) setInstanceName(first);
+  const enabled = effectiveInstance !== '';
+  const qpQ = useQualityProfiles(effectiveInstance, enabled);
+  const rfQ = useRootFolders(effectiveInstance, enabled);
+  const lookupQ = useSonarrLookup(effectiveInstance, target.tvdbId, enabled);
+
+  function handleInstanceChange(next: string) {
+    if (!next) return;
+    // Instance switch invalidates every downstream choice. Reset in the
+    // EVENT HANDLER (not during render, not in an effect).
+    setExplicitInstance(next);
+    setQualityProfileId('');
+    setRootFolderPath('');
+    setSeasonOverride(null);
   }
 
-  // Reset the profile + folder when the instance switches — the cached
-  // choice is meaningless against a different Sonarr.
-  const [prevInstance, setPrevInstance] = useState(instanceName);
-  if (prevInstance !== instanceName) {
-    setPrevInstance(instanceName);
-    if (qualityProfileId) setQualityProfileId('');
-    if (rootFolderPath) setRootFolderPath('');
-    setSelectedSeasons(new Set());
-    setSeasonsInitialized(false);
-  }
-
-  // Seed the season selection from the lookup payload once. Specials
-  // (season 0) start unchecked — operators rarely want them on by
-  // default and Sonarr's own UI mirrors this convention.
   const lookupItems = lookupQ.data?.items;
-  if (lookupItems && !seasonsInitialized) {
-    setSeasonsInitialized(true);
-    const next = new Set<number>();
-    for (const s of lookupItems) {
-      if (s.season_number > 0) next.add(s.season_number);
-    }
-    setSelectedSeasons(next);
-  }
 
-  // 404 (series not found in Sonarr's lookup DB) — drop the section
-  // and let the BE fall back to monitor_mode semantics. Any other
-  // error (500/502/network) we surface with an inline message.
+  // Default selection: every regular season on, specials (0) off — mirrors
+  // Sonarr's own UI. Derived from the lookup payload; no setState.
+  const defaultSeasons = useMemo(() => {
+    const s = new Set<number>();
+    for (const it of lookupItems ?? []) {
+      if (it.season_number > 0) s.add(it.season_number);
+    }
+    return s;
+  }, [lookupItems]);
+
+  const selectedSeasons = seasonOverride ?? defaultSeasons;
+
   const lookupNotFound =
     lookupQ.error instanceof ApiError && lookupQ.error.status === 404;
   const showSeasonsSection =
-    Boolean(item.tvdb_id) && instanceName !== '' && !lookupNotFound;
+    Boolean(target.tvdbId) && enabled && !lookupNotFound;
   const seasonsLoading = showSeasonsSection && lookupQ.isPending;
   const seasonsError =
     showSeasonsSection && lookupQ.isError && !lookupNotFound;
@@ -178,35 +145,34 @@ export function AddToSonarrModal({
     && sortedSeasons.every((s) => selectedSeasons.has(s.season_number));
 
   function toggleSeason(n: number, checked: boolean) {
-    const next = new Set(selectedSeasons);
-    if (checked) next.add(n);
-    else next.delete(n);
-    setSelectedSeasons(next);
+    const base = new Set(selectedSeasons);
+    if (checked) base.add(n);
+    else base.delete(n);
+    setSeasonOverride(base);
   }
 
   function toggleAll(checked: boolean) {
     if (!checked) {
-      setSelectedSeasons(new Set());
+      setSeasonOverride(new Set());
       return;
     }
     const next = new Set<number>();
     for (const s of sortedSeasons) next.add(s.season_number);
-    setSelectedSeasons(next);
+    setSeasonOverride(next);
   }
 
   const addMut = useAddToSonarr();
-
   const tagPreview = previewTag(me.data?.username);
+  const tvdbID = target.tvdbId;
 
-  const tvdbID = item.tvdb_id;
   const canSubmit = Boolean(
-    instanceName && qualityProfileId && rootFolderPath
+    effectiveInstance && qualityProfileId && rootFolderPath
     && typeof tvdbID === 'number' && tvdbID > 0
     && !addMut.isPending
     && !seasonsLoading,
   );
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!canSubmit || typeof tvdbID !== 'number') return;
     const seasonsArr = Array.from(selectedSeasons).sort((a, b) => a - b);
@@ -214,7 +180,7 @@ export function AddToSonarrModal({
       && seasonsArr.length > 0;
     addMut.mutate(
       {
-        instance_name: instanceName,
+        instance_name: effectiveInstance,
         tvdb_id: tvdbID,
         quality_profile_id: Number(qualityProfileId),
         root_folder_path: rootFolderPath,
@@ -226,7 +192,7 @@ export function AddToSonarrModal({
           toast.success(t('discovery.add.success', {
             tag: res.user_tag_label,
           }));
-          onOpenChange(false);
+          onClose();
         },
         onError: (err) => {
           let key = 'discovery.add.errors.unknown';
@@ -244,27 +210,17 @@ export function AddToSonarrModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        data-testid="add-to-sonarr-modal"
-        className="max-w-md"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent data-testid="add-to-sonarr-modal" className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {t('discovery.add.modal_title', { title: item.title })}
+            {t('discovery.add.modal_title', { title: target.title })}
           </DialogTitle>
           <DialogDescription>
             {t('discovery.add.tag_badge', { tag: tagPreview })}
           </DialogDescription>
         </DialogHeader>
 
-        {/* Story 523 / N-4 unblock: the BE projects tvdb_id straight off
-            the discovery list response, so the happy path always has it.
-            Legacy stubs upserted before story 523's join landed may still
-            be missing it — surface a non-fatal info banner so the user
-            knows why Submit is disabled. The enrichment worker hydrates
-            the field on the next /series/{id} pass. */}
         {(typeof tvdbID !== 'number' || tvdbID <= 0) && (
           <p
             data-testid="add-to-sonarr-missing-tvdb"
@@ -290,8 +246,8 @@ export function AddToSonarrModal({
               </p>
             ) : (
               <Select
-                value={instanceName}
-                onValueChange={(v) => v && setInstanceName(v)}
+                value={effectiveInstance}
+                onValueChange={handleInstanceChange}
               >
                 <SelectTrigger
                   id="ats-instance"
@@ -317,7 +273,7 @@ export function AddToSonarrModal({
             <Select
               value={qualityProfileId}
               onValueChange={(v) => v && setQualityProfileId(v)}
-              disabled={!instanceName || qpQ.isPending}
+              disabled={!effectiveInstance || qpQ.isPending}
             >
               <SelectTrigger id="ats-qp" data-testid="add-to-sonarr-qp">
                 <SelectValue
@@ -341,7 +297,7 @@ export function AddToSonarrModal({
             <Select
               value={rootFolderPath}
               onValueChange={(v) => v && setRootFolderPath(v)}
-              disabled={!instanceName || rfQ.isPending}
+              disabled={!effectiveInstance || rfQ.isPending}
             >
               <SelectTrigger id="ats-rf" data-testid="add-to-sonarr-rf">
                 <SelectValue
@@ -454,7 +410,7 @@ export function AddToSonarrModal({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => onClose()}
               data-testid="add-to-sonarr-cancel"
             >
               {t('discovery.add.cancel')}

@@ -1,5 +1,6 @@
-// Story 522 / N-4e — verifies the button's visibility rule and that a
-// click opens the modal (without exercising the modal's Select widgets).
+// S5 / ADR-0008 — the button is now a surface-agnostic trigger that calls
+// openAddToSonarr(target) from AddToSonarrProvider. In-library gating lives in
+// SeriesCard now, so this suite only covers the trigger + provider wiring.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -8,7 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import i18n from '@/i18n';
 import { AddToSonarrButton } from './AddToSonarrButton';
-import type { DiscoverySeriesItem } from '@/api/discovery';
+import { AddToSonarrProvider } from './AddToSonarrProvider';
+import type { AddToSonarrTarget } from './add-to-sonarr-context';
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -25,17 +27,16 @@ function mkClient() {
   });
 }
 
-function renderButton(itemOverrides: Partial<DiscoverySeriesItem> = {}) {
-  const item: DiscoverySeriesItem = {
-    series_id: 42, tmdb_id: 1399, tvdb_id: 81189,
-    title: 'Rick and Morty', in_library_instances: [],
-    ...itemOverrides,
-  };
+const TARGET: AddToSonarrTarget = { title: 'Rick and Morty', tvdbId: 81189 };
+
+function renderButton(target: AddToSonarrTarget = TARGET) {
   return render(
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={mkClient()}>
         <MemoryRouter>
-          <AddToSonarrButton item={item} />
+          <AddToSonarrProvider>
+            <AddToSonarrButton target={target} />
+          </AddToSonarrProvider>
         </MemoryRouter>
       </QueryClientProvider>
     </I18nextProvider>,
@@ -47,47 +48,33 @@ beforeEach(() => {
     new Response('{}', { status: 200,
       headers: { 'Content-Type': 'application/json' } }),
   ) as typeof fetch;
-  Object.defineProperty(window, 'location', {
-    writable: true, value: { pathname: '/discover', assign: vi.fn() },
-  });
 });
 
 afterEach(() => { globalThis.fetch = origFetch; });
 
 describe('<AddToSonarrButton />', () => {
-  it('renders when in_library_instances is empty', () => {
+  it('renders the trigger', () => {
     renderButton();
     expect(screen.getByTestId('add-to-sonarr-button')).toBeInTheDocument();
   });
 
-  it('renders when in_library_instances is omitted', () => {
-    // Cast away the omitted-optional ambiguity: the production type
-    // accepts `undefined` via optionality, but our `Partial<>` helper
-    // rejects it under exactOptionalPropertyTypes.
-    render(
-      <I18nextProvider i18n={i18n}>
-        <QueryClientProvider client={mkClient()}>
-          <MemoryRouter>
-            <AddToSonarrButton
-              item={{
-                series_id: 1, tmdb_id: 1, tvdb_id: 1, title: 'X',
-              } as DiscoverySeriesItem}
-            />
-          </MemoryRouter>
-        </QueryClientProvider>
-      </I18nextProvider>,
-    );
-    expect(screen.getByTestId('add-to-sonarr-button')).toBeInTheDocument();
-  });
-
-  it('renders nothing when the series is already in a library', () => {
-    renderButton({ in_library_instances: ['sonarr-main'] });
-    expect(screen.queryByTestId('add-to-sonarr-button')).toBeNull();
-  });
-
-  it('opens the modal on click', () => {
+  it('opens the provider modal on click', () => {
     renderButton();
     fireEvent.click(screen.getByTestId('add-to-sonarr-button'));
     expect(screen.getByTestId('add-to-sonarr-modal')).toBeInTheDocument();
+  });
+
+  it('throws a clear error if used without the provider', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() =>
+      render(
+        <I18nextProvider i18n={i18n}>
+          <MemoryRouter>
+            <AddToSonarrButton target={TARGET} />
+          </MemoryRouter>
+        </I18nextProvider>,
+      ),
+    ).toThrow(/AddToSonarrProvider/);
+    spy.mockRestore();
   });
 });

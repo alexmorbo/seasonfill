@@ -6,10 +6,13 @@
 //   - tag preview (sf-{username}) from /me, including the sf-system
 //     fallback for bypass-style usernames
 //   - cancel button wiring
-//   - submit gating when tvdb_id is missing
+//   - submit gating when tvdbId is missing
 //
 // The wire-shape contract and the success/error mutation paths are
 // covered in api/__tests__/discovery.test.tsx (useAddToSonarr).
+//
+// S5 / ADR-0008: the modal is now provider-mounted with props
+// { target, onClose } (was { open, onOpenChange, item }).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -18,7 +21,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import i18n from '@/i18n';
 import { AddToSonarrModal } from './AddToSonarrModal';
-import type { DiscoverySeriesItem } from '@/api/discovery';
+import type { AddToSonarrTarget } from './add-to-sonarr-context';
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -37,32 +40,26 @@ function mkClient() {
 }
 
 function renderModal(
-  itemOverrides: Partial<DiscoverySeriesItem> = {},
+  targetOverrides: Partial<AddToSonarrTarget> = {},
 ) {
-  const item: DiscoverySeriesItem = {
-    series_id: 42,
-    tmdb_id: 1399,
-    tvdb_id: 81189,
+  const target: AddToSonarrTarget = {
     title: 'Rick and Morty',
-    in_library_instances: [],
-    ...itemOverrides,
+    tvdbId: 81189,
+    tmdbId: 1399,
+    ...targetOverrides,
   };
   const qc = mkClient();
-  const onOpenChange = vi.fn();
+  const onClose = vi.fn();
   const utils = render(
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={qc}>
         <MemoryRouter>
-          <AddToSonarrModal
-            open
-            onOpenChange={onOpenChange}
-            item={item}
-          />
+          <AddToSonarrModal target={target} onClose={onClose} />
         </MemoryRouter>
       </QueryClientProvider>
     </I18nextProvider>,
   );
-  return { ...utils, qc, onOpenChange };
+  return { ...utils, qc, onClose };
 }
 
 const ME_PAYLOAD = {
@@ -175,24 +172,21 @@ describe('<AddToSonarrModal />', () => {
     });
   });
 
-  it('cancel button calls onOpenChange(false)', () => {
-    const { onOpenChange } = renderModal();
+  it('cancel button calls onClose', () => {
+    const { onClose } = renderModal();
     fireEvent.click(screen.getByTestId('add-to-sonarr-cancel'));
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('disables submit when tvdb_id is missing on the item', async () => {
+  it('disables submit when tvdbId is missing on the target', async () => {
     const qc = mkClient();
-    const item = {
-      series_id: 42, tmdb_id: 1399,
-      title: 'Rick and Morty', in_library_instances: [],
-    } as DiscoverySeriesItem;
     render(
       <I18nextProvider i18n={i18n}>
         <QueryClientProvider client={qc}>
           <MemoryRouter>
             <AddToSonarrModal
-              open onOpenChange={vi.fn()} item={item}
+              target={{ title: 'Rick and Morty', tmdbId: 1399 }}
+              onClose={vi.fn()}
             />
           </MemoryRouter>
         </QueryClientProvider>
@@ -203,8 +197,8 @@ describe('<AddToSonarrModal />', () => {
     });
   });
 
-  it('disables submit when tvdb_id is zero', async () => {
-    renderModal({ tvdb_id: 0 });
+  it('disables submit when tvdbId is zero', async () => {
+    renderModal({ tvdbId: 0 });
     await waitFor(() => {
       expect(screen.getByTestId('add-to-sonarr-submit')).toBeDisabled();
     });
@@ -214,18 +208,15 @@ describe('<AddToSonarrModal />', () => {
   // is disabled — the BE projection now exposes tvdb_id for every
   // worker-hydrated row, so a missing value means the legacy stub
   // hasn't been re-enriched yet.
-  it('shows the missing-tvdb info banner when tvdb_id is absent', async () => {
+  it('shows the missing-tvdb info banner when tvdbId is absent', async () => {
     const qc = mkClient();
-    const item = {
-      series_id: 42, tmdb_id: 1399,
-      title: 'Rick and Morty', in_library_instances: [],
-    } as DiscoverySeriesItem;
     render(
       <I18nextProvider i18n={i18n}>
         <QueryClientProvider client={qc}>
           <MemoryRouter>
             <AddToSonarrModal
-              open onOpenChange={vi.fn()} item={item}
+              target={{ title: 'Rick and Morty', tmdbId: 1399 }}
+              onClose={vi.fn()}
             />
           </MemoryRouter>
         </QueryClientProvider>
@@ -239,7 +230,7 @@ describe('<AddToSonarrModal />', () => {
   });
 
   it('hides the missing-tvdb banner on the happy path', async () => {
-    renderModal({ tvdb_id: 81189 });
+    renderModal({ tvdbId: 81189 });
     await waitFor(() => {
       expect(screen.queryByTestId('add-to-sonarr-missing-tvdb'))
         .not.toBeInTheDocument();

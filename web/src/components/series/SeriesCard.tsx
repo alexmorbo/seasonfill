@@ -7,22 +7,9 @@ import { mediaUrl, SENTINEL_MISSING_HASH } from '@/api/series';
 import { formatSeriesTitle } from '@/lib/title';
 import { MediaImage } from '@/components/MediaImage';
 import { AddToSonarrButton } from '@/components/discovery/AddToSonarrButton';
+import type { AddToSonarrTarget } from '@/components/discovery/add-to-sonarr-context';
 import type { DiscoverySeriesItem } from '@/api/discovery';
 import { useResolveSeriesNav } from './useResolveSeriesNav';
-
-// S4-A guard: a click / keydown that originated inside an open Radix Dialog
-// (role="dialog") or Select popover (role="listbox") must NOT trigger the
-// card's navigation. Radix portals its overlays to document.body, but React
-// synthetic events still bubble through the React tree — so a Select-close
-// click reaches the card's onClick. We walk the REAL DOM ancestry of the
-// event target, which DOES include the portaled overlay, and bail if it is
-// inside one. Legitimate card clicks (poster/title) have no such ancestor.
-function isFromOverlay(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    target.closest('[role="dialog"],[role="listbox"]') !== null
-  );
-}
 
 export interface SeriesCardProps {
   readonly title: string;
@@ -139,6 +126,20 @@ export function SeriesCard({
   const { t } = useTranslation();
   const { resolveAndNavigate, pending } = useResolveSeriesNav();
 
+  const inLibrary = (addToSonarr?.in_library_instances ?? []).length > 0;
+  const sonarrTarget: AddToSonarrTarget | null =
+    addToSonarr && !inLibrary
+      ? {
+          title: addToSonarr.title,
+          ...(typeof addToSonarr.tvdb_id === 'number'
+            ? { tvdbId: addToSonarr.tvdb_id }
+            : {}),
+          ...(typeof addToSonarr.tmdb_id === 'number'
+            ? { tmdbId: addToSonarr.tmdb_id }
+            : {}),
+        }
+      : null;
+
   const hasDirectId = typeof seriesId === 'number' && seriesId > 0;
   const hasTmdb = typeof tmdbId === 'number' && tmdbId > 0;
   const showRating = typeof rating === 'number' && rating > 0;
@@ -170,9 +171,9 @@ export function SeriesCard({
           </span>
         )}
 
-        {addToSonarr && (
+        {sonarrTarget && (
           <div className="absolute right-2 top-2 z-20">
-            <AddToSonarrButton item={addToSonarr} />
+            <AddToSonarrButton target={sonarrTarget} />
           </div>
         )}
 
@@ -244,12 +245,6 @@ export function SeriesCard({
         data-series-id={seriesId}
         aria-label={ariaLabel}
         className={rootClass}
-        onClick={(e) => {
-          // S4-A: an Add-to-Sonarr dialog / Select popover is mounted inside
-          // this card's subtree; preventDefault stops the Link's router
-          // navigation when the click bubbled out of that overlay.
-          if (isFromOverlay(e.target)) e.preventDefault();
-        }}
       >
         {body}
       </Link>
@@ -258,9 +253,6 @@ export function SeriesCard({
 
   if (hasTmdb) {
     const onKey = (e: KeyboardEvent) => {
-      // S4-A: ignore Enter/Space forwarded from a focused control inside an
-      // open dialog / select popover mounted in this card.
-      if (isFromOverlay(e.target)) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         void resolveAndNavigate({ tmdbId });
@@ -270,9 +262,7 @@ export function SeriesCard({
       <div
         role="button"
         tabIndex={0}
-        onClick={(e) => {
-          // S4-A: ignore clicks bubbling out of an open dialog / select popover.
-          if (isFromOverlay(e.target)) return;
+        onClick={() => {
           void resolveAndNavigate({ tmdbId });
         }}
         onKeyDown={onKey}

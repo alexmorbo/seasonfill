@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AddToSonarrProvider } from '@/components/discovery/AddToSonarrProvider';
 import i18n from '@/i18n';
 import { GenreResultsGrid } from './GenreResultsGrid';
 
@@ -21,7 +22,7 @@ function renderGrid(genreId = 18) {
     <QueryClientProvider client={qc}>
       <I18nextProvider i18n={i18n}>
         <TooltipProvider delayDuration={0}>
-          <MemoryRouter><GenreResultsGrid genreId={genreId} /></MemoryRouter>
+          <MemoryRouter><AddToSonarrProvider><GenreResultsGrid genreId={genreId} /></AddToSonarrProvider></MemoryRouter>
         </TooltipProvider>
       </I18nextProvider>
     </QueryClientProvider>,
