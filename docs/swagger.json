@@ -3680,6 +3680,10 @@
                         "example": true,
                         "type": "boolean"
                     },
+                    "installing": {
+                        "example": false,
+                        "type": "boolean"
+                    },
                     "instance_name": {
                         "example": "homelab",
                         "type": "string"
@@ -3704,6 +3708,11 @@
                     },
                     "installed": {
                         "example": true,
+                        "type": "boolean"
+                    },
+                    "installing": {
+                        "description": "Installing is true while a fresh instance's webhook is still\nregistering — inside the grace window (S2 / ADR-0008). The SPA\nrenders a loader badge instead of the error while this is set;\nError stays populated with the underlying cause.",
+                        "example": false,
                         "type": "boolean"
                     },
                     "notification_id": {

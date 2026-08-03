@@ -57,6 +57,36 @@ describe('<WebhookStatusBadge />', () => {
     expect(badge).toHaveAttribute('title', 'sonarr unauthorized');
   });
 
+  it('installing wins over error: renders the loader, not the red badge', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({
+        installed: false,
+        installing: true,
+        error: 'test_notification: sonarr could not reach seasonfill',
+      }),
+    ) as typeof fetch;
+    renderWithProviders(<WebhookStatusBadge name="alpha" />);
+    const badge = await screen.findByTestId('webhook-status-badge');
+    expect(badge).toHaveAttribute('data-state', 'installing');
+    expect(badge).not.toHaveAttribute('data-state', 'error');
+    expect(badge).toHaveAttribute('role', 'status');
+    expect(badge).toHaveTextContent(/setting up webhook|настройка вебхука/i);
+  });
+
+  it('error wins once installing clears (installing=false, error set)', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({
+        installed: false,
+        installing: false,
+        error: 'sonarr unauthorized',
+      }),
+    ) as typeof fetch;
+    renderWithProviders(<WebhookStatusBadge name="alpha" />);
+    const badge = await screen.findByTestId('webhook-status-badge');
+    expect(badge).toHaveAttribute('data-state', 'error');
+    expect(badge).toHaveTextContent(/sonarr unauthorized/i);
+  });
+
   it('error precedence: error wins over installed=true', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResp({ installed: true, error: 'reconciler crash' }),

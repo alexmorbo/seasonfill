@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { List, Shield, Webhook } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { WebhookStatus } from '@/lib/webhook-status';
-import { webhookHealthy } from '@/lib/webhook-status';
+import { webhookHealthy, webhookInstalling } from '@/lib/webhook-status';
 import type { QbitSettings } from '@/lib/qbit-settings';
 
 export interface InstanceChipRowProps {
@@ -24,6 +24,7 @@ export function InstanceChipRow({
 }: InstanceChipRowProps) {
   const { t } = useTranslation();
   const watchdogRunning = qbitSettings?.enabled === true;
+  const webhookSettingUp = webhookInstalling(webhookStatus);
   const webhookOk = webhookHealthy(webhookStatus);
 
   return (
@@ -50,14 +51,16 @@ export function InstanceChipRow({
       )}
       {webhookStatus !== undefined && (
         <Badge
-          variant={webhookOk ? 'ok' : 'warn'}
+          variant={webhookSettingUp ? 'neutral' : webhookOk ? 'ok' : 'warn'}
           mono
           data-testid="chip-webhook"
         >
           <Webhook className="w-3 h-3 mr-1" />
-          {webhookOk
-            ? t('instances.hero.chips.webhook.ok')
-            : t('instances.hero.chips.webhook.error')}
+          {webhookSettingUp
+            ? t('instances.hero.chips.webhook.installing')
+            : webhookOk
+              ? t('instances.hero.chips.webhook.ok')
+              : t('instances.hero.chips.webhook.error')}
         </Badge>
       )}
       {/* TODO(049): add re-grab/week + blacklist chips when /watchdog/rollups ships. */}

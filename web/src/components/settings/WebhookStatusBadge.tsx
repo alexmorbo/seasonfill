@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, CheckCircle2, Circle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useWebhookStatus } from '@/api/qbit';
 
@@ -16,7 +16,11 @@ function truncate(s: string): string {
 }
 
 // Surfaces live reconciler state. Backed by `useWebhookStatus`
-// (10s-stale, refetch-on-focus). Error wins over installed=true.
+// (10s-stale, refetch-on-focus). Branch order:
+// pending → installing → error → installed → not-installed. Installing
+// (S2 grace window) wins over the error so a fresh instance shows a
+// loader, not a false red badge; the error branch takes over once the
+// backend clears `installing`.
 export function WebhookStatusBadge({ name }: WebhookStatusBadgeProps) {
   const { t } = useTranslation();
   const q = useWebhookStatus(name);
@@ -33,6 +37,21 @@ export function WebhookStatusBadge({ name }: WebhookStatusBadgeProps) {
   const data = q.data;
   const err = data?.error?.trim() ?? '';
   const installed = Boolean(data?.installed);
+  const installing = Boolean(data?.installing) && !installed;
+
+  if (installing) {
+    return (
+      <span
+        role="status"
+        data-testid="webhook-status-badge"
+        data-state="installing"
+        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11.5px] font-medium text-muted"
+      >
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+        {t('settings.instances.form.webhookBadge.installing')}
+      </span>
+    );
+  }
 
   if (err) {
     const msg = t('settings.instances.form.webhookBadge.error', {

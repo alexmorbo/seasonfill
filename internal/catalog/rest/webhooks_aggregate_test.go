@@ -168,3 +168,64 @@ func TestWebhooksAggregateHandler_EmptyInstanceList(t *testing.T) {
 		t.Errorf("len: want 0, got %d", len(got.Items))
 	}
 }
+
+// Test 5: an installing row is counted neither in HealthyCount nor
+// UnhealthyCount — it must not flash red in the settings IntegrationsTab.
+func TestWebhooksAggregateHandler_InstallingRowNotCounted(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	cache := webhookinstall.NewStatusCache()
+	msg := "test_notification: sonarr could not reach seasonfill"
+	next := now.Add(5 * time.Minute) // in the future → warm cache, no refresh
+	cache.Set("sonarr-test", webhookinstall.Status{
+		Installed:      false,
+		Installing:     true,
+		LastError:      &msg,
+		Attempts:       1,
+		FirstAttemptAt: now,
+		LastCheckedAt:  now,
+		NextRetryAt:    &next,
+	})
+
+	lookup := func(name string) (runtime.InstanceSnapshot, webhookinstall.SonarrNotifier, bool) {
+		if name == "sonarr-test" {
+			return runtime.InstanceSnapshot{Name: name, WebhookInstallEnabled: true}, &aggFakeNotifier{}, true
+		}
+		return runtime.InstanceSnapshot{}, nil, false
+	}
+	r := webhookinstall.New(webhookinstall.Deps{
+		Lookup:    lookup,
+		PublicURL: func(context.Context) string { return "https://sf.example" },
+		Cache:     cache,
+	}).WithClock(func() time.Time { return now })
+
+	h := NewWebhooksAggregateHandler(r, stubLister{"sonarr-test"}, nil)
+	engine := gin.New()
+	engine.GET("/api/v1/webhooks/status", h.Status)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/webhooks/status", nil)
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200, body=%s", w.Code, w.Body.String())
+	}
+	var got dto.WebhookStatusAggregate
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("len: %d", len(got.Items))
+	}
+	if !got.Items[0].Installing {
+		t.Errorf("installing flag must propagate to the DTO: %+v", got.Items[0])
+	}
+	if got.Items[0].Installed || got.Items[0].Healthy {
+		t.Errorf("installing row must be installed=false healthy=false: %+v", got.Items[0])
+	}
+	if got.HealthyCount != 0 || got.UnhealthyCount != 0 {
+		t.Errorf("installing row must be counted in neither bucket: %d/%d", got.HealthyCount, got.UnhealthyCount)
+	}
+}

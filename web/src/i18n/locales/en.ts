@@ -414,7 +414,7 @@ export const en = {
         watchdog: { running: 'watchdog: running', stopped: 'watchdog: stopped' },
         regrabPerWeek: '{{count}} re-grab / wk',
         blacklist: '{{count}} blacklist',
-        webhook: { ok: 'webhook ok', error: 'webhook error' },
+        webhook: { ok: 'webhook ok', error: 'webhook error', installing: 'webhook setting up…' },
       },
     },
     compact: {
@@ -1361,6 +1361,7 @@ export const en = {
           installed: 'Webhook installed',
           notInstalled: 'Webhook not installed',
           error: 'Install failed: {{message}}',
+          installing: 'Setting up webhook…',
         },
         // === 057b2 added (replaces 057a4 watchdog.createPlaceholder) ===
         watchdog: {

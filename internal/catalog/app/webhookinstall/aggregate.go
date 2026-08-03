@@ -17,6 +17,7 @@ type AggregateItem struct {
 	InstanceName   domain.InstanceName
 	Installed      bool
 	Healthy        bool
+	Installing     bool
 	NotificationID *int
 	URL            *string
 	Error          *string
@@ -42,6 +43,7 @@ func Aggregate(ctx context.Context, r *Reconciler, names []string) ([]AggregateI
 			item := AggregateItem{
 				InstanceName:   domain.InstanceName(name),
 				Installed:      st.Installed,
+				Installing:     st.Installing,
 				NotificationID: st.NotificationID,
 				URL:            st.InstalledURL,
 				Error:          st.LastError,

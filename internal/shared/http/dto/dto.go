@@ -638,6 +638,11 @@ type WebhookStatusDTO struct {
 	// success. Served on 200 so the UI can render an "install failed"
 	// badge without a separate fetch.
 	Error *string `json:"error,omitempty" example:"sonarr unauthorized"`
+	// Installing is true while a fresh instance's webhook is still
+	// registering — inside the grace window (S2 / ADR-0008). The SPA
+	// renders a loader badge instead of the error while this is set;
+	// Error stays populated with the underlying cause.
+	Installing bool `json:"installing" example:"false"`
 }
 
 // EpisodeFileDetail — one on-disk file row from the 043c
@@ -912,6 +917,7 @@ type WebhookStatusAggregateItem struct {
 	InstanceName   domain.InstanceName `json:"instance_name"             example:"homelab"`
 	Installed      bool                `json:"installed"                 example:"true"`
 	Healthy        bool                `json:"healthy"                   example:"true"`
+	Installing     bool                `json:"installing"                example:"false"`
 	NotificationID *int                `json:"notification_id,omitempty" example:"42"`
 	URL            *string             `json:"url,omitempty"             example:"https://sf.example/api/v1/webhook/sonarr/homelab"`
 	Error          *string             `json:"error,omitempty"           example:"sonarr 503"`

@@ -31,6 +31,18 @@ const DefaultRetryAfter = 5 * time.Minute
 // waiting for the 5-min background tick.
 const DefaultRefreshAfter = 15 * time.Minute
 
+// GraceWindow is how long a fresh, not-yet-installed instance is treated
+// as "Installing" (loader in the UI) rather than a hard error while the
+// first synchronous attempt plus the early background ticks converge.
+// After it elapses, LastError surfaces as a real failure. Paired with
+// GraceMaxAttempts — whichever trips first ends the grace (S2 / ADR-0008).
+const GraceWindow = 10 * time.Minute
+
+// GraceMaxAttempts caps the number of consecutive failed install attempts
+// that still count as "Installing". The 4th consecutive failure surfaces
+// the error even if the 10-minute window has not elapsed.
+const GraceMaxAttempts = 3
+
 // Reconciler ensures one Sonarr instance carries the seasonfill
 // webhook at the expected URL AND the desired trigger set. Idempotent:
 // two consecutive calls with no external change update the cache only.
@@ -273,6 +285,12 @@ func (r *Reconciler) successStatus(now time.Time, id int, installedURL string) S
 // recordFailure preserves the previous Installed+NotificationID so
 // the dashboard can still show "currently installed but last check
 // failed". 041d uses LastError to gate retries.
+//
+// S2: also stamps install-attempt bookkeeping (Attempts, FirstAttemptAt)
+// and derives Installing — a fresh instance still inside the grace window
+// reads as pending (loader) instead of a hard error. Once the webhook has
+// ever installed (prev.Installed), or attempts/time exceed the grace
+// bounds, Installing is false and LastError surfaces as a real failure.
 func (r *Reconciler) recordFailure(ctx context.Context, instanceName string, now time.Time, op string, err error) Status {
 	prev, _ := r.cache.Get(instanceName)
 	msg := op + ": " + err.Error()
@@ -280,6 +298,16 @@ func (r *Reconciler) recordFailure(ctx context.Context, instanceName string, now
 		msg = op + ": sonarr unauthorized"
 	}
 	next := now.Add(DefaultRetryAfter)
+
+	attempts := prev.Attempts + 1
+	firstAttemptAt := prev.FirstAttemptAt
+	if firstAttemptAt.IsZero() {
+		firstAttemptAt = now
+	}
+	installing := !prev.Installed &&
+		attempts <= GraceMaxAttempts &&
+		now.Sub(firstAttemptAt) < GraceWindow
+
 	out := Status{
 		Installed:      prev.Installed,
 		NotificationID: prev.NotificationID,
@@ -287,11 +315,16 @@ func (r *Reconciler) recordFailure(ctx context.Context, instanceName string, now
 		LastError:      &msg,
 		LastCheckedAt:  now,
 		NextRetryAt:    &next,
+		Attempts:       attempts,
+		FirstAttemptAt: firstAttemptAt,
+		Installing:     installing,
 	}
 	r.cache.Set(instanceName, out)
 	r.logger.WarnContext(ctx, "webhook_reconcile_failed",
 		slog.String("instance", instanceName),
 		slog.String("op", op),
+		slog.Bool("installing", installing),
+		slog.Int("attempts", attempts),
 		slog.String("error", err.Error()))
 	return out
 }

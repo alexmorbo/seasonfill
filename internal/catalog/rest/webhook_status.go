@@ -59,5 +59,6 @@ func (h *WebhookStatusHandler) Status(c *gin.Context) {
 		NotificationID: st.NotificationID,
 		URL:            st.InstalledURL,
 		Error:          st.LastError,
+		Installing:     st.Installing,
 	})
 }

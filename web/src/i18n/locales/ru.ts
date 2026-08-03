@@ -416,7 +416,7 @@ export const ru: Translations = {
         watchdog: { running: 'watchdog: running', stopped: 'watchdog: stopped' },
         regrabPerWeek: '{{count}} re-grab / нед',
         blacklist: '{{count}} blacklist',
-        webhook: { ok: 'webhook ок', error: 'webhook ошибка' },
+        webhook: { ok: 'webhook ок', error: 'webhook ошибка', installing: 'webhook настройка…' },
       },
     },
     compact: {
@@ -1369,6 +1369,7 @@ export const ru: Translations = {
           installed: 'Вебхук установлен',
           notInstalled: 'Вебхук не установлен',
           error: 'Ошибка установки: {{message}}',
+          installing: 'Настройка вебхука…',
         },
         // === 057b2 added (replaces 057a4 watchdog.createPlaceholder) ===
         watchdog: {

@@ -23,6 +23,23 @@ type Status struct {
 	LastError      *string
 	LastCheckedAt  time.Time
 	NextRetryAt    *time.Time
+
+	// Attempts counts consecutive failed install/reconcile attempts for
+	// this instance. Reset to 0 on the first success. Written by
+	// recordFailure (S2).
+	Attempts int
+	// FirstAttemptAt is the timestamp of the first failure in the current
+	// failure streak — the anchor for the grace window. Zero when no
+	// failure streak is outstanding. Written by recordFailure, cleared on
+	// success (successStatus rebuilds a fresh literal).
+	FirstAttemptAt time.Time
+	// Installing is the derived pending state (S2): a fresh instance whose
+	// webhook has not installed yet but is still inside the grace window
+	// (GraceWindow / GraceMaxAttempts). The UI renders a loader instead of
+	// a red error while this is true; LastError still carries the
+	// underlying cause. Computed exclusively in recordFailure — success,
+	// disabled and public_url-undetermined paths leave it false.
+	Installing bool
 }
 
 // StatusCache is the in-memory store the reconciler writes after every

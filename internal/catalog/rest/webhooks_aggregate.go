@@ -63,13 +63,18 @@ func (h *WebhooksAggregateHandler) Status(c *gin.Context) {
 			InstanceName:   it.InstanceName,
 			Installed:      it.Installed,
 			Healthy:        it.Healthy,
+			Installing:     it.Installing,
 			NotificationID: it.NotificationID,
 			URL:            it.URL,
 			Error:          it.Error,
 		})
-		if it.Healthy {
+		switch {
+		case it.Installing:
+			// A row still installing is neither healthy nor unhealthy —
+			// it must not flash red in the settings IntegrationsTab (S2).
+		case it.Healthy:
 			out.HealthyCount++
-		} else {
+		default:
 			out.UnhealthyCount++
 		}
 	}

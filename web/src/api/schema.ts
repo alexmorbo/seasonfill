@@ -6340,6 +6340,8 @@ export type components = {
             readonly healthy?: boolean;
             /** @example true */
             readonly installed?: boolean;
+            /** @example false */
+            readonly installing?: boolean;
             /** @example homelab */
             readonly instance_name?: string;
             /** @example 42 */
@@ -6357,6 +6359,14 @@ export type components = {
             readonly error?: string;
             /** @example true */
             readonly installed?: boolean;
+            /**
+             * @description Installing is true while a fresh instance's webhook is still
+             *     registering — inside the grace window (S2 / ADR-0008). The SPA
+             *     renders a loader badge instead of the error while this is set;
+             *     Error stays populated with the underlying cause.
+             * @example false
+             */
+            readonly installing?: boolean;
             /** @example 42 */
             readonly notification_id?: number;
             /** @example https://sf.example.com/api/v1/webhook/sonarr/homelab */
