@@ -73,6 +73,24 @@ describe('useCreateInstance()', () => {
     expect(captured.method).toBe('POST');
     expect(toastSuccess).toHaveBeenCalledWith('Instance created');
   });
+
+  it('invalidates the aggregate webhook-status cache on success (S4-B symmetric)', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ name: 'alpha', api_key: '***' }, 201),
+    ) as typeof fetch;
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateInstance(), { wrapper: wrap(qc) });
+    result.current.mutate({
+      body: { name: 'alpha', url: 'http://x', api_key: 'k' } as never,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const keys = invalidateSpy.mock.calls.map(
+      (c) => (c[0] as { queryKey: unknown[] }).queryKey,
+    );
+    expect(keys).toContainEqual(['webhook-status']);
+    expect(keys).toContainEqual(['instances']);
+  });
 });
 
 describe('useUpdateInstance()', () => {
@@ -141,6 +159,20 @@ describe('useDeleteInstance()', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const keys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[0]);
     expect(keys).toEqual(expect.arrayContaining(['instances', 'scans', 'decisions', 'grabs']));
+  });
+
+  it('invalidates the aggregate webhook-status cache on success (S4-B)', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteInstance(), { wrapper: wrap(qc) });
+    result.current.mutate({ name: 'alpha' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const keys = invalidateSpy.mock.calls.map(
+      (c) => (c[0] as { queryKey: unknown[] }).queryKey,
+    );
+    // aggregate pill key — NOT the per-instance ['qbit','webhook-status',name]
+    expect(keys).toContainEqual(['webhook-status']);
   });
 
   it('non-204 error surfaces a delete-failed toast', async () => {

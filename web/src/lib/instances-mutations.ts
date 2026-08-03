@@ -100,6 +100,11 @@ export function useCreateInstance() {
         );
       }
       qc.invalidateQueries({ queryKey: ['instances'] });
+      // S4-B (symmetric): a freshly-created instance must appear in the sidebar
+      // webhook pill right away — invalidate the aggregate query. This POST path
+      // is also used by useSaveInstanceWithQbit's create branch, so combined
+      // Save covers the pill too.
+      qc.invalidateQueries({ queryKey: ['webhook-status'] });
       toast.success(i18n.t('toasts.instanceCreated'));
     },
     onError: (err) => {
@@ -167,6 +172,10 @@ export function useDeleteInstance() {
       qc.invalidateQueries({ queryKey: ['scans'] });
       qc.invalidateQueries({ queryKey: ['decisions'] });
       qc.invalidateQueries({ queryKey: ['grabs'] });
+      // S4-B: the sidebar webhook pill reads the aggregate ['webhook-status']
+      // query — invalidate it so the deleted instance drops out of the count
+      // immediately instead of after the ~60s staleTime/refetchInterval tick.
+      qc.invalidateQueries({ queryKey: ['webhook-status'] });
       toast.success(i18n.t('toasts.instanceDeleted'));
     },
     onError: (err) => {

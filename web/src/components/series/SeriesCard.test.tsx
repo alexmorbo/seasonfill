@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nextProvider } from 'react-i18next';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
 import { SeriesCard } from './SeriesCard';
@@ -204,5 +204,98 @@ describe('<SeriesCard />', () => {
     expect(screen.getByTestId('series-card-poster-fallback')).toHaveTextContent('Z');
     expect(screen.queryByTestId('series-card-poster-img')).toBeNull();
     expect(screen.queryByTestId('monogram-fallback')).toBeNull();
+  });
+});
+
+describe('<SeriesCard /> — S4-A overlay nav guard', () => {
+  it('tmdb variant: a click bubbling from a role="dialog" overlay does NOT resolve/navigate', async () => {
+    r(
+      <SeriesCard
+        title="Show"
+        tmdbId={555}
+        footer={
+          <div role="dialog">
+            <button type="button" data-testid="ov-btn">x</button>
+          </div>
+        }
+      />,
+    );
+    await userEvent.click(screen.getByTestId('ov-btn'));
+    expect(mockApi).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('tmdb variant: a click from a role="listbox" popover does NOT resolve/navigate', async () => {
+    r(
+      <SeriesCard
+        title="Show"
+        tmdbId={555}
+        footer={
+          <div role="listbox">
+            <div data-testid="ov-opt">opt</div>
+          </div>
+        }
+      />,
+    );
+    await userEvent.click(screen.getByTestId('ov-opt'));
+    expect(mockApi).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('tmdb variant: a normal card click (no overlay) still resolves + navigates', async () => {
+    mockApi.mockResolvedValueOnce({ series_id: 77 });
+    r(<SeriesCard title="Show" tmdbId={555} />);
+    await userEvent.click(screen.getByTestId('series-card-title'));
+    await waitFor(() => {
+      expect(mockApi).toHaveBeenCalledWith('/series/resolve?tmdb_id=555');
+      expect(mockNavigate).toHaveBeenCalledWith('/series/77');
+    });
+  });
+
+  it('Link variant: an overlay click does NOT trigger router navigation', async () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <TooltipProvider delayDuration={0}>
+          <MemoryRouter initialEntries={['/']}>
+            <Routes>
+              <Route
+                path="/"
+                element={
+                  <SeriesCard
+                    title="Show"
+                    seriesId={42}
+                    footer={
+                      <div role="dialog">
+                        <button type="button" data-testid="ov-btn-link">x</button>
+                      </div>
+                    }
+                  />
+                }
+              />
+              <Route path="/series/:id" element={<div data-testid="series-page" />} />
+            </Routes>
+          </MemoryRouter>
+        </TooltipProvider>
+      </I18nextProvider>,
+    );
+    await userEvent.click(screen.getByTestId('ov-btn-link'));
+    expect(screen.queryByTestId('series-page')).toBeNull();
+  });
+
+  it('Link variant: a normal click still navigates to /series/:id', async () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <TooltipProvider delayDuration={0}>
+          <MemoryRouter initialEntries={['/']}>
+            <Routes>
+              <Route path="/" element={<SeriesCard title="Show" seriesId={42} />} />
+              <Route path="/series/:id" element={<div data-testid="series-page" />} />
+            </Routes>
+          </MemoryRouter>
+        </TooltipProvider>
+      </I18nextProvider>,
+    );
+    await userEvent.click(screen.getByTestId('series-card-title'));
+    expect(await screen.findByTestId('series-page')).toBeInTheDocument();
   });
 });

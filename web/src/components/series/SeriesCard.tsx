@@ -10,6 +10,20 @@ import { AddToSonarrButton } from '@/components/discovery/AddToSonarrButton';
 import type { DiscoverySeriesItem } from '@/api/discovery';
 import { useResolveSeriesNav } from './useResolveSeriesNav';
 
+// S4-A guard: a click / keydown that originated inside an open Radix Dialog
+// (role="dialog") or Select popover (role="listbox") must NOT trigger the
+// card's navigation. Radix portals its overlays to document.body, but React
+// synthetic events still bubble through the React tree — so a Select-close
+// click reaches the card's onClick. We walk the REAL DOM ancestry of the
+// event target, which DOES include the portaled overlay, and bail if it is
+// inside one. Legitimate card clicks (poster/title) have no such ancestor.
+function isFromOverlay(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest('[role="dialog"],[role="listbox"]') !== null
+  );
+}
+
 export interface SeriesCardProps {
   readonly title: string;
   readonly year?: number | undefined;
@@ -230,6 +244,12 @@ export function SeriesCard({
         data-series-id={seriesId}
         aria-label={ariaLabel}
         className={rootClass}
+        onClick={(e) => {
+          // S4-A: an Add-to-Sonarr dialog / Select popover is mounted inside
+          // this card's subtree; preventDefault stops the Link's router
+          // navigation when the click bubbled out of that overlay.
+          if (isFromOverlay(e.target)) e.preventDefault();
+        }}
       >
         {body}
       </Link>
@@ -238,6 +258,9 @@ export function SeriesCard({
 
   if (hasTmdb) {
     const onKey = (e: KeyboardEvent) => {
+      // S4-A: ignore Enter/Space forwarded from a focused control inside an
+      // open dialog / select popover mounted in this card.
+      if (isFromOverlay(e.target)) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         void resolveAndNavigate({ tmdbId });
@@ -247,7 +270,11 @@ export function SeriesCard({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => void resolveAndNavigate({ tmdbId })}
+        onClick={(e) => {
+          // S4-A: ignore clicks bubbling out of an open dialog / select popover.
+          if (isFromOverlay(e.target)) return;
+          void resolveAndNavigate({ tmdbId });
+        }}
         onKeyDown={onKey}
         data-testid="series-card"
         data-tmdb-id={tmdbId}
