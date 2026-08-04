@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { ArrowDown, BookmarkCheck, Plus } from 'lucide-react';
+import { ArrowDown, BookmarkCheck, ChevronDown, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Accordion,
@@ -11,10 +11,23 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { mediaUrl } from '@/api/series';
 import { useSeriesSeason } from '@/api/seriesSeason';
 import { useMonitorSeason } from '@/api/seasonMonitor';
+import { useInstances } from '@/lib/instances';
+import type { Instance } from '@/lib/instances';
+import { useAddToSonarr } from '@/api/discovery';
+import { useAddToSonarrLauncher } from '@/components/discovery/add-to-sonarr-context';
+import { seriesLibraryQueryKey } from '@/api/seriesLibrary';
 import type { components } from '@/api/schema';
 import { EpisodeRow } from './EpisodeRow';
 
@@ -96,11 +109,14 @@ export interface SeasonsAccordionProps {
   // no entry (map miss), the row renders only the canonical episode_count and
   // omits the "X/total on disk" line — never "0/total".
   readonly librarySeasons?: ReadonlyMap<number, LibrarySeasonCounts> | undefined;
-  // ADR-0012 S2 — optional per-instance scope selector rendered inline with the
-  // section heading; when present, `selectedInstance` names the active Sonarr
-  // instance and enables the per-season "Отслеживается"/"Запросить" affordance.
-  readonly instanceSelector?: ReactNode;
-  readonly selectedInstance?: string | undefined;
+  // ADR-0012 S3 — per-season split-button request. defaultInstance is the
+  // sidebar-selected instance the primary button targets; when >1 instance
+  // exists a caret lets the operator request into any instance.
+  readonly defaultInstance?: string | undefined;
+  readonly inLibraryInstances?: readonly string[] | undefined;
+  readonly title?: string | undefined;
+  readonly tvdbId?: number | undefined;
+  readonly tmdbId?: number | undefined;
 }
 
 function sortSeasons(seasons: readonly Season[]): readonly Season[] {
@@ -126,13 +142,20 @@ interface SeasonAccordionItemProps {
   readonly lang?: string | undefined;
   readonly expanded: boolean;
   readonly libEntry?: LibrarySeasonCounts | undefined;
-  readonly selectedInstance?: string | undefined;
+  readonly instances: readonly Instance[];
+  readonly defaultInstance?: string | undefined;
+  readonly inLibraryInstances: readonly string[];
+  readonly title: string;
+  readonly tvdbId?: number | undefined;
+  readonly tmdbId?: number | undefined;
 }
 
 function SeasonAccordionItem({
-  seriesId, season, lang, expanded, libEntry, selectedInstance,
+  seriesId, season, lang, expanded, libEntry,
+  instances, defaultInstance, inLibraryInstances, title, tvdbId, tmdbId,
 }: SeasonAccordionItemProps) {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const seasonNumber = season.season_number ?? 0;
   const lazy = useSeriesSeason({
     seriesId,
@@ -159,24 +182,77 @@ function SeasonAccordionItem({
   const posterSrc = mediaUrl(season.poster_asset);
   const seasonLabel = resolveSeasonLabel(season, t);
 
-  // ADR-0012 S2 — per-season monitor request. `justRequested` optimistically
-  // flips the row to the "Отслеживается" badge the moment the POST resolves,
-  // ahead of the /library refetch. Switching the scoped instance resets the
-  // optimistic flag (render-phase compare, no effect) so a per-instance state
-  // never leaks across scopes.
-  const mut = useMonitorSeason();
-  const [justRequested, setJustRequested] = useState(false);
-  const [reqInstance, setReqInstance] = useState(selectedInstance);
-  if (selectedInstance !== reqInstance) {
-    setReqInstance(selectedInstance);
-    setJustRequested(false);
+  // ADR-0012 S3 — per-season split-button request. The primary button targets
+  // `defaultInstance`; a caret (when >1 instance) requests into any instance.
+  // Present-in-target ⇒ S1 monitor endpoint; absent ⇒ one-click add with the
+  // instance's ADR-0009 defaults; fallback (missing defaults or tvdb) ⇒ open the
+  // add modal preset to that instance. `justRequestedDefault` optimistically
+  // flips the row to the "monitored" badge the moment the DEFAULT-instance
+  // request resolves, ahead of the /library refetch; switching the default
+  // resets it (render-phase compare, no effect) so state never leaks across
+  // instances.
+  const monitorMut = useMonitorSeason();
+  const addMut = useAddToSonarr();
+  const { openAddToSonarr } = useAddToSonarrLauncher();
+  const namedInstances = useMemo(
+    () => instances.filter((i): i is Instance & { name: string } =>
+      typeof i.name === 'string' && i.name.length > 0),
+    [instances],
+  );
+  const instanceCount = namedInstances.length;
+  const showCaret = instanceCount > 1;
+  const [justRequestedDefault, setJustRequestedDefault] = useState(false);
+  const [anchor, setAnchor] = useState(defaultInstance);
+  if (defaultInstance !== anchor) {
+    setAnchor(defaultInstance);
+    setJustRequestedDefault(false);
   }
-  const isMonitored = (libEntry?.monitored ?? false) || justRequested;
-  const handleRequest = () => {
-    if (!selectedInstance) return;
-    mut.mutate(
-      { instance: selectedInstance, seriesId, seasonNumber },
-      { onSuccess: () => setJustRequested(true) },
+  const monitoredInDefault = (libEntry?.monitored ?? false) || justRequestedDefault;
+  const busy = monitorMut.isPending || addMut.isPending;
+  const requestInto = (targetName: string) => {
+    const inst = namedInstances.find((i) => i.name === targetName);
+    if (!inst) return;
+    const flipIfDefault = () => {
+      if (targetName === defaultInstance) setJustRequestedDefault(true);
+    };
+    if (inLibraryInstances.includes(targetName)) {
+      monitorMut.mutate(
+        { instance: targetName, seriesId, seasonNumber },
+        { onSuccess: flipIfDefault },
+      );
+      return;
+    }
+    const qp = inst.default_quality_profile_id;
+    const rf = inst.default_root_folder_path;
+    if (qp === undefined || !rf || tvdbId === undefined) {
+      openAddToSonarr({
+        title,
+        ...(tvdbId !== undefined ? { tvdbId } : {}),
+        ...(tmdbId !== undefined ? { tmdbId } : {}),
+        instanceName: targetName,
+      });
+      return;
+    }
+    addMut.mutate(
+      {
+        instance_name: targetName,
+        tvdb_id: tvdbId,
+        quality_profile_id: qp,
+        root_folder_path: rf,
+        monitored_seasons: [seasonNumber],
+        search_on_add: true,
+      },
+      {
+        onSuccess: () => {
+          flipIfDefault();
+          void qc.invalidateQueries({ queryKey: ['series-detail', seriesId] });
+          void qc.invalidateQueries({ queryKey: seriesLibraryQueryKey(seriesId, targetName) });
+          toast.success(t('seriesDetail.seasons.requestQueued'));
+        },
+        onError: (err) => {
+          toast.error(t('seriesDetail.seasons.requestFailed', { error: err.message }));
+        },
+      },
     );
   };
 
@@ -189,7 +265,7 @@ function SeasonAccordionItem({
       className={cn('border-b border-border-faint last:border-b-0', isSpecial && 'opacity-80')}
     >
       <div className="relative">
-      <AccordionTrigger className={cn('px-3 py-2.5 hover:no-underline hover:bg-bg-surface/40 rounded-md', selectedInstance && 'pr-28')}>
+      <AccordionTrigger className={cn('px-3 py-2.5 hover:no-underline hover:bg-bg-surface/40 rounded-md', defaultInstance && (showCaret ? 'pr-36' : 'pr-28'))}>
         <div className="flex flex-1 items-center gap-3 min-w-0">
           <div className="w-10 h-[60px] rounded overflow-hidden border border-border-subtle bg-bg-surface-2 shrink-0">
             {posterSrc ? (
@@ -226,17 +302,17 @@ function SeasonAccordionItem({
           </div>
         </div>
       </AccordionTrigger>
-      {selectedInstance && (
+      {defaultInstance && (
         <div
           data-testid="season-action"
           data-season={seasonNumber}
-          className="absolute right-10 top-1/2 -translate-y-1/2 z-[1] flex items-center"
+          className="absolute right-10 top-1/2 -translate-y-1/2 z-[1] inline-flex items-center"
         >
-          {isMonitored ? (
+          {monitoredInDefault ? (
             <span
               data-testid="season-monitored-badge"
               data-season={seasonNumber}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border-faint bg-bg-surface-2 text-tx-secondary"
+              className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border-faint bg-bg-surface-2 text-tx-secondary', showCaret && 'rounded-r-none')}
             >
               <BookmarkCheck className="w-3 h-3" aria-hidden="true" />
               {t('seriesDetail.seasons.monitored')}
@@ -248,12 +324,43 @@ function SeasonAccordionItem({
               variant="outline"
               data-testid="season-request-button"
               data-season={seasonNumber}
-              disabled={mut.isPending}
-              onClick={handleRequest}
+              className={cn(showCaret && 'rounded-r-none')}
+              disabled={busy}
+              onClick={() => requestInto(defaultInstance)}
             >
               <Plus className="w-3 h-3" aria-hidden="true" />
               {t('seriesDetail.seasons.request')}
             </Button>
+          )}
+          {showCaret && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="-ml-px rounded-l-none px-1.5"
+                  aria-label={t('common.actions')}
+                  data-testid="season-action-caret"
+                  data-season={seasonNumber}
+                  disabled={busy}
+                >
+                  <ChevronDown className="w-3 h-3" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {namedInstances.map((inst) => (
+                  <DropdownMenuItem
+                    key={inst.name}
+                    data-testid={`season-menu-instance-${inst.name}`}
+                    onSelect={() => requestInto(inst.name)}
+                  >
+                    <Plus className="w-3 h-3" aria-hidden="true" />
+                    {t('seriesDetail.seasons.requestInInstance', { name: inst.name })}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       )}
@@ -281,9 +388,10 @@ function SeasonAccordionItem({
 
 export function SeasonsAccordion({
   seriesId, seasons, lang, className, staleBadge, tmdbSeasonLoading, librarySeasons,
-  instanceSelector, selectedInstance,
+  defaultInstance, inLibraryInstances, title, tvdbId, tmdbId,
 }: SeasonsAccordionProps) {
   const { t } = useTranslation();
+  const instances = useInstances().data?.instances ?? [];
   const sorted = useMemo(() => sortSeasons(seasons ?? []), [seasons]);
   const [expanded, setExpanded] = useState<readonly string[]>([]);
   const showLoading = sorted.length === 0 && Boolean(tmdbSeasonLoading);
@@ -306,11 +414,6 @@ export function SeasonsAccordion({
             className="ml-2 text-[10px] font-normal normal-case tracking-normal text-tx-muted"
           >
             {t('seriesDetail.degraded.seasons.loading')}
-          </span>
-        )}
-        {instanceSelector && (
-          <span className="ml-auto font-normal normal-case tracking-normal">
-            {instanceSelector}
           </span>
         )}
       </h2>
@@ -350,7 +453,12 @@ export function SeasonsAccordion({
                 {...(lang ? { lang } : {})}
                 expanded={expanded.includes(`s${sn}`)}
                 {...(librarySeasons?.get(sn) ? { libEntry: librarySeasons.get(sn) } : {})}
-                {...(selectedInstance ? { selectedInstance } : {})}
+                instances={instances}
+                {...(defaultInstance ? { defaultInstance } : {})}
+                inLibraryInstances={inLibraryInstances ?? []}
+                title={title ?? ''}
+                {...(tvdbId !== undefined ? { tvdbId } : {})}
+                {...(tmdbId !== undefined ? { tmdbId } : {})}
               />
             );
           })}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -8,6 +8,7 @@ import i18n from '@/i18n';
 import { PageTitleProvider } from '@/components/shell/page-title-context';
 import { SeriesDetail } from './SeriesDetail';
 import { AddToSonarrProvider } from '@/components/discovery/AddToSonarrProvider';
+import { InstanceFilterProvider } from '@/lib/instance-filter-context';
 
 const mockApi = vi.fn();
 vi.mock('@/lib/api', async () => {
@@ -17,8 +18,13 @@ vi.mock('@/lib/api', async () => {
 
 // `useInstancePublicURL` reads /instances via useInstances; stub it so
 // the Sonarr-link branch in <SeriesHero> is exercised deterministically.
+// ADR-0012 S3 — a mutable holder so multi-instance / ADR-0009-default cases can
+// drive the seasons split-button.
+const mockInstancesHolder = {
+  value: [{ name: 'homelab', public_url: 'http://sonarr' }] as Array<Record<string, unknown>>,
+};
 vi.mock('@/lib/instances', () => ({
-  useInstances: () => ({ data: { instances: [{ name: 'homelab', public_url: 'http://sonarr' }] }, isPending: false }),
+  useInstances: () => ({ data: { instances: mockInstancesHolder.value }, isPending: false }),
 }));
 
 // Story 530 — RecommendationsCarousel is gated by `useIsSectionVisible`
@@ -40,16 +46,18 @@ function renderRoute(path: string) {
     <PageTitleProvider defaultTitle="__INITIAL__">
       <I18nextProvider i18n={i18n}>
         <QueryClientProvider client={qc}>
-          <TooltipProvider delayDuration={0}>
-            <MemoryRouter initialEntries={[path]}>
-              <AddToSonarrProvider>
-                <Routes>
-                  {/* Story 495 / N-1e: global URL — `:instance` segment dropped. */}
-                  <Route path="/series/:id" element={<SeriesDetail />} />
-                </Routes>
-              </AddToSonarrProvider>
-            </MemoryRouter>
-          </TooltipProvider>
+          <InstanceFilterProvider>
+            <TooltipProvider delayDuration={0}>
+              <MemoryRouter initialEntries={[path]}>
+                <AddToSonarrProvider>
+                  <Routes>
+                    {/* Story 495 / N-1e: global URL — `:instance` segment dropped. */}
+                    <Route path="/series/:id" element={<SeriesDetail />} />
+                  </Routes>
+                </AddToSonarrProvider>
+              </MemoryRouter>
+            </TooltipProvider>
+          </InstanceFilterProvider>
         </QueryClientProvider>
       </I18nextProvider>
     </PageTitleProvider>,
@@ -530,54 +538,58 @@ describe('URL migration (story 495 / N-1e)', () => {
   });
 });
 
-// ── ADR-0012 S2 — the seasons accordion carries its own per-instance scope
-// picker (multi-library series only) and drives the /library query scoped to
-// the chosen instance.
-describe('ADR-0012 S2 seasons instance scope', () => {
+// ── ADR-0012 S3 — the seasons accordion replaces the S2 instance selector with
+// a per-season split-button targeting the sidebar-selected instance (defaulting
+// to the primary). The old <Select> is gone; the /library query stays scoped to
+// the default instance (non-default libraries are not pre-fetched).
+describe('ADR-0012 S3 seasons split-button', () => {
   const libraryCallsFor = (instance: string) =>
     mockApi.mock.calls.filter(
       (c) => typeof c[0] === 'string' && c[0].includes(`/library?instance=${instance}`),
     );
 
-  beforeEach(() => mockApi.mockReset());
+  beforeEach(() => {
+    mockApi.mockReset();
+    mockInstancesHolder.value = [{ name: 'homelab', public_url: 'http://sonarr' }];
+  });
 
-  it('shows the seasons instance selector for a multi-library series', async () => {
+  it('no longer renders the S2 seasons instance selector', async () => {
     installRoutes({ skeleton: { in_library_instances: ['homelab', 'other'] } });
     renderRoute('/series/122');
-    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
-    expect(screen.getByTestId('seasons-instance-select')).toBeInTheDocument();
-  });
-
-  it('hides the seasons instance selector for a single-library series', async () => {
-    installRoutes(); // default in_library_instances: ['homelab']
-    renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument());
-    expect(screen.queryByTestId('seasons-instance-select')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('seasons-instance-select')).toBeNull();
   });
 
-  it('scopes the seasons /library query to the primary instance by default', async () => {
+  it('scopes the seasons /library query to the primary instance; non-default not fetched', async () => {
+    mockInstancesHolder.value = [
+      { name: 'homelab', public_url: 'http://sonarr' },
+      { name: 'other', public_url: 'http://sonarr2' },
+    ];
     installRoutes({ skeleton: { in_library_instances: ['homelab', 'other'] } });
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     await waitFor(() => expect(libraryCallsFor('homelab').length).toBeGreaterThan(0));
-    // The non-primary instance is NOT fetched until the user re-scopes.
+    // The non-default instance is NOT fetched (no per-instance re-scope in S3).
     expect(libraryCallsFor('other')).toHaveLength(0);
   });
 
-  it('re-scopes the seasons /library query when a different instance is picked', async () => {
+  it('single instance → per-season request button, no caret', async () => {
+    installRoutes(); // default in_library_instances: ['homelab'], single instance
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('season-request-button')).toBeInTheDocument());
+    expect(screen.queryByTestId('season-action-caret')).toBeNull();
+  });
+
+  it('multi instance → per-season caret present', async () => {
+    mockInstancesHolder.value = [
+      { name: 'homelab', public_url: 'http://sonarr', default_quality_profile_id: 1, default_root_folder_path: '/tv' },
+      { name: 'other', public_url: 'http://sonarr2', default_quality_profile_id: 2, default_root_folder_path: '/tv2' },
+    ];
     installRoutes({ skeleton: { in_library_instances: ['homelab', 'other'] } });
     renderRoute('/series/122');
-    const trigger = await screen.findByTestId('seasons-instance-select');
-    // Open the Radix Select and choose the non-primary instance. The re-scoped
-    // /library?instance=other fetch is the observable signal.
-    fireEvent.pointerDown(
-      trigger,
-      new MouseEvent('pointerdown', { bubbles: true, button: 0 }) as unknown as MouseEvent,
-    );
-    fireEvent.click(trigger);
-    const option = await screen.findByRole('option', { name: 'other' });
-    fireEvent.click(option);
-    await waitFor(() => expect(libraryCallsFor('other').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('season-action-caret')).toBeInTheDocument());
   });
 });
 
@@ -626,6 +638,7 @@ describe('AUDIT-S6 hero ratings badges — /ratings error fallback (F-08)', () =
 
   beforeEach(() => {
     mockApi.mockReset();
+    mockInstancesHolder.value = [{ name: 'homelab', public_url: 'http://sonarr' }];
   });
 
   // (a) HAPPY PATH unchanged: /ratings resolves fresh ⇒ degraded[] is IGNORED

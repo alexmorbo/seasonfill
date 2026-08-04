@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import i18n from '@/i18n';
@@ -13,14 +14,35 @@ vi.mock('@/api/seriesSeason', () => ({
   })),
 }));
 
-// ADR-0012 S2 — controllable useMonitorSeason. `mockMutate` records the vars +
-// options passed by the row; `mockPending.value` drives the button disabled
-// state. Both are `mock`-prefixed so vitest's vi.mock hoisting permits the
-// factory to close over them.
-const mockMutate = vi.fn();
-const mockPending = { value: false };
+// ADR-0012 S3 — controllable useMonitorSeason. `mockMonitorMutate` records the
+// vars + options passed by the present-in-target path; `mockMonitorPending.value`
+// drives the button disabled state. All holders are `mock`-prefixed so vitest's
+// vi.mock hoisting permits the factories to close over them.
+const mockMonitorMutate = vi.fn();
+const mockMonitorPending = { value: false };
 vi.mock('@/api/seasonMonitor', () => ({
-  useMonitorSeason: () => ({ mutate: mockMutate, isPending: mockPending.value }),
+  useMonitorSeason: () => ({ mutate: mockMonitorMutate, isPending: mockMonitorPending.value }),
+}));
+
+// ADR-0012 S3 — the absent-in-target one-click add path.
+const mockAddMutate = vi.fn();
+const mockAddPending = { value: false };
+vi.mock('@/api/discovery', () => ({
+  useAddToSonarr: () => ({ mutate: mockAddMutate, isPending: mockAddPending.value }),
+}));
+
+// ADR-0012 S3 — the fallback path opens the add modal preset to the instance.
+const mockOpenAddToSonarr = vi.fn();
+vi.mock('@/components/discovery/add-to-sonarr-context', () => ({
+  useAddToSonarrLauncher: () => ({ openAddToSonarr: mockOpenAddToSonarr, target: null, close: vi.fn() }),
+}));
+
+// ADR-0012 S3 — configured instances (with optional ADR-0009 defaults).
+const mockInstances = {
+  value: [] as Array<{ name: string; default_quality_profile_id?: number; default_root_folder_path?: string }>,
+};
+vi.mock('@/lib/instances', () => ({
+  useInstances: () => ({ data: { instances: mockInstances.value }, isPending: false }),
 }));
 
 function r(node: React.ReactElement) {
@@ -238,69 +260,175 @@ describe('resolveSeasonLabel (bug 973)', () => {
   });
 });
 
-// ADR-0012 S2 — per-season monitor/request affordance.
-describe('<SeasonsAccordion /> — season request/monitor affordance', () => {
+// ADR-0012 S3 — per-season split-button request affordance.
+describe('<SeasonsAccordion /> — season request split-button', () => {
+  // seasonNumber 2 throughout; the primary button targets defaultInstance="main".
   const oneSeason = [{
-    season_number: 1, episode_count: 2, air_date: '2024-01-12', monitored: true,
+    season_number: 2, episode_count: 2, air_date: '2025-01-12', monitored: true,
     episodes: [{ episode_number: 1, title: 'Pilot', has_file: true, monitored: true }],
   }];
 
+  function node(props: Record<string, unknown> = {}) {
+    return (
+      <SeasonsAccordion
+        seriesId={42}
+        seasons={oneSeason}
+        defaultInstance="main"
+        inLibraryInstances={['main']}
+        title="Ted"
+        tvdbId={99}
+        {...props}
+      />
+    );
+  }
+  const renderAccordion = (props: Record<string, unknown> = {}) => r(node(props));
+
   beforeEach(() => {
-    mockMutate.mockReset();
-    mockPending.value = false;
+    mockMonitorMutate.mockReset();
+    mockAddMutate.mockReset();
+    mockOpenAddToSonarr.mockReset();
+    mockMonitorPending.value = false;
+    mockAddPending.value = false;
+    mockInstances.value = [{ name: 'main' }];
   });
 
-  it('renders the request button (no badge) for an unmonitored season under a selected instance', () => {
-    r(<SeasonsAccordion seriesId={42} seasons={oneSeason} selectedInstance="main" />);
+  it('1. single instance unmonitored → request button, no badge, no caret', () => {
+    mockInstances.value = [{ name: 'main' }];
+    renderAccordion();
     expect(screen.getByTestId('season-request-button')).toBeInTheDocument();
     expect(screen.queryByTestId('season-monitored-badge')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('season-action-caret')).not.toBeInTheDocument();
   });
 
-  it('renders the monitored badge (no button) when librarySeasons reports monitored', () => {
-    const lib = new Map([[1, { onDisk: 2, downloading: 0, monitored: true }]]);
-    r(<SeasonsAccordion seriesId={42} seasons={oneSeason} selectedInstance="main" librarySeasons={lib} />);
+  it('2. single instance + monitored library → badge, no button, no caret', () => {
+    mockInstances.value = [{ name: 'main' }];
+    const lib = new Map([[2, { onDisk: 2, downloading: 0, monitored: true }]]);
+    renderAccordion({ librarySeasons: lib });
     expect(screen.getByTestId('season-monitored-badge')).toBeInTheDocument();
     expect(screen.queryByTestId('season-request-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('season-action-caret')).not.toBeInTheDocument();
   });
 
-  it('renders no season-action when there is no selected instance', () => {
-    r(<SeasonsAccordion seriesId={42} seasons={oneSeason} />);
+  it('3. no defaultInstance → no season-action', () => {
+    mockInstances.value = [{ name: 'main' }];
+    renderAccordion({ defaultInstance: undefined });
     expect(screen.queryByTestId('season-action')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('season-request-button')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('season-monitored-badge')).not.toBeInTheDocument();
   });
 
-  it('calls mutate with { instance, seriesId, seasonNumber } and an onSuccess option on click', () => {
-    r(<SeasonsAccordion seriesId={42} seasons={oneSeason} selectedInstance="main" />);
+  it('4. >1 instances → request button + caret present', () => {
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    renderAccordion();
+    expect(screen.getByTestId('season-request-button')).toBeInTheDocument();
+    expect(screen.getByTestId('season-action-caret')).toBeInTheDocument();
+  });
+
+  it('5. caret menu lists every instance with a per-instance label', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    renderAccordion();
+    await user.click(screen.getByTestId('season-action-caret'));
+    await screen.findByTestId('season-menu-instance-main');
+    const other = screen.getByTestId('season-menu-instance-other');
+    expect(other).toBeInTheDocument();
+    expect(other.textContent).toContain('Request in other');
+  });
+
+  it('6. monitored in default + >1 instances → badge AND caret', () => {
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    const lib = new Map([[2, { onDisk: 2, downloading: 0, monitored: true }]]);
+    renderAccordion({ librarySeasons: lib });
+    expect(screen.getByTestId('season-monitored-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('season-action-caret')).toBeInTheDocument();
+  });
+
+  it('7. present-in-target primary click → monitor mutate, no add', () => {
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    renderAccordion({ inLibraryInstances: ['main', 'other'] });
     fireEvent.click(screen.getByTestId('season-request-button'));
-    expect(mockMutate).toHaveBeenCalledTimes(1);
-    const [vars, opts] = mockMutate.mock.calls[0]!;
-    expect(vars).toEqual({ instance: 'main', seriesId: 42, seasonNumber: 1 });
+    expect(mockMonitorMutate).toHaveBeenCalledTimes(1);
+    const [vars, opts] = mockMonitorMutate.mock.calls[0]!;
+    expect(vars).toEqual({ instance: 'main', seriesId: 42, seasonNumber: 2 });
     expect(typeof (opts as { onSuccess?: unknown }).onSuccess).toBe('function');
+    expect(mockAddMutate).not.toHaveBeenCalled();
   });
 
-  it('optimistically flips to the monitored badge when the mutation onSuccess fires', () => {
-    // Drive onSuccess synchronously so the row's justRequested state flips.
-    mockMutate.mockImplementation((_vars, opts) => opts?.onSuccess?.());
-    r(<SeasonsAccordion seriesId={42} seasons={oneSeason} selectedInstance="main" />);
+  it('8. absent-in-target WITH defaults → one-click add with ADR-0009 defaults', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [
+      { name: 'main' },
+      { name: 'other', default_quality_profile_id: 3, default_root_folder_path: '/tv' },
+    ];
+    renderAccordion({ inLibraryInstances: ['main'] });
+    await user.click(screen.getByTestId('season-action-caret'));
+    await user.click(await screen.findByTestId('season-menu-instance-other'));
+    expect(mockAddMutate).toHaveBeenCalledTimes(1);
+    const [body] = mockAddMutate.mock.calls[0]!;
+    expect(body).toMatchObject({
+      instance_name: 'other',
+      tvdb_id: 99,
+      quality_profile_id: 3,
+      root_folder_path: '/tv',
+      monitored_seasons: [2],
+      search_on_add: true,
+    });
+    expect(mockOpenAddToSonarr).not.toHaveBeenCalled();
+  });
+
+  it('9. absent-in-target defaults MISSING → open add modal, no add mutate', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    renderAccordion({ inLibraryInstances: ['main'] });
+    await user.click(screen.getByTestId('season-action-caret'));
+    await user.click(await screen.findByTestId('season-menu-instance-other'));
+    expect(mockOpenAddToSonarr).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceName: 'other' }),
+    );
+    expect(mockAddMutate).not.toHaveBeenCalled();
+  });
+
+  it('10. absent-in-target tvdb MISSING → open add modal, no add mutate', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [
+      { name: 'main' },
+      { name: 'other', default_quality_profile_id: 3, default_root_folder_path: '/tv' },
+    ];
+    renderAccordion({ inLibraryInstances: ['main'], tvdbId: undefined });
+    await user.click(screen.getByTestId('season-action-caret'));
+    await user.click(await screen.findByTestId('season-menu-instance-other'));
+    expect(mockOpenAddToSonarr).toHaveBeenCalled();
+    expect(mockAddMutate).not.toHaveBeenCalled();
+  });
+
+  it('11. optimistic flip: default-instance monitor onSuccess shows the badge', () => {
+    mockInstances.value = [{ name: 'main' }];
+    mockMonitorMutate.mockImplementation((_v, opts) => opts?.onSuccess?.());
+    renderAccordion();
     fireEvent.click(screen.getByTestId('season-request-button'));
     expect(screen.getByTestId('season-monitored-badge')).toBeInTheDocument();
     expect(screen.queryByTestId('season-request-button')).not.toBeInTheDocument();
   });
 
-  it('resets the optimistic state when the selected instance changes', () => {
-    mockMutate.mockImplementation((_vars, opts) => opts?.onSuccess?.());
-    const { rerender } = r(
-      <SeasonsAccordion seriesId={42} seasons={oneSeason} selectedInstance="main" />,
-    );
+  it('12. caret request into a NON-default instance does NOT flip the badge', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    mockMonitorMutate.mockImplementation((_v, opts) => opts?.onSuccess?.());
+    renderAccordion({ inLibraryInstances: ['main', 'other'] });
+    await user.click(screen.getByTestId('season-action-caret'));
+    await user.click(await screen.findByTestId('season-menu-instance-other'));
+    // targetName 'other' !== defaultInstance 'main' ⇒ no optimistic flip.
+    expect(screen.getByTestId('season-request-button')).toBeInTheDocument();
+  });
+
+  it('13. resets optimistic state on defaultInstance change', () => {
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    mockMonitorMutate.mockImplementation((_v, opts) => opts?.onSuccess?.());
+    const { rerender } = renderAccordion({ inLibraryInstances: ['main', 'other'] });
     fireEvent.click(screen.getByTestId('season-request-button'));
     expect(screen.getByTestId('season-monitored-badge')).toBeInTheDocument();
-    // Switching scope re-anchors the row: the optimistic flag clears and the
-    // (still-unmonitored) request button reappears for the new instance.
     rerender(
       <I18nextProvider i18n={i18n}>
         <QueryClientProvider client={new QueryClient()}>
-          <SeasonsAccordion seriesId={42} seasons={oneSeason} selectedInstance="alt" />
+          {node({ inLibraryInstances: ['main', 'other'], defaultInstance: 'other' })}
         </QueryClientProvider>
       </I18nextProvider>,
     );
@@ -308,35 +436,27 @@ describe('<SeasonsAccordion /> — season request/monitor affordance', () => {
     expect(screen.queryByTestId('season-monitored-badge')).not.toBeInTheDocument();
   });
 
-  it('renders the instanceSelector slot inside the section heading', () => {
-    r(
-      <SeasonsAccordion
-        seriesId={42}
-        seasons={oneSeason}
-        selectedInstance="main"
-        instanceSelector={<span data-testid="sel-slot">SEL</span>}
-      />,
-    );
-    const heading = document.getElementById('seasons-accordion-heading');
-    expect(heading).not.toBeNull();
-    expect(heading!.querySelector('[data-testid="sel-slot"]')).not.toBeNull();
-  });
-
-  it('keeps the accordion content collapsed after clicking request (sibling, not descendant)', () => {
-    // jsdom cannot exercise the real Radix pointer-toggle path; the structural
-    // guarantee here is that the action is a SIBLING of the trigger button, so
-    // clicking it never expands the row. Real no-toggle behaviour is asserted
-    // in Playwright.
-    r(<SeasonsAccordion seriesId={42} seasons={oneSeason} selectedInstance="main" />);
-    fireEvent.click(screen.getByTestId('season-request-button'));
-    // Lazy episode content ('Lazy' from the seriesSeason mock) is only rendered
-    // when the row expands — it must stay absent.
-    expect(screen.queryByText('Lazy')).not.toBeInTheDocument();
-  });
-
-  it('disables the request button while a request is pending', () => {
-    mockPending.value = true;
-    r(<SeasonsAccordion seriesId={42} seasons={oneSeason} selectedInstance="main" />);
+  it('14. disables the primary button and caret while a request is pending', () => {
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    mockMonitorPending.value = true;
+    renderAccordion();
     expect(screen.getByTestId('season-request-button')).toBeDisabled();
+    expect(screen.getByTestId('season-action-caret')).toBeDisabled();
+  });
+
+  it('15. keeps content collapsed after request; action is a sibling of the trigger', () => {
+    // jsdom cannot verify the real Radix pointer-propagation path — live browser
+    // verification is required. The structural guarantee asserted here is that the
+    // action is NOT a descendant of the trigger button, so clicking it can never
+    // expand the row.
+    mockInstances.value = [{ name: 'main' }];
+    renderAccordion();
+    fireEvent.click(screen.getByTestId('season-request-button'));
+    // Lazy episode content ('Lazy' from the seriesSeason mock) only renders on
+    // expand — it must stay absent.
+    expect(screen.queryByText('Lazy')).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId('season-action').closest('button[aria-expanded]'),
+    ).toBeNull();
   });
 });
