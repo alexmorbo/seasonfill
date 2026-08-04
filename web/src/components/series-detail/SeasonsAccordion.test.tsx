@@ -504,4 +504,62 @@ describe('<SeasonsAccordion /> — season request split-button', () => {
     expect(await screen.findByTestId('season-menu-instance-other')).toBeInTheDocument();
     expect(screen.queryByTestId('season-menu-instance-main')).not.toBeInTheDocument();
   });
+
+  // ADR-0012 S6 — per-instance optimistic drop: requesting into ANY instance
+  // removes that instance's caret item immediately, ahead of the /library refetch.
+  it('19. caret request into a NON-default instance drops that caret item immediately', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    mockMonitorMutate.mockImplementation((_v, opts) => opts?.onSuccess?.());
+    renderAccordion({ inLibraryInstances: ['main', 'other'] });
+    await user.click(screen.getByTestId('season-action-caret'));
+    await user.click(await screen.findByTestId('season-menu-instance-other'));
+    // 'other' was the only eligible caret item ⇒ the whole caret disappears.
+    expect(screen.queryByTestId('season-menu-instance-other')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('season-action-caret')).not.toBeInTheDocument();
+    // The default's primary affordance is untouched.
+    expect(screen.getByTestId('season-request-button')).toBeInTheDocument();
+  });
+
+  it('20. optimistic drop keeps a still-eligible instance in the caret', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }, { name: 'third' }];
+    mockMonitorMutate.mockImplementation((_v, opts) => opts?.onSuccess?.());
+    renderAccordion({ inLibraryInstances: ['main', 'other', 'third'] });
+    await user.click(screen.getByTestId('season-action-caret'));
+    await user.click(await screen.findByTestId('season-menu-instance-other'));
+    // reopen the caret: 'other' is gone, but the still-eligible 'third' remains.
+    await user.click(screen.getByTestId('season-action-caret'));
+    expect(await screen.findByTestId('season-menu-instance-third')).toBeInTheDocument();
+    expect(screen.queryByTestId('season-menu-instance-other')).not.toBeInTheDocument();
+  });
+
+  it('21. default-instance request still flips the primary to the monitored badge', () => {
+    mockInstances.value = [{ name: 'main' }];
+    mockMonitorMutate.mockImplementation((_v, opts) => opts?.onSuccess?.());
+    renderAccordion();
+    fireEvent.click(screen.getByTestId('season-request-button'));
+    expect(screen.getByTestId('season-monitored-badge')).toBeInTheDocument();
+    expect(screen.queryByTestId('season-request-button')).not.toBeInTheDocument();
+  });
+
+  it('22. switching the default resets the optimistic set', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }, { name: 'third' }];
+    mockMonitorMutate.mockImplementation((_v, opts) => opts?.onSuccess?.());
+    const { rerender } = renderAccordion({ inLibraryInstances: ['main', 'other', 'third'] });
+    await user.click(screen.getByTestId('season-action-caret'));
+    await user.click(await screen.findByTestId('season-menu-instance-other'));
+    // 'other' is now optimistically dropped from the caret.
+    rerender(
+      <I18nextProvider i18n={i18n}>
+        <QueryClientProvider client={new QueryClient()}>
+          {node({ inLibraryInstances: ['main', 'other', 'third'], defaultInstance: 'third' })}
+        </QueryClientProvider>
+      </I18nextProvider>,
+    );
+    // Switching the default resets the set ⇒ 'other' is eligible again.
+    await user.click(screen.getByTestId('season-action-caret'));
+    expect(await screen.findByTestId('season-menu-instance-other')).toBeInTheDocument();
+  });
 });

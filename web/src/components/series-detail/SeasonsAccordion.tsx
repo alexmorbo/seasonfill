@@ -192,11 +192,12 @@ function SeasonAccordionItem({
   // `defaultInstance`; a caret (when >1 instance) requests into any instance.
   // Present-in-target ⇒ S1 monitor endpoint; absent ⇒ one-click add with the
   // instance's ADR-0009 defaults; fallback (missing defaults or tvdb) ⇒ open the
-  // add modal preset to that instance. `justRequestedDefault` optimistically
-  // flips the row to the "monitored" badge the moment the DEFAULT-instance
-  // request resolves, ahead of the /library refetch; switching the default
-  // resets it (render-phase compare, no effect) so state never leaks across
-  // instances.
+  // add modal preset to that instance. ADR-0012 S6 — `justRequestedInstances`
+  // is a per-instance optimistic set: the moment a request into ANY instance
+  // resolves, that instance name is added, so its caret item drops instantly
+  // (and, for the default, the row flips to the "monitored" badge) ahead of the
+  // /library refetch. Switching the default resets the whole set (render-phase
+  // compare, no effect) so optimistic state never leaks across default changes.
   const monitorMut = useMonitorSeason();
   const addMut = useAddToSonarr();
   const { openAddToSonarr } = useAddToSonarrLauncher();
@@ -211,34 +212,40 @@ function SeasonAccordionItem({
   //   • X not in inLibraryInstances          → keep (series absent → add path).
   //   • X in library, season NOT monitored   → keep (monitor path).
   //   • season monitored in X                → drop.
+  const [justRequestedInstances, setJustRequestedInstances] = useState<Set<string>>(() => new Set());
   const caretInstances = useMemo(
     () =>
       namedInstances.filter((inst) => {
+        if (justRequestedInstances.has(inst.name)) return false;
         if (inst.name === defaultInstance) return false;
         if (!inLibraryInstances.includes(inst.name)) return true;
         return !(monitoredByInstance?.get(inst.name)?.has(seasonNumber) ?? false);
       }),
-    [namedInstances, defaultInstance, inLibraryInstances, monitoredByInstance, seasonNumber],
+    [namedInstances, defaultInstance, inLibraryInstances, monitoredByInstance, seasonNumber, justRequestedInstances],
   );
   const showCaret = caretInstances.length > 0;
-  const [justRequestedDefault, setJustRequestedDefault] = useState(false);
   const [anchor, setAnchor] = useState(defaultInstance);
   if (defaultInstance !== anchor) {
     setAnchor(defaultInstance);
-    setJustRequestedDefault(false);
+    setJustRequestedInstances(new Set());
   }
-  const monitoredInDefault = (libEntry?.monitored ?? false) || justRequestedDefault;
+  const monitoredInDefault =
+    (libEntry?.monitored ?? false) ||
+    (defaultInstance !== undefined && justRequestedInstances.has(defaultInstance));
   const busy = monitorMut.isPending || addMut.isPending;
   const requestInto = (targetName: string) => {
     const inst = namedInstances.find((i) => i.name === targetName);
     if (!inst) return;
-    const flipIfDefault = () => {
-      if (targetName === defaultInstance) setJustRequestedDefault(true);
-    };
+    const markRequested = () =>
+      setJustRequestedInstances((prev) => {
+        const next = new Set(prev);
+        next.add(targetName);
+        return next;
+      });
     if (inLibraryInstances.includes(targetName)) {
       monitorMut.mutate(
         { instance: targetName, seriesId, seasonNumber },
-        { onSuccess: flipIfDefault },
+        { onSuccess: markRequested },
       );
       return;
     }
@@ -264,7 +271,7 @@ function SeasonAccordionItem({
       },
       {
         onSuccess: () => {
-          flipIfDefault();
+          markRequested();
           void qc.invalidateQueries({ queryKey: ['series-detail', seriesId] });
           void qc.invalidateQueries({ queryKey: seriesLibraryQueryKey(seriesId, targetName) });
           toast.success(t('seriesDetail.seasons.requestQueued'));
