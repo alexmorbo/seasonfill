@@ -660,18 +660,17 @@ func (c *Client) ListIndexers(ctx context.Context) ([]ports.Indexer, error) {
 }
 
 // AddSeries posts to /api/v3/series. N-4c (story 520) — discovery
-// AddToSonarrUseCase. MonitorMode defaults to "all" when empty;
-// SearchOnAdd maps to addOptions.searchForMissingEpisodes. Tags is
-// optional (omitempty); a nil/empty slice is dropped from the wire.
+// AddToSonarrUseCase. ADR-0011 S1 mirrors Seerr exactly: addOptions
+// carries ignoreEpisodesWithFiles:true + searchForMissingEpisodes (from
+// SearchOnAdd) and NO monitor field; per-season monitoring is driven
+// solely by seasons[].monitored; the series is monitored:true from
+// p.Monitored. Tags is optional (omitempty); a nil/empty slice is
+// dropped from the wire.
 //
 // The returned id is the Sonarr series id (NOT TVDB) — Sonarr commits
 // the row before the response returns even though episode rows may
 // take a few seconds to materialise.
 func (c *Client) AddSeries(ctx context.Context, p ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
-	monitor := p.MonitorMode
-	if monitor == "" {
-		monitor = "all"
-	}
 	body := addSeriesRequest{
 		TVDBID:           p.TVDBID,
 		Title:            p.Title,
@@ -681,7 +680,7 @@ func (c *Client) AddSeries(ctx context.Context, p ports.AddSeriesPayload) (ports
 		RootFolderPath:   p.RootFolderPath,
 		Monitored:        p.Monitored,
 		AddOptions: addSeriesAddOptions{
-			Monitor:                  monitor,
+			IgnoreEpisodesWithFiles:  true,
 			SearchForMissingEpisodes: p.SearchOnAdd,
 		},
 		Tags: p.Tags,

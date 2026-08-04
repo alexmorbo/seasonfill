@@ -181,19 +181,22 @@ type createTagRequest struct {
 }
 
 // addSeriesAddOptions is the addOptions sub-object on POST /api/v3/series.
-// `monitor` is one of "all" | "future" | "missing" | "none".
+// ADR-0011 S1: mirror Seerr — `monitor` is NOT sent; per-season monitoring
+// is driven solely by seasons[].monitored. ignoreEpisodesWithFiles is
+// always true so existing files are not re-monitored on add.
 type addSeriesAddOptions struct {
-	Monitor                  string `json:"monitor"`
-	SearchForMissingEpisodes bool   `json:"searchForMissingEpisodes"`
+	IgnoreEpisodesWithFiles  bool `json:"ignoreEpisodesWithFiles"`
+	SearchForMissingEpisodes bool `json:"searchForMissingEpisodes"`
 }
 
 // addSeriesRequest is the wire body for POST /api/v3/series. N-4c
 // discovery AddToSonarrUseCase. `tags` is omitempty so the resolver
 // can pass nil when the tag-resolve path fell back to "no tag".
 //
-// Story 524 N-4 per-season picker: `seasons` is omitempty — when
-// absent Sonarr falls back to addOptions.monitor as the sole driver;
-// when present each entry sets a per-season monitored override.
+// Story 524 N-4 per-season picker: `seasons` is omitempty — each entry
+// sets a per-season monitored override. ADR-0011 S1 no longer sends
+// addOptions.monitor, so seasons[] per-season `monitored` is the sole
+// per-season monitoring driver.
 //
 // ADR-0010 S1: `title`, `titleSlug`, `year`, `images` are now sent on
 // the body — Sonarr rejects POST /api/v3/series with "Title must not be

@@ -62,15 +62,15 @@ type Tag struct {
 // AddSeriesPayload mirrors POST /api/v3/series. N-4c (story 520) input
 // for AddToSonarrUseCase. TVDBID is the integer Sonarr lookup key;
 // callers convert from the typed shareddomain.TVDBID at the call site.
-// MonitorMode maps to Sonarr's addOptions.monitor — "all", "future",
-// "missing", "none" (empty defaults to "all" at the client).
+// MonitorMode is retained for backward-compatible request decode only —
+// ADR-0011 S1 no longer maps it to addOptions.monitor; it is inert on
+// the wire.
 //
 // Story 524 (N-4 per-season picker): when Seasons is non-empty the
 // client serialises the explicit `seasons` array on the POST body and
-// Sonarr honours per-season `monitored` flags directly; MonitorMode
-// still governs unspecified seasons. When Seasons is empty (legacy
-// behaviour) the payload omits the field and MonitorMode is the sole
-// driver.
+// Sonarr honours per-season `monitored` flags directly. Per ADR-0011 S1
+// the client no longer sends addOptions.monitor, so seasons[] per-season
+// `monitored` is the sole per-season monitoring driver.
 type AddSeriesPayload struct {
 	TVDBID           int
 	Title            string

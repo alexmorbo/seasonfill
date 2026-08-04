@@ -1126,7 +1126,7 @@ func TestClient_AddSeries_SeasonsPayload(t *testing.T) {
 		QualityProfileID: 1,
 		RootFolderPath:   "/tv",
 		Monitored:        true,
-		MonitorMode:      "all",
+		MonitorMode:      "none", // ADR-0011 S1: inert on the wire.
 		Seasons: []ports.SeasonSelection{
 			{SeasonNumber: 0, Monitored: false},
 			{SeasonNumber: 1, Monitored: true},
@@ -1138,12 +1138,23 @@ func TestClient_AddSeries_SeasonsPayload(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	var decoded struct {
+		Monitored  bool `json:"monitored"`
+		AddOptions struct {
+			Monitor                  *string `json:"monitor"`
+			IgnoreEpisodesWithFiles  bool    `json:"ignoreEpisodesWithFiles"`
+			SearchForMissingEpisodes bool    `json:"searchForMissingEpisodes"`
+		} `json:"addOptions"`
 		Seasons []struct {
 			SeasonNumber int  `json:"seasonNumber"`
 			Monitored    bool `json:"monitored"`
 		} `json:"seasons"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(gotBody), &decoded))
+	// ADR-0011 S1: no monitor key, ignoreEpisodesWithFiles:true, series monitored.
+	assert.NotContains(t, gotBody, `"monitor"`)
+	assert.Nil(t, decoded.AddOptions.Monitor)
+	assert.True(t, decoded.AddOptions.IgnoreEpisodesWithFiles)
+	assert.True(t, decoded.Monitored)
 	require.Len(t, decoded.Seasons, 3)
 	assert.Equal(t, 0, decoded.Seasons[0].SeasonNumber)
 	assert.False(t, decoded.Seasons[0].Monitored)
@@ -1153,10 +1164,10 @@ func TestClient_AddSeries_SeasonsPayload(t *testing.T) {
 	assert.False(t, decoded.Seasons[2].Monitored)
 }
 
-// TestClient_AddSeries_NoSeasons_OmitsField asserts the legacy behaviour:
-// when AddSeriesPayload.Seasons is nil the wire body MUST omit the
-// `seasons` key so Sonarr falls back to addOptions.monitor as the sole
-// driver.
+// TestClient_AddSeries_NoSeasons_OmitsField asserts that when
+// AddSeriesPayload.Seasons is nil the wire body omits the `seasons` key.
+// ADR-0011 S1: addOptions.monitor is no longer sent — addOptions carries
+// ignoreEpisodesWithFiles:true and searchForMissingEpisodes only.
 func TestClient_AddSeries_NoSeasons_OmitsField(t *testing.T) {
 	var (
 		mu      sync.Mutex
@@ -1175,12 +1186,14 @@ func TestClient_AddSeries_NoSeasons_OmitsField(t *testing.T) {
 	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.AddSeries(context.Background(), ports.AddSeriesPayload{
 		TVDBID: 1, QualityProfileID: 1, RootFolderPath: "/tv",
-		Monitored: true, MonitorMode: "all",
+		Monitored: true, MonitorMode: "none",
 	})
 	require.NoError(t, err)
 	mu.Lock()
 	defer mu.Unlock()
 	assert.NotContains(t, gotBody, `"seasons"`)
+	assert.NotContains(t, gotBody, `"monitor"`)
+	assert.Contains(t, gotBody, `"ignoreEpisodesWithFiles":true`)
 }
 
 // TestClient_AddSeries_SendsTitleAndImages verifies ADR-0010 S1: the
@@ -1210,7 +1223,7 @@ func TestClient_AddSeries_SendsTitleAndImages(t *testing.T) {
 		QualityProfileID: 1,
 		RootFolderPath:   "/tv",
 		Monitored:        true,
-		MonitorMode:      "all",
+		MonitorMode:      "none",
 		Images: []ports.LookupImage{
 			{CoverType: "poster", RemoteURL: "https://img/p.jpg", URL: "/MediaCover/1/poster.jpg"},
 		},
@@ -1260,10 +1273,67 @@ func TestClient_AddSeries_NoImages_OmitsField(t *testing.T) {
 	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	_, err := c.AddSeries(context.Background(), ports.AddSeriesPayload{
 		TVDBID: 1, QualityProfileID: 1, RootFolderPath: "/tv",
-		Monitored: true, MonitorMode: "all",
+		Monitored: true, MonitorMode: "none",
 	})
 	require.NoError(t, err)
 	mu.Lock()
 	defer mu.Unlock()
 	assert.NotContains(t, gotBody, `"images"`)
+}
+
+// TestClient_AddSeries_SeerrSemantics_NoMonitorKey pins ADR-0011 S1: a
+// fully-populated add never emits addOptions.monitor; addOptions carries
+// ignoreEpisodesWithFiles:true + searchForMissingEpisodes:true; the
+// series is monitored:true; per-season monitoring is driven solely by
+// seasons[].monitored (an unchecked season stays monitored:false).
+func TestClient_AddSeries_SeerrSemantics_NoMonitorKey(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		gotBody string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotBody = string(buf)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":123}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	_, err := c.AddSeries(context.Background(), ports.AddSeriesPayload{
+		TVDBID:           275274,
+		Title:            "Rick and Morty",
+		TitleSlug:        "rick-and-morty",
+		Year:             2013,
+		QualityProfileID: 1,
+		RootFolderPath:   "/tv",
+		Monitored:        true,
+		SearchOnAdd:      true,
+		Seasons: []ports.SeasonSelection{
+			{SeasonNumber: 0, Monitored: false},
+			{SeasonNumber: 1, Monitored: true},
+			{SeasonNumber: 2, Monitored: false},
+		},
+	})
+	require.NoError(t, err)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.NotContains(t, gotBody, `"monitor"`)
+	assert.Contains(t, gotBody, `"ignoreEpisodesWithFiles":true`)
+	assert.Contains(t, gotBody, `"searchForMissingEpisodes":true`)
+	assert.Contains(t, gotBody, `"monitored":true`)
+	var decoded struct {
+		Seasons []struct {
+			SeasonNumber int  `json:"seasonNumber"`
+			Monitored    bool `json:"monitored"`
+		} `json:"seasons"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(gotBody), &decoded))
+	require.Len(t, decoded.Seasons, 3)
+	assert.Equal(t, 0, decoded.Seasons[0].SeasonNumber)
+	assert.False(t, decoded.Seasons[0].Monitored)
+	assert.True(t, decoded.Seasons[1].Monitored)
+	assert.False(t, decoded.Seasons[2].Monitored)
 }
