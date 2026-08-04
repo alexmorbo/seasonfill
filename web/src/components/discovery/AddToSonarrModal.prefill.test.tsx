@@ -17,6 +17,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -335,5 +336,112 @@ describe('<AddToSonarrModal /> S8 pre-fill', () => {
 
     await waitFor(() => expect(qpSelect().value).toBe('7'));
     expect(qpSelect().value).toBe('7');
+  });
+});
+
+describe('<AddToSonarrModal /> S2 search-on-add + portable seasons', () => {
+  function seasonCheckbox(n: number): HTMLElement {
+    return within(screen.getByTestId(`add-to-sonarr-season-${n}`))
+      .getByRole('checkbox');
+  }
+  function searchToggle(): HTMLElement {
+    return within(screen.getByTestId('add-to-sonarr-search-on-add'))
+      .getByRole('checkbox');
+  }
+  function addCallBody(): Record<string, unknown> {
+    const call = fetchMock.mock.calls.find(([u]) =>
+      String(u).endsWith('/discovery/add-to-sonarr'));
+    expect(call).toBeTruthy();
+    return JSON.parse((call![1] as RequestInit).body as string);
+  }
+
+  // (1) Instance switch keeps season selection — season numbers are stable, so
+  // an unchecked season stays unchecked after switching to another instance.
+  it('preserves the season selection across an instance switch', async () => {
+    fetchMock.mockImplementation(async (input) => makeRouter({
+      instances: {
+        instances: [
+          {
+            name: 'main', health: 'Available', mode: 'auto',
+            default_quality_profile_id: 6, default_root_folder_path: '/tv',
+          },
+          {
+            name: 'other', health: 'Available', mode: 'auto',
+            default_quality_profile_id: 6, default_root_folder_path: '/tv',
+          },
+        ],
+      },
+    })(input as string));
+
+    renderModal();
+
+    // Season 1 is on by default; wait for the lookup-derived checkbox.
+    await screen.findByTestId('add-to-sonarr-season-1');
+    await waitFor(() =>
+      expect(seasonCheckbox(1).getAttribute('data-state')).toBe('checked'));
+
+    // Uncheck it.
+    fireEvent.click(seasonCheckbox(1));
+    await waitFor(() =>
+      expect(seasonCheckbox(1).getAttribute('data-state')).toBe('unchecked'));
+
+    // Switch instance — the season choice must survive the switch.
+    fireEvent.change(instanceSelect(), { target: { value: 'other' } });
+
+    await screen.findByTestId('add-to-sonarr-season-1');
+    await waitFor(() =>
+      expect(seasonCheckbox(1).getAttribute('data-state')).toBe('unchecked'));
+  });
+
+  // (2)+(3) Toggling search-on-add sends search_on_add:true and NO monitor_mode.
+  it('submits search_on_add=true and no monitor_mode when toggled', async () => {
+    fetchMock.mockImplementation(async (input) => makeRouter({
+      instances: {
+        instances: [{
+          name: 'main', health: 'Available', mode: 'auto',
+          default_quality_profile_id: 6, default_root_folder_path: '/tv',
+        }],
+      },
+    })(input as string));
+
+    renderModal();
+
+    await waitFor(() => expect(qpSelect().value).toBe('6'));
+    await waitFor(() => expect(rfSelect().value).toBe('/tv'));
+
+    fireEvent.click(searchToggle());
+    await waitFor(() =>
+      expect(searchToggle().getAttribute('data-state')).toBe('checked'));
+
+    fireEvent.click(screen.getByTestId('add-to-sonarr-submit'));
+
+    let body: Record<string, unknown> = {};
+    await waitFor(() => { body = addCallBody(); });
+    expect(body.search_on_add).toBe(true);
+    expect('monitor_mode' in body).toBe(false);
+  });
+
+  // (4) Default submit (untouched toggle) sends search_on_add:false, no mode.
+  it('submits search_on_add=false by default with no monitor_mode', async () => {
+    fetchMock.mockImplementation(async (input) => makeRouter({
+      instances: {
+        instances: [{
+          name: 'main', health: 'Available', mode: 'auto',
+          default_quality_profile_id: 6, default_root_folder_path: '/tv',
+        }],
+      },
+    })(input as string));
+
+    renderModal();
+
+    await waitFor(() => expect(qpSelect().value).toBe('6'));
+    await waitFor(() => expect(rfSelect().value).toBe('/tv'));
+
+    fireEvent.click(screen.getByTestId('add-to-sonarr-submit'));
+
+    let body: Record<string, unknown> = {};
+    await waitFor(() => { body = addCallBody(); });
+    expect(body.search_on_add).toBe(false);
+    expect('monitor_mode' in body).toBe(false);
   });
 });

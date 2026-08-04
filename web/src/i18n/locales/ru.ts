@@ -799,13 +799,7 @@ export const ru: Translations = {
       root_folder: 'Корневая папка',
       root_folder_placeholder: 'Выберите корневую папку',
       root_folder_loading: 'Загружаем папки…',
-      monitor: 'Мониторить',
-      monitor_options: {
-        all: 'Все эпизоды',
-        future: 'Только будущие',
-        missing: 'Только отсутствующие',
-        none: 'Никакие',
-      },
+      search_on_add: 'Искать после добавления',
       seasons: {
         label: 'Сезоны',
         all: 'Все',
@@ -817,6 +811,7 @@ export const ru: Translations = {
         episodes_count_few: '{{count}} эпизода',
         episodes_count_many: '{{count}} эпизодов',
         episodes_count_other: '{{count}} эпизодов',
+        monitor_hint: 'Sonarr будет мониторить выбранные сезоны',
       },
       tag_badge: 'Будет помечен тегом {{tag}}',
       submit: 'Добавить',

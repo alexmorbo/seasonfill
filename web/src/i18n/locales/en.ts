@@ -794,13 +794,7 @@ export const en = {
       root_folder: 'Root folder',
       root_folder_placeholder: 'Select root folder',
       root_folder_loading: 'Loading root folders…',
-      monitor: 'Monitor',
-      monitor_options: {
-        all: 'All episodes',
-        future: 'Future episodes only',
-        missing: 'Missing episodes only',
-        none: 'None',
-      },
+      search_on_add: 'Search after adding',
       seasons: {
         label: 'Seasons',
         all: 'All',
@@ -812,6 +806,7 @@ export const en = {
         episodes_count_few: '{{count}} episodes',
         episodes_count_many: '{{count}} episodes',
         episodes_count_other: '{{count}} episodes',
+        monitor_hint: 'Sonarr will monitor the selected seasons',
       },
       tag_badge: 'Will be tagged as {{tag}}',
       submit: 'Add',

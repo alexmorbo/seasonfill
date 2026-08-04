@@ -18,10 +18,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import {
-  type AddToSonarrMonitorMode,
-  useAddToSonarr,
-} from '@/api/discovery';
+import { useAddToSonarr } from '@/api/discovery';
 import type { AddToSonarrTarget } from './add-to-sonarr-context';
 import { useQualityProfiles, useRootFolders } from '@/hooks/useInstanceMetadata';
 import { useSonarrLookup } from '@/hooks/useSonarrLookup';
@@ -46,10 +43,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
-const MONITOR_MODES: readonly AddToSonarrMonitorMode[] = [
-  'all', 'future', 'missing', 'none',
-];
 
 const ERROR_SLUGS = new Set([
   'instance_not_found', 'sonarr_unreachable', 'invalid_request',
@@ -85,8 +78,7 @@ export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
 
   const [qualityProfileId, setQualityProfileId] = useState('');
   const [rootFolderPath, setRootFolderPath] = useState('');
-  const [monitorMode, setMonitorMode] =
-    useState<AddToSonarrMonitorMode>('all');
+  const [searchOnAdd, setSearchOnAdd] = useState(false);
   // null = "untouched" → render the lookup-derived default selection.
   // Any explicit toggle snapshots the current effective set into a Set.
   const [seasonOverride, setSeasonOverride] = useState<Set<number> | null>(
@@ -150,12 +142,12 @@ export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
 
   function handleInstanceChange(next: string) {
     if (!next) return;
-    // Instance switch invalidates every downstream choice. Reset in the
-    // EVENT HANDLER (not during render, not in an effect).
+    // Instance switch resets instance-scoped fields (quality profile, root
+    // folder). Season selection is portable across instances (season numbers
+    // are stable), so it deliberately survives the switch.
     setExplicitInstance(next);
     setQualityProfileId('');
     setRootFolderPath('');
-    setSeasonOverride(null);
   }
 
   const lookupItems = lookupQ.data?.items;
@@ -234,7 +226,7 @@ export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
         tvdb_id: tvdbID,
         quality_profile_id: Number(qualityProfileId),
         root_folder_path: rootFolderPath,
-        monitor_mode: monitorMode,
+        search_on_add: searchOnAdd,
         ...(includeSeasons ? { monitored_seasons: seasonsArr } : {}),
       },
       {
@@ -430,31 +422,27 @@ export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
                   </div>
                 </div>
               )}
+              {!seasonsLoading && !seasonsError && sortedSeasons.length > 0 && (
+                <p
+                  className="text-sm text-tx-muted"
+                  data-testid="add-to-sonarr-seasons-hint"
+                >
+                  {t('discovery.add.seasons.monitor_hint')}
+                </p>
+              )}
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="ats-monitor">{t('discovery.add.monitor')}</Label>
-            <Select
-              value={monitorMode}
-              onValueChange={(v) =>
-                v && setMonitorMode(v as AddToSonarrMonitorMode)}
-            >
-              <SelectTrigger
-                id="ats-monitor"
-                data-testid="add-to-sonarr-monitor"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MONITOR_MODES.map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {t(`discovery.add.monitor_options.${m}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <label
+            className="flex items-center gap-2 text-sm"
+            data-testid="add-to-sonarr-search-on-add"
+          >
+            <Checkbox
+              checked={searchOnAdd}
+              onCheckedChange={(v) => setSearchOnAdd(v === true)}
+            />
+            <span>{t('discovery.add.search_on_add')}</span>
+          </label>
 
           <DialogFooter>
             <Button
