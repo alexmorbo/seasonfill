@@ -1326,6 +1326,14 @@ components:
             per-instance episode_states row has has_file=true. DB-deterministic.
           example: 6
           type: integer
+        monitored:
+          description: |-
+            Monitored is true when ANY canon episode of this season is monitored in
+            this Sonarr instance (episode_states.monitored). Proxy for the
+            season-level monitored flag; refreshes only on scan. ADR-0012 S2a — the
+            FE gates the "Отслеживается" badge vs "Запросить" button on this.
+          example: true
+          type: boolean
         season_number:
           example: 1
           type: integer
@@ -3126,6 +3134,19 @@ components:
           example: https://sf.example.com/api/v1/webhook/sonarr/homelab
           type: string
       type: object
+    rest.monitorSeasonResponse:
+      properties:
+        instance:
+          type: string
+        monitored:
+          type: boolean
+        searched:
+          type: boolean
+        season_number:
+          type: integer
+        series_id:
+          type: integer
+      type: object
     seriesdetail.CompanyRef:
       properties:
         logo_asset:
@@ -4577,6 +4598,77 @@ paths:
       summary: Create or replace qBit Watchdog settings (upsert)
       tags:
       - qbit-settings
+  /instances/{name}/series/{id}/seasons/{season}/monitor:
+    post:
+      description: |-
+        Flips the season's monitored flag on the named instance's Sonarr
+        and, unless {"search": false} is posted, triggers a SeasonSearch.
+      parameters:
+      - description: Sonarr instance name
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - description: Canonical series.id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - description: Season number
+        in: path
+        name: season
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+          text/plain:
+            schema:
+              title: body
+              type: object
+        description: '{\'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rest.monitorSeasonResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Gateway
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Monitor a season in Sonarr and optionally trigger a search
+      tags:
+      - series
   /instances/{name}/watchdog/blacklist:
     get:
       description: Keyset-paginated by (blacklisted_at DESC, series_id DESC, season_number

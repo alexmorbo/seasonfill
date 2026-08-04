@@ -87,6 +87,11 @@ type LibrarySeasonCountView struct {
 	SeasonNumber   int
 	EpisodesOnDisk int
 	Downloading    int
+	// Monitored is true when ANY canon episode of this season has its
+	// per-instance episode_states.monitored set. Proxy for Sonarr's
+	// season-level monitored flag (not stored; episode monitored is what
+	// sonarr_sync writes). Refreshes only on scan (cron 6h). ADR-0012 S2a.
+	Monitored bool
 }
 
 // LibraryView is LibraryComposer's domain object — the handler maps it onto
@@ -363,8 +368,10 @@ func pickDownloadRecord(records []QueueRecordDetail) *QueueRecordDetail {
 // Downloading = live Sonarr queue records with status=="downloading" per season
 // (best-effort; all zero when Sonarr is unreachable). Specials (season 0) are
 // included when present. Every season with a canon episode gets a row even at 0
-// on disk so the FE can render "0/total". Returns a season-number-ASC slice;
-// empty when the series has no canon episodes.
+// on disk so the FE can render "0/total". Monitored is true for a season when
+// ANY of its canon episodes is monitored in episode_states (ADR-0012 S2a).
+// Returns a season-number-ASC slice; empty when the series has no canon
+// episodes.
 func buildSeasonCounts(
 	episodes []series.CanonEpisode,
 	states []series.EpisodeState,
@@ -389,22 +396,27 @@ func buildSeasonCounts(
 		ensure(ep.SeasonNumber) // season present even with 0 on disk
 	}
 
-	// Fallback tally: episode_states.HasFile per season, consulted only for a
-	// season that has no season_stats row (see docstring). A state row for an
-	// episode not in canon is skipped.
+	// Single per-season walk over episode_states: monitored aggregation (any
+	// canon episode monitored → season monitored, ADR-0012 S2a) plus the
+	// HasFile fallback tally (consulted only for a season with no season_stats
+	// row — see docstring). A state row for an episode not in canon is skipped.
 	fallbackOnDisk := make(map[int]int, len(seasons))
+	monitoredBySeason := make(map[int]bool, len(seasons))
 	for _, st := range states {
-		if !st.HasFile {
-			continue
-		}
 		n, ok := seasonByEpisode[st.EpisodeID]
 		if !ok {
 			continue
 		}
-		fallbackOnDisk[n]++
+		if st.Monitored {
+			monitoredBySeason[n] = true
+		}
+		if st.HasFile {
+			fallbackOnDisk[n]++
+		}
 	}
 
 	for n, sc := range seasons {
+		sc.Monitored = monitoredBySeason[n]
 		if stat, ok := statsBySeason[n]; ok {
 			sc.EpisodesOnDisk = stat.EpisodeFileCount
 		} else {

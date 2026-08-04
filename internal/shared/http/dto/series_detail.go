@@ -432,6 +432,11 @@ type LibrarySeasonCount struct {
 	// status=="downloading" for this season. 0 when nothing is downloading OR
 	// Sonarr is unreachable (best-effort; mirrors Library.in_progress).
 	Downloading int `json:"downloading" example:"1"`
+	// Monitored is true when ANY canon episode of this season is monitored in
+	// this Sonarr instance (episode_states.monitored). Proxy for the
+	// season-level monitored flag; refreshes only on scan. ADR-0012 S2a — the
+	// FE gates the "Отслеживается" badge vs "Запросить" button on this.
+	Monitored bool `json:"monitored" example:"true"`
 }
 
 // SeriesLibraryResponse — wire shape of GET /api/v1/series/:id/library

@@ -1855,6 +1855,95 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/instances/{name}/series/{id}/seasons/{season}/monitor": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Monitor a season in Sonarr and optionally trigger a search
+         * @description Flips the season's monitored flag on the named instance's Sonarr
+         *     and, unless {"search": false} is posted, triggers a SeasonSearch.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Sonarr instance name */
+                    readonly name: string;
+                    /** @description Canonical series.id */
+                    readonly id: number;
+                    /** @description Season number */
+                    readonly season: number;
+                };
+                readonly cookie?: never;
+            };
+            /** @description {\ */
+            readonly requestBody?: {
+                readonly content: {
+                    readonly "application/json": Record<string, never>;
+                    readonly "text/plain": Record<string, never>;
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.monitorSeasonResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Bad Gateway */
+                readonly 502: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/watchdog/blacklist": {
         readonly parameters: {
             readonly query?: never;
@@ -5299,6 +5388,14 @@ export type components = {
              * @example 6
              */
             readonly episodes_on_disk?: number;
+            /**
+             * @description Monitored is true when ANY canon episode of this season is monitored in
+             *     this Sonarr instance (episode_states.monitored). Proxy for the
+             *     season-level monitored flag; refreshes only on scan. ADR-0012 S2a — the
+             *     FE gates the "Отслеживается" badge vs "Запросить" button on this.
+             * @example true
+             */
+            readonly monitored?: boolean;
             /** @example 1 */
             readonly season_number?: number;
         };
@@ -6535,6 +6632,13 @@ export type components = {
             readonly notification_id?: number;
             /** @example https://sf.example.com/api/v1/webhook/sonarr/homelab */
             readonly url?: string;
+        };
+        readonly "rest.monitorSeasonResponse": {
+            readonly instance?: string;
+            readonly monitored?: boolean;
+            readonly searched?: boolean;
+            readonly season_number?: number;
+            readonly series_id?: number;
         };
         readonly "seriesdetail.CompanyRef": {
             readonly logo_asset?: string;

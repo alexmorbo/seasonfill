@@ -661,6 +661,57 @@ func TestBuildSeasonCounts(t *testing.T) {
 				{SeasonNumber: 1, EpisodesOnDisk: 1, Downloading: 0},
 			},
 		},
+		{
+			name: "S2a: all episodes monitored → season monitored=true",
+			episodes: []series.CanonEpisode{
+				{ID: 40, SeasonNumber: 1, EpisodeNumber: 1},
+				{ID: 41, SeasonNumber: 1, EpisodeNumber: 2},
+			},
+			states: []series.EpisodeState{
+				{EpisodeID: 40, HasFile: true, Monitored: true},
+				{EpisodeID: 41, HasFile: false, Monitored: true},
+			},
+			stats: map[int]series.SeasonStat{1: {SeasonNumber: 1, EpisodeFileCount: 1}},
+			queue: nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 1, Downloading: 0, Monitored: true},
+			},
+		},
+		{
+			name: "S2a: any episode monitored → partial",
+			episodes: []series.CanonEpisode{
+				{ID: 50, SeasonNumber: 1, EpisodeNumber: 1},
+				{ID: 51, SeasonNumber: 1, EpisodeNumber: 2},
+				{ID: 52, SeasonNumber: 2, EpisodeNumber: 1},
+			},
+			states: []series.EpisodeState{
+				{EpisodeID: 50, Monitored: true},
+				{EpisodeID: 51, Monitored: false},
+				{EpisodeID: 52, Monitored: false},
+			},
+			stats: nil,
+			queue: nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 0, Downloading: 0, Monitored: true},
+				{SeasonNumber: 2, EpisodesOnDisk: 0, Downloading: 0, Monitored: false},
+			},
+		},
+		{
+			name: "S2a: no episode monitored → false",
+			episodes: []series.CanonEpisode{
+				{ID: 60, SeasonNumber: 1, EpisodeNumber: 1},
+				{ID: 61, SeasonNumber: 1, EpisodeNumber: 2},
+			},
+			states: []series.EpisodeState{
+				{EpisodeID: 60, HasFile: true, Monitored: false},
+				{EpisodeID: 61, HasFile: true, Monitored: false},
+			},
+			stats: nil,
+			queue: nil,
+			want: []LibrarySeasonCountView{
+				{SeasonNumber: 1, EpisodesOnDisk: 2, Downloading: 0, Monitored: false},
+			},
+		},
 	}
 
 	for _, tt := range tests {

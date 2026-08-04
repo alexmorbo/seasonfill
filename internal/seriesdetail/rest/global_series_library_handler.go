@@ -217,6 +217,7 @@ func mapLibrarySeasonCounts(counts []seriesdetail.LibrarySeasonCountView) []dto.
 			SeasonNumber:   c.SeasonNumber,
 			EpisodesOnDisk: c.EpisodesOnDisk,
 			Downloading:    c.Downloading,
+			Monitored:      c.Monitored,
 		})
 	}
 	return out
