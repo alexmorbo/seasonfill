@@ -114,6 +114,11 @@ export interface SeasonsAccordionProps {
   // exists a caret lets the operator request into any instance.
   readonly defaultInstance?: string | undefined;
   readonly inLibraryInstances?: readonly string[] | undefined;
+  // ADR-0012 S5 — per-instance monitored season_numbers (from
+  // useSeriesLibraryMonitoredByInstance). Drives the caret filter: an instance
+  // is offered only when this season is NOT monitored there. Absent map / miss
+  // ⇒ treated as not-monitored (instance kept).
+  readonly monitoredByInstance?: ReadonlyMap<string, ReadonlySet<number>> | undefined;
   readonly title?: string | undefined;
   readonly tvdbId?: number | undefined;
   readonly tmdbId?: number | undefined;
@@ -145,6 +150,7 @@ interface SeasonAccordionItemProps {
   readonly instances: readonly Instance[];
   readonly defaultInstance?: string | undefined;
   readonly inLibraryInstances: readonly string[];
+  readonly monitoredByInstance?: ReadonlyMap<string, ReadonlySet<number>> | undefined;
   readonly title: string;
   readonly tvdbId?: number | undefined;
   readonly tmdbId?: number | undefined;
@@ -152,7 +158,7 @@ interface SeasonAccordionItemProps {
 
 function SeasonAccordionItem({
   seriesId, season, lang, expanded, libEntry,
-  instances, defaultInstance, inLibraryInstances, title, tvdbId, tmdbId,
+  instances, defaultInstance, inLibraryInstances, monitoredByInstance, title, tvdbId, tmdbId,
 }: SeasonAccordionItemProps) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -199,8 +205,22 @@ function SeasonAccordionItem({
       typeof i.name === 'string' && i.name.length > 0),
     [instances],
   );
-  const instanceCount = namedInstances.length;
-  const showCaret = instanceCount > 1;
+  // ADR-0012 S5 — the caret offers only instances that LACK this season, and
+  // never the default instance (the primary button/badge already covers it):
+  //   • X === defaultInstance                → drop (covered by primary).
+  //   • X not in inLibraryInstances          → keep (series absent → add path).
+  //   • X in library, season NOT monitored   → keep (monitor path).
+  //   • season monitored in X                → drop.
+  const caretInstances = useMemo(
+    () =>
+      namedInstances.filter((inst) => {
+        if (inst.name === defaultInstance) return false;
+        if (!inLibraryInstances.includes(inst.name)) return true;
+        return !(monitoredByInstance?.get(inst.name)?.has(seasonNumber) ?? false);
+      }),
+    [namedInstances, defaultInstance, inLibraryInstances, monitoredByInstance, seasonNumber],
+  );
+  const showCaret = caretInstances.length > 0;
   const [justRequestedDefault, setJustRequestedDefault] = useState(false);
   const [anchor, setAnchor] = useState(defaultInstance);
   if (defaultInstance !== anchor) {
@@ -349,7 +369,7 @@ function SeasonAccordionItem({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {namedInstances.map((inst) => (
+                {caretInstances.map((inst) => (
                   <DropdownMenuItem
                     key={inst.name}
                     data-testid={`season-menu-instance-${inst.name}`}
@@ -388,7 +408,7 @@ function SeasonAccordionItem({
 
 export function SeasonsAccordion({
   seriesId, seasons, lang, className, staleBadge, tmdbSeasonLoading, librarySeasons,
-  defaultInstance, inLibraryInstances, title, tvdbId, tmdbId,
+  defaultInstance, inLibraryInstances, monitoredByInstance, title, tvdbId, tmdbId,
 }: SeasonsAccordionProps) {
   const { t } = useTranslation();
   const instances = useInstances().data?.instances ?? [];
@@ -456,6 +476,7 @@ export function SeasonsAccordion({
                 instances={instances}
                 {...(defaultInstance ? { defaultInstance } : {})}
                 inLibraryInstances={inLibraryInstances ?? []}
+                {...(monitoredByInstance ? { monitoredByInstance } : {})}
                 title={title ?? ''}
                 {...(tvdbId !== undefined ? { tvdbId } : {})}
                 {...(tmdbId !== undefined ? { tmdbId } : {})}

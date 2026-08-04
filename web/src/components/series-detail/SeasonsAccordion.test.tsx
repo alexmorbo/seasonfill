@@ -322,15 +322,14 @@ describe('<SeasonsAccordion /> — season request split-button', () => {
     expect(screen.getByTestId('season-action-caret')).toBeInTheDocument();
   });
 
-  it('5. caret menu lists every instance with a per-instance label', async () => {
+  it('5. caret menu lists only non-default instances (default excluded)', async () => {
     const user = userEvent.setup();
     mockInstances.value = [{ name: 'main' }, { name: 'other' }];
     renderAccordion();
     await user.click(screen.getByTestId('season-action-caret'));
-    await screen.findByTestId('season-menu-instance-main');
-    const other = screen.getByTestId('season-menu-instance-other');
-    expect(other).toBeInTheDocument();
+    const other = await screen.findByTestId('season-menu-instance-other');
     expect(other.textContent).toContain('Request in other');
+    expect(screen.queryByTestId('season-menu-instance-main')).not.toBeInTheDocument();
   });
 
   it('6. monitored in default + >1 instances → badge AND caret', () => {
@@ -458,5 +457,51 @@ describe('<SeasonsAccordion /> — season request split-button', () => {
     expect(
       screen.getByTestId('season-action').closest('button[aria-expanded]'),
     ).toBeNull();
+  });
+
+  // ADR-0012 S5 — the caret offers only instances that LACK the season.
+  it('16. season monitored in BOTH instances → badge, NO caret', () => {
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    const lib = new Map([[2, { onDisk: 2, downloading: 0, monitored: true }]]);
+    const mbi = new Map<string, ReadonlySet<number>>([
+      ['main', new Set([2])],
+      ['other', new Set([2])],
+    ]);
+    renderAccordion({
+      librarySeasons: lib,
+      inLibraryInstances: ['main', 'other'],
+      monitoredByInstance: mbi,
+    });
+    expect(screen.getByTestId('season-monitored-badge')).toBeInTheDocument();
+    expect(screen.queryByTestId('season-action-caret')).not.toBeInTheDocument();
+  });
+
+  it('17. season monitored in only the default → caret lists ONLY the other', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    const lib = new Map([[2, { onDisk: 2, downloading: 0, monitored: true }]]);
+    const mbi = new Map<string, ReadonlySet<number>>([
+      ['main', new Set([2])],
+      ['other', new Set<number>()],
+    ]);
+    renderAccordion({
+      librarySeasons: lib,
+      inLibraryInstances: ['main', 'other'],
+      monitoredByInstance: mbi,
+    });
+    expect(screen.getByTestId('season-monitored-badge')).toBeInTheDocument();
+    await user.click(screen.getByTestId('season-action-caret'));
+    expect(await screen.findByTestId('season-menu-instance-other')).toBeInTheDocument();
+    expect(screen.queryByTestId('season-menu-instance-main')).not.toBeInTheDocument();
+  });
+
+  it('18. season present nowhere (S1) → request button + caret listing the other', async () => {
+    const user = userEvent.setup();
+    mockInstances.value = [{ name: 'main' }, { name: 'other' }];
+    renderAccordion({ inLibraryInstances: [] });
+    expect(screen.getByTestId('season-request-button')).toBeInTheDocument();
+    await user.click(screen.getByTestId('season-action-caret'));
+    expect(await screen.findByTestId('season-menu-instance-other')).toBeInTheDocument();
+    expect(screen.queryByTestId('season-menu-instance-main')).not.toBeInTheDocument();
   });
 });

@@ -560,7 +560,7 @@ describe('ADR-0012 S3 seasons split-button', () => {
     expect(screen.queryByTestId('seasons-instance-select')).toBeNull();
   });
 
-  it('scopes the seasons /library query to the primary instance; non-default not fetched', async () => {
+  it('fetches /library for every in-library instance to power the caret monitored filter (ADR-0012 S5)', async () => {
     mockInstancesHolder.value = [
       { name: 'homelab', public_url: 'http://sonarr' },
       { name: 'other', public_url: 'http://sonarr2' },
@@ -569,8 +569,10 @@ describe('ADR-0012 S3 seasons split-button', () => {
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
     await waitFor(() => expect(libraryCallsFor('homelab').length).toBeGreaterThan(0));
-    // The non-default instance is NOT fetched (no per-instance re-scope in S3).
-    expect(libraryCallsFor('other')).toHaveLength(0);
+    // ADR-0012 S5 — useSeriesLibraryMonitoredByInstance fans out one /library
+    // query per in_library_instances name so the per-season caret can hide
+    // instances where the season is already monitored.
+    await waitFor(() => expect(libraryCallsFor('other').length).toBeGreaterThan(0));
   });
 
   it('single instance → per-season request button, no caret', async () => {

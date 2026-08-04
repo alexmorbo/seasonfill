@@ -19,7 +19,7 @@ import { useSeriesOverview } from '@/api/seriesOverview';
 import { useSeriesRecommendations } from '@/api/seriesRecommendations';
 import { useSeriesCast } from '@/api/seriesCast';
 import { useSeriesSeasons } from '@/api/seriesSeasons';
-import { useSeriesLibrary } from '@/api/seriesLibrary';
+import { useSeriesLibrary, useSeriesLibraryMonitoredByInstance } from '@/api/seriesLibrary';
 import { useInstances } from '@/lib/instances';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useSeriesRatings } from '@/api/seriesRatings';
@@ -161,6 +161,16 @@ export function SeriesDetail() {
     }
     return m;
   }, [seasonsLibraryQ.data?.seasons]);
+
+  // ADR-0012 S5 — monitored season_numbers per in-library instance, so the
+  // per-season caret can hide instances where the season is already monitored.
+  // Reuses seriesLibraryQueryKey ⇒ the default instance's fetch dedups with
+  // seasonsLibraryQ above. Scoped to in_library_instances only — instances that
+  // lack the series need no /library call (the caret keeps them via the add path).
+  const monitoredByInstance = useSeriesLibraryMonitoredByInstance(
+    seriesId,
+    skeleton?.in_library_instances ?? [],
+  );
 
   // Story 531 — shadow the recommendations query at the page level so the
   // global degraded chip aggregates it even when the carousel is below the
@@ -391,6 +401,7 @@ export function SeriesDetail() {
             {...(librarySeasons ? { librarySeasons } : {})}
             {...(defaultSeasonInstance ? { defaultInstance: defaultSeasonInstance } : {})}
             inLibraryInstances={skeleton.in_library_instances ?? []}
+            monitoredByInstance={monitoredByInstance}
             title={hero?.title ?? ''}
             {...(skeleton.external_links?.tvdb_id !== undefined ? { tvdbId: skeleton.external_links.tvdb_id } : {})}
             {...(skeleton.external_links?.tmdb_id !== undefined ? { tmdbId: skeleton.external_links.tmdb_id } : {})}
