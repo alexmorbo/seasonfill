@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, BookmarkCheck, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Accordion,
@@ -10,9 +10,11 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { mediaUrl } from '@/api/series';
 import { useSeriesSeason } from '@/api/seriesSeason';
+import { useMonitorSeason } from '@/api/seasonMonitor';
 import type { components } from '@/api/schema';
 import { EpisodeRow } from './EpisodeRow';
 
@@ -73,6 +75,7 @@ export function resolveSeasonLabel(
 export interface LibrarySeasonCounts {
   readonly onDisk: number;
   readonly downloading: number;
+  readonly monitored?: boolean;
 }
 
 export interface SeasonsAccordionProps {
@@ -93,6 +96,11 @@ export interface SeasonsAccordionProps {
   // no entry (map miss), the row renders only the canonical episode_count and
   // omits the "X/total on disk" line — never "0/total".
   readonly librarySeasons?: ReadonlyMap<number, LibrarySeasonCounts> | undefined;
+  // ADR-0012 S2 — optional per-instance scope selector rendered inline with the
+  // section heading; when present, `selectedInstance` names the active Sonarr
+  // instance and enables the per-season "Отслеживается"/"Запросить" affordance.
+  readonly instanceSelector?: ReactNode;
+  readonly selectedInstance?: string | undefined;
 }
 
 function sortSeasons(seasons: readonly Season[]): readonly Season[] {
@@ -118,10 +126,11 @@ interface SeasonAccordionItemProps {
   readonly lang?: string | undefined;
   readonly expanded: boolean;
   readonly libEntry?: LibrarySeasonCounts | undefined;
+  readonly selectedInstance?: string | undefined;
 }
 
 function SeasonAccordionItem({
-  seriesId, season, lang, expanded, libEntry,
+  seriesId, season, lang, expanded, libEntry, selectedInstance,
 }: SeasonAccordionItemProps) {
   const { t } = useTranslation();
   const seasonNumber = season.season_number ?? 0;
@@ -150,6 +159,27 @@ function SeasonAccordionItem({
   const posterSrc = mediaUrl(season.poster_asset);
   const seasonLabel = resolveSeasonLabel(season, t);
 
+  // ADR-0012 S2 — per-season monitor request. `justRequested` optimistically
+  // flips the row to the "Отслеживается" badge the moment the POST resolves,
+  // ahead of the /library refetch. Switching the scoped instance resets the
+  // optimistic flag (render-phase compare, no effect) so a per-instance state
+  // never leaks across scopes.
+  const mut = useMonitorSeason();
+  const [justRequested, setJustRequested] = useState(false);
+  const [reqInstance, setReqInstance] = useState(selectedInstance);
+  if (selectedInstance !== reqInstance) {
+    setReqInstance(selectedInstance);
+    setJustRequested(false);
+  }
+  const isMonitored = (libEntry?.monitored ?? false) || justRequested;
+  const handleRequest = () => {
+    if (!selectedInstance) return;
+    mut.mutate(
+      { instance: selectedInstance, seriesId, seasonNumber },
+      { onSuccess: () => setJustRequested(true) },
+    );
+  };
+
   return (
     <AccordionItem
       value={`s${seasonNumber}`}
@@ -158,7 +188,8 @@ function SeasonAccordionItem({
       data-special={isSpecial ? 'true' : 'false'}
       className={cn('border-b border-border-faint last:border-b-0', isSpecial && 'opacity-80')}
     >
-      <AccordionTrigger className="px-3 py-2.5 hover:no-underline hover:bg-bg-surface/40 rounded-md">
+      <div className="relative">
+      <AccordionTrigger className={cn('px-3 py-2.5 hover:no-underline hover:bg-bg-surface/40 rounded-md', selectedInstance && 'pr-28')}>
         <div className="flex flex-1 items-center gap-3 min-w-0">
           <div className="w-10 h-[60px] rounded overflow-hidden border border-border-subtle bg-bg-surface-2 shrink-0">
             {posterSrc ? (
@@ -195,6 +226,38 @@ function SeasonAccordionItem({
           </div>
         </div>
       </AccordionTrigger>
+      {selectedInstance && (
+        <div
+          data-testid="season-action"
+          data-season={seasonNumber}
+          className="absolute right-10 top-1/2 -translate-y-1/2 z-[1] flex items-center"
+        >
+          {isMonitored ? (
+            <span
+              data-testid="season-monitored-badge"
+              data-season={seasonNumber}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border border-border-faint bg-bg-surface-2 text-tx-secondary"
+            >
+              <BookmarkCheck className="w-3 h-3" aria-hidden="true" />
+              {t('seriesDetail.seasons.monitored')}
+            </span>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-testid="season-request-button"
+              data-season={seasonNumber}
+              disabled={mut.isPending}
+              onClick={handleRequest}
+            >
+              <Plus className="w-3 h-3" aria-hidden="true" />
+              {t('seriesDetail.seasons.request')}
+            </Button>
+          )}
+        </div>
+      )}
+      </div>
       <AccordionContent className="px-3 pt-1 pb-3">
         {episodes.length === 0 ? (
           <div className="text-[12px] text-tx-faint py-4 text-center">
@@ -218,6 +281,7 @@ function SeasonAccordionItem({
 
 export function SeasonsAccordion({
   seriesId, seasons, lang, className, staleBadge, tmdbSeasonLoading, librarySeasons,
+  instanceSelector, selectedInstance,
 }: SeasonsAccordionProps) {
   const { t } = useTranslation();
   const sorted = useMemo(() => sortSeasons(seasons ?? []), [seasons]);
@@ -242,6 +306,11 @@ export function SeasonsAccordion({
             className="ml-2 text-[10px] font-normal normal-case tracking-normal text-tx-muted"
           >
             {t('seriesDetail.degraded.seasons.loading')}
+          </span>
+        )}
+        {instanceSelector && (
+          <span className="ml-auto font-normal normal-case tracking-normal">
+            {instanceSelector}
           </span>
         )}
       </h2>
@@ -281,6 +350,7 @@ export function SeasonsAccordion({
                 {...(lang ? { lang } : {})}
                 expanded={expanded.includes(`s${sn}`)}
                 {...(librarySeasons?.get(sn) ? { libEntry: librarySeasons.get(sn) } : {})}
+                {...(selectedInstance ? { selectedInstance } : {})}
               />
             );
           })}

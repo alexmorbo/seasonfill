@@ -1,8 +1,11 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import {
@@ -61,6 +64,20 @@ export function SeriesDetail() {
 
   // Primary instance drives all Sonarr-scoped sections. Undefined ⇒ TMDB-only.
   const primaryInstance = skeleton?.in_library_instances?.[0];
+
+  // ADR-0012 S2 — the seasons accordion carries its own per-instance scope so a
+  // multi-library series can request/monitor seasons on a NON-primary Sonarr.
+  // Defaults to the primary; re-anchors to the primary via a render-phase
+  // compare (mirrors TimezoneSection) when the skeleton's primary resolves or
+  // changes — no useEffect cascade.
+  const [selectedSeasonInstance, setSelectedSeasonInstance] =
+    useState<string | undefined>(primaryInstance);
+  const [lastPrimaryInstance, setLastPrimaryInstance] =
+    useState<string | undefined>(primaryInstance);
+  if (primaryInstance !== lastPrimaryInstance) {
+    setLastPrimaryInstance(primaryInstance);
+    setSelectedSeasonInstance(primaryInstance);
+  }
 
   // Hero view-model composed from skeleton hero + sidebar.
   const hero = useMemo(
@@ -121,22 +138,36 @@ export function SeriesDetail() {
   // call) — SeriesHero then renders no chip.
   const download = libraryQ.data?.download;
 
-  // Story 970 / C3c-2 — per-season on-disk / downloading counts, keyed by
-  // season_number, from the /library endpoint (per-instance). Undefined ⇒
-  // TMDB-only (no /library call) ⇒ accordion shows totals only.
+  // ADR-0012 S2 — the accordion's per-season counts + monitored flags are
+  // scoped to `selectedSeasonInstance` (the accordion's own instance picker),
+  // NOT the primary. Separate query key ⇒ TanStack caches per instance; the
+  // hero keeps its primary-scoped libraryQ above unchanged.
+  const seasonsLibraryQ = useSeriesLibrary({
+    seriesId,
+    instance: selectedSeasonInstance,
+  });
+
+  // Story 970 / C3c-2 — per-season on-disk / downloading counts (+ ADR-0012 S2
+  // monitored flag), keyed by season_number, from the /library endpoint
+  // (per-instance). Undefined ⇒ TMDB-only (no /library call) ⇒ accordion shows
+  // totals only.
   const librarySeasons = useMemo(() => {
-    const rows = libraryQ.data?.seasons;
+    const rows = seasonsLibraryQ.data?.seasons;
     if (!rows) return undefined;
-    const m = new Map<number, { onDisk: number; downloading: number }>();
+    const m = new Map<
+      number,
+      { onDisk: number; downloading: number; monitored: boolean }
+    >();
     for (const s of rows) {
       if (typeof s.season_number !== 'number') continue;
       m.set(s.season_number, {
         onDisk: s.episodes_on_disk ?? 0,
         downloading: s.downloading ?? 0,
+        monitored: s.monitored ?? false,
       });
     }
     return m;
-  }, [libraryQ.data?.seasons]);
+  }, [seasonsLibraryQ.data?.seasons]);
 
   // Story 531 — shadow the recommendations query at the page level so the
   // global degraded chip aggregates it even when the carousel is below the
@@ -229,6 +260,29 @@ export function SeriesDetail() {
   const tmdbStaleSlot = tmdbSeriesDegraded && syncedAt
     ? <StaleBadge asOf={syncedAt} source="tmdb" />
     : undefined;
+
+  // ADR-0012 S2 — the accordion's inline instance picker. Only shown when the
+  // series lives in more than one Sonarr library; single-library series keep a
+  // single implicit scope (the primary) and render no selector.
+  const seasonInstanceSelector =
+    (skeleton?.in_library_instances?.length ?? 0) > 1 && selectedSeasonInstance ? (
+      <Select value={selectedSeasonInstance} onValueChange={setSelectedSeasonInstance}>
+        <SelectTrigger
+          data-testid="seasons-instance-select"
+          aria-label={t('seriesDetail.seasons.instanceSelectorLabel')}
+          className="h-7 w-auto min-w-[8rem] text-[11px] font-normal normal-case tracking-normal"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {skeleton!.in_library_instances!.map((name) => (
+            <SelectItem key={name} value={name} className="text-[12px]">
+              {name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    ) : undefined;
 
   // Story 495 / N-1e §C2: per-section degraded UX.
   const overviewEmpty = !overviewData?.overview;
@@ -365,6 +419,8 @@ export function SeriesDetail() {
             {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
             {...(seasonsLoading ? { tmdbSeasonLoading: true } : {})}
             {...(librarySeasons ? { librarySeasons } : {})}
+            {...(seasonInstanceSelector ? { instanceSelector: seasonInstanceSelector } : {})}
+            {...(selectedSeasonInstance ? { selectedInstance: selectedSeasonInstance } : {})}
           />
 
           <RecommendationsCarousel

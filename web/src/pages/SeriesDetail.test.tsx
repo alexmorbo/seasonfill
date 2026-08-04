@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -527,6 +527,57 @@ describe('URL migration (story 495 / N-1e)', () => {
     renderRoute('/series/122');
     await waitFor(() => expect(screen.getByTestId('cast-strip-view-all')).toBeInTheDocument());
     expect(screen.getByTestId('cast-strip-view-all').getAttribute('href')).toBe('/series/122/cast');
+  });
+});
+
+// ── ADR-0012 S2 — the seasons accordion carries its own per-instance scope
+// picker (multi-library series only) and drives the /library query scoped to
+// the chosen instance.
+describe('ADR-0012 S2 seasons instance scope', () => {
+  const libraryCallsFor = (instance: string) =>
+    mockApi.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && c[0].includes(`/library?instance=${instance}`),
+    );
+
+  beforeEach(() => mockApi.mockReset());
+
+  it('shows the seasons instance selector for a multi-library series', async () => {
+    installRoutes({ skeleton: { in_library_instances: ['homelab', 'other'] } });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    expect(screen.getByTestId('seasons-instance-select')).toBeInTheDocument();
+  });
+
+  it('hides the seasons instance selector for a single-library series', async () => {
+    installRoutes(); // default in_library_instances: ['homelab']
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('seasons-accordion')).toBeInTheDocument());
+    expect(screen.queryByTestId('seasons-instance-select')).not.toBeInTheDocument();
+  });
+
+  it('scopes the seasons /library query to the primary instance by default', async () => {
+    installRoutes({ skeleton: { in_library_instances: ['homelab', 'other'] } });
+    renderRoute('/series/122');
+    await waitFor(() => expect(screen.getByTestId('series-hero')).toBeInTheDocument());
+    await waitFor(() => expect(libraryCallsFor('homelab').length).toBeGreaterThan(0));
+    // The non-primary instance is NOT fetched until the user re-scopes.
+    expect(libraryCallsFor('other')).toHaveLength(0);
+  });
+
+  it('re-scopes the seasons /library query when a different instance is picked', async () => {
+    installRoutes({ skeleton: { in_library_instances: ['homelab', 'other'] } });
+    renderRoute('/series/122');
+    const trigger = await screen.findByTestId('seasons-instance-select');
+    // Open the Radix Select and choose the non-primary instance. The re-scoped
+    // /library?instance=other fetch is the observable signal.
+    fireEvent.pointerDown(
+      trigger,
+      new MouseEvent('pointerdown', { bubbles: true, button: 0 }) as unknown as MouseEvent,
+    );
+    fireEvent.click(trigger);
+    const option = await screen.findByRole('option', { name: 'other' });
+    fireEvent.click(option);
+    await waitFor(() => expect(libraryCallsFor('other').length).toBeGreaterThan(0));
   });
 });
 
