@@ -341,6 +341,9 @@ export function InstanceFormDialog({
   // smart↔strict) and the form value transiently re-matches the
   // registered default. See finding N-3 in the Phase 6 audit.
   const openedRef = useRef<boolean>(false);
+  // ADR-0010 S2: gates the edit-mode auto-metadata-probe to fire exactly once
+  // per open-transition; reset in the close-effect below.
+  const autoProbedRef = useRef<boolean>(false);
 
   const detailQuery = useInstanceDetail(isEdit ? (initial?.name ?? null) : null);
   const detail = detailQuery.data?.detail;
@@ -368,6 +371,7 @@ export function InstanceFormDialog({
   useEffect(() => {
     if (!open) {
       openedRef.current = false;
+      autoProbedRef.current = false;
       // reason: close-transition reset of the metadata side-state (mirrors
       // the setProbeResult(null) reset in the form-populate effect). A
       // derive-during-render refactor would need a prev-open tuple; not
@@ -412,6 +416,38 @@ export function InstanceFormDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit, initial?.name, detail, qbitDTO, isDirty, reset]);
+
+  // ADR-0010 S2: edit-mode auto-metadata-probe. Fires the stateless
+  // /metadata probe ONCE per open-transition using the S9 stored-key
+  // fallback (name + blank api_key → BE loads the stored decrypted key) so
+  // the Add-to-Sonarr default pickers hydrate without a manual Test click.
+  // Populates the SAME `metadata` state the Test handler fills; probeResult
+  // is left UNTOUCHED (the "подключено vX" line stays reserved for Test).
+  // Gated on `detail` (not bare `open`) because the BE requires a real url
+  // in the body; the stored-key fallback resolves only the api_key, and the
+  // url arrives with the detail GET. Infinite-refetch guard: autoProbedRef
+  // is checked-and-set synchronously, so a background detail/qbit refetch
+  // (fresh `detail` reference) cannot re-fire. Deps exclude metadata and
+  // isPending so the effect's own setMetadata can never re-trigger it.
+  useEffect(() => {
+    if (!open || !isEdit) return;
+    if (!detail) return;
+    if (autoProbedRef.current) return;
+    autoProbedRef.current = true;
+    const storedKeyName = initial?.name;
+    if (!storedKeyName) return;
+    const probeArgs = {
+      url: detail.url ?? '',
+      api_key: '',
+      name: storedKeyName,
+      silent: true as const,
+    };
+    metadataProbe
+      .mutateAsync(probeArgs)
+      .then((meta) => { setMetadata(meta); })
+      .catch(() => { /* silent: pickers stay disabled via defaultsNeedTestHint; probeResult untouched */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit, detail]);
 
   const onInvalid = (errs: FieldErrors<FormValues>) => {
     if (!isEdit && errs.api_key) {

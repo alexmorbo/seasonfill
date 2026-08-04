@@ -244,7 +244,11 @@ export function useTestInstance() {
 // useQuery): the inputs are transient form values, not a cache-keyable
 // resource, and it must be user-initiated (piggy-backs the Test button).
 export function useInstanceMetadataProbe() {
-  return useMutation<InstanceMetadataResponse, ApiError, InstanceTestRequest>({
+  // `silent` is a CLIENT-ONLY discriminator for the ADR-0010 S2 edit-mode
+  // auto-probe: it never touches the wire body — only suppresses the 502
+  // toast so the background probe fails quietly (the pickers just stay
+  // disabled). The interactive Test path omits it and keeps the toast.
+  return useMutation<InstanceMetadataResponse, ApiError, InstanceTestRequest & { silent?: boolean }>({
     // ADR-0009 S9: same stored-key fallback as the connectivity probe.
     mutationFn: ({ url, api_key, name }) =>
       jsonFetch<InstanceMetadataResponse>('/api/v1/admin/instances/metadata', {
@@ -255,7 +259,10 @@ export function useInstanceMetadataProbe() {
     // Only the 502 SONARR_UNREACHABLE case gets a toast so the operator knows
     // why the pickers stayed blank; other failures are silent (the inline
     // probeResult already told them the connection is bad).
-    onError: (err) => {
+    onError: (err, variables) => {
+      // ADR-0010 S2: the auto-probe passes silent:true so a stored-key
+      // fallback failure never pops a toast the operator didn't ask for.
+      if (variables?.silent) return;
       if (err.status === 502) {
         toast.error(i18n.t('toasts.metadataProbeUnreachable'));
       }

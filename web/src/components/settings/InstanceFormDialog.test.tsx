@@ -813,4 +813,115 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
       });
     });
   });
+
+  describe('ADR-0010 S2 — edit-mode auto-metadata-probe', () => {
+    const metadataPosts = (calls: FetchCall[]) =>
+      calls.filter(
+        (c) => c.method === 'POST' && c.url.endsWith('/instances/metadata'),
+      );
+
+    // (a) opening the dialog in edit mode fires exactly one stateless
+    // metadata probe using the S9 stored-key fallback (name + blank
+    // api_key), never serializes the client-only `silent` flag, and
+    // hydrates the Add-to-Sonarr pickers with no manual Test click.
+    it('fires exactly one auto metadata probe on edit-open and enables the pickers without a Test click', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await screen.findByTestId('connection-section');
+      // The auto-probe fires once detail resolves — exactly one POST.
+      await waitFor(() => {
+        expect(metadataPosts(capture.calls).length).toBe(1);
+      });
+      const body = metadataPosts(capture.calls)[0]!.body as Record<string, unknown>;
+      expect(body.name).toBe('homelab');
+      expect(body.api_key).toBe('');
+      expect(body.url).toBe('http://sonarr:80');
+      // `silent` is a client-only discriminator — never on the wire.
+      expect('silent' in body).toBe(false);
+      // Pickers hydrate from the probe response — no Test click needed.
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      const qp = await screen.findByTestId('inst-default-qp');
+      await waitFor(() => expect(qp).not.toBeDisabled());
+    });
+
+    // (b) create mode has no stored instance to fall back to — the auto
+    // probe must NOT fire; the pickers stay disabled with the hint.
+    it('fires no auto metadata probe in create mode and keeps the pickers disabled with the hint', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />,
+      ));
+      await screen.findByTestId('connection-section');
+      // Give any effects a tick to (not) fire.
+      await new Promise((r) => setTimeout(r, 60));
+      expect(metadataPosts(capture.calls).length).toBe(0);
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      expect(await screen.findByTestId('inst-default-qp')).toBeDisabled();
+      expect(screen.getByTestId('tuning-defaults-hint')).toBeInTheDocument();
+    });
+
+    // (c) a 502 from the background probe stays silent: no toast, the
+    // probeResult "Connected …" line is never set, pickers stay disabled.
+    it('stays silent (no toast, no probeResult) when the auto probe 502s and leaves pickers disabled', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture, metadataBody: null }); // 502 SONARR_UNREACHABLE
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await screen.findByTestId('connection-section');
+      // Wait for the auto-probe to fire (and fail).
+      await waitFor(() => {
+        expect(metadataPosts(capture.calls).length).toBe(1);
+      });
+      // Let the failed mutation's onError run.
+      await new Promise((r) => setTimeout(r, 60));
+      // Silent: the background 502 must NOT pop a toast.
+      expect(document.querySelectorAll('[data-sonner-toast]').length).toBe(0);
+      // probeResult untouched — no "Connected to Sonarr" / "Подключились".
+      expect(document.body.textContent ?? '').not.toMatch(/Connected to Sonarr|Подключились/i);
+      // Pickers stay disabled — metadata never populated.
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      expect(await screen.findByTestId('inst-default-qp')).toBeDisabled();
+    });
+
+    // (d) a background detail refetch (fresh `detail` reference) must NOT
+    // re-fire the probe — the once-per-open-transition ref guard holds.
+    it('does not re-fire the auto probe on a background detail refetch', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const qc = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false, gcTime: 0, staleTime: 0 },
+          mutations: { retry: false },
+        },
+      });
+      render(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={qc}>
+            <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />
+            <Toaster />
+          </QueryClientProvider>
+        </I18nextProvider>,
+      );
+      await screen.findByTestId('connection-section');
+      // First (and only) auto-probe fires once detail resolves.
+      await waitFor(() => {
+        expect(metadataPosts(capture.calls).length).toBe(1);
+      });
+      // Force a background refetch of the detail query — this yields a
+      // fresh `detail` object reference, re-running the auto-probe effect.
+      await qc.refetchQueries({ queryKey: ['instance-detail', 'homelab'] });
+      // Give the re-run effect a tick.
+      await new Promise((r) => setTimeout(r, 60));
+      // The once-ref guard must suppress a second probe.
+      expect(metadataPosts(capture.calls).length).toBe(1);
+    });
+  });
 });
