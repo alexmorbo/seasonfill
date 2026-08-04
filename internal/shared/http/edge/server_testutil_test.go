@@ -38,6 +38,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // globalRecommendationsHandler (Story 530)
 		nil, // globalRatingsHandler (W18-7a)
 		nil, // globalLibraryHandler (Story 577 E-1-B2)
+		nil, // monitorSeasonHandler (ADR-0012 S1)
 		nil, // seasonsHandler (Story 582 E-1 B3c)
 		nil, // resolveHandler (BE-3 card-unification)
 		nil, // discoveryHandler (Story 507 N-2f)

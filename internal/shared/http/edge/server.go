@@ -86,6 +86,7 @@ func NewServer(
 	globalRecommendationsHandler *seriesdetailrest.GlobalSeriesRecommendationsHandler, // story 530
 	globalRatingsHandler *seriesdetailrest.GlobalSeriesRatingsHandler, // W18-7a /ratings SWR
 	globalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler, // story 577 E-1-B2
+	monitorSeasonHandler *seriesdetailrest.MonitorSeasonHandler, // ADR-0012 S1 season monitor
 	seasonsHandler *seriesdetailrest.SeasonsHandler, // story 582 E-1 B3c
 	resolveHandler *seriesdetailrest.ResolveHandler, // BE-3 card-unification
 	discoveryHandler *discoveryrest.DiscoveryHandler,
@@ -291,6 +292,11 @@ func NewServer(
 		// Story 577 / E-1-B2 — per-instance Sonarr library-state endpoint.
 		if globalLibraryHandler != nil {
 			guarded.GET("/series/:id/library", globalLibraryHandler.Get)
+		}
+		// ADR-0012 S1 — per-instance season monitor + search. nil-OK: the
+		// route is omitted when the handler is absent (minimal/test wirings).
+		if monitorSeasonHandler != nil {
+			guarded.POST("/instances/:name/series/:id/seasons/:season/monitor", monitorSeasonHandler.Post)
 		}
 		// Story 582 / E-1 B3c — canon list-of-seasons (posters + counts).
 		if seasonsHandler != nil {

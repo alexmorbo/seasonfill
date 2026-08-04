@@ -1337,3 +1337,143 @@ func TestClient_AddSeries_SeerrSemantics_NoMonitorKey(t *testing.T) {
 	assert.True(t, decoded.Seasons[1].Monitored)
 	assert.False(t, decoded.Seasons[2].Monitored)
 }
+
+// ADR-0012 S1 — SetSeasonMonitored + SearchSeason.
+
+func TestClient_SetSeasonMonitored_PutsFlippedSeasonLosslessly(t *testing.T) {
+	const getBody = `{
+		"id": 122,
+		"title": "Severance",
+		"path": "/tv/Severance",
+		"rootFolderPath": "/tv",
+		"languageProfileId": 7,
+		"monitored": true,
+		"statistics": {"episodeCount": 18, "sizeOnDisk": 1234567},
+		"seasons": [
+			{"seasonNumber": 1, "monitored": true, "statistics": {"episodeCount": 9}},
+			{"seasonNumber": 2, "monitored": false, "statistics": {"episodeCount": 9}},
+			{"seasonNumber": 3, "monitored": false, "statistics": {"episodeCount": 0}}
+		]
+	}`
+	var (
+		mu      sync.Mutex
+		putBody string
+		putHit  bool
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/series/122", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, getBody)
+		case http.MethodPut:
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			putBody = string(b)
+			putHit = true
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	err := c.SetSeasonMonitored(context.Background(), 122, 2, true)
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.True(t, putHit, "PUT must be issued")
+
+	var decoded struct {
+		Title             string          `json:"title"`
+		Path              string          `json:"path"`
+		RootFolderPath    string          `json:"rootFolderPath"`
+		LanguageProfileID int             `json:"languageProfileId"`
+		Statistics        json.RawMessage `json:"statistics"`
+		Seasons           []struct {
+			SeasonNumber int             `json:"seasonNumber"`
+			Monitored    bool            `json:"monitored"`
+			Statistics   json.RawMessage `json:"statistics"`
+		} `json:"seasons"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(putBody), &decoded))
+	// Top-level fields preserved verbatim.
+	assert.Equal(t, "Severance", decoded.Title)
+	assert.Equal(t, "/tv/Severance", decoded.Path)
+	assert.Equal(t, "/tv", decoded.RootFolderPath)
+	assert.Equal(t, 7, decoded.LanguageProfileID)
+	assert.JSONEq(t, `{"episodeCount": 18, "sizeOnDisk": 1234567}`, string(decoded.Statistics))
+	// Season 2 flipped; 1 & 3 untouched; per-season statistics preserved.
+	require.Len(t, decoded.Seasons, 3)
+	assert.Equal(t, 1, decoded.Seasons[0].SeasonNumber)
+	assert.True(t, decoded.Seasons[0].Monitored)
+	assert.Equal(t, 2, decoded.Seasons[1].SeasonNumber)
+	assert.True(t, decoded.Seasons[1].Monitored)
+	assert.JSONEq(t, `{"episodeCount": 9}`, string(decoded.Seasons[1].Statistics))
+	assert.Equal(t, 3, decoded.Seasons[2].SeasonNumber)
+	assert.False(t, decoded.Seasons[2].Monitored)
+}
+
+func TestClient_SetSeasonMonitored_SeasonNotFound(t *testing.T) {
+	const getBody = `{
+		"id": 122,
+		"title": "Severance",
+		"seasons": [
+			{"seasonNumber": 1, "monitored": true},
+			{"seasonNumber": 2, "monitored": false}
+		]
+	}`
+	var putHit bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/series/122", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putHit = true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, getBody)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	err := c.SetSeasonMonitored(context.Background(), 122, 9, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "season 9 not found")
+	assert.False(t, putHit, "PUT must NOT be issued when the season is absent")
+}
+
+func TestClient_SetSeasonMonitored_NetworkError(t *testing.T) {
+	c := New("test", "http://127.0.0.1:1", "secret", 200*time.Millisecond,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	err := c.SetSeasonMonitored(context.Background(), 122, 2, true)
+	require.Error(t, err)
+}
+
+func TestClient_SearchSeason_PostsCommand(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		gotBody string
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/command", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotBody = string(b)
+		mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	err := c.SearchSeason(context.Background(), 122, 2)
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.JSONEq(t, `{"name":"SeasonSearch","seriesId":122,"seasonNumber":2}`, gotBody)
+}

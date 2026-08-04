@@ -364,3 +364,10 @@ func TestScanHandler_Cancel_BadID(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+func (s *stubSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (s *stubSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

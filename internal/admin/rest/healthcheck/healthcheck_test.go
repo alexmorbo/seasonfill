@@ -639,3 +639,24 @@ func TestChecker_New_InstancesPointerNeverNil(t *testing.T) {
 	c.RecheckByName(context.Background(), "missing")
 	assert.Empty(t, c.Snapshot())
 }
+
+func (f *fakeSonarr) SetSeasonMonitored(_ context.Context, _ shareddomain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *fakeSonarr) SearchSeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) error {
+	return nil
+}
+
+func (s *slowFakeSonarr) SetSeasonMonitored(_ context.Context, _ shareddomain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (s *slowFakeSonarr) SearchSeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) error {
+	return nil
+}
+
+func (s *sleepyFakeSonarr) SetSeasonMonitored(_ context.Context, _ shareddomain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (s *sleepyFakeSonarr) SearchSeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) error {
+	return nil
+}

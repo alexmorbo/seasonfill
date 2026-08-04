@@ -118,6 +118,8 @@ type SeriesDetailBundle struct {
 	GlobalSeasonHandler *seriesdetailrest.GlobalSeriesSeasonHandler
 	// Story 577 / E-1-B2 — per-instance Sonarr library-state endpoint.
 	GlobalLibraryHandler *seriesdetailrest.GlobalSeriesLibraryHandler
+	// ADR-0012 S1 — season monitor + search endpoint.
+	MonitorSeasonHandler *seriesdetailrest.MonitorSeasonHandler
 	// Story 582 / E-1 B3c — canon list-of-seasons endpoint. Reuses the same
 	// stateless repo handles as the fat composer + the B3a season_texts repo.
 	SeasonsComposer *seriesdetail.SeasonsComposer
@@ -369,6 +371,25 @@ func BuildSeriesDetail(
 		return concrete, true
 	}
 
+	// ADR-0012 S1 — write-side Sonarr lookup for MonitorSeason. Mirrors
+	// sonarrForFn exactly (observes the live instance map after every reload
+	// publish); *sonarr.Client satisfies SonarrSeasonMonitor.
+	sonarrMonitorForFn := func(name domain.InstanceName) (seriesdetail.SonarrSeasonMonitor, bool) {
+		h := holder.Load()
+		if h == nil {
+			return nil, false
+		}
+		inst, ok := h[string(name)]
+		if !ok || inst.Client == nil {
+			return nil, false
+		}
+		concrete, ok := inst.Client.(*sonarr.Client)
+		if !ok {
+			return nil, false
+		}
+		return concrete, true
+	}
+
 	composer := seriesdetail.NewComposer(seriesdetail.Deps{
 		SeriesCache:       sdSeriesCacheRepo,
 		SeriesCacheLookup: sdSeriesCacheRepo,
@@ -569,6 +590,16 @@ func BuildSeriesDetail(
 	})
 	globalLibraryHandler := seriesdetailrest.NewGlobalSeriesLibraryHandler(libraryComposer, sdSeriesCacheRepo, log)
 
+	// ADR-0012 S1 — season monitor + search endpoint. Reuses the shared
+	// series_cache repo (canon → sonarr_series_id) + the write-side Sonarr
+	// closure. No new SQL; the write goes straight to the instance's Sonarr.
+	monitorSeasonUC := seriesdetail.NewMonitorSeasonUseCase(seriesdetail.MonitorSeasonDeps{
+		CacheLookup: sdSeriesCacheRepo,
+		SonarrFor:   sonarrMonitorForFn,
+		Logger:      composerLog,
+	})
+	monitorSeasonHandler := seriesdetailrest.NewMonitorSeasonHandler(monitorSeasonUC, log)
+
 	// Story 582 / E-1 B3c — canon seasons list. Reuses sdSeriesRepo (404 gate +
 	// SyncedAt), sdSeasonsRepo (canon rows), sdSeasonTextsRepo (B3a localized
 	// names), sdEpisodesRepo (new AggregateBySeries — episode_count + air_date_end),
@@ -620,6 +651,7 @@ func BuildSeriesDetail(
 		GlobalCastHandler:            globalCastHandler,
 		GlobalSeasonHandler:          globalSeasonHandler,
 		GlobalLibraryHandler:         globalLibraryHandler,
+		MonitorSeasonHandler:         monitorSeasonHandler,
 		ETagFreshness:                sdETagFreshness,
 		SeasonsComposer:              seasonsComposer,
 		SeasonsHandler:               seasonsHandler,

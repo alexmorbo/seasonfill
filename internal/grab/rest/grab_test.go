@@ -384,3 +384,10 @@ func TestGrabHandler_ByDecision_DoublePost_TwoRows(t *testing.T) {
 	require.Len(t, f.grabRepo.stored, 2, "two POSTs must produce two rows")
 	assert.NotEqual(t, f.grabRepo.stored[0].ID, f.grabRepo.stored[1].ID)
 }
+
+func (s *stubSonarrGrab) SetSeasonMonitored(_ context.Context, _ shareddomain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (s *stubSonarrGrab) SearchSeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) error {
+	return nil
+}

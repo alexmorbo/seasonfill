@@ -565,6 +565,71 @@ func (c *Client) SearchReleases(ctx context.Context, seriesID shareddomain.Sonar
 	return out, nil
 }
 
+// seasonSearchCommand is the POST /api/v3/command body for a season search.
+type seasonSearchCommand struct {
+	Name         string `json:"name"`
+	SeriesID     int    `json:"seriesId"`
+	SeasonNumber int    `json:"seasonNumber"`
+}
+
+// SetSeasonMonitored flips one season's monitored flag and PUTs the WHOLE
+// series resource back — Sonarr requires the full body on PUT. The GET
+// response is preserved verbatim via map[string]json.RawMessage: the lean
+// seriesDTO projection omits fields Sonarr round-trips and a decode→encode
+// through it would reset them. Only the target season's monitored key is
+// rewritten; every other field (top-level and per-season) is echoed untouched.
+func (c *Client) SetSeasonMonitored(ctx context.Context, sonarrSeriesID shareddomain.SonarrSeriesID, seasonNumber int, monitored bool) error {
+	endpoint := "/api/v3/series/" + strconv.Itoa(int(sonarrSeriesID))
+	var full map[string]json.RawMessage
+	if err := c.get(ctx, endpoint, nil, &full); err != nil {
+		return err
+	}
+	rawSeasons, ok := full["seasons"]
+	if !ok {
+		return fmt.Errorf("set season monitored %d/s%d: series has no seasons", sonarrSeriesID, seasonNumber)
+	}
+	var seasons []map[string]json.RawMessage
+	if err := json.Unmarshal(rawSeasons, &seasons); err != nil {
+		return fmt.Errorf("decode seasons %d: %w", sonarrSeriesID, err)
+	}
+	flag, err := json.Marshal(monitored)
+	if err != nil {
+		return fmt.Errorf("encode monitored flag: %w", err)
+	}
+	found := false
+	for _, s := range seasons {
+		rawNum, ok := s["seasonNumber"]
+		if !ok {
+			continue
+		}
+		var n int
+		if err := json.Unmarshal(rawNum, &n); err != nil {
+			continue
+		}
+		if n != seasonNumber {
+			continue
+		}
+		s["monitored"] = flag
+		found = true
+		break
+	}
+	if !found {
+		return fmt.Errorf("set season monitored %d: season %d not found", sonarrSeriesID, seasonNumber)
+	}
+	newSeasons, err := json.Marshal(seasons)
+	if err != nil {
+		return fmt.Errorf("encode seasons %d: %w", sonarrSeriesID, err)
+	}
+	full["seasons"] = newSeasons
+	return c.put(ctx, endpoint, full, nil)
+}
+
+// SearchSeason triggers a SeasonSearch command on the instance's Sonarr.
+func (c *Client) SearchSeason(ctx context.Context, sonarrSeriesID shareddomain.SonarrSeriesID, seasonNumber int) error {
+	body := seasonSearchCommand{Name: "SeasonSearch", SeriesID: int(sonarrSeriesID), SeasonNumber: seasonNumber}
+	return c.post(ctx, "/api/v3/command", body, nil)
+}
+
 func (c *Client) GetQualityProfile(ctx context.Context, id int) (ports.QualityProfile, error) {
 	var dto qualityProfileDTO
 	if err := c.get(ctx, "/api/v3/qualityprofile/"+strconv.Itoa(id), nil, &dto); err != nil {

@@ -497,3 +497,10 @@ func TestRescan_ConcurrentRequests_NoCrash(t *testing.T) {
 	loaded, _ := f.dec.GetByID(context.Background(), d.ID)
 	require.NotNil(t, loaded.SupersededByID)
 }
+
+func (f *rescanFakeSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *rescanFakeSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

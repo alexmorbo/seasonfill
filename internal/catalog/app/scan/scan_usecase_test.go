@@ -2022,3 +2022,10 @@ func TestHealEpisodeStates_NilCanonCounter_PreservesPriorBehavior(t *testing.T) 
 	assert.Len(t, ref.calls, 1, "nil counter -> prior #1031 behavior: heal fires on absent coverage")
 	ref.mu.Unlock()
 }
+
+func (f *fakeSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *fakeSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

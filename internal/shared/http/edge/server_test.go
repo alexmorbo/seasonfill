@@ -90,6 +90,12 @@ func (n *noopSonarr) ForceGrab(_ context.Context, _ string, _ int) (string, erro
 func (n *noopSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResult, error) {
 	return ports.ParseResult{}, nil
 }
+func (n *noopSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (n *noopSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}
 func (n *noopSonarr) Name() string { return n.name }
 
 type noopScanRepo struct{}
@@ -316,6 +322,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // globalRecommendationsHandler (Story 530)
 		nil, // globalRatingsHandler (W18-7a)
 		nil, // globalLibraryHandler (Story 577 E-1-B2)
+		nil, // monitorSeasonHandler (ADR-0012 S1)
 		nil, // seasonsHandler (Story 582 E-1 B3c)
 		nil, // resolveHandler (BE-3 card-unification)
 		nil, // discoveryHandler (Story 507 N-2f)
@@ -387,6 +394,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // globalRecommendationsHandler (Story 530)
 		nil, // globalRatingsHandler (W18-7a)
 		nil, // globalLibraryHandler (Story 577 E-1-B2)
+		nil, // monitorSeasonHandler (ADR-0012 S1)
 		nil, // seasonsHandler (Story 582 E-1 B3c)
 		nil, // resolveHandler (BE-3 card-unification)
 		nil, // discoveryHandler (Story 507 N-2f)
@@ -465,6 +473,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // globalRecommendationsHandler (Story 530)
 		nil, // globalRatingsHandler (W18-7a)
 		nil, // globalLibraryHandler (Story 577 E-1-B2)
+		nil, // monitorSeasonHandler (ADR-0012 S1)
 		nil, // seasonsHandler (Story 582 E-1 B3c)
 		nil, // resolveHandler (BE-3 card-unification)
 		nil, // discoveryHandler (Story 507 N-2f)
@@ -690,6 +699,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // globalRecommendationsHandler (Story 530)
 		nil, // globalRatingsHandler (W18-7a)
 		nil, // globalLibraryHandler (Story 577 E-1-B2)
+		nil, // monitorSeasonHandler (ADR-0012 S1)
 		nil, // seasonsHandler (Story 582 E-1 B3c)
 		nil, // resolveHandler (BE-3 card-unification)
 		nil, // discoveryHandler (Story 507 N-2f)

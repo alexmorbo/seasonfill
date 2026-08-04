@@ -216,3 +216,10 @@ func TestRunParseOnGrab_SonarrErr_GrabStillSucceeds(t *testing.T) {
 		t.Fatalf("UpdateParsed must not run when parse errored")
 	}
 }
+
+func (f *fakeSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *fakeSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

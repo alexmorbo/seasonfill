@@ -349,3 +349,10 @@ func TestExecute_IgnoreCooldownFalse_CallsGUIDCooldownLookup(t *testing.T) {
 	assert.EqualValues(t, 1, cd.called.Load(),
 		"default IgnoreCooldown=false must call FilterActive once")
 }
+
+func (s *stubSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (s *stubSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

@@ -294,3 +294,10 @@ func TestEpisodeFiles_SonarrUnauthorized_502(t *testing.T) {
 		"/instances/main/grabs/"+rec.ID.String()+"/episode-files", nil))
 	require.Equal(t, http.StatusBadGateway, w.Code)
 }
+
+func (s stubSonarrEF) SetSeasonMonitored(_ context.Context, _ shareddomain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (s stubSonarrEF) SearchSeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) error {
+	return nil
+}

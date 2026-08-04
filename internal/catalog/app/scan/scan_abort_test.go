@@ -581,3 +581,17 @@ func TestScan_MidScanAuthAbort(t *testing.T) {
 	assert.Equal(t, instance.HealthUnavailableAuth, health.State())
 	assert.Equal(t, 1, health.transitions, "MarkUnavailable must fire exactly once on auth abort")
 }
+
+func (f *abortFakeSonarr) SetSeasonMonitored(_ context.Context, _ shareddomain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *abortFakeSonarr) SearchSeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) error {
+	return nil
+}
+
+func (f *authFailFakeSonarrWrapped) SetSeasonMonitored(_ context.Context, _ shareddomain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *authFailFakeSonarrWrapped) SearchSeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) error {
+	return nil
+}

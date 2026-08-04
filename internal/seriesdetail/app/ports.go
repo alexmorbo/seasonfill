@@ -317,6 +317,13 @@ type SonarrQueueLister interface {
 	Queue(ctx context.Context, seriesID domain.SonarrSeriesID) (sonarr.QueuePayload, error)
 }
 
+// SonarrSeasonMonitor is the write-side Sonarr surface MonitorSeason needs.
+type SonarrSeasonMonitor interface {
+	GetSeries(ctx context.Context, id domain.SonarrSeriesID) (series.Series, error)
+	SetSeasonMonitored(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int, monitored bool) error
+	SearchSeason(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int) error
+}
+
 // MediaHashLookupPort moved to internal/shared/media.HashLookupPort in
 // story 526 (shared MediaResolver extraction). The resolver type lives
 // in that package now; this file no longer re-declares the port.

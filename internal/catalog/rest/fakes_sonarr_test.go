@@ -78,3 +78,10 @@ func (f *fakeSonarr) ParseRelease(_ context.Context, _ string) (ports.ParseResul
 	return ports.ParseResult{}, nil
 }
 func (f *fakeSonarr) Name() string { return f.name }
+
+func (f *fakeSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *fakeSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

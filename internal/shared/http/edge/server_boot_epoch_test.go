@@ -77,6 +77,7 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // globalRecommendationsHandler
 		nil,                            // globalRatingsHandler
 		nil,                            // globalLibraryHandler
+		nil,                            // monitorSeasonHandler
 		nil,                            // seasonsHandler
 		nil,                            // resolveHandler
 		nil,                            // discoveryHandler

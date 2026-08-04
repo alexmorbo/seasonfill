@@ -81,6 +81,12 @@ var _ SonarrClient = &SonarrClientMock{}
 //			SearchReleasesFunc: func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error) {
 //				panic("mock out the SearchReleases method")
 //			},
+//			SearchSeasonFunc: func(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int) error {
+//				panic("mock out the SearchSeason method")
+//			},
+//			SetSeasonMonitoredFunc: func(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int, monitored bool) error {
+//				panic("mock out the SetSeasonMonitored method")
+//			},
 //			SystemStatusFunc: func(ctx context.Context) (SystemStatus, error) {
 //				panic("mock out the SystemStatus method")
 //			},
@@ -150,6 +156,12 @@ type SonarrClientMock struct {
 
 	// SearchReleasesFunc mocks the SearchReleases method.
 	SearchReleasesFunc func(ctx context.Context, seriesID domain.SonarrSeriesID, seasonNumber int) ([]release.Release, error)
+
+	// SearchSeasonFunc mocks the SearchSeason method.
+	SearchSeasonFunc func(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int) error
+
+	// SetSeasonMonitoredFunc mocks the SetSeasonMonitored method.
+	SetSeasonMonitoredFunc func(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int, monitored bool) error
 
 	// SystemStatusFunc mocks the SystemStatus method.
 	SystemStatusFunc func(ctx context.Context) (SystemStatus, error)
@@ -290,6 +302,26 @@ type SonarrClientMock struct {
 			// SeasonNumber is the seasonNumber argument value.
 			SeasonNumber int
 		}
+		// SearchSeason holds details about calls to the SearchSeason method.
+		SearchSeason []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// SonarrSeriesID is the sonarrSeriesID argument value.
+			SonarrSeriesID domain.SonarrSeriesID
+			// SeasonNumber is the seasonNumber argument value.
+			SeasonNumber int
+		}
+		// SetSeasonMonitored holds details about calls to the SetSeasonMonitored method.
+		SetSeasonMonitored []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// SonarrSeriesID is the sonarrSeriesID argument value.
+			SonarrSeriesID domain.SonarrSeriesID
+			// SeasonNumber is the seasonNumber argument value.
+			SeasonNumber int
+			// Monitored is the monitored argument value.
+			Monitored bool
+		}
 		// SystemStatus holds details about calls to the SystemStatus method.
 		SystemStatus []struct {
 			// Ctx is the ctx argument value.
@@ -316,6 +348,8 @@ type SonarrClientMock struct {
 	lockName                     sync.RWMutex
 	lockParseRelease             sync.RWMutex
 	lockSearchReleases           sync.RWMutex
+	lockSearchSeason             sync.RWMutex
+	lockSetSeasonMonitored       sync.RWMutex
 	lockSystemStatus             sync.RWMutex
 }
 
@@ -1023,6 +1057,90 @@ func (mock *SonarrClientMock) SearchReleasesCalls() []struct {
 	mock.lockSearchReleases.RLock()
 	calls = mock.calls.SearchReleases
 	mock.lockSearchReleases.RUnlock()
+	return calls
+}
+
+// SearchSeason calls SearchSeasonFunc.
+func (mock *SonarrClientMock) SearchSeason(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int) error {
+	if mock.SearchSeasonFunc == nil {
+		panic("SonarrClientMock.SearchSeasonFunc: method is nil but SonarrClient.SearchSeason was just called")
+	}
+	callInfo := struct {
+		Ctx            context.Context
+		SonarrSeriesID domain.SonarrSeriesID
+		SeasonNumber   int
+	}{
+		Ctx:            ctx,
+		SonarrSeriesID: sonarrSeriesID,
+		SeasonNumber:   seasonNumber,
+	}
+	mock.lockSearchSeason.Lock()
+	mock.calls.SearchSeason = append(mock.calls.SearchSeason, callInfo)
+	mock.lockSearchSeason.Unlock()
+	return mock.SearchSeasonFunc(ctx, sonarrSeriesID, seasonNumber)
+}
+
+// SearchSeasonCalls gets all the calls that were made to SearchSeason.
+// Check the length with:
+//
+//	len(mockedSonarrClient.SearchSeasonCalls())
+func (mock *SonarrClientMock) SearchSeasonCalls() []struct {
+	Ctx            context.Context
+	SonarrSeriesID domain.SonarrSeriesID
+	SeasonNumber   int
+} {
+	var calls []struct {
+		Ctx            context.Context
+		SonarrSeriesID domain.SonarrSeriesID
+		SeasonNumber   int
+	}
+	mock.lockSearchSeason.RLock()
+	calls = mock.calls.SearchSeason
+	mock.lockSearchSeason.RUnlock()
+	return calls
+}
+
+// SetSeasonMonitored calls SetSeasonMonitoredFunc.
+func (mock *SonarrClientMock) SetSeasonMonitored(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int, monitored bool) error {
+	if mock.SetSeasonMonitoredFunc == nil {
+		panic("SonarrClientMock.SetSeasonMonitoredFunc: method is nil but SonarrClient.SetSeasonMonitored was just called")
+	}
+	callInfo := struct {
+		Ctx            context.Context
+		SonarrSeriesID domain.SonarrSeriesID
+		SeasonNumber   int
+		Monitored      bool
+	}{
+		Ctx:            ctx,
+		SonarrSeriesID: sonarrSeriesID,
+		SeasonNumber:   seasonNumber,
+		Monitored:      monitored,
+	}
+	mock.lockSetSeasonMonitored.Lock()
+	mock.calls.SetSeasonMonitored = append(mock.calls.SetSeasonMonitored, callInfo)
+	mock.lockSetSeasonMonitored.Unlock()
+	return mock.SetSeasonMonitoredFunc(ctx, sonarrSeriesID, seasonNumber, monitored)
+}
+
+// SetSeasonMonitoredCalls gets all the calls that were made to SetSeasonMonitored.
+// Check the length with:
+//
+//	len(mockedSonarrClient.SetSeasonMonitoredCalls())
+func (mock *SonarrClientMock) SetSeasonMonitoredCalls() []struct {
+	Ctx            context.Context
+	SonarrSeriesID domain.SonarrSeriesID
+	SeasonNumber   int
+	Monitored      bool
+} {
+	var calls []struct {
+		Ctx            context.Context
+		SonarrSeriesID domain.SonarrSeriesID
+		SeasonNumber   int
+		Monitored      bool
+	}
+	mock.lockSetSeasonMonitored.RLock()
+	calls = mock.calls.SetSeasonMonitored
+	mock.lockSetSeasonMonitored.RUnlock()
 	return calls
 }
 

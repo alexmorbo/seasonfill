@@ -56,3 +56,10 @@ func (f *FakeSonarrClient) ForceGrab(_ context.Context, _ string, _ int) (string
 }
 
 var _ ports.SonarrClient = (*FakeSonarrClient)(nil)
+
+func (f *FakeSonarrClient) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *FakeSonarrClient) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

@@ -203,3 +203,10 @@ func TestHealthHandler_Ready_DBDown(t *testing.T) {
 type assertErr string
 
 func (a assertErr) Error() string { return string(a) }
+
+func (f *fakeSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *fakeSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

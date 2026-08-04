@@ -1425,3 +1425,16 @@ func (r replayingSonarr) ForceGrab(ctx context.Context, guid string, indexerID i
 type sonarrStatusError404 struct{}
 
 func (sonarrStatusError404) Error() string { return "stub: 404 release gone" }
+
+func (fakeSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (fakeSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}
+func (replayingSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (replayingSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

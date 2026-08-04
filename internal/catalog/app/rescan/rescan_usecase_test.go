@@ -489,3 +489,10 @@ func TestStart_UnknownInstance(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown instance")
 	assert.Empty(t, scans.created)
 }
+
+func (f *rescanFakeSonarr) SetSeasonMonitored(_ context.Context, _ domain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *rescanFakeSonarr) SearchSeason(_ context.Context, _ domain.SonarrSeriesID, _ int) error {
+	return nil
+}

@@ -234,6 +234,10 @@ type SonarrClient interface {
 	AddSeries(ctx context.Context, payload AddSeriesPayload) (AddSeriesResult, error)
 	GrabHistory(ctx context.Context, seriesID domain.SonarrSeriesID) ([]HistoryEvent, error)
 	ForceGrab(ctx context.Context, guid string, indexerID int) (string, error)
+	// SetSeasonMonitored flips the monitored flag of one season (GET full → flip → PUT whole body).
+	SetSeasonMonitored(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int, monitored bool) error
+	// SearchSeason posts a SeasonSearch command for (seriesId, seasonNumber).
+	SearchSeason(ctx context.Context, sonarrSeriesID domain.SonarrSeriesID, seasonNumber int) error
 	// ParseRelease calls Sonarr /api/v3/parse for the given release
 	// title. Tolerant of un-recognised titles — returns a zero-value
 	// ParseResult and nil error. 4xx/5xx surface as the existing

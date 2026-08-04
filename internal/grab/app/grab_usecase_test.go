@@ -607,3 +607,10 @@ func TestExecute_Success_SizeBytesNilWhenReleaseSizeZero(t *testing.T) {
 	require.Len(t, gr.recs, 1)
 	require.Nil(t, gr.recs[0].SizeBytes, "0-byte payload must persist as NULL")
 }
+
+func (f *fakeSonarrGrab) SetSeasonMonitored(_ context.Context, _ shareddomain.SonarrSeriesID, _ int, _ bool) error {
+	return nil
+}
+func (f *fakeSonarrGrab) SearchSeason(_ context.Context, _ shareddomain.SonarrSeriesID, _ int) error {
+	return nil
+}
