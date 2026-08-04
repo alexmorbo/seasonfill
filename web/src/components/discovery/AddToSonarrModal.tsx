@@ -73,7 +73,7 @@ export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
   // User's explicit instance choice ('' = not yet chosen). The EFFECTIVE
   // instance auto-falls back to the first available one — derived, so no
   // render-phase setState is needed to "auto-pick".
-  const [explicitInstance, setExplicitInstance] = useState('');
+  const [explicitInstance, setExplicitInstance] = useState(target.instanceName ?? '');
   const effectiveInstance = explicitInstance || (instances[0]?.name ?? '');
 
   const [qualityProfileId, setQualityProfileId] = useState('');

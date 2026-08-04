@@ -785,6 +785,7 @@ export const en = {
     add_to_sonarr: 'Add to Sonarr',
     add: {
       button: 'Add to Sonarr',
+      addToInstance: 'Add to {{name}}',
       modal_title: 'Add "{{title}}" to Sonarr',
       instance: 'Sonarr instance',
       instance_placeholder: 'Select instance',
@@ -1971,6 +1972,7 @@ export const en = {
       runtime: '{{mins}} min/ep',
       trailer: 'Trailer',
       monitored: 'Monitored',
+      openInInstance: 'Open in {{name}}',
     },
     trailer: {
       fallbackTitle: 'Trailer',

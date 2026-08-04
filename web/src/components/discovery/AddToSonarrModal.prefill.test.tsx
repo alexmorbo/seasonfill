@@ -339,6 +339,43 @@ describe('<AddToSonarrModal /> S8 pre-fill', () => {
   });
 });
 
+describe('<AddToSonarrModal /> S3 instance seeding from target', () => {
+  // (f) target.instanceName seeds the instance <select> to that instance,
+  // overriding the "first instance" fallback.
+  it('seeds the instance from target.instanceName', async () => {
+    fetchMock.mockImplementation(async (input) => makeRouter({
+      instances: {
+        instances: [
+          {
+            name: 'main', health: 'Available', mode: 'auto',
+            default_quality_profile_id: 6, default_root_folder_path: '/tv',
+          },
+          {
+            name: 'other', health: 'Available', mode: 'auto',
+            default_quality_profile_id: 6, default_root_folder_path: '/tv',
+          },
+        ],
+      },
+    })(input as string));
+
+    const target: AddToSonarrTarget = {
+      title: 'Rick and Morty', tvdbId: 81189, instanceName: 'other',
+    };
+    const qc = mkClient();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <AddToSonarrModal target={target} onClose={vi.fn()} />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </I18nextProvider>,
+    );
+
+    await waitFor(() => expect(instanceSelect().value).toBe('other'));
+  });
+});
+
 describe('<AddToSonarrModal /> S2 search-on-add + portable seasons', () => {
   function seasonCheckbox(n: number): HTMLElement {
     return within(screen.getByTestId(`add-to-sonarr-season-${n}`))

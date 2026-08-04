@@ -1,10 +1,17 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Play, BookmarkCheck, Ellipsis, ChevronLeft, Plus } from 'lucide-react';
+import { ExternalLink, Play, BookmarkCheck, Ellipsis, ChevronLeft, ChevronDown, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
+import { useInstances } from '@/lib/instances';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { slugifyTitle, buildSonarrSeriesHref } from '@/lib/sonarrUrl';
 import {
   mediaUrl, parseStatus, isSonarrOnly,
@@ -29,8 +36,9 @@ import {
 export interface SeriesHeroProps {
   // Story 495 / N-1e: now optional — TMDB-only series carry no
   // primary instance; SeriesDetail picks `in_library_instances[0]`
-  // and passes undefined when empty. The Sonarr-link branch already
-  // handles `undefined` via `useInstancePublicURL`'s early-return.
+  // and passes undefined when empty. An undefined `instance` yields no
+  // `sonarrHref` because `publicUrlByName.get(instance)` is undefined
+  // (the `instance ? publicUrlByName.get(instance) : undefined` ternary).
   readonly instance: string | undefined;
   readonly seriesId: number;
   readonly hero: HeroDTO | undefined;
@@ -51,6 +59,7 @@ export interface SeriesHeroProps {
   // ⇒ render the hero "Add to Sonarr" button (mutually exclusive with the
   // "Open in Sonarr" button, which needs a resolved instance href).
   readonly addToSonarrTarget?: AddToSonarrTarget | undefined;
+  readonly inLibraryInstances?: readonly string[];
 }
 
 function yearRange(start: number | undefined, end: number | undefined, status: string): string {
@@ -63,12 +72,19 @@ function yearRange(start: number | undefined, end: number | undefined, status: s
 export function SeriesHero({
   instance, seriesId, hero, library, download, tmdbStaleAt, imdbStaleAt, titleSlug,
   onScrollToTorrents, tmdbSeriesDegraded, imdbLoading, addToSonarrTarget,
+  inLibraryInstances = [],
 }: SeriesHeroProps) {
   const { t } = useTranslation();
   const { openAddToSonarr } = useAddToSonarrLauncher();
-  // `useInstancePublicURL` tolerates undefined — returns undefined,
-  // which makes `sonarrHref` undefined and hides the Sonarr button.
-  const sonarrPublic = useInstancePublicURL(instance ?? '');
+  const instancesQ = useInstances();
+  const publicUrlByName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of instancesQ.data?.instances ?? []) {
+      if (i.name && i.public_url) m.set(i.name, i.public_url);
+    }
+    return m;
+  }, [instancesQ.data?.instances]);
+  const sonarrPublic = instance ? publicUrlByName.get(instance) : undefined;
   // #1059 / F-11-FE — shared live /ratings query (same key as RatingsSection ⇒
   // react-query dedups to one fetch). Drives the effective hero ★ values below.
   const { data: liveRatings } = useSeriesRatings({ seriesId });
@@ -88,9 +104,24 @@ export function SeriesHero({
   const showTrailer = Boolean(trailerKey)
     && !sonarrOnly
     && (!trailerSite || trailerSite.toLowerCase() === 'youtube');
+  const slug = titleSlug && titleSlug.length > 0 ? titleSlug : slugifyTitle(title);
   const sonarrHref = sonarrPublic
-    ? buildSonarrSeriesHref(sonarrPublic, titleSlug && titleSlug.length > 0 ? titleSlug : slugifyTitle(title))
+    ? buildSonarrSeriesHref(sonarrPublic, slug)
     : undefined;
+
+  const allInstances = instancesQ.data?.instances ?? [];
+  const inLibrarySet = new Set(inLibraryInstances);
+  const openItems = inLibraryInstances
+    .filter((name) => Boolean(name))
+    .map((name) => {
+      const url = publicUrlByName.get(name);
+      return { name, href: url ? buildSonarrSeriesHref(url, slug) : undefined };
+    });
+  const addItems = allInstances
+    .map((i) => i.name)
+    .filter((name): name is string =>
+      typeof name === 'string' && name.length > 0 && !inLibrarySet.has(name));
+  const showCaret = allInstances.length > 1;
   // #1059 / F-11-FE — single-source the hero ★ off the live /ratings query
   // RatingsSection also consumes (react-query dedups the shared key ⇒ one
   // fetch, identical numbers, no post-refresh divergence). The skeleton hero
@@ -248,24 +279,81 @@ export function SeriesHero({
               )}
 
               <div className="flex flex-wrap items-center gap-2 pt-1">
-                {sonarrHref && (
-                  <Button asChild variant="outline" size="sm" data-testid="hero-action-sonarr">
-                    <a href={sonarrHref} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
-                      {t('common.openInSonarr')}
-                    </a>
-                  </Button>
-                )}
-                {addToSonarrTarget && !sonarrHref && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    data-testid="hero-action-add-to-sonarr"
-                    onClick={() => openAddToSonarr(addToSonarrTarget)}
-                  >
-                    <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-                    {t('discovery.add.button')}
-                  </Button>
+                {(sonarrHref || addToSonarrTarget || showCaret) && (
+                  <div className="inline-flex items-center" data-testid="hero-action-split">
+                    {sonarrHref && (
+                      <Button
+                        asChild
+                        variant="outline"
+                        size="sm"
+                        className={cn(showCaret && 'rounded-r-none')}
+                        data-testid="hero-action-sonarr"
+                      >
+                        <a href={sonarrHref} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                          {t('common.openInSonarr')}
+                        </a>
+                      </Button>
+                    )}
+                    {addToSonarrTarget && !sonarrHref && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={cn(showCaret && 'rounded-r-none')}
+                        data-testid="hero-action-add-to-sonarr"
+                        onClick={() => openAddToSonarr(addToSonarrTarget)}
+                      >
+                        <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                        {t('discovery.add.button')}
+                      </Button>
+                    )}
+                    {showCaret && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="-ml-px rounded-l-none px-1.5"
+                            aria-label={t('common.actions')}
+                            data-testid="hero-action-caret"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {openItems.map(({ name, href }) =>
+                            href ? (
+                              <DropdownMenuItem key={`open-${name}`} asChild data-testid={`hero-menu-open-${name}`}>
+                                <a href={href} target="_blank" rel="noopener noreferrer">
+                                  <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                                  {t('seriesDetail.hero.openInInstance', { name })}
+                                </a>
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem key={`open-${name}`} disabled data-testid={`hero-menu-open-${name}`}>
+                                <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                                {t('seriesDetail.hero.openInInstance', { name })}
+                              </DropdownMenuItem>
+                            ),
+                          )}
+                          {openItems.length > 0 && addToSonarrTarget && addItems.length > 0 && (
+                            <DropdownMenuSeparator />
+                          )}
+                          {addToSonarrTarget &&
+                            addItems.map((name) => (
+                              <DropdownMenuItem
+                                key={`add-${name}`}
+                                data-testid={`hero-menu-add-${name}`}
+                                onSelect={() => openAddToSonarr({ ...addToSonarrTarget, instanceName: name })}
+                              >
+                                <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                                {t('discovery.add.addToInstance', { name })}
+                              </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
                 )}
                 {showTrailer && trailerKey && (
                   <Button

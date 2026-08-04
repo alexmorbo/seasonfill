@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider } from 'react-i18next';
@@ -8,7 +9,10 @@ import type { SeriesHero as HeroDTO } from '@/api/series';
 import type { SeriesRatingsResponse } from '@/api/seriesRatings';
 import { SeriesHero } from './SeriesHero';
 import { AddToSonarrProvider } from '@/components/discovery/AddToSonarrProvider';
-import type { AddToSonarrTarget } from '@/components/discovery/add-to-sonarr-context';
+import {
+  AddToSonarrCtx,
+  type AddToSonarrTarget,
+} from '@/components/discovery/add-to-sonarr-context';
 
 // The hero single-sources its ★ from useSeriesRatings; mock the hook so each
 // test drives a controlled /ratings response without a QueryClient/network.
@@ -17,9 +21,19 @@ vi.mock('@/api/seriesRatings', () => ({
   useSeriesRatings: () => ({ data: heroRatings }),
 }));
 
+// The split-button reads the instance roster + per-instance public_url from
+// useInstances; mock it so each test drives a controlled instance list without
+// a network fetch. Empty by default so pre-existing tests keep their prior
+// behaviour (no sonarrHref, no caret).
+let mockInstances: Array<{ name: string; public_url?: string }> = [];
+vi.mock('@/lib/instances', () => ({
+  useInstances: () => ({ data: { instances: mockInstances }, isPending: false }),
+}));
+
 const origFetch = globalThis.fetch;
 beforeEach(() => {
   heroRatings = undefined;
+  mockInstances = [];
   globalThis.fetch = vi.fn(async () =>
     new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
   ) as typeof fetch;
@@ -188,5 +202,123 @@ describe('SeriesHero — Add to Sonarr (not-in-library)', () => {
       hero={baseHero as unknown as HeroDTO}
     />));
     expect(screen.queryByTestId('hero-action-add-to-sonarr')).toBeNull();
+  });
+});
+
+describe('SeriesHero — split-button multi-instance (S3)', () => {
+  const target: AddToSonarrTarget = {
+    title: 'For All Mankind', tvdbId: 355093, tmdbId: 87917,
+  };
+
+  // (a) two instances, one in-library → open the primary + Add-to-other menu.
+  it('shows the Open button and a caret with add/open items', async () => {
+    mockInstances = [
+      { name: 'homelab', public_url: 'http://homelab' },
+      { name: 'backup', public_url: 'http://backup' },
+    ];
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={baseHero as unknown as HeroDTO}
+      inLibraryInstances={['homelab']}
+      addToSonarrTarget={target}
+    />));
+    expect(screen.getByTestId('hero-action-sonarr')).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('hero-action-caret'));
+    expect(await screen.findByTestId('hero-menu-add-backup')).toBeInTheDocument();
+    expect(screen.getByTestId('hero-menu-open-homelab')).toBeInTheDocument();
+  });
+
+  // (b) both instances in-library → only open items, no add items.
+  it('shows open items for every in-library instance and no add items', async () => {
+    mockInstances = [
+      { name: 'homelab', public_url: 'http://homelab' },
+      { name: 'backup', public_url: 'http://backup' },
+    ];
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={baseHero as unknown as HeroDTO}
+      inLibraryInstances={['homelab', 'backup']}
+      addToSonarrTarget={target}
+    />));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('hero-action-caret'));
+    expect(await screen.findByTestId('hero-menu-open-homelab')).toBeInTheDocument();
+    expect(screen.getByTestId('hero-menu-open-backup')).toBeInTheDocument();
+    expect(screen.queryByTestId('hero-menu-add-homelab')).toBeNull();
+    expect(screen.queryByTestId('hero-menu-add-backup')).toBeNull();
+  });
+
+  // (c) single instance → no caret, just the Open button.
+  it('renders no caret for a single instance', () => {
+    mockInstances = [{ name: 'homelab', public_url: 'http://homelab' }];
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={baseHero as unknown as HeroDTO}
+      inLibraryInstances={['homelab']}
+      addToSonarrTarget={target}
+    />));
+    expect(screen.queryByTestId('hero-action-caret')).toBeNull();
+    expect(screen.getByTestId('hero-action-sonarr')).toBeInTheDocument();
+  });
+
+  // (d) not in any library → primary Add button, no Open button.
+  it('renders the primary Add button when in no library', () => {
+    mockInstances = [
+      { name: 'homelab', public_url: 'http://homelab' },
+      { name: 'backup', public_url: 'http://backup' },
+    ];
+    render(wrap(<SeriesHero
+      instance={undefined}
+      seriesId={369}
+      hero={baseHero as unknown as HeroDTO}
+      inLibraryInstances={[]}
+      addToSonarrTarget={target}
+    />));
+    expect(screen.getByTestId('hero-action-add-to-sonarr')).toBeInTheDocument();
+    expect(screen.queryByTestId('hero-action-sonarr')).toBeNull();
+  });
+
+  // (e) selecting an add-item opens the launcher with the chosen instanceName.
+  it('opens the launcher with the chosen instanceName from a menu add-item', async () => {
+    mockInstances = [
+      { name: 'homelab', public_url: 'http://homelab' },
+      { name: 'backup', public_url: 'http://backup' },
+    ];
+    const openSpy = vi.fn();
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <I18nextProvider i18n={i18n}>
+            <AddToSonarrCtx.Provider
+              value={{ target: null, openAddToSonarr: openSpy, close: vi.fn() }}
+            >
+              <SeriesHero
+                instance="homelab"
+                seriesId={369}
+                hero={baseHero as unknown as HeroDTO}
+                inLibraryInstances={['homelab']}
+                addToSonarrTarget={target}
+              />
+            </AddToSonarrCtx.Provider>
+          </I18nextProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('hero-action-caret'));
+    await user.click(await screen.findByTestId('hero-menu-add-backup'));
+    expect(openSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceName: 'backup' }),
+    );
   });
 });

@@ -75,14 +75,13 @@ export function SeriesDetail() {
   // — NOT skeleton.series_id (that's the internal id). The modal tolerates a
   // missing tvdb, so the button is NOT gated on tvdb presence.
   const addToSonarrTarget = useMemo<AddToSonarrTarget | undefined>(() => {
-    if (primaryInstance !== undefined) return undefined;
     const links = skeleton?.external_links;
     return {
       title: hero?.title ?? '',
       ...(links?.tvdb_id !== undefined ? { tvdbId: links.tvdb_id } : {}),
       ...(links?.tmdb_id !== undefined ? { tmdbId: links.tmdb_id } : {}),
     };
-  }, [primaryInstance, skeleton?.external_links, hero?.title]);
+  }, [skeleton?.external_links, hero?.title]);
 
   // Story 529 — overview block loads from its own endpoint.
   const overviewQ = useSeriesOverview({
@@ -267,6 +266,7 @@ export function SeriesDetail() {
         <>
           <SeriesHero
             instance={primaryInstance}
+            inLibraryInstances={skeleton.in_library_instances ?? []}
             seriesId={seriesId}
             hero={hero}
             {...(library ? { library } : {})}

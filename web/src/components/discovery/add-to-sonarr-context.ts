@@ -7,6 +7,7 @@ export interface AddToSonarrTarget {
   readonly title: string;
   readonly tvdbId?: number;
   readonly tmdbId?: number;
+  readonly instanceName?: string;
 }
 
 export interface AddToSonarrLauncher {

@@ -790,6 +790,7 @@ export const ru: Translations = {
     add_to_sonarr: 'Добавить в Sonarr',
     add: {
       button: 'Добавить в Sonarr',
+      addToInstance: 'Добавить в {{name}}',
       modal_title: 'Добавить «{{title}}» в Sonarr',
       instance: 'Инстанс Sonarr',
       instance_placeholder: 'Выберите инстанс',
@@ -1969,6 +1970,7 @@ export const ru: Translations = {
       runtime: '{{mins}} мин/эп',
       trailer: 'Трейлер',
       monitored: 'Отслеживается',
+      openInInstance: 'Открыть в {{name}}',
     },
     trailer: {
       fallbackTitle: 'Трейлер',
