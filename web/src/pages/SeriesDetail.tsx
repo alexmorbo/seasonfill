@@ -304,6 +304,7 @@ export function SeriesDetail() {
             seriesId={seriesId}
             hero={hero}
             {...(library ? { library } : {})}
+            {...(libraryQ.data?.title_slug ? { titleSlug: libraryQ.data.title_slug } : {})}
             {...(download ? { download } : {})}
             {...(tmdbStaleAt ? { tmdbStaleAt } : {})}
             {...(imdbStaleAt ? { imdbStaleAt } : {})}

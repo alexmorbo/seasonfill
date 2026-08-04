@@ -447,6 +447,10 @@ type SeriesLibraryResponse struct {
 	Instance       domain.InstanceName   `json:"instance" example:"homelab"`
 	SonarrSeriesID domain.SonarrSeriesID `json:"sonarr_series_id" example:"123"`
 	SeriesID       domain.SeriesID       `json:"series_id" example:"42"`
+	// TitleSlug is Sonarr's authoritative title_slug for the resolved instance
+	// (series_cache.title_slug), used by the FE "Открыть в Sonarr" deep-link
+	// instead of slugifying the localized title. Empty when unknown. ADR-0012 S7.
+	TitleSlug string `json:"title_slug" example:"ted-lasso"`
 	// Library is the Sonarr "what's on disk" tile (counts + dominant quality).
 	Library LibraryStrip `json:"library"`
 	// Recent is the last-5 grab_records activity strip, newest-first. Always a

@@ -205,6 +205,39 @@ describe('SeriesHero — Add to Sonarr (not-in-library)', () => {
   });
 });
 
+describe('SeriesHero — Sonarr deep-link title_slug (S7)', () => {
+  const cyrillicHero = { ...baseHero, title: 'Тед Лассо' };
+
+  // title_slug prop present → deep-link uses Sonarr's authoritative slug,
+  // NOT a slugified Cyrillic title (which would be empty → blank page).
+  it('uses the passed titleSlug for the Sonarr deep-link over a Cyrillic title', () => {
+    mockInstances = [{ name: 'homelab', public_url: 'http://homelab' }];
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={cyrillicHero as unknown as HeroDTO}
+      inLibraryInstances={['homelab']}
+      titleSlug="ted-lasso"
+    />));
+    const href = screen.getByTestId('hero-action-sonarr').closest('a')?.getAttribute('href');
+    expect(href).toBe('http://homelab/series/ted-lasso');
+  });
+
+  // Regression guard: WITHOUT the prop, a Cyrillic title slugifies to empty →
+  // ".../series/" blank page — the exact bug the titleSlug wiring prevents.
+  it('yields a blank /series/ slug for a Cyrillic title without titleSlug', () => {
+    mockInstances = [{ name: 'homelab', public_url: 'http://homelab' }];
+    render(wrap(<SeriesHero
+      instance="homelab"
+      seriesId={369}
+      hero={cyrillicHero as unknown as HeroDTO}
+      inLibraryInstances={['homelab']}
+    />));
+    const href = screen.getByTestId('hero-action-sonarr').closest('a')?.getAttribute('href');
+    expect(href).toMatch(/\/series\/$/);
+  });
+});
+
 describe('SeriesHero — split-button multi-instance (S3)', () => {
   const target: AddToSonarrTarget = {
     title: 'For All Mankind', tvdbId: 355093, tmdbId: 87917,

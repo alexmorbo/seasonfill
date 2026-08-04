@@ -6087,6 +6087,13 @@ export type components = {
             readonly sonarr_series_id?: number;
             /** @description SyncedAt = max(series_cache.updated_at, newest episode_states.updated_at). */
             readonly synced_at?: string;
+            /**
+             * @description TitleSlug is Sonarr's authoritative title_slug for the resolved instance
+             *     (series_cache.title_slug), used by the FE "Открыть в Sonarr" deep-link
+             *     instead of slugifying the localized title. Empty when unknown. ADR-0012 S7.
+             * @example ted-lasso
+             */
+            readonly title_slug?: string;
         };
         readonly "dto.SeriesOverviewResponse": {
             readonly degraded?: readonly string[];

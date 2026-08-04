@@ -2361,6 +2361,13 @@ components:
         synced_at:
           description: SyncedAt = max(series_cache.updated_at, newest episode_states.updated_at).
           type: string
+        title_slug:
+          description: |-
+            TitleSlug is Sonarr's authoritative title_slug for the resolved instance
+            (series_cache.title_slug), used by the FE "Открыть в Sonarr" deep-link
+            instead of slugifying the localized title. Empty when unknown. ADR-0012 S7.
+          example: ted-lasso
+          type: string
       type: object
     dto.SeriesOverviewResponse:
       properties:

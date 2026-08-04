@@ -115,7 +115,18 @@ func (h *GlobalSeriesLibraryHandler) Get(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	c.JSON(http.StatusOK, toSeriesLibraryResponse(view))
+	c.JSON(http.StatusOK, toSeriesLibraryResponse(view, titleSlugForInstance(entries, target)))
+}
+
+// titleSlugForInstance returns the series_cache title_slug for the resolved
+// target instance ("" when not found). ADR-0012 S7.
+func titleSlugForInstance(entries []series.CacheEntry, target domain.InstanceName) string {
+	for _, e := range entries {
+		if e.InstanceName == target {
+			return e.TitleSlug
+		}
+	}
+	return ""
 }
 
 // resolveLibraryInstance picks the target instance: the requested param when
@@ -145,11 +156,12 @@ func resolveLibraryInstance(entries []series.CacheEntry, param string) (domain.I
 // toSeriesLibraryResponse projects LibraryView → wire DTO. Pure mapping; no DB
 // / network calls. Reuses dto.LibraryStrip / RecentEvent / InProgress /
 // NextEpisode from series_detail.go.
-func toSeriesLibraryResponse(v seriesdetail.LibraryView) dto.SeriesLibraryResponse {
+func toSeriesLibraryResponse(v seriesdetail.LibraryView, titleSlug string) dto.SeriesLibraryResponse {
 	resp := dto.SeriesLibraryResponse{
 		Instance:       v.Instance,
 		SonarrSeriesID: v.SonarrSeriesID,
 		SeriesID:       v.SeriesID,
+		TitleSlug:      titleSlug,
 		Monitored:      v.Monitored,
 		Library: dto.LibraryStrip{
 			Monitored:       v.Strip.Monitored,

@@ -200,6 +200,48 @@ func TestGlobalSeriesLibraryHandler_Get_200_ExplicitInstance(t *testing.T) {
 	assert.Equal(t, domain.InstanceName("beta"), composer.got)
 }
 
+func TestGlobalSeriesLibraryHandler_Get_200_TitleSlug(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	cache := &stubLibCacheLookup{entries: []series.CacheEntry{
+		{InstanceName: "homelab", SonarrSeriesID: 7, TitleSlug: "ted-lasso"},
+	}}
+	composer := &stubLibComposer{view: seriesdetail.LibraryView{Instance: "homelab", SonarrSeriesID: 7, SeriesID: 42}}
+	h := seriesdetailrest.NewGlobalSeriesLibraryHandler(composer, cache, quietLoggerLibrary())
+	r := gin.New()
+	r.GET("/api/v1/series/:id/library", h.Get)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/42/library?instance=homelab", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body dto.SeriesLibraryResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "ted-lasso", body.TitleSlug)
+}
+
+func TestGlobalSeriesLibraryHandler_Get_200_TitleSlug_EmptyWhenAbsent(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	cache := &stubLibCacheLookup{entries: []series.CacheEntry{
+		{InstanceName: "homelab", SonarrSeriesID: 7},
+	}}
+	composer := &stubLibComposer{view: seriesdetail.LibraryView{Instance: "homelab", SonarrSeriesID: 7, SeriesID: 42}}
+	h := seriesdetailrest.NewGlobalSeriesLibraryHandler(composer, cache, quietLoggerLibrary())
+	r := gin.New()
+	r.GET("/api/v1/series/:id/library", h.Get)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/series/42/library?instance=homelab", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body dto.SeriesLibraryResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "", body.TitleSlug)
+}
+
 func TestGlobalSeriesLibraryHandler_Get_200_Body_NextEpisodeAndInProgress(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
