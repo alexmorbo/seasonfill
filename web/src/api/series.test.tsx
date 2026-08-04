@@ -5,6 +5,7 @@ import {
   useSeries,
   seriesQueryKey,
   isMissingLang,
+  parseStatus,
   adaptHero,
   adaptCast,
   adaptSeasons,
@@ -106,6 +107,54 @@ describe('isMissingLang', () => {
   it('is false for undefined data / missing served_language', () => {
     expect(isMissingLang(undefined, 'en-US')).toBe(false);
     expect(isMissingLang({ degraded: ['missing_lang'] } as SeriesSkeleton, 'en-US')).toBe(true);
+  });
+});
+
+// ADR-0012 S8 — series.status is RAW TMDB vocabulary; parseStatus must
+// normalize it to a StatusToken before the pill renders.
+describe('parseStatus', () => {
+  it('maps "Returning Series" → continuing (Ted Lasso, the reported bug)', () => {
+    expect(parseStatus('Returning Series')).toBe('continuing');
+  });
+
+  it('maps "Ended" → ended', () => {
+    expect(parseStatus('Ended')).toBe('ended');
+  });
+
+  it('maps "Canceled" → canceled', () => {
+    expect(parseStatus('Canceled')).toBe('canceled');
+  });
+
+  it('maps British "Cancelled" → canceled', () => {
+    expect(parseStatus('Cancelled')).toBe('canceled');
+  });
+
+  it('maps "In Production" (space, not underscore) → in_production', () => {
+    expect(parseStatus('In Production')).toBe('in_production');
+  });
+
+  it('maps "Planned" → upcoming', () => {
+    expect(parseStatus('Planned')).toBe('upcoming');
+  });
+
+  it('maps "Pilot" → in_production', () => {
+    expect(parseStatus('Pilot')).toBe('in_production');
+  });
+
+  it('passes an already-normalized "continuing" token through', () => {
+    expect(parseStatus('continuing')).toBe('continuing');
+  });
+
+  it('passes an already-normalized "in_production" token through', () => {
+    expect(parseStatus('in_production')).toBe('in_production');
+  });
+
+  it('returns unknown for genuine junk', () => {
+    expect(parseStatus('foobar')).toBe('unknown');
+  });
+
+  it('returns unknown for undefined', () => {
+    expect(parseStatus(undefined)).toBe('unknown');
   });
 });
 

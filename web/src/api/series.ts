@@ -99,8 +99,22 @@ const VALID_STATUSES: ReadonlySet<StatusToken> = new Set([
   'continuing', 'ended', 'canceled', 'in_production', 'upcoming', 'unknown',
 ]);
 
+// ADR-0012 S8: series.status holds RAW TMDB vocabulary ("Returning Series",
+// "In Production", …). Map it to our StatusToken vocabulary before the
+// membership check so ACTIVE series stop rendering "Неизвестно".
+const TMDB_STATUS_MAP: Readonly<Record<string, StatusToken>> = {
+  'returning series': 'continuing',
+  ended: 'ended',
+  canceled: 'canceled',
+  cancelled: 'canceled',
+  'in production': 'in_production',
+  planned: 'upcoming',
+  pilot: 'in_production',
+};
+
 export function parseStatus(raw: string | undefined): StatusToken {
-  const t = (raw ?? '').toLowerCase() as StatusToken;
+  const lower = (raw ?? '').toLowerCase();
+  const t = (TMDB_STATUS_MAP[lower] ?? lower) as StatusToken;
   return VALID_STATUSES.has(t) ? t : 'unknown';
 }
 
