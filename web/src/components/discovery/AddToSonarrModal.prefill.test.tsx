@@ -430,8 +430,9 @@ describe('<AddToSonarrModal /> S2 search-on-add + portable seasons', () => {
       expect(seasonCheckbox(1).getAttribute('data-state')).toBe('unchecked'));
   });
 
-  // (2)+(3) Toggling search-on-add sends search_on_add:true and NO monitor_mode.
-  it('submits search_on_add=true and no monitor_mode when toggled', async () => {
+  // (2)+(3) Default (untouched) submit sends search_on_add:true and NO
+  // monitor_mode — the toggle is ON by default.
+  it('submits search_on_add=true by default with no monitor_mode', async () => {
     fetchMock.mockImplementation(async (input) => makeRouter({
       instances: {
         instances: [{
@@ -446,9 +447,8 @@ describe('<AddToSonarrModal /> S2 search-on-add + portable seasons', () => {
     await waitFor(() => expect(qpSelect().value).toBe('6'));
     await waitFor(() => expect(rfSelect().value).toBe('/tv'));
 
-    fireEvent.click(searchToggle());
-    await waitFor(() =>
-      expect(searchToggle().getAttribute('data-state')).toBe('checked'));
+    // Toggle is checked by default (no interaction needed).
+    expect(searchToggle().getAttribute('data-state')).toBe('checked');
 
     fireEvent.click(screen.getByTestId('add-to-sonarr-submit'));
 
@@ -458,8 +458,8 @@ describe('<AddToSonarrModal /> S2 search-on-add + portable seasons', () => {
     expect('monitor_mode' in body).toBe(false);
   });
 
-  // (4) Default submit (untouched toggle) sends search_on_add:false, no mode.
-  it('submits search_on_add=false by default with no monitor_mode', async () => {
+  // (4) Toggling search-on-add OFF sends search_on_add:false, no mode.
+  it('submits search_on_add=false when toggled off', async () => {
     fetchMock.mockImplementation(async (input) => makeRouter({
       instances: {
         instances: [{
@@ -473,6 +473,11 @@ describe('<AddToSonarrModal /> S2 search-on-add + portable seasons', () => {
 
     await waitFor(() => expect(qpSelect().value).toBe('6'));
     await waitFor(() => expect(rfSelect().value).toBe('/tv'));
+
+    // Starts checked; toggle it off.
+    fireEvent.click(searchToggle());
+    await waitFor(() =>
+      expect(searchToggle().getAttribute('data-state')).toBe('unchecked'));
 
     fireEvent.click(screen.getByTestId('add-to-sonarr-submit'));
 

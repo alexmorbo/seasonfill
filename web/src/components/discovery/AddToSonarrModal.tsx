@@ -78,7 +78,7 @@ export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
 
   const [qualityProfileId, setQualityProfileId] = useState('');
   const [rootFolderPath, setRootFolderPath] = useState('');
-  const [searchOnAdd, setSearchOnAdd] = useState(false);
+  const [searchOnAdd, setSearchOnAdd] = useState(true);
   // null = "untouched" → render the lookup-derived default selection.
   // Any explicit toggle snapshots the current effective set into a Set.
   const [seasonOverride, setSeasonOverride] = useState<Set<number> | null>(
