@@ -28,13 +28,14 @@ type CurrentUserResolver interface {
 
 // AddRequest is the use-case input (handler decodes from JSON).
 //
-// MonitoredSeasons (story 524 N-4 per-season picker) is the explicit
-// list of season numbers the operator chose in the modal. nil/empty
-// means "no per-season override" — MonitorMode governs alone. When
-// non-empty, the use case calls Sonarr's lookup endpoint to discover
-// the full season list and stamps `monitored=true` on the chosen
-// numbers + `false` on the rest, then forwards the explicit array on
-// the add payload.
+// MonitoredSeasons (story 524 N-4 per-season picker; ADR-0012 S4) is a
+// pointer distinguishing nil (no per-season override — MonitorMode
+// governs alone) from a non-nil slice (explicit override). A non-nil
+// empty slice means "monitor nothing": every season is stamped
+// monitored=false. A non-empty slice stamps monitored=true on the
+// chosen numbers and false on the rest. The use case always looks up
+// the full season list from Sonarr (ADR-0010) and forwards the explicit
+// per-season array on the add payload.
 type AddRequest struct {
 	InstanceName     domain.InstanceName
 	TVDBID           int
@@ -44,7 +45,7 @@ type AddRequest struct {
 	MonitorMode      string
 	SearchOnAdd      bool
 	Username         string // empty → bypass / system
-	MonitoredSeasons []int
+	MonitoredSeasons *[]int
 }
 
 // AddResult is the use-case output.
@@ -158,9 +159,9 @@ func (uc *AddToSonarrUseCase) Add(ctx context.Context, req AddRequest) (AddResul
 	payload.Year = found.Year
 	payload.Images = found.Images
 
-	if len(req.MonitoredSeasons) > 0 {
-		wanted := make(map[int]bool, len(req.MonitoredSeasons))
-		for _, n := range req.MonitoredSeasons {
+	if req.MonitoredSeasons != nil {
+		wanted := make(map[int]bool, len(*req.MonitoredSeasons))
+		for _, n := range *req.MonitoredSeasons {
 			wanted[n] = true
 		}
 		seasons := make([]ports.SeasonSelection, 0, len(found.Seasons))

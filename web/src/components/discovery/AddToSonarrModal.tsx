@@ -218,8 +218,10 @@ export function AddToSonarrModal({ target, onClose }: AddToSonarrModalProps) {
     e.preventDefault();
     if (!canSubmit || typeof tvdbID !== 'number') return;
     const seasonsArr = Array.from(selectedSeasons).sort((a, b) => a - b);
-    const includeSeasons = showSeasonsSection && !seasonsError
-      && seasonsArr.length > 0;
+    // ADR-0012 S4: when the seasons section is shown and not errored,
+    // ALWAYS send monitored_seasons — even empty — so an explicit
+    // "monitor nothing" selection reaches the BE (empty [] vs absent).
+    const includeSeasons = showSeasonsSection && !seasonsError;
     addMut.mutate(
       {
         instance_name: effectiveInstance,

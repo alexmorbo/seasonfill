@@ -217,7 +217,7 @@ func TestAdd_MonitoredSeasons_LookupAndStamp(t *testing.T) {
 		Monitored:        true,
 		MonitorMode:      "none",
 		Username:         "alex",
-		MonitoredSeasons: []int{1, 3},
+		MonitoredSeasons: &[]int{1, 3},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 888, res.SonarrSeriesID)
@@ -258,7 +258,7 @@ func TestAdd_MonitoredSeasons_LookupEmpty(t *testing.T) {
 	_, err := uc.Add(t.Context(), AddRequest{
 		InstanceName: "main", TVDBID: 999, QualityProfileID: 1,
 		RootFolderPath: "/tv", Username: "alex",
-		MonitoredSeasons: []int{1},
+		MonitoredSeasons: &[]int{1},
 	})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ports.ErrNotFound))
@@ -288,7 +288,7 @@ func TestAdd_MonitoredSeasons_LookupError(t *testing.T) {
 	_, err := uc.Add(t.Context(), AddRequest{
 		InstanceName: "main", TVDBID: 1, QualityProfileID: 1,
 		RootFolderPath: "/tv", Username: "alex",
-		MonitoredSeasons: []int{1},
+		MonitoredSeasons: &[]int{1},
 	})
 	require.Error(t, err)
 	var su *sharedErrors.SonarrUnreachableError
@@ -396,4 +396,109 @@ func TestAdd_LookupError_502(t *testing.T) {
 	var su *sharedErrors.SonarrUnreachableError
 	require.ErrorAs(t, err, &su)
 	assert.Equal(t, "main", string(su.Instance))
+}
+
+// TestAdd_MonitoredSeasons_ExplicitEmpty verifies the ADR-0012 S4
+// "monitor nothing" state: a non-nil empty MonitoredSeasons slice stamps
+// every discovered season monitored=false while the series-level
+// Monitored flag stays true.
+func TestAdd_MonitoredSeasons_ExplicitEmpty(t *testing.T) {
+	t.Parallel()
+	var capturedPayload ports.AddSeriesPayload
+	cli := &ports.SonarrClientMock{
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, label string) (ports.Tag, error) {
+			return ports.Tag{ID: 12, Label: label}, nil
+		},
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return []ports.SonarrLookupResult{{
+				Title:  "Rick and Morty",
+				TVDBID: 275274,
+				Seasons: []ports.SeasonInfo{
+					{SeasonNumber: 0, EpisodeCount: 0, Monitored: false},
+					{SeasonNumber: 1, EpisodeCount: 11, Monitored: true},
+					{SeasonNumber: 2, EpisodeCount: 10, Monitored: true},
+					{SeasonNumber: 3, EpisodeCount: 10, Monitored: true},
+				},
+			}}, nil
+		},
+		AddSeriesFunc: func(_ context.Context, p ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+			capturedPayload = p
+			return ports.AddSeriesResult{SonarrSeriesID: 888}, nil
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToSonarrUseCase(
+		fakeLookup{name: "main", client: cli},
+		fakeUsers{user: &admin.User{ID: 1, Username: "alex"}},
+		resolver,
+		discardLog(),
+	)
+
+	res, err := uc.Add(t.Context(), AddRequest{
+		InstanceName:     "main",
+		TVDBID:           275274,
+		QualityProfileID: 1,
+		RootFolderPath:   "/tv",
+		Monitored:        true,
+		MonitorMode:      "none",
+		Username:         "alex",
+		MonitoredSeasons: &[]int{},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 888, res.SonarrSeriesID)
+	assert.True(t, capturedPayload.Monitored, "series-level Monitored stays true")
+	require.Len(t, capturedPayload.Seasons, 4)
+	for _, s := range capturedPayload.Seasons {
+		assert.False(t, s.Monitored, "season %d MUST be monitored=false", s.SeasonNumber)
+	}
+}
+
+// TestAdd_MonitoredSeasons_NilNoOverride verifies the ADR-0012 S4 nil
+// state: a nil MonitoredSeasons pointer means no per-season override, so
+// the payload carries no explicit Seasons array.
+func TestAdd_MonitoredSeasons_NilNoOverride(t *testing.T) {
+	t.Parallel()
+	var capturedPayload ports.AddSeriesPayload
+	cli := &ports.SonarrClientMock{
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, label string) (ports.Tag, error) {
+			return ports.Tag{ID: 12, Label: label}, nil
+		},
+		LookupSeriesFunc: func(_ context.Context, _ string) ([]ports.SonarrLookupResult, error) {
+			return []ports.SonarrLookupResult{{
+				Title:  "Rick and Morty",
+				TVDBID: 275274,
+				Seasons: []ports.SeasonInfo{
+					{SeasonNumber: 1, EpisodeCount: 11, Monitored: true},
+					{SeasonNumber: 2, EpisodeCount: 10, Monitored: true},
+				},
+			}}, nil
+		},
+		AddSeriesFunc: func(_ context.Context, p ports.AddSeriesPayload) (ports.AddSeriesResult, error) {
+			capturedPayload = p
+			return ports.AddSeriesResult{SonarrSeriesID: 888}, nil
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToSonarrUseCase(
+		fakeLookup{name: "main", client: cli},
+		fakeUsers{user: &admin.User{ID: 1, Username: "alex"}},
+		resolver,
+		discardLog(),
+	)
+
+	res, err := uc.Add(t.Context(), AddRequest{
+		InstanceName:     "main",
+		TVDBID:           275274,
+		QualityProfileID: 1,
+		RootFolderPath:   "/tv",
+		Monitored:        true,
+		MonitorMode:      "all",
+		Username:         "alex",
+		MonitoredSeasons: nil,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 888, res.SonarrSeriesID)
+	assert.Nil(t, capturedPayload.Seasons, "nil override MUST leave Seasons nil")
 }

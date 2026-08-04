@@ -23,9 +23,11 @@ const addToSonarrBodyLimit = 4 << 10 // 4 KiB
 
 // addToSonarrRequest is the wire shape decoded off the JSON body.
 //
-// MonitoredSeasons (story 524 N-4 per-season picker) — when non-empty,
-// the use case calls Sonarr's lookup endpoint to discover the full
-// season list and stamps explicit per-season monitored flags.
+// MonitoredSeasons (story 524 N-4 per-season picker; ADR-0012 S4) is a
+// pointer so the handler distinguishes three states: nil (field absent →
+// no per-season override, monitor_mode governs), non-nil empty (explicit
+// "monitor nothing" — every season stamped monitored=false), and
+// non-empty (chosen seasons monitored=true, the rest false).
 type addToSonarrRequest struct {
 	InstanceName     string `json:"instance_name"`
 	TVDBID           int    `json:"tvdb_id"`
@@ -34,7 +36,7 @@ type addToSonarrRequest struct {
 	Monitored        *bool  `json:"monitored,omitempty"`
 	MonitorMode      string `json:"monitor_mode,omitempty"`
 	SearchOnAdd      bool   `json:"search_on_add,omitempty"`
-	MonitoredSeasons []int  `json:"monitored_seasons,omitempty"`
+	MonitoredSeasons *[]int `json:"monitored_seasons,omitempty"`
 }
 
 type addToSonarrResponse struct {

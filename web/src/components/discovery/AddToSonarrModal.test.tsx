@@ -69,7 +69,15 @@ const ME_PAYLOAD = {
   idp_profile_url: null, oidc_subject: null, last_login_at: null,
 };
 const INSTANCES_PAYLOAD = {
-  instances: [{ name: 'main', health: 'Available', mode: 'auto' }],
+  instances: [{
+    name: 'main', health: 'Available', mode: 'auto',
+    // ADR-0012 S4: carry per-instance QP/RF defaults so the modal's
+    // auto-seed fires (Radix Selects can't be driven in JSDOM, so submit
+    // stays disabled without seeded QP/RF). Values match QP_PAYLOAD.items[0]
+    // (id 6) and RF_PAYLOAD.items[0] (path '/tv', accessible).
+    default_quality_profile_id: 6,
+    default_root_folder_path: '/tv',
+  }],
 };
 const QP_PAYLOAD = {
   items: [{ id: 6, name: 'HD-1080p' }],
@@ -277,6 +285,55 @@ describe('<AddToSonarrModal />', () => {
     const s1 = screen.getByTestId('add-to-sonarr-season-1')
       .querySelector('[role="checkbox"]') as HTMLElement;
     expect(s1.getAttribute('data-state')).toBe('unchecked');
+  });
+
+  // ADR-0012 S4: unchecking every season is an EXPLICIT "monitor nothing"
+  // choice — it must send monitored_seasons: [] (empty array, not absent) so
+  // the BE doesn't fall back to monitoring ALL seasons.
+  it('sends monitored_seasons: [] when every season is unchecked', async () => {
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByTestId('add-to-sonarr-seasons-all'))
+        .toBeInTheDocument();
+    });
+    // Same double-click clear pattern as the "All toggle" test above:
+    // click once selects every season, click again clears them all.
+    const allBox = screen.getByTestId('add-to-sonarr-seasons-all')
+      .querySelector('[role="checkbox"]') as HTMLElement;
+    fireEvent.click(allBox);
+    await waitFor(() => {
+      expect(allBox.getAttribute('data-state')).toBe('checked');
+    });
+    fireEvent.click(allBox);
+    const s1 = screen.getByTestId('add-to-sonarr-season-1')
+      .querySelector('[role="checkbox"]') as HTMLElement;
+    await waitFor(() => {
+      expect(s1.getAttribute('data-state')).toBe('unchecked');
+    });
+    const s0 = screen.getByTestId('add-to-sonarr-season-0')
+      .querySelector('[role="checkbox"]') as HTMLElement;
+    expect(s0.getAttribute('data-state')).toBe('unchecked');
+
+    // QP/RF auto-seed from the instance defaults, so submit enables once the
+    // lookup resolves (tvdbId is present via renderModal's default target).
+    await waitFor(() => {
+      expect(screen.getByTestId('add-to-sonarr-submit')).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByTestId('add-to-sonarr-submit'));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((c) => {
+        const url = typeof c[0] === 'string' ? c[0] : String(c[0]);
+        return url.endsWith('/discovery/add-to-sonarr');
+      });
+      expect(call).toBeTruthy();
+    });
+    const call = fetchMock.mock.calls.find((c) => {
+      const url = typeof c[0] === 'string' ? c[0] : String(c[0]);
+      return url.endsWith('/discovery/add-to-sonarr');
+    })!;
+    const body = JSON.parse((call[1] as RequestInit).body as string);
+    expect(body.monitored_seasons).toEqual([]);
   });
 
   it('hides seasons section when lookup returns 404', async () => {
