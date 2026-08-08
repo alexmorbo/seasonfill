@@ -17,6 +17,7 @@ import {
   Compass,
   User,
   HeartPulse,
+  PackageX,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -68,6 +69,7 @@ function useActivityItems(): Item[] {
     },
     { to: "/watchdog", icon: Shield, key: "watchdog" },
     { to: "/health", icon: HeartPulse, key: "health" },
+    { to: "/gaps", icon: PackageX, key: "gaps" },
   ]
 }
 
