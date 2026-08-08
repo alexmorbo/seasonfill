@@ -2,9 +2,9 @@
 // GET /api/v1/insights/gaps. A "gap" is a monitored, already-aired,
 // fileless canonical episode (specials — season 0 — excluded). The
 // usecase owns the wall clock (now), derives the per-instance list when
-// no filter is given, and assembles the flat gap-episode drill-down into
-// the nested instance → series → season → episode structure. The DB
-// queries live behind a narrow GapRepository port.
+// no filter is given, and assembles the top-N series ranking + its gap
+// episode detail into the nested instance → series → season → episode
+// structure. The DB queries live behind a narrow GapRepository port.
 package gaps
 
 import (
@@ -16,11 +16,18 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// drillDownLimit bounds the gap-episode drill-down per instance. Mirrors
-// the health pulse's 50-row operator triage window; the per-season and
-// per-instance COUNTs remain exact (correlated subqueries) even when the
-// listed episodes are truncated to this cap.
-const drillDownLimit = 50
+// seriesDrillDownLimit bounds the drill-down to the top-N SERIES with the
+// most gaps (biggest-gap-first). Each series carries its EXACT gap total
+// from the rank query, so the badge is right even when a series' episode
+// list is clipped by gapDetailEpisodeCap.
+const seriesDrillDownLimit = 50
+
+// gapDetailEpisodeCap is a generous SAFETY cap on the flat gap-episode
+// detail row count across the top-N series. It exists only to bound a
+// pathological payload; because the series set/order/title/badge come from
+// the rank query, this cap can only clip a tail series' episode list — it
+// can never drop a series from the report.
+const gapDetailEpisodeCap = 5000
 
 // GapEpisode is one aired, monitored, fileless episode in the drill-down.
 type GapEpisode struct {
@@ -41,8 +48,9 @@ type GapSeason struct {
 	Episodes            []GapEpisode
 }
 
-// GapSeries groups a series's gap seasons. MissingCount is the sum of the
-// per-season exact missing counts present in the drill-down.
+// GapSeries groups a series's gap seasons. MissingCount is the EXACT
+// instance-wide per-series gap total (from the rank query), independent of
+// how many episodes made it into the capped detail list.
 type GapSeries struct {
 	SeriesID     domain.SeriesID
 	Title        string
@@ -127,7 +135,15 @@ func (uc *UseCase) buildInstance(ctx context.Context, instance string, now time.
 	if err != nil {
 		return GapInstance{}, fmt.Errorf("gaps build: %s: whole-season count: %w", instance, err)
 	}
-	rows, err := uc.repo.GapEpisodes(ctx, instance, now, drillDownLimit)
+	ranks, err := uc.repo.GapSeriesRanked(ctx, instance, now, seriesDrillDownLimit)
+	if err != nil {
+		return GapInstance{}, fmt.Errorf("gaps build: %s: series ranked: %w", instance, err)
+	}
+	ids := make([]domain.SeriesID, 0, len(ranks))
+	for _, rk := range ranks {
+		ids = append(ids, rk.SeriesID)
+	}
+	rows, err := uc.repo.GapEpisodesForSeries(ctx, instance, now, ids, gapDetailEpisodeCap)
 	if err != nil {
 		return GapInstance{}, fmt.Errorf("gaps build: %s: gap episodes: %w", instance, err)
 	}
@@ -135,35 +151,32 @@ func (uc *UseCase) buildInstance(ctx context.Context, instance string, now time.
 		InstanceName:            instance,
 		MissingEpisodeCount:     missingCount,
 		WholeSeasonMissingCount: wholeSeason,
-		Series:                  assembleSeries(rows),
+		Series:                  assembleSeries(ranks, rows),
 	}, nil
 }
 
-// seriesAcc holds the in-progress nested structure for one series.
-// Pointers keep the season aggregates stable while episodes are appended;
-// the flat slices are materialized only at the end.
-type seriesAcc struct {
-	series      *GapSeries
-	seasonOrder []int
-	seasons     map[int]*GapSeason
+// seasonAcc holds the in-progress season aggregates for one series while
+// detail rows are folded in. Pointers keep the season aggregates stable
+// while episodes are appended.
+type seasonAcc struct {
+	order   []int
+	seasons map[int]*GapSeason
 }
 
-// assembleSeries folds the flat, pre-ordered (series, season, episode)
-// gap rows into the nested series → season → episode structure,
-// preserving the SQL ordering.
-func assembleSeries(rows []ports.GapEpisodeRow) []GapSeries {
-	order := make([]domain.SeriesID, 0)
-	accs := make(map[domain.SeriesID]*seriesAcc)
-
+// assembleSeries builds the nested series → season → episode structure in
+// RANK order. Series identity, order, Title and MissingCount come from the
+// authoritative rank list; the detail rows only fill in seasons/episodes.
+// A ranked series with no detail rows (should not happen normally) still
+// appears with its exact MissingCount and an empty (non-nil) Seasons slice.
+// Season order within a series is first-seen in the detail rows (the detail
+// query orders by season_number, episode_number).
+func assembleSeries(ranks []ports.GapSeriesRank, rows []ports.GapEpisodeRow) []GapSeries {
+	detail := make(map[domain.SeriesID]*seasonAcc, len(ranks))
 	for _, r := range rows {
-		acc, ok := accs[r.SeriesID]
+		acc, ok := detail[r.SeriesID]
 		if !ok {
-			acc = &seriesAcc{
-				series:  &GapSeries{SeriesID: r.SeriesID, Title: r.Title},
-				seasons: make(map[int]*GapSeason),
-			}
-			accs[r.SeriesID] = acc
-			order = append(order, r.SeriesID)
+			acc = &seasonAcc{seasons: make(map[int]*GapSeason)}
+			detail[r.SeriesID] = acc
 		}
 		season, ok := acc.seasons[r.SeasonNumber]
 		if !ok {
@@ -174,8 +187,7 @@ func assembleSeries(rows []ports.GapEpisodeRow) []GapSeries {
 				WholeSeasonMissing:  r.SeasonMissing == r.SeasonAiredMonitored && r.SeasonAiredMonitored > 0,
 			}
 			acc.seasons[r.SeasonNumber] = season
-			acc.seasonOrder = append(acc.seasonOrder, r.SeasonNumber)
-			acc.series.MissingCount += r.SeasonMissing
+			acc.order = append(acc.order, r.SeasonNumber)
 		}
 		season.Episodes = append(season.Episodes, GapEpisode{
 			EpisodeID:     r.EpisodeID,
@@ -185,15 +197,22 @@ func assembleSeries(rows []ports.GapEpisodeRow) []GapSeries {
 		})
 	}
 
-	out := make([]GapSeries, 0, len(order))
-	for _, id := range order {
-		acc := accs[id]
-		seasons := make([]GapSeason, 0, len(acc.seasonOrder))
-		for _, sn := range acc.seasonOrder {
-			seasons = append(seasons, *acc.seasons[sn])
+	out := make([]GapSeries, 0, len(ranks))
+	for _, rk := range ranks {
+		gs := GapSeries{
+			SeriesID:     rk.SeriesID,
+			Title:        rk.Title,
+			MissingCount: rk.GapCount,
+			Seasons:      []GapSeason{},
 		}
-		acc.series.Seasons = seasons
-		out = append(out, *acc.series)
+		if acc, ok := detail[rk.SeriesID]; ok {
+			seasons := make([]GapSeason, 0, len(acc.order))
+			for _, sn := range acc.order {
+				seasons = append(seasons, *acc.seasons[sn])
+			}
+			gs.Seasons = seasons
+		}
+		out = append(out, gs)
 	}
 	return out
 }

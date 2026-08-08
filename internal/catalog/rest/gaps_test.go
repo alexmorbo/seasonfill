@@ -21,11 +21,13 @@ import (
 
 // fakeGapRepo satisfies ports.GapRepository so the handler test drives the
 // REAL usecase (instance fan-out + nested assembly + DTO mapping) without
-// a DB. It records the instance filter it was asked to enumerate.
+// a DB. ranks drives the authoritative series list; episodes fills in the
+// season/episode detail.
 type fakeGapRepo struct {
 	instances   []string
 	missing     map[string]int
 	wholeSeason map[string]int
+	ranks       map[string][]ports.GapSeriesRank
 	episodes    map[string][]ports.GapEpisodeRow
 	err         error
 }
@@ -42,7 +44,10 @@ func (f *fakeGapRepo) MissingEpisodeCount(_ context.Context, instance string, _ 
 func (f *fakeGapRepo) WholeSeasonMissingCount(_ context.Context, instance string, _ time.Time) (int, error) {
 	return f.wholeSeason[instance], nil
 }
-func (f *fakeGapRepo) GapEpisodes(_ context.Context, instance string, _ time.Time, _ int) ([]ports.GapEpisodeRow, error) {
+func (f *fakeGapRepo) GapSeriesRanked(_ context.Context, instance string, _ time.Time, _ int) ([]ports.GapSeriesRank, error) {
+	return f.ranks[instance], nil
+}
+func (f *fakeGapRepo) GapEpisodesForSeries(_ context.Context, instance string, _ time.Time, _ []domain.SeriesID, _ int) ([]ports.GapEpisodeRow, error) {
 	return f.episodes[instance], nil
 }
 
@@ -59,6 +64,9 @@ func TestGapsHandler_Get_OK(t *testing.T) {
 		instances:   []string{"main"},
 		missing:     map[string]int{"main": 2},
 		wholeSeason: map[string]int{"main": 1},
+		ranks: map[string][]ports.GapSeriesRank{
+			"main": {{SeriesID: 42, Title: "The Expanse", GapCount: 2}},
+		},
 		episodes: map[string][]ports.GapEpisodeRow{
 			"main": {
 				{SeriesID: 42, Title: "The Expanse", SeasonNumber: 2, EpisodeNumber: 1, EpisodeID: 100, AirDate: &air, SeasonAiredMonitored: 2, SeasonMissing: 2},
@@ -85,6 +93,7 @@ func TestGapsHandler_Get_OK(t *testing.T) {
 	assert.Equal(t, 1, inst.WholeSeasonMissingCount)
 	require.Len(t, inst.Series, 1)
 	assert.Equal(t, domain.SeriesID(42), inst.Series[0].SeriesID)
+	assert.Equal(t, 2, inst.Series[0].MissingCount)
 	require.Len(t, inst.Series[0].Seasons, 1)
 	assert.True(t, inst.Series[0].Seasons[0].WholeSeasonMissing)
 	require.Len(t, inst.Series[0].Seasons[0].Episodes, 2)
@@ -97,6 +106,7 @@ func TestGapsHandler_Get_InstanceFilter(t *testing.T) {
 		instances:   []string{"anime", "main"}, // must be bypassed by filter
 		missing:     map[string]int{"main": 3},
 		wholeSeason: map[string]int{"main": 0},
+		ranks:       map[string][]ports.GapSeriesRank{},
 		episodes:    map[string][]ports.GapEpisodeRow{},
 	}
 	h := newGapsHandler(repo)

@@ -18,6 +18,10 @@ import (
 // episodes air an hour before it, future ones an hour after.
 var gapNow = time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 
+// gapDetailCap mirrors the usecase's gapDetailEpisodeCap — a generous
+// safety cap; the repo tests seed far fewer rows so nothing is clipped.
+const gapDetailCap = 5000
+
 // seedEpisode inserts a canonical episodes row with an explicit id,
 // series_id, season/episode number and (nullable) air_date. Direct model
 // Create keeps full control over the air_date column (aired / future /
@@ -118,18 +122,36 @@ func TestGapRepository_MatrixAndWholeSeason(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 1, whole, "only series 102 season 1 is wholly missing")
 
-			rows, err := repo.GapEpisodes(ctx, "main", gapNow, 50)
+			// RANK: series ordered by gap count DESC, series_id ASC tiebreak.
+			// 102 has 2 gaps, 101 and 103 have 1 each → [102, 101, 103].
+			ranks, err := repo.GapSeriesRanked(ctx, "main", gapNow, 50)
+			require.NoError(t, err)
+			require.Len(t, ranks, 3)
+			assert.Equal(t, domain.SeriesID(102), ranks[0].SeriesID)
+			assert.Equal(t, 2, ranks[0].GapCount)
+			assert.Equal(t, "Series 102", ranks[0].Title)
+			assert.Equal(t, domain.SeriesID(101), ranks[1].SeriesID)
+			assert.Equal(t, 1, ranks[1].GapCount)
+			assert.Equal(t, "Series 101", ranks[1].Title)
+			assert.Equal(t, domain.SeriesID(103), ranks[2].SeriesID)
+			assert.Equal(t, 1, ranks[2].GapCount)
+
+			// DETAIL for the ranked ids — ordered by series_id, season, episode.
+			ids := make([]domain.SeriesID, 0, len(ranks))
+			for _, rk := range ranks {
+				ids = append(ids, rk.SeriesID)
+			}
+			rows, err := repo.GapEpisodesForSeries(ctx, "main", gapNow, ids, gapDetailCap)
 			require.NoError(t, err)
 			require.Len(t, rows, 4)
 
-			// Ordered by series_id, season_number, episode_number.
+			// series 101 season 1 — mixed: 2 aired-monitored (gap + has_file), 1 missing.
 			assert.Equal(t, domain.SeriesID(101), rows[0].SeriesID)
 			assert.Equal(t, "Series 101", rows[0].Title)
 			assert.Equal(t, 1, rows[0].SeasonNumber)
 			assert.Equal(t, 1, rows[0].EpisodeNumber)
 			assert.Equal(t, domain.EpisodeID(1000), rows[0].EpisodeID)
 			require.NotNil(t, rows[0].AirDate)
-			// mixed season: 2 aired-monitored (gap + has_file), 1 missing.
 			assert.Equal(t, 2, rows[0].SeasonAiredMonitored)
 			assert.Equal(t, 1, rows[0].SeasonMissing)
 
@@ -144,6 +166,11 @@ func TestGapRepository_MatrixAndWholeSeason(t *testing.T) {
 			assert.Equal(t, 2, rows[3].SeasonNumber)
 			assert.Equal(t, 2, rows[3].SeasonAiredMonitored)
 			assert.Equal(t, 1, rows[3].SeasonMissing)
+
+			// Empty id list short-circuits to an empty result (invalid IN () guard).
+			empty, err := repo.GapEpisodesForSeries(ctx, "main", gapNow, nil, gapDetailCap)
+			require.NoError(t, err)
+			assert.Empty(t, empty)
 		})
 	}
 }
@@ -168,6 +195,10 @@ func TestGapRepository_FutureNotCounted(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 0, missing, "a future monitored fileless episode is NOT a gap")
 
+			ranks, err := repo.GapSeriesRanked(ctx, "main", gapNow, 50)
+			require.NoError(t, err)
+			assert.Empty(t, ranks, "no gaps → no ranked series")
+
 			// Exactly at the boundary (air_date == now) counts as aired.
 			seedHealthSeries(t, db, 2, nil, nil, nil)
 			seedEpisode(t, db, 2, 2, 1, 1, &gapNow)
@@ -177,7 +208,13 @@ func TestGapRepository_FutureNotCounted(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 1, missing, "air_date == now counts as aired (<=)")
 
-			rows, err := repo.GapEpisodes(ctx, "main", gapNow, 50)
+			ranks, err = repo.GapSeriesRanked(ctx, "main", gapNow, 50)
+			require.NoError(t, err)
+			require.Len(t, ranks, 1)
+			assert.Equal(t, domain.SeriesID(2), ranks[0].SeriesID)
+			assert.Equal(t, 1, ranks[0].GapCount)
+
+			rows, err := repo.GapEpisodesForSeries(ctx, "main", gapNow, []domain.SeriesID{ranks[0].SeriesID}, gapDetailCap)
 			require.NoError(t, err)
 			require.Len(t, rows, 1)
 			assert.Equal(t, domain.EpisodeID(2), rows[0].EpisodeID)
@@ -216,13 +253,18 @@ func TestGapRepository_PerInstanceIsolation(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 0, bMissing, "instance b has the file — no gap leaks from a")
 
-			aRows, err := repo.GapEpisodes(ctx, "a", gapNow, 50)
+			aRanks, err := repo.GapSeriesRanked(ctx, "a", gapNow, 50)
+			require.NoError(t, err)
+			require.Len(t, aRanks, 1)
+			assert.Equal(t, domain.SeriesID(1), aRanks[0].SeriesID)
+
+			aRows, err := repo.GapEpisodesForSeries(ctx, "a", gapNow, []domain.SeriesID{1}, gapDetailCap)
 			require.NoError(t, err)
 			assert.Len(t, aRows, 1)
 
-			bRows, err := repo.GapEpisodes(ctx, "b", gapNow, 50)
+			bRanks, err := repo.GapSeriesRanked(ctx, "b", gapNow, 50)
 			require.NoError(t, err)
-			assert.Empty(t, bRows)
+			assert.Empty(t, bRanks, "instance b has no gaps")
 		})
 	}
 }
@@ -251,7 +293,11 @@ func TestGapRepository_EmptyAndHealthy(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 0, whole)
 
-			rows, err := repo.GapEpisodes(ctx, "main", gapNow, 50)
+			ranks, err := repo.GapSeriesRanked(ctx, "main", gapNow, 50)
+			require.NoError(t, err)
+			assert.Empty(t, ranks)
+
+			rows, err := repo.GapEpisodesForSeries(ctx, "main", gapNow, nil, gapDetailCap)
 			require.NoError(t, err)
 			assert.Empty(t, rows)
 
@@ -270,6 +316,10 @@ func TestGapRepository_EmptyAndHealthy(t *testing.T) {
 			whole, err = repo.WholeSeasonMissingCount(ctx, "main", gapNow)
 			require.NoError(t, err)
 			assert.Equal(t, 0, whole)
+
+			ranks, err = repo.GapSeriesRanked(ctx, "main", gapNow, 50)
+			require.NoError(t, err)
+			assert.Empty(t, ranks, "healthy instance has no gaps")
 
 			names, err = repo.DistinctInstances(ctx)
 			require.NoError(t, err)
