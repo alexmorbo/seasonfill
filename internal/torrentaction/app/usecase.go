@@ -45,6 +45,25 @@ type Grabs interface {
 	FindLatestSuccessByHash(ctx context.Context, hash string) (grabdomain.Record, error)
 }
 
+// SeriesMapRef is the torrent_series_map projection the Q5 fallback guard
+// needs: the instance that owns the hash (SeriesID carried for logging /
+// future use, cheap to select).
+type SeriesMapRef struct {
+	InstanceName shareddomain.InstanceName
+	SeriesID     shareddomain.SonarrSeriesID
+}
+
+// SeriesMap is the usecase's fallback hash guard (ADR-0013 Q5). Torrents
+// seasonfill only OBSERVES have no grab_records row, so the Grabs guard
+// 404s every displayed torrent; the displayed set comes from
+// torrent_series_map, and FindByHash resolves the owning instance from that
+// bridge. ports.ErrNotFound (wrapped in GrabNotFoundError) signals a hash
+// absent from the bridge. Satisfied by
+// *torrentactionpersistence.SeriesMapRepository.
+type SeriesMap interface {
+	FindByHash(ctx context.Context, hash string) (SeriesMapRef, error)
+}
+
 // TorrentController is the narrow write surface the usecase drives against
 // a single qBit instance. qbit.Client satisfies it structurally (it also
 // exposes Login/Pause/Resume/Recheck/Close). The usecase owns the client
@@ -96,25 +115,27 @@ type Input struct {
 
 // UseCase implements the Q2 write flow. Construct via New.
 type UseCase struct {
-	grabs    Grabs
-	provider QbitClientProvider
-	audit    AuditWriter
-	now      func() time.Time
-	log      *slog.Logger
+	grabs     Grabs
+	seriesMap SeriesMap
+	provider  QbitClientProvider
+	audit     AuditWriter
+	now       func() time.Time
+	log       *slog.Logger
 }
 
 // New wires the usecase. log defaults to slog.Default when nil; now
 // defaults to time.Now().UTC (overridable in tests).
-func New(grabs Grabs, provider QbitClientProvider, audit AuditWriter, log *slog.Logger) *UseCase {
+func New(grabs Grabs, seriesMap SeriesMap, provider QbitClientProvider, audit AuditWriter, log *slog.Logger) *UseCase {
 	if log == nil {
 		log = sharedports.DomainLogger(slog.Default(), "qbit")
 	}
 	return &UseCase{
-		grabs:    grabs,
-		provider: provider,
-		audit:    audit,
-		now:      func() time.Time { return time.Now().UTC() },
-		log:      log,
+		grabs:     grabs,
+		seriesMap: seriesMap,
+		provider:  provider,
+		audit:     audit,
+		now:       func() time.Time { return time.Now().UTC() },
+		log:       log,
 	}
 }
 
@@ -132,12 +153,31 @@ func (u *UseCase) Do(ctx context.Context, in Input) error {
 	}
 	hash := strings.ToLower(strings.TrimSpace(in.Hash))
 
-	// Guard + actual-instance resolution.
+	// Guard + actual-instance resolution. UNION (ADR-0013 Q5): a hash is
+	// legitimate if it produced a grab_records row (seasonfill grabbed it)
+	// OR it lives in torrent_series_map (seasonfill only observed a
+	// Sonarr-driven download). The displayed torrents come from
+	// torrent_series_map, so the map fallback is what keeps the action
+	// buttons from 404ing on ~100% of the UI.
+	var actual shareddomain.InstanceName
 	rec, err := u.grabs.FindLatestSuccessByHash(ctx, hash)
-	if err != nil {
-		return err // GrabNotFoundError + ports.ErrNotFound -> 404
+	switch {
+	case err == nil:
+		actual = rec.InstanceName
+	case errors.Is(err, ports.ErrNotFound):
+		// Grab miss — fall back to the bridge table.
+		ref, mapErr := u.seriesMap.FindByHash(ctx, hash)
+		if mapErr != nil {
+			// Bridge miss returns the same GrabNotFoundError + ErrNotFound
+			// shape -> the current 404; a real DB error propagates -> 500.
+			return mapErr
+		}
+		actual = ref.InstanceName
+	default:
+		// A real grab-repo error (not not-found): propagate, do NOT fall
+		// through to the bridge.
+		return err
 	}
-	actual := rec.InstanceName
 	if actual != in.Instance {
 		u.log.WarnContext(ctx, "torrent_action_instance_mismatch",
 			slog.String("path_instance", string(in.Instance)),

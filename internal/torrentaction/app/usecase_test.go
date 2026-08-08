@@ -30,6 +30,26 @@ func (f fakeGrabs) FindLatestSuccessByHash(_ context.Context, _ string) (grabdom
 	return f.rec, f.err
 }
 
+type fakeSeriesMap struct {
+	ref appta.SeriesMapRef
+	err error
+}
+
+func (f fakeSeriesMap) FindByHash(_ context.Context, _ string) (appta.SeriesMapRef, error) {
+	return f.ref, f.err
+}
+
+// seriesMapMiss is the "hash absent from the bridge" fake — the same 404
+// shape the real repo returns.
+func seriesMapMiss() fakeSeriesMap {
+	return fakeSeriesMap{err: errors.Join(
+		&sharedErrors.GrabNotFoundError{ID: "hash:" + testHash}, sharedports.ErrNotFound)}
+}
+
+func seriesMapRefFor(inst shareddomain.InstanceName) fakeSeriesMap {
+	return fakeSeriesMap{ref: appta.SeriesMapRef{InstanceName: inst, SeriesID: 1}}
+}
+
 type fakeController struct {
 	loginErr   error
 	pauseErr   error
@@ -87,7 +107,7 @@ func TestDo_ForeignHash_404_NoDialNoAudit(t *testing.T) {
 		&sharedErrors.GrabNotFoundError{ID: "hash:" + testHash}, sharedports.ErrNotFound)}
 	prov := &fakeProvider{ctrl: &fakeController{}}
 	audit := &fakeAudit{}
-	uc := appta.New(grabs, prov, audit, nil)
+	uc := appta.New(grabs, seriesMapMiss(), prov, audit, nil)
 
 	err := uc.Do(context.Background(), appta.Input{
 		Instance: "main", Hash: testHash, Action: appta.ActionPause, Actor: "u",
@@ -103,7 +123,7 @@ func TestDo_InstanceMismatch_404(t *testing.T) {
 	grabs := fakeGrabs{rec: recordFor("actual")}
 	prov := &fakeProvider{ctrl: &fakeController{}}
 	audit := &fakeAudit{}
-	uc := appta.New(grabs, prov, audit, nil)
+	uc := appta.New(grabs, seriesMapMiss(), prov, audit, nil)
 
 	err := uc.Do(context.Background(), appta.Input{
 		Instance: "wrong", Hash: testHash, Action: appta.ActionPause, Actor: "u",
@@ -120,7 +140,7 @@ func TestDo_DialsActualInstance(t *testing.T) {
 	ctrl := &fakeController{}
 	prov := &fakeProvider{ctrl: ctrl}
 	audit := &fakeAudit{}
-	uc := appta.New(grabs, prov, audit, nil)
+	uc := appta.New(grabs, seriesMapMiss(), prov, audit, nil)
 
 	err := uc.Do(context.Background(), appta.Input{
 		Instance: "actual", Hash: testHash, Action: appta.ActionResume, Actor: "op",
@@ -137,7 +157,7 @@ func TestDo_IdempotentSuccess(t *testing.T) {
 	ctrl := &fakeController{} // pauseErr == nil (qBit no-op on already-paused)
 	prov := &fakeProvider{ctrl: ctrl}
 	audit := &fakeAudit{}
-	uc := appta.New(grabs, prov, audit, nil)
+	uc := appta.New(grabs, seriesMapMiss(), prov, audit, nil)
 
 	err := uc.Do(context.Background(), appta.Input{
 		Instance: "main", Hash: testHash, Action: appta.ActionPause, Actor: "op",
@@ -151,7 +171,7 @@ func TestDo_AuditWrittenOnSuccess(t *testing.T) {
 	grabs := fakeGrabs{rec: recordFor("main")}
 	prov := &fakeProvider{ctrl: &fakeController{}}
 	audit := &fakeAudit{}
-	uc := appta.New(grabs, prov, audit, nil)
+	uc := appta.New(grabs, seriesMapMiss(), prov, audit, nil)
 
 	err := uc.Do(context.Background(), appta.Input{
 		Instance: "main", Hash: testHash, Action: appta.ActionRecheck, Actor: "alice",
@@ -174,7 +194,7 @@ func TestDo_QbitUnreachable_502ErrorAudited(t *testing.T) {
 		errors.New("dial tcp: timeout"), sharedErrors.ErrInstanceNetwork)}
 	prov := &fakeProvider{ctrl: ctrl}
 	audit := &fakeAudit{}
-	uc := appta.New(grabs, prov, audit, nil)
+	uc := appta.New(grabs, seriesMapMiss(), prov, audit, nil)
 
 	err := uc.Do(context.Background(), appta.Input{
 		Instance: "main", Hash: testHash, Action: appta.ActionPause, Actor: "op",
@@ -190,10 +210,48 @@ func TestDo_AuditWriteFailure_DoesNotFailAction(t *testing.T) {
 	grabs := fakeGrabs{rec: recordFor("main")}
 	prov := &fakeProvider{ctrl: &fakeController{}}
 	audit := &fakeAudit{err: errors.New("db down")}
-	uc := appta.New(grabs, prov, audit, nil)
+	uc := appta.New(grabs, seriesMapMiss(), prov, audit, nil)
 
 	err := uc.Do(context.Background(), appta.Input{
 		Instance: "main", Hash: testHash, Action: appta.ActionResume, Actor: "op",
 	})
 	require.NoError(t, err, "audit failure must be swallowed")
+}
+
+// Q5 union (a): a hash present ONLY in torrent_series_map (grab miss) now
+// proceeds and dials the map's instance — the exact case that 404'd before
+// the union guard.
+func TestDo_SeriesMapOnly_Proceeds(t *testing.T) {
+	grabs := fakeGrabs{err: errors.Join(
+		&sharedErrors.GrabNotFoundError{ID: "hash:" + testHash}, sharedports.ErrNotFound)}
+	ctrl := &fakeController{}
+	prov := &fakeProvider{ctrl: ctrl}
+	audit := &fakeAudit{}
+	uc := appta.New(grabs, seriesMapRefFor("obs"), prov, audit, nil)
+
+	err := uc.Do(context.Background(), appta.Input{
+		Instance: "obs", Hash: testHash, Action: appta.ActionPause, Actor: "op",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, shareddomain.InstanceName("obs"), prov.got, "must dial the map's instance")
+	assert.Equal(t, 1, ctrl.paused)
+	require.Len(t, audit.rows, 1)
+	assert.Equal(t, "ok", audit.rows[0].Result)
+}
+
+// Q5 union (d): instance-mismatch resolved via the map path -> 404, no dial.
+func TestDo_SeriesMapInstanceMismatch_404(t *testing.T) {
+	grabs := fakeGrabs{err: errors.Join(
+		&sharedErrors.GrabNotFoundError{ID: "hash:" + testHash}, sharedports.ErrNotFound)}
+	prov := &fakeProvider{ctrl: &fakeController{}}
+	audit := &fakeAudit{}
+	uc := appta.New(grabs, seriesMapRefFor("obs"), prov, audit, nil)
+
+	err := uc.Do(context.Background(), appta.Input{
+		Instance: "wrong", Hash: testHash, Action: appta.ActionPause, Actor: "u",
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, sharedports.ErrNotFound))
+	assert.Empty(t, prov.got, "must not dial when path != map-resolved instance")
+	assert.Empty(t, audit.rows)
 }

@@ -33,6 +33,13 @@ func (g grabsStub) FindLatestSuccessByHash(context.Context, string) (grabdomain.
 	return g.rec, g.err
 }
 
+type seriesMapStub struct{}
+
+func (seriesMapStub) FindByHash(context.Context, string) (appta.SeriesMapRef, error) {
+	return appta.SeriesMapRef{}, errors.Join(
+		&sharedErrors.GrabNotFoundError{ID: "hash:" + hHash}, sharedports.ErrNotFound)
+}
+
 type ctrlStub struct {
 	actErr   error
 	loginErr error
@@ -59,7 +66,7 @@ func (auditStub) Write(context.Context, appta.AuditRecord) error { return nil }
 func newRouter(t *testing.T, grabs appta.Grabs, ctrl appta.TorrentController) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	uc := appta.New(grabs, provStub{ctrl: ctrl}, auditStub{}, nil)
+	uc := appta.New(grabs, seriesMapStub{}, provStub{ctrl: ctrl}, auditStub{}, nil)
 	h := tarest.NewHandler(uc, nil)
 	r := gin.New()
 	// Mirror the guarded chain: seed the actor context + the error middleware.

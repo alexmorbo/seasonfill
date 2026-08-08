@@ -808,8 +808,14 @@ func BuildTorrentsync(
 		factory: infraregrab.QbitClientFactoryFunc{},
 	}
 	torrentAuditRepo := torrentactionpersistence.NewAuditRepository(db)
+	// ADR-0013 Q5 — bridge-table fallback guard. Torrents seasonfill only
+	// OBSERVES have no grab_records row; this repo lets the action guard
+	// resolve their owning instance from torrent_series_map so the UI
+	// buttons stop 404ing.
+	torrentSeriesMapGuardRepo := torrentactionpersistence.NewSeriesMapRepository(db)
 	torrentActionUC := torrentactionapp.New(
 		scanBundle.GrabRepo,
+		torrentSeriesMapGuardRepo,
 		torrentActionProvider,
 		torrentAuditRepo,
 		qbitLog,
