@@ -3264,6 +3264,11 @@
                         "example": "abcdef1234567890abcdef1234567890abcdef12",
                         "type": "string"
                     },
+                    "health": {
+                        "description": "Health is the derived actionability bucket (ADR-0013 Q3′):\none of ok | stalled | error, projected from state_group alone.\n`stalled` = залипло (no progress), `error` = qBit\nerror/missingFiles, everything else → `ok`. A future Q3″\nfollow-up will add `unregistered`.",
+                        "example": "ok",
+                        "type": "string"
+                    },
                     "last_activity": {
                         "type": "string"
                     },

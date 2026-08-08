@@ -327,3 +327,35 @@ func TestSeriesTorrents_500_OnCanonError(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
+
+// TestMapTorrentRow_HealthDerived asserts the derived `health`
+// field on the mapped DTO row for the three observable outcomes
+// (ADR-0013 Q3′). health is a pure projection of state_group:
+// seeding → ok, stalled → stalled, error → error.
+func TestMapTorrentRow_HealthDerived(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		stateGroup qbit.StateGroup
+		want       string
+	}{
+		{"seeding_ok", qbit.StateGroupSeeding, "ok"},
+		{"stalled", qbit.StateGroupStalled, "stalled"},
+		{"error", qbit.StateGroupError, "error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			row := mapTorrentRow(torrentsync.QueryRow{
+				Entry: torrentsync.Entry{
+					Info:       qbit.TorrentInfo{Hash: "abcd", Name: "t"},
+					StateGroup: tc.stateGroup,
+					SyncedAt:   time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC),
+				},
+				Live:    true,
+				Present: true,
+			})
+			assert.Equal(t, tc.want, row.Health)
+		})
+	}
+}

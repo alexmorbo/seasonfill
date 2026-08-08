@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/torrentsync"
 	seriesdetail "github.com/alexmorbo/seasonfill/internal/seriesdetail/app"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 )
@@ -165,6 +166,7 @@ func mapTorrentRow(r torrentsync.QueryRow) dto.TorrentRow {
 		Name:         info.Name,
 		StateRaw:     info.StateRaw,
 		StateGroup:   string(r.Entry.StateGroup),
+		Health:       string(qbit.HealthFor(r.Entry.StateGroup)),
 		SizeBytes:    info.Size,
 		TotalSize:    info.TotalSize,
 		Downloaded:   info.Downloaded,

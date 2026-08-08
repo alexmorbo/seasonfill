@@ -104,6 +104,13 @@ type TorrentRow struct {
 	// checking, error, unknown.
 	StateGroup string `json:"state_group" example:"seeding"`
 
+	// Health is the derived actionability bucket (ADR-0013 Q3′):
+	// one of ok | stalled | error, projected from state_group alone.
+	// `stalled` = залипло (no progress), `error` = qBit
+	// error/missingFiles, everything else → `ok`. A future Q3″
+	// follow-up will add `unregistered`.
+	Health string `json:"health" example:"ok"`
+
 	// SizeBytes / TotalSize / Downloaded / Uploaded — volume
 	// counters. SizeBytes is the SELECTED file subset, TotalSize
 	// the full archive (qBit semantics).

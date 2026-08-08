@@ -6562,6 +6562,15 @@ export type components = {
              * @example abcdef1234567890abcdef1234567890abcdef12
              */
             readonly hash?: string;
+            /**
+             * @description Health is the derived actionability bucket (ADR-0013 Q3′):
+             *     one of ok | stalled | error, projected from state_group alone.
+             *     `stalled` = залипло (no progress), `error` = qBit
+             *     error/missingFiles, everything else → `ok`. A future Q3″
+             *     follow-up will add `unregistered`.
+             * @example ok
+             */
+            readonly health?: string;
             readonly last_activity?: string;
             /**
              * @description Live discriminator. true → pulled from the in-memory
