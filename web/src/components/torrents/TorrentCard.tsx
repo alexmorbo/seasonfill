@@ -5,10 +5,12 @@ import { TorrentStateChip } from './TorrentStateChip';
 import { SpeedCell } from './SpeedCell';
 import { ETAChip } from './ETAChip';
 import { RatioPill } from './RatioPill';
+import { TorrentActions } from './TorrentActions';
 import type { TorrentRow as TorrentRowDTO } from '@/api/seriesTorrents';
 
 export interface TorrentCardProps {
   readonly row: TorrentRowDTO;
+  readonly instance: string;
   readonly className?: string | undefined;
 }
 
@@ -21,7 +23,7 @@ function fmtBytes(n: number | undefined): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-export function TorrentCard({ row, className }: TorrentCardProps) {
+export function TorrentCard({ row, instance, className }: TorrentCardProps) {
   const { t } = useTranslation();
   const deleted = row.present === false;
   const liveMuted = row.live === false || deleted;
@@ -58,6 +60,10 @@ export function TorrentCard({ row, className }: TorrentCardProps) {
         <Stat label={t('seriesDetail.torrents.col.speed')}    valueNode={<SpeedCell down={row.dl_speed_bps} up={row.up_speed_bps} muted={liveMuted} />} />
         <Stat label={t('seriesDetail.torrents.col.eta')}      valueNode={<ETAChip seconds={row.eta_seconds} muted={liveMuted} />} />
         <Stat label={t('seriesDetail.torrents.col.state')}    value={row.state_group ?? '—'} />
+      </div>
+
+      <div className="flex items-center justify-end pt-1 border-t border-border-faint/60">
+        <TorrentActions instance={instance} hash={row.hash ?? ''} health={row.health} />
       </div>
     </div>
   );

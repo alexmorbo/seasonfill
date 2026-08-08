@@ -1675,6 +1675,11 @@ export const ru: Translations = {
     metadataProbeUnreachable: 'Не удалось получить у Sonarr профили качества / корневые папки',
     regrabQueued: 'Перезапрос отправлен',
     regrabFailed: 'Не удалось перезапросить: {{error}}',
+    torrentPaused: 'Торрент на паузе',
+    torrentResumed: 'Торрент продолжен',
+    torrentRechecking: 'Перепроверка запущена',
+    torrentActionFailed: 'Действие не удалось: {{error}}',
+    torrentQbitDown: 'qBittorrent недоступен — попробуйте чуть позже',
   },
   categories: {
     action_taken: 'Действие выполнено',
@@ -2172,6 +2177,7 @@ export const ru: Translations = {
         speed: 'Скорость',
         eta: 'Осталось',
         ratio: 'Рейтинг',
+        actions: 'Действия',
       },
       summary: {
         downloading_one: '{{count}} скачивается',
@@ -2229,6 +2235,30 @@ export const ru: Translations = {
       },
       row: {
         meta: 'Добавлен {{added}} · {{size}} байт',
+      },
+      actions: {
+        pause: 'Пауза',
+        resume: 'Продолжить',
+        recheck: 'Перепроверить',
+      },
+      health: {
+        ok: 'OK',
+        stalled: 'Залипло',
+        error: 'Ошибка',
+      },
+      confirm: {
+        pause: {
+          title: 'Поставить торрент на паузу?',
+          body: 'Пауза останавливает раздачу. На приватных трекерах это может испортить рейтинг, если задержаться.',
+          confirm: 'Пауза',
+          keep: 'Отмена',
+        },
+        recheck: {
+          title: 'Перепроверить торрент?',
+          body: 'Перепроверка пересчитывает хеши всех частей. Торрент стоит на паузе во время проверки и ненадолго прекращает раздачу.',
+          confirm: 'Перепроверить',
+          keep: 'Отмена',
+        },
       },
     },
     placeholders: {

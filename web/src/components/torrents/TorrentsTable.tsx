@@ -10,6 +10,7 @@ type SortDir = 'asc' | 'desc';
 
 export interface TorrentsTableProps {
   readonly rows: readonly TorrentRowDTO[];
+  readonly instance: string;
   readonly className?: string | undefined;
 }
 
@@ -23,7 +24,7 @@ function compare(a: TorrentRowDTO, b: TorrentRowDTO, key: SortKey): number {
   }
 }
 
-export function TorrentsTable({ rows, className }: TorrentsTableProps) {
+export function TorrentsTable({ rows, instance, className }: TorrentsTableProps) {
   const { t } = useTranslation();
   const [key, setKey] = useState<SortKey>('added_on');
   const [dir, setDir] = useState<SortDir>('desc');
@@ -49,9 +50,9 @@ export function TorrentsTable({ rows, className }: TorrentsTableProps) {
       <div
         className={cn(
           'hidden md:grid items-center gap-3 px-3 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint',
-          'grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto_auto]',
-          '@max-[1280px]:grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto]',
-          '@max-[1024px]:grid-cols-[minmax(0,1fr)_auto_auto_120px_auto]',
+          'grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto_auto_auto]',
+          '@max-[1280px]:grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto_auto]',
+          '@max-[1024px]:grid-cols-[minmax(0,1fr)_auto_auto_120px_auto_auto]',
         )}
       >
         <SortHeader label={t('seriesDetail.torrents.col.name')}     active={key === 'name'}     dir={dir} onClick={() => onSort('name')} />
@@ -65,11 +66,12 @@ export function TorrentsTable({ rows, className }: TorrentsTableProps) {
         <span className="@max-[1280px]:hidden">
           <SortHeader label={t('seriesDetail.torrents.col.ratio')} active={key === 'ratio'} dir={dir} onClick={() => onSort('ratio')} inline />
         </span>
+        <span className="text-right">{t('seriesDetail.torrents.col.actions')}</span>
       </div>
 
       <div className="flex flex-col gap-1">
         {sorted.map((row) => (
-          <TorrentRow key={row.hash ?? `${row.name}-${row.added_on}`} row={row} />
+          <TorrentRow key={row.hash ?? `${row.name}-${row.added_on}`} row={row} instance={instance} />
         ))}
       </div>
     </div>

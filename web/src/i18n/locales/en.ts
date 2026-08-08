@@ -1677,6 +1677,11 @@ export const en = {
     metadataProbeUnreachable: 'Could not reach Sonarr to load quality profiles / root folders',
     regrabQueued: 'Re-grab queued',
     regrabFailed: 'Re-grab failed: {{error}}',
+    torrentPaused: 'Torrent paused',
+    torrentResumed: 'Torrent resumed',
+    torrentRechecking: 'Recheck started',
+    torrentActionFailed: 'Action failed: {{error}}',
+    torrentQbitDown: 'qBittorrent unreachable — try again shortly',
   },
   categories: {
     action_taken: 'Action taken',
@@ -2174,6 +2179,7 @@ export const en = {
         speed: 'Speed',
         eta: 'ETA',
         ratio: 'Ratio',
+        actions: 'Actions',
       },
       summary: {
         downloading_one: '{{count}} downloading',
@@ -2231,6 +2237,30 @@ export const en = {
       },
       row: {
         meta: 'Added {{added}} · {{size}} bytes',
+      },
+      actions: {
+        pause: 'Pause',
+        resume: 'Resume',
+        recheck: 'Force recheck',
+      },
+      health: {
+        ok: 'OK',
+        stalled: 'Stalled',
+        error: 'Error',
+      },
+      confirm: {
+        pause: {
+          title: 'Pause this torrent?',
+          body: 'Pausing stops uploading. On private trackers this can hurt your ratio if it lingers.',
+          confirm: 'Pause',
+          keep: 'Cancel',
+        },
+        recheck: {
+          title: 'Force recheck this torrent?',
+          body: 'A recheck re-hashes every piece. The torrent stays paused while checking and briefly stops seeding.',
+          confirm: 'Recheck',
+          keep: 'Cancel',
+        },
       },
     },
     placeholders: {

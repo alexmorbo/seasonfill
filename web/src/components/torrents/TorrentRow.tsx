@@ -8,10 +8,12 @@ import { SpeedCell } from './SpeedCell';
 import { ETAChip } from './ETAChip';
 import { RatioPill } from './RatioPill';
 import { PopularityMeter } from './PopularityMeter';
+import { TorrentActions } from './TorrentActions';
 import type { TorrentRow as TorrentRowDTO } from '@/api/seriesTorrents';
 
 export interface TorrentRowProps {
   readonly row: TorrentRowDTO;
+  readonly instance: string;
   readonly className?: string | undefined;
 }
 
@@ -46,7 +48,7 @@ function fmtAdded(iso: string | undefined, fmt: FmtFn): string {
   return fmt(iso, 'mediumDate');
 }
 
-export function TorrentRow({ row, className }: TorrentRowProps) {
+export function TorrentRow({ row, instance, className }: TorrentRowProps) {
   const { t } = useTranslation();
   const fmt = useFormatDate();
   const deleted = row.present === false;
@@ -67,9 +69,9 @@ export function TorrentRow({ row, className }: TorrentRowProps) {
       data-live={row.live ? 'true' : 'false'}
       className={cn(
         'grid items-center gap-3 px-3 py-2 rounded-md border border-border-faint/40',
-        'grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto_auto]',
-        '@max-[1280px]:grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto]',
-        '@max-[1024px]:grid-cols-[minmax(0,1fr)_auto_auto_120px_auto]',
+        'grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto_auto_auto]',
+        '@max-[1280px]:grid-cols-[minmax(0,1fr)_auto_auto_140px_auto_auto_auto_auto_auto]',
+        '@max-[1024px]:grid-cols-[minmax(0,1fr)_auto_auto_120px_auto_auto]',
         deleted && 'opacity-50',
         className,
       )}
@@ -147,6 +149,9 @@ export function TorrentRow({ row, className }: TorrentRowProps) {
         <RatioPill value={row.ratio} muted={liveMuted} />
         <PopularityMeter value={row.popularity} />
       </div>
+
+      {/* Actions (always visible; trailing cell) */}
+      <TorrentActions instance={instance} hash={row.hash ?? ''} health={row.health} />
 
       <span className="sr-only" data-testid="row-name">{row.name ?? ''}</span>
       <span className="sr-only" data-testid="row-meta">{t('seriesDetail.torrents.row.meta', { added: row.added_on ?? '', size: row.size_bytes ?? 0 })}</span>

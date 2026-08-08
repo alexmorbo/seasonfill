@@ -129,12 +129,12 @@ export function TorrentsSection({ instance, seriesId, className }: TorrentsSecti
         <>
           {/* Desktop table */}
           <div className="hidden md:block">
-            <TorrentsTable rows={rows} />
+            <TorrentsTable rows={rows} instance={instance} />
           </div>
           {/* Mobile cards */}
           <div className="md:hidden flex flex-col gap-2">
             {rows.map((r) => (
-              <TorrentCard key={r.hash ?? `${r.name}-${r.added_on}`} row={r} />
+              <TorrentCard key={r.hash ?? `${r.name}-${r.added_on}`} row={r} instance={instance} />
             ))}
           </div>
         </>

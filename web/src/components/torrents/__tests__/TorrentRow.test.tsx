@@ -1,16 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
 import { TorrentRow } from '../TorrentRow';
 import type { TorrentRow as TorrentRowDTO } from '@/api/seriesTorrents';
 
 function r(node: React.ReactElement) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+  });
   return render(
-    <I18nextProvider i18n={i18n}>
-      <TooltipProvider>{node}</TooltipProvider>
-    </I18nextProvider>,
+    <QueryClientProvider client={qc}>
+      <I18nextProvider i18n={i18n}>
+        <TooltipProvider>{node}</TooltipProvider>
+      </I18nextProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -36,14 +42,14 @@ const base: TorrentRowDTO = {
 
 describe('<TorrentRow />', () => {
   it('renders name, size, progress %, status chip', () => {
-    r(<TorrentRow row={base} />);
+    r(<TorrentRow row={base} instance="main" />);
     expect(screen.getByTestId('torrent-row')).toBeInTheDocument();
     expect(screen.getByTestId('row-name').textContent).toMatch(/Show\.S05/);
     expect(screen.getByTestId('torrent-state-chip').getAttribute('data-state')).toBe('downloading');
   });
 
   it('tints opacity-50 and swaps the chip on deleted rows', () => {
-    r(<TorrentRow row={{ ...base, present: false, live: false }} />);
+    r(<TorrentRow row={{ ...base, present: false, live: false }} instance="main" />);
     const row = screen.getByTestId('torrent-row');
     expect(row.getAttribute('data-deleted')).toBe('true');
     expect(row.className).toMatch(/opacity-50/);
@@ -51,14 +57,14 @@ describe('<TorrentRow />', () => {
   });
 
   it('mutes live cells when live=false but present=true', () => {
-    r(<TorrentRow row={{ ...base, live: false }} />);
+    r(<TorrentRow row={{ ...base, live: false }} instance="main" />);
     expect(screen.getByTestId('row-seeds').textContent).toBe('—');
     expect(screen.getByTestId('row-peers').textContent).toBe('—');
     expect(screen.getByTestId('speed-cell-down').textContent).toBe('—');
   });
 
   it('renders the S{NN} chip in the secondary line when season_number is set', () => {
-    r(<TorrentRow row={{ ...base, season_number: 5 }} />);
+    r(<TorrentRow row={{ ...base, season_number: 5 }} instance="main" />);
     const meta = screen.getByTestId('torrent-row').querySelector('.text-tx-muted');
     expect(meta?.textContent).toMatch(/S05/);
   });
@@ -69,7 +75,7 @@ describe('<TorrentRow />', () => {
     // TypeScript — equivalent to undefined for the rendering path.
     const row = { ...base };
     delete (row as { season_number?: number }).season_number;
-    r(<TorrentRow row={row} />);
+    r(<TorrentRow row={row} instance="main" />);
     const meta = screen.getByTestId('torrent-row').querySelector('.text-tx-muted');
     // Only the tracker shows on the secondary line — no SxxExx prefix.
     expect(meta?.textContent ?? '').not.toMatch(/^S\d/);
@@ -80,24 +86,24 @@ describe('<TorrentRow />', () => {
     // seasonLabel short-circuits on n <= 0 even if the wire delivers a
     // 0 — protecting the UI from a hypothetical "Season 0 Specials"
     // edge case the backend would more correctly report as nil.
-    r(<TorrentRow row={{ ...base, season_number: 0 }} />);
+    r(<TorrentRow row={{ ...base, season_number: 0 }} instance="main" />);
     const meta = screen.getByTestId('torrent-row').querySelector('.text-tx-muted');
     expect(meta?.textContent ?? '').not.toMatch(/^S\d/);
   });
 
-  it('declares 8 grid tracks at @max-[1280px] so all 8 visible cells fit on row 1 (regression: B-13 #370)', () => {
+  it('declares 9 grid tracks at @max-[1280px] so all 9 visible cells fit on row 1 (regression: B-13 #370 + Q4′ actions cell)', () => {
     // At container widths 1024 ≤ w < 1280 the Ratio cell hides
     // (@max-[1280px]:hidden) but Name, Added, Size, Progress, Status,
-    // Seeds/Peers, Speeds, ETA all remain — eight visible children.
-    // If the grid-cols declares only 7 tracks the 8th cell auto-flows
-    // into an implicit row 2 and visually doubles the row height.
-    r(<TorrentRow row={base} />);
+    // Seeds/Peers, Speeds, ETA, and the always-visible Actions cell all
+    // remain — nine visible children. If the grid-cols declares fewer
+    // tracks the last cell auto-flows into an implicit row 2 and visually
+    // doubles the row height.
+    r(<TorrentRow row={base} instance="main" />);
     const row = screen.getByTestId('torrent-row');
     const cls = row.className;
-    // Track count is encoded in the underscore-separated track list.
     const m = cls.match(/@max-\[1280px\]:grid-cols-\[([^\]]+)\]/);
     expect(m, 'expected @max-[1280px]:grid-cols-[...] class').not.toBeNull();
     const tracks = (m![1] ?? '').split('_');
-    expect(tracks).toHaveLength(8);
+    expect(tracks).toHaveLength(9);
   });
 });
