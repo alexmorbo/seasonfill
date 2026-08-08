@@ -118,6 +118,13 @@ func (h *Handler) do(c *gin.Context, action appta.Action) {
 			slog.String("action", string(action)),
 			slog.String("error", err.Error()))
 		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "qbit unreachable"})
+	case errors.Is(err, sharedErrors.ErrInstanceUnauthorized):
+		h.logger.WarnContext(ctx, "torrent_action_qbit_unauthorized",
+			slog.String("instance", name),
+			slog.String("hash", string(hash)),
+			slog.String("action", string(action)),
+			slog.String("error", err.Error()))
+		c.JSON(http.StatusBadGateway, dto.ErrorResponse{Error: "qbit unauthorized"})
 	case errors.Is(err, ports.ErrNotFound):
 		_ = c.Error(err) // middleware -> 404 not_found
 	default:

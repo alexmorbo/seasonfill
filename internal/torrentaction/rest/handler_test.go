@@ -33,9 +33,12 @@ func (g grabsStub) FindLatestSuccessByHash(context.Context, string) (grabdomain.
 	return g.rec, g.err
 }
 
-type ctrlStub struct{ actErr error }
+type ctrlStub struct {
+	actErr   error
+	loginErr error
+}
 
-func (c ctrlStub) Login(context.Context) error         { return nil }
+func (c ctrlStub) Login(context.Context) error         { return c.loginErr }
 func (c ctrlStub) Pause(context.Context, string) error { return c.actErr }
 func (c ctrlStub) Resume(context.Context, string) error {
 	return c.actErr
@@ -100,6 +103,13 @@ func TestHandler_QbitUnreachable_502(t *testing.T) {
 	ctrl := ctrlStub{actErr: errors.Join(errors.New("timeout"), sharedErrors.ErrInstanceNetwork)}
 	r := newRouter(t, grabsStub{rec: okRecord()}, ctrl)
 	w := post(t, r, "/api/v1/instances/main/torrents/"+hHash+"/recheck")
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+}
+
+func TestHandler_QbitUnauthorized_502(t *testing.T) {
+	ctrl := ctrlStub{loginErr: errors.Join(errors.New("403 forbidden"), sharedErrors.ErrInstanceUnauthorized)}
+	r := newRouter(t, grabsStub{rec: okRecord()}, ctrl)
+	w := post(t, r, "/api/v1/instances/main/torrents/"+hHash+"/pause")
 	assert.Equal(t, http.StatusBadGateway, w.Code)
 }
 
