@@ -16,6 +16,7 @@ import {
   Globe,
   Compass,
   User,
+  HeartPulse,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -66,6 +67,7 @@ function useActivityItems(): Item[] {
       matchPathname: (p) => /^\/instances\/[^/]+\/queue$/.test(p),
     },
     { to: "/watchdog", icon: Shield, key: "watchdog" },
+    { to: "/health", icon: HeartPulse, key: "health" },
   ]
 }
 

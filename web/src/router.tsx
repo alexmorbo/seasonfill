@@ -10,6 +10,7 @@ import { ScanDetail } from '@/pages/ScanDetail';
 import { Decisions } from '@/pages/Decisions';
 import { Grabs } from '@/pages/Grabs';
 import { Watchdog } from '@/pages/Watchdog';
+import { Health } from '@/pages/Health';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { SettingsRedirect } from '@/pages/settings/SettingsRedirect';
 import { ProfileTab } from '@/pages/settings/ProfileTab';
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
       { path: '/person/:tmdbId',            element: <Person /> },
       { path: '/discovery', element: <DiscoveryPage /> },
       { path: '/watchdog',  element: <Watchdog /> },
+      { path: '/health',    element: <Health /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
       {
