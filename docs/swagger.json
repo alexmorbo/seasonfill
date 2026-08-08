@@ -661,6 +661,117 @@
                 },
                 "type": "object"
             },
+            "dto.GapEpisodeDTO": {
+                "properties": {
+                    "air_date": {
+                        "type": "string"
+                    },
+                    "episode_id": {
+                        "example": 1001,
+                        "type": "integer"
+                    },
+                    "episode_number": {
+                        "example": 5,
+                        "type": "integer"
+                    },
+                    "season_number": {
+                        "example": 2,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.GapInstanceDTO": {
+                "properties": {
+                    "instance_name": {
+                        "example": "main",
+                        "type": "string"
+                    },
+                    "missing_episode_count": {
+                        "example": 12,
+                        "type": "integer"
+                    },
+                    "series": {
+                        "items": {
+                            "$ref": "#/components/schemas/dto.GapSeriesDTO"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "whole_season_missing_count": {
+                        "example": 2,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.GapReportDTO": {
+                "properties": {
+                    "generated_at": {
+                        "type": "string"
+                    },
+                    "instances": {
+                        "items": {
+                            "$ref": "#/components/schemas/dto.GapInstanceDTO"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "dto.GapSeasonDTO": {
+                "properties": {
+                    "aired_monitored_count": {
+                        "example": 3,
+                        "type": "integer"
+                    },
+                    "episodes": {
+                        "items": {
+                            "$ref": "#/components/schemas/dto.GapEpisodeDTO"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "missing_count": {
+                        "example": 3,
+                        "type": "integer"
+                    },
+                    "season_number": {
+                        "example": 2,
+                        "type": "integer"
+                    },
+                    "whole_season_missing": {
+                        "example": true,
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.GapSeriesDTO": {
+                "properties": {
+                    "missing_count": {
+                        "example": 5,
+                        "type": "integer"
+                    },
+                    "seasons": {
+                        "items": {
+                            "$ref": "#/components/schemas/dto.GapSeasonDTO"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "series_id": {
+                        "example": 42,
+                        "type": "integer"
+                    },
+                    "title": {
+                        "example": "The Expanse",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "dto.Grab": {
                 "properties": {
                     "attempts": {
@@ -6175,6 +6286,65 @@
                 "summary": "Liveness probe",
                 "tags": [
                     "health"
+                ]
+            }
+        },
+        "/insights/gaps": {
+            "get": {
+                "description": "Detects library gaps — monitored, already-aired, fileless\ncanonical episodes (specials excluded) — per Sonarr\ninstance. Each instance carries an exact missing-episode\ncount, a whole-season-missing count, and a bounded\nseries → season → episode drill-down. Optional ?instance=\nscopes the report to a single instance.",
+                "parameters": [
+                    {
+                        "description": "scope the report to a single Sonarr instance",
+                        "in": "query",
+                        "name": "instance",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.GapReportDTO"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Library gap detector",
+                "tags": [
+                    "insights"
                 ]
             }
         },

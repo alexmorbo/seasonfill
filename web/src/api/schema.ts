@@ -1620,6 +1620,71 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/insights/gaps": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Library gap detector
+         * @description Detects library gaps — monitored, already-aired, fileless
+         *     canonical episodes (specials excluded) — per Sonarr
+         *     instance. Each instance carries an exact missing-episode
+         *     count, a whole-season-missing count, and a bounded
+         *     series → season → episode drill-down. Optional ?instance=
+         *     scopes the report to a single instance.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description scope the report to a single Sonarr instance */
+                    readonly instance?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.GapReportDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/insights/health": {
         readonly parameters: {
             readonly query?: never;
@@ -5101,6 +5166,48 @@ export type components = {
             readonly from?: string;
             /** @example https://rutracker.org */
             readonly to?: string;
+        };
+        readonly "dto.GapEpisodeDTO": {
+            readonly air_date?: string;
+            /** @example 1001 */
+            readonly episode_id?: number;
+            /** @example 5 */
+            readonly episode_number?: number;
+            /** @example 2 */
+            readonly season_number?: number;
+        };
+        readonly "dto.GapInstanceDTO": {
+            /** @example main */
+            readonly instance_name?: string;
+            /** @example 12 */
+            readonly missing_episode_count?: number;
+            readonly series?: readonly components["schemas"]["dto.GapSeriesDTO"][];
+            /** @example 2 */
+            readonly whole_season_missing_count?: number;
+        };
+        readonly "dto.GapReportDTO": {
+            readonly generated_at?: string;
+            readonly instances?: readonly components["schemas"]["dto.GapInstanceDTO"][];
+        };
+        readonly "dto.GapSeasonDTO": {
+            /** @example 3 */
+            readonly aired_monitored_count?: number;
+            readonly episodes?: readonly components["schemas"]["dto.GapEpisodeDTO"][];
+            /** @example 3 */
+            readonly missing_count?: number;
+            /** @example 2 */
+            readonly season_number?: number;
+            /** @example true */
+            readonly whole_season_missing?: boolean;
+        };
+        readonly "dto.GapSeriesDTO": {
+            /** @example 5 */
+            readonly missing_count?: number;
+            readonly seasons?: readonly components["schemas"]["dto.GapSeasonDTO"][];
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @example The Expanse */
+            readonly title?: string;
         };
         readonly "dto.Grab": {
             readonly attempts?: number;

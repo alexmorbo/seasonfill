@@ -13,6 +13,7 @@ import (
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/gaps"
 	health "github.com/alexmorbo/seasonfill/internal/catalog/app/health"
 	apprescan "github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
@@ -71,6 +72,7 @@ func NewServer(
 	seriesCacheRepo ports.SeriesCacheRepository,
 	counterRepo ports.CounterRepository,
 	healthRepo ports.HealthRepository,
+	gapRepo ports.GapRepository,
 	watchdogRollupHandler *watchdogrest.WatchdogRollupHandler,
 	watchdogBlacklistHandler *watchdogrest.WatchdogBlacklistHandler,
 	watchdogSeasonsHandler *watchdogrest.WatchdogSeasonsHandler,
@@ -246,6 +248,10 @@ func NewServer(
 		// is the dialect-portable query set. Named distinctly from the
 		// adminrest healthcheck handler above (different concept).
 		insightsHealthHandler := catalogrest.NewHealthHandler(health.NewUseCase(healthRepo), logger)
+		// Story I-2a — library gap detector (read-only). Usecase owns the
+		// wall clock (already-aired boundary); repo is the dialect-portable
+		// aired-only gap query set.
+		insightsGapsHandler := catalogrest.NewGapsHandler(gaps.NewUseCase(gapRepo), logger)
 		// Story 217 (H-2) — person detail page. Top-level resource —
 		// `/people` is instance-independent. Nil-OK pattern matches
 		// seriesCastHandler.
@@ -433,6 +439,7 @@ func NewServer(
 		guarded.GET("/grabs", auditHandler.ListGrabs)
 		guarded.GET("/counters", countersHandler.Aggregate)
 		guarded.GET("/insights/health", insightsHealthHandler.Get)
+		guarded.GET("/insights/gaps", insightsGapsHandler.Get)
 		// Story 492 / N-1b — per-instance grab episode-files moved to
 		// the global namespace (`/grabs/:id/episode-files`); see route
 		// registration in the N-1b block above. The per-instance

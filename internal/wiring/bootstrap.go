@@ -834,6 +834,8 @@ func BuildHTTPServer(
 	seriesMediaLocalizer := enrichpersistence.NewSeriesMediaTextsRepository(persistence.DB)
 	// Story I-1a — read-only catalog-health query repo.
 	healthRepo := catalogpersistence.NewHealthRepository(persistence.DB)
+	// Story I-2a — read-only library gap-detector query repo.
+	gapRepo := catalogpersistence.NewGapRepository(persistence.DB)
 	srv := httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -862,6 +864,7 @@ func BuildHTTPServer(
 		seriesCacheRepo,
 		counterRepo,
 		healthRepo,
+		gapRepo,
 		regrabBundle.WatchdogRollupHandler,
 		regrabBundle.WatchdogBlacklistHandler,
 		regrabBundle.WatchdogSeasonsHandler,
