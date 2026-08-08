@@ -1,4 +1,4 @@
-h1:9bWPuz9OjE6AbhK7CtL6w+aXHdydd8uFqRnBDFwQU60=
+h1:WR4OHTIlpYNRn5azwr5QcuTbDes8Yfoa08BQ7tL0hXU=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -85,3 +85,5 @@ h1:9bWPuz9OjE6AbhK7CtL6w+aXHdydd8uFqRnBDFwQU60=
 000042_webhook_inbox.up.sql h1:OIljFpC2f4N7+54hFPnYSzx9a1X60npo5yM219U/XeI=
 000043_add_to_sonarr_defaults.down.sql h1:LHGlqO2T5Fn8e4VWeu+biQDpHZiUkq92SOpOwnQzcmM=
 000043_add_to_sonarr_defaults.up.sql h1:XxUVd+lZEpocINqIdQKWapMS/GWHhGzrOtrzpmRv+HE=
+000044_torrent_action_audit.down.sql h1:8e7aPYAYIKbNmxwDM23gwchtM4x2ky+MG/BxDfkPhqA=
+000044_torrent_action_audit.up.sql h1:0UVmC/yQwRwsDYQBifdz3G3JVazHBNAGl0U4/T4U1NA=

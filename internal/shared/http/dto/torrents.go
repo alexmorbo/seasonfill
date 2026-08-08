@@ -151,3 +151,11 @@ type TorrentRow struct {
 	// per-row freshness do not need to derive it.
 	SyncedAt time.Time `json:"synced_at"`
 }
+
+// TorrentActionResponse is the 200 body for POST
+// /instances/:name/torrents/:hash/{pause,resume,recheck} (ADR-0013 Q2).
+type TorrentActionResponse struct {
+	Status string `json:"status"` // always "ok" on 200
+	Action string `json:"action"` // pause | resume | recheck
+	Hash   string `json:"hash"`   // normalised 40-hex
+}

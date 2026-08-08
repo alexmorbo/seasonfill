@@ -35,6 +35,10 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 	"github.com/alexmorbo/seasonfill/internal/shared/reload"
+	torrentactionapp "github.com/alexmorbo/seasonfill/internal/torrentaction/app"
+	torrentactionpersistence "github.com/alexmorbo/seasonfill/internal/torrentaction/persistence"
+	torrentactionrest "github.com/alexmorbo/seasonfill/internal/torrentaction/rest"
+	appregrab "github.com/alexmorbo/seasonfill/internal/watchdog/app/regrab"
 	infraregrab "github.com/alexmorbo/seasonfill/internal/watchdog/infrastructure/regrab"
 	watchdogpersistence "github.com/alexmorbo/seasonfill/internal/watchdog/persistence"
 )
@@ -643,6 +647,9 @@ type TorrentsyncBundle struct {
 	Loop                  *loops.TorrentsyncLoop
 	Query                 *torrentsync.Query
 	SeriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler
+	// TorrentActionHandler serves the ADR-0013 Q2 pause/resume/recheck
+	// instance-scoped write endpoints.
+	TorrentActionHandler *torrentactionrest.Handler
 	// QbitCapacityLoop is the B-32 periodic qbit_torrents row-count
 	// collector. server.go owns rootCtx and calls .Run on it under
 	// bgWG, mirroring the TorrentsyncLoop.Start pattern.
@@ -793,6 +800,22 @@ func BuildTorrentsync(
 		query, seriesCacheRepo, seriesRepo, log,
 	)
 
+	// ADR-0013 Q2 — torrent action write-slice. Provider adapter dials the
+	// ACTUAL instance's qBit (grab record's InstanceName), reusing the
+	// regrab settings decrypt + client factory already wired above.
+	torrentActionProvider := torrentActionQbitProvider{
+		lookup:  regrabBundle.QbitSettingsUC,
+		factory: infraregrab.QbitClientFactoryFunc{},
+	}
+	torrentAuditRepo := torrentactionpersistence.NewAuditRepository(db)
+	torrentActionUC := torrentactionapp.New(
+		scanBundle.GrabRepo,
+		torrentActionProvider,
+		torrentAuditRepo,
+		qbitLog,
+	)
+	torrentActionHandler := torrentactionrest.NewHandler(torrentActionUC, log)
+
 	return &TorrentsyncBundle{
 		Store:                 store,
 		Policy:                policy,
@@ -802,8 +825,34 @@ func BuildTorrentsync(
 		Loop:                  loop,
 		Query:                 query,
 		SeriesTorrentsHandler: seriesTorrentsHandler,
+		TorrentActionHandler:  torrentActionHandler,
 		QbitCapacityLoop:      capacityLoop,
 	}, nil
+}
+
+// torrentActionQbitProvider satisfies torrentaction/app.QbitClientProvider.
+// ClientFor resolves the instance's decrypted qBit settings via the regrab
+// SettingsUseCase, then builds a client via the shared factory. The
+// returned qbit.Client is narrowed to the app's TorrentController by the
+// return type. ports.ErrNotFound bubbles for a missing/disabled settings
+// row (-> 404); qbit.NewClient config errors bubble (-> 500).
+type torrentActionQbitProvider struct {
+	lookup  appregrab.SettingsLookup
+	factory infraregrab.QbitClientFactoryFunc
+}
+
+func (p torrentActionQbitProvider) ClientFor(
+	ctx context.Context, instance domain.InstanceName,
+) (torrentactionapp.TorrentController, error) {
+	settings, err := p.lookup.Lookup(ctx, instance)
+	if err != nil {
+		return nil, err
+	}
+	client, err := p.factory.NewClient(settings)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil // qbit.Client satisfies TorrentController
 }
 
 // InstanceBundle groups the instance-domain components constructed at boot.

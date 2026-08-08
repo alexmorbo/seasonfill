@@ -30,6 +30,7 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
+	torrentactionrest "github.com/alexmorbo/seasonfill/internal/torrentaction/rest"
 	watchdogrest "github.com/alexmorbo/seasonfill/internal/watchdog/rest"
 )
 
@@ -76,6 +77,7 @@ func NewServer(
 	mediaPending adminrest.CatalogMediaPendingWriter,
 	peopleHandler *enrichrest.PeopleHandler,
 	seriesTorrentsHandler *seriesdetailrest.SeriesTorrentsHandler,
+	torrentActionHandler *torrentactionrest.Handler, // ADR-0013 Q2
 	timezoneHandler *adminrest.TimezoneHandler,
 	meHandler *adminrest.MeHandler,
 	sharedAuthRuntime *middleware.AuthRuntimePointer,
@@ -297,6 +299,14 @@ func NewServer(
 		// route is omitted when the handler is absent (minimal/test wirings).
 		if monitorSeasonHandler != nil {
 			guarded.POST("/instances/:name/series/:id/seasons/:season/monitor", monitorSeasonHandler.Post)
+		}
+		// ADR-0013 Q2 — instance-scoped torrent actions (F-16: actions ONLY
+		// on the instance path). nil-OK: the routes are omitted when the
+		// handler is absent (minimal/test wirings).
+		if torrentActionHandler != nil {
+			guarded.POST("/instances/:name/torrents/:hash/pause", torrentActionHandler.Pause)
+			guarded.POST("/instances/:name/torrents/:hash/resume", torrentActionHandler.Resume)
+			guarded.POST("/instances/:name/torrents/:hash/recheck", torrentActionHandler.Recheck)
 		}
 		// Story 582 / E-1 B3c — canon list-of-seasons (posters + counts).
 		if seasonsHandler != nil {

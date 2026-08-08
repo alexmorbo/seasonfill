@@ -867,6 +867,7 @@ func BuildHTTPServer(
 		mediaBundle.AssetsRepo,
 		seriesDetailBundle.PeopleHandler,
 		torrentsyncBundle.SeriesTorrentsHandler,
+		torrentsyncBundle.TorrentActionHandler, // ADR-0013 Q2
 		persistence.TimezoneHandler,
 		auth.MeHandler,
 		auth.AuthRuntime,

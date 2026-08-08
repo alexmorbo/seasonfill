@@ -200,6 +200,14 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/torrentaction/ inherits the same carve-out — the Q2
+      # UseCase (app) and Handler (rest) constructors accept *slog.Logger
+      # and fall back to sharedports.DomainLogger(slog.Default(), "qbit"|
+      # "http") when nil (ADR-0013 Q2).
+      - path: 'internal/torrentaction/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # internal/grab/ inherits the same carve-out — UseCase (app),
       # GrabRepository (persistence), and GrabHandler / GrabEpisodeFiles
       # constructors accept *slog.Logger and fall back to slog.Default()

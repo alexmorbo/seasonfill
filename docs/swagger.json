@@ -3213,6 +3213,23 @@
                 },
                 "type": "object"
             },
+            "dto.TorrentActionResponse": {
+                "properties": {
+                    "action": {
+                        "description": "pause | resume | recheck",
+                        "type": "string"
+                    },
+                    "hash": {
+                        "description": "normalised 40-hex",
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "always \"ok\" on 200",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "dto.TorrentRow": {
                 "properties": {
                     "added_on": {
@@ -6344,6 +6361,219 @@
                 "summary": "Monitor a season in Sonarr and optionally trigger a search",
                 "tags": [
                     "series"
+                ]
+            }
+        },
+        "/instances/{name}/torrents/{hash}/pause": {
+            "post": {
+                "description": "Pauses a torrent grabbed through seasonfill. Hash-first guard: a\nhash outside our grab_records returns 404. Idempotent — pausing an\nalready-paused torrent is a 200 no-op.",
+                "parameters": [
+                    {
+                        "description": "Instance name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Torrent info-hash (40-char hex)",
+                        "in": "path",
+                        "name": "hash",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.TorrentActionResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    }
+                },
+                "summary": "Pause one of our torrents",
+                "tags": [
+                    "torrents"
+                ]
+            }
+        },
+        "/instances/{name}/torrents/{hash}/recheck": {
+            "post": {
+                "description": "Triggers a hash recheck of a torrent grabbed through seasonfill\n(hash-first guard).",
+                "parameters": [
+                    {
+                        "description": "Instance name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Torrent info-hash (40-char hex)",
+                        "in": "path",
+                        "name": "hash",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.TorrentActionResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    }
+                },
+                "summary": "Recheck one of our torrents",
+                "tags": [
+                    "torrents"
+                ]
+            }
+        },
+        "/instances/{name}/torrents/{hash}/resume": {
+            "post": {
+                "description": "Resumes a torrent grabbed through seasonfill (hash-first guard).",
+                "parameters": [
+                    {
+                        "description": "Instance name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Torrent info-hash (40-char hex)",
+                        "in": "path",
+                        "name": "hash",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.TorrentActionResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Gateway"
+                    }
+                },
+                "summary": "Resume one of our torrents",
+                "tags": [
+                    "torrents"
                 ]
             }
         },

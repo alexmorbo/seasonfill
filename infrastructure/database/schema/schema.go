@@ -345,7 +345,50 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// the newest migration, 000042).
 	addWebhookInbox(s, d)
 
+	// ADR-0013 Q2 — torrent_action_audit. Standalone single-table
+	// (migration 000044), no FK, appended last like webhook_inbox.
+	addTorrentActionAudit(s, d)
+
 	return s
+}
+
+// addTorrentActionAudit appends torrent_action_audit to s. Standalone
+// single-table migration (000044, ADR-0013 Q2) — no FK, no dependency on
+// any prior table.
+func addTorrentActionAudit(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildTorrentActionAuditTable(d))
+}
+
+// buildTorrentActionAuditTable returns torrent_action_audit — 7 cols,
+// surrogate PK id, one composite index (hash, created_at) for per-torrent
+// action history reads. No DB CHECK on action/result — the pause|resume|
+// recheck and ok|error enums are app-owned (mirrors webhook_inbox.status).
+// No FK on instance_name/hash: the audit trail outlives grab_records rows
+// and instance deletes.
+func buildTorrentActionAuditTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	hash := atlasschema.NewStringColumn("hash", "text").SetNull(false)
+	action := atlasschema.NewStringColumn("action", "text").SetNull(false)
+	actor := atlasschema.NewStringColumn("actor", "text").SetNull(false)
+	result := atlasschema.NewStringColumn("result", "text").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("torrent_action_audit").
+		AddColumns(
+			id,
+			instanceName,
+			hash,
+			action,
+			actor,
+			result,
+			createdAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewIndex("torrent_action_audit_hash_created_idx").
+				AddColumns(hash, createdAt),
+		)
 }
 
 // addCoreSeries appends series, seasons, episodes (with their indexes

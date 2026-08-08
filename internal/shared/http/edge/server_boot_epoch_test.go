@@ -67,6 +67,7 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // mediaPending
 		nil,                            // peopleHandler
 		nil,                            // seriesTorrentsHandler
+		nil,                            // torrentActionHandler (ADR-0013 Q2)
 		nil,                            // timezoneHandler
 		nil,                            // meHandler
 		ptr,                            // sharedAuthRuntime — real pointer so the F-03 seed fires
