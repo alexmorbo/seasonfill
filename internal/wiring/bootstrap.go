@@ -832,6 +832,8 @@ func BuildHTTPServer(
 	// Story 584b — per-language poster localizer for GET
 	// /api/v1/instances/:name/series?lang=. Same GORM wrapper, media repo.
 	seriesMediaLocalizer := enrichpersistence.NewSeriesMediaTextsRepository(persistence.DB)
+	// Story I-1a — read-only catalog-health query repo.
+	healthRepo := catalogpersistence.NewHealthRepository(persistence.DB)
 	srv := httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -859,6 +861,7 @@ func BuildHTTPServer(
 		webhookBundle.StatusCache,
 		seriesCacheRepo,
 		counterRepo,
+		healthRepo,
 		regrabBundle.WatchdogRollupHandler,
 		regrabBundle.WatchdogBlacklistHandler,
 		regrabBundle.WatchdogSeasonsHandler,

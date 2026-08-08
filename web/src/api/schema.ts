@@ -1620,6 +1620,66 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/insights/health": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Catalog health dashboard
+         * @description Per-signal operator pulse: COUNT + bounded drill-down for
+         *     missing tvdb_id, missing poster (any-lang), stale
+         *     enrichment, stuck grabs, and inbox dead-letters. Rate-limit
+         *     pressure is a deferred envelope pointing at its metric.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.HealthDashboardDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/discover/qbit": {
         readonly parameters: {
             readonly query?: never;
@@ -5189,6 +5249,85 @@ export type components = {
              */
             readonly subs?: readonly string[];
         };
+        readonly "dto.HealthDashboardDTO": {
+            readonly dead_letters?: components["schemas"]["dto.HealthInboxSignalDTO"];
+            readonly generated_at?: string;
+            readonly missing_poster?: components["schemas"]["dto.HealthSeriesSignalDTO"];
+            readonly missing_tvdb_id?: components["schemas"]["dto.HealthSeriesSignalDTO"];
+            readonly rate_limit_pressure?: components["schemas"]["dto.HealthDeferredSignalDTO"];
+            readonly stale_enrichment?: components["schemas"]["dto.HealthStaleSignalDTO"];
+            readonly stuck_grabs?: components["schemas"]["dto.HealthGrabSignalDTO"];
+        };
+        readonly "dto.HealthDeferredSignalDTO": {
+            /** @example true */
+            readonly deferred?: boolean;
+            /** @example seasonfill_sonarr_rate_oversubscribed */
+            readonly metric?: string;
+            readonly reason?: string;
+        };
+        readonly "dto.HealthGrabItemDTO": {
+            readonly created_at?: string;
+            /** @example a1b2c3d4-0000-0000-0000-000000000000 */
+            readonly id?: string;
+            /** @example main */
+            readonly instance_name?: string;
+            /** @example 2 */
+            readonly season_number?: number;
+            /** @example Hijack */
+            readonly series_title?: string;
+        };
+        readonly "dto.HealthGrabSignalDTO": {
+            /** @example 1 */
+            readonly count?: number;
+            readonly items?: readonly components["schemas"]["dto.HealthGrabItemDTO"][];
+            readonly note?: string;
+        };
+        readonly "dto.HealthInboxItemDTO": {
+            /** @example 6 */
+            readonly attempts?: number;
+            readonly created_at?: string;
+            /** @example Download */
+            readonly event_type?: string;
+            /** @example 1001 */
+            readonly id?: number;
+            /** @example main */
+            readonly instance_name?: string;
+            /** @example sonarr 500 */
+            readonly last_error?: string;
+        };
+        readonly "dto.HealthInboxSignalDTO": {
+            /** @example 0 */
+            readonly count?: number;
+            readonly items?: readonly components["schemas"]["dto.HealthInboxItemDTO"][];
+        };
+        readonly "dto.HealthSeriesItemDTO": {
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @example The Expanse */
+            readonly title?: string;
+        };
+        readonly "dto.HealthSeriesSignalDTO": {
+            /** @example 3 */
+            readonly count?: number;
+            readonly items?: readonly components["schemas"]["dto.HealthSeriesItemDTO"][];
+        };
+        readonly "dto.HealthStaleItemDTO": {
+            /** @example 42 */
+            readonly series_id?: number;
+            readonly synced_at?: string;
+            /**
+             * @example hot
+             * @enum {string}
+             */
+            readonly tier?: DtoHealthStaleItemDTOTier;
+            /** @example The Expanse */
+            readonly title?: string;
+        };
+        readonly "dto.HealthStaleSignalDTO": {
+            /** @example 7 */
+            readonly count?: number;
+            readonly items?: readonly components["schemas"]["dto.HealthStaleItemDTO"][];
+        };
         readonly "dto.HealthStatus": {
             /** @example ok */
             readonly status?: string;
@@ -7053,6 +7192,11 @@ export enum DtoGrabStatus {
     import_failed = "import_failed",
     grab_failed = "grab_failed",
     expired = "expired"
+}
+export enum DtoHealthStaleItemDTOTier {
+    hot = "hot",
+    normal = "normal",
+    cold = "cold"
 }
 export enum DtoInstanceHealth {
     Bootstrapping = "Bootstrapping",

@@ -23,7 +23,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		admin, nil, nil,
 		catalogrest.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
-		nil, nil, // seriesCacheRepo, counterRepo
+		nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (Story I-1a)
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		nil,      // mediaHandler (Story 214 F-1)
 		nil,      // mediaPending (Story 352, nil-OK)

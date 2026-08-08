@@ -13,6 +13,7 @@ import (
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
+	health "github.com/alexmorbo/seasonfill/internal/catalog/app/health"
 	apprescan "github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
@@ -69,6 +70,7 @@ func NewServer(
 	webhookStatusCache *webhookinstall.StatusCache,
 	seriesCacheRepo ports.SeriesCacheRepository,
 	counterRepo ports.CounterRepository,
+	healthRepo ports.HealthRepository,
 	watchdogRollupHandler *watchdogrest.WatchdogRollupHandler,
 	watchdogBlacklistHandler *watchdogrest.WatchdogBlacklistHandler,
 	watchdogSeasonsHandler *watchdogrest.WatchdogSeasonsHandler,
@@ -239,6 +241,11 @@ func NewServer(
 		// endpoint also moves under `/admin/instances` per PRD §4828.
 		// The aggregate `/counters` (global cross-instance) stays.
 		countersHandler := catalogrest.NewCountersHandler(instanceReg, counterRepo, logger)
+		// Story I-1a — catalog health dashboard (read-only pulse). Usecase
+		// owns the staleness TTL policy + deferred rate-limit envelope; repo
+		// is the dialect-portable query set. Named distinctly from the
+		// adminrest healthcheck handler above (different concept).
+		insightsHealthHandler := catalogrest.NewHealthHandler(health.NewUseCase(healthRepo), logger)
 		// Story 217 (H-2) — person detail page. Top-level resource —
 		// `/people` is instance-independent. Nil-OK pattern matches
 		// seriesCastHandler.
@@ -425,6 +432,7 @@ func NewServer(
 		guarded.GET("/decisions/:id", auditHandler.GetDecision)
 		guarded.GET("/grabs", auditHandler.ListGrabs)
 		guarded.GET("/counters", countersHandler.Aggregate)
+		guarded.GET("/insights/health", insightsHealthHandler.Get)
 		// Story 492 / N-1b — per-instance grab episode-files moved to
 		// the global namespace (`/grabs/:id/episode-files`); see route
 		// registration in the N-1b block above. The per-instance

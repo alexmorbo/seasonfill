@@ -15,6 +15,7 @@
 //   - DELETE /api/v1/instances/:name                       (delete instance)
 //   - POST /api/v1/instances/probe                         (probe Sonarr config)
 //   - GET  /api/v1/counters                                (aggregate counters)
+//   - GET  /api/v1/insights/health                         (catalog health dashboard)
 //   - GET  /api/v1/runtime-config                          (runtime config get)
 //   - PATCH /api/v1/runtime-config                         (runtime config update)
 //   - POST /api/v1/webhook/sonarr/:instance_name           (inbound Sonarr webhook)

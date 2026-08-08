@@ -718,6 +718,144 @@ components:
           type: array
           uniqueItems: false
       type: object
+    dto.HealthDashboardDTO:
+      properties:
+        dead_letters:
+          $ref: '#/components/schemas/dto.HealthInboxSignalDTO'
+        generated_at:
+          type: string
+        missing_poster:
+          $ref: '#/components/schemas/dto.HealthSeriesSignalDTO'
+        missing_tvdb_id:
+          $ref: '#/components/schemas/dto.HealthSeriesSignalDTO'
+        rate_limit_pressure:
+          $ref: '#/components/schemas/dto.HealthDeferredSignalDTO'
+        stale_enrichment:
+          $ref: '#/components/schemas/dto.HealthStaleSignalDTO'
+        stuck_grabs:
+          $ref: '#/components/schemas/dto.HealthGrabSignalDTO'
+      type: object
+    dto.HealthDeferredSignalDTO:
+      properties:
+        deferred:
+          example: true
+          type: boolean
+        metric:
+          example: seasonfill_sonarr_rate_oversubscribed
+          type: string
+        reason:
+          type: string
+      type: object
+    dto.HealthGrabItemDTO:
+      properties:
+        created_at:
+          type: string
+        id:
+          example: a1b2c3d4-0000-0000-0000-000000000000
+          type: string
+        instance_name:
+          example: main
+          type: string
+        season_number:
+          example: 2
+          type: integer
+        series_title:
+          example: Hijack
+          type: string
+      type: object
+    dto.HealthGrabSignalDTO:
+      properties:
+        count:
+          example: 1
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/dto.HealthGrabItemDTO'
+          type: array
+          uniqueItems: false
+        note:
+          type: string
+      type: object
+    dto.HealthInboxItemDTO:
+      properties:
+        attempts:
+          example: 6
+          type: integer
+        created_at:
+          type: string
+        event_type:
+          example: Download
+          type: string
+        id:
+          example: 1001
+          type: integer
+        instance_name:
+          example: main
+          type: string
+        last_error:
+          example: sonarr 500
+          type: string
+      type: object
+    dto.HealthInboxSignalDTO:
+      properties:
+        count:
+          example: 0
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/dto.HealthInboxItemDTO'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.HealthSeriesItemDTO:
+      properties:
+        series_id:
+          example: 42
+          type: integer
+        title:
+          example: The Expanse
+          type: string
+      type: object
+    dto.HealthSeriesSignalDTO:
+      properties:
+        count:
+          example: 3
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/dto.HealthSeriesItemDTO'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.HealthStaleItemDTO:
+      properties:
+        series_id:
+          example: 42
+          type: integer
+        synced_at:
+          type: string
+        tier:
+          enum:
+          - hot
+          - normal
+          - cold
+          example: hot
+          type: string
+        title:
+          example: The Expanse
+          type: string
+      type: object
+    dto.HealthStaleSignalDTO:
+      properties:
+        count:
+          example: 7
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/dto.HealthStaleItemDTO'
+          type: array
+          uniqueItems: false
+      type: object
     dto.HealthStatus:
       properties:
         status:
@@ -4459,6 +4597,38 @@ paths:
       summary: Liveness probe
       tags:
       - health
+  /insights/health:
+    get:
+      description: |-
+        Per-signal operator pulse: COUNT + bounded drill-down for
+        missing tvdb_id, missing poster (any-lang), stale
+        enrichment, stuck grabs, and inbox dead-letters. Rate-limit
+        pressure is a deferred envelope pointing at its metric.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.HealthDashboardDTO'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Catalog health dashboard
+      tags:
+      - insights
   /instances/{name}/discover/qbit:
     get:
       description: |-
