@@ -26,7 +26,10 @@ func (f *fakeClient) GetTrackers(ctx context.Context, hash string) ([]Tracker, e
 	}
 	return trk, nil
 }
-func (f *fakeClient) Ping(ctx context.Context) error { return nil }
+func (f *fakeClient) Pause(ctx context.Context, hash string) error   { return f.err }
+func (f *fakeClient) Resume(ctx context.Context, hash string) error  { return f.err }
+func (f *fakeClient) Recheck(ctx context.Context, hash string) error { return f.err }
+func (f *fakeClient) Ping(ctx context.Context) error                 { return nil }
 func (f *fakeClient) NewSyncSession(ctx context.Context) (SyncSession, error) {
 	return nil, errors.New("fakeClient: NewSyncSession not implemented")
 }

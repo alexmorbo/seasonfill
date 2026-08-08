@@ -114,6 +114,20 @@ func (mr *MockClientMockRecorder) NewSyncSession(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSyncSession", reflect.TypeOf((*MockClient)(nil).NewSyncSession), ctx)
 }
 
+// Pause mocks base method.
+func (m *MockClient) Pause(ctx context.Context, hash string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Pause", ctx, hash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Pause indicates an expected call of Pause.
+func (mr *MockClientMockRecorder) Pause(ctx, hash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pause", reflect.TypeOf((*MockClient)(nil).Pause), ctx, hash)
+}
+
 // Ping mocks base method.
 func (m *MockClient) Ping(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -126,4 +140,32 @@ func (m *MockClient) Ping(ctx context.Context) error {
 func (mr *MockClientMockRecorder) Ping(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ping", reflect.TypeOf((*MockClient)(nil).Ping), ctx)
+}
+
+// Recheck mocks base method.
+func (m *MockClient) Recheck(ctx context.Context, hash string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Recheck", ctx, hash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Recheck indicates an expected call of Recheck.
+func (mr *MockClientMockRecorder) Recheck(ctx, hash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Recheck", reflect.TypeOf((*MockClient)(nil).Recheck), ctx, hash)
+}
+
+// Resume mocks base method.
+func (m *MockClient) Resume(ctx context.Context, hash string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Resume", ctx, hash)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Resume indicates an expected call of Resume.
+func (mr *MockClientMockRecorder) Resume(ctx, hash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Resume", reflect.TypeOf((*MockClient)(nil).Resume), ctx, hash)
 }

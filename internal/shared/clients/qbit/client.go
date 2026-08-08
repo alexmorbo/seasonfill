@@ -85,6 +85,9 @@ type Client interface {
 	Login(ctx context.Context) error
 	ListTorrents(ctx context.Context) ([]Torrent, error)
 	GetTrackers(ctx context.Context, hash string) ([]Tracker, error)
+	Pause(ctx context.Context, hash string) error
+	Resume(ctx context.Context, hash string) error
+	Recheck(ctx context.Context, hash string) error
 	Ping(ctx context.Context) error
 	NewSyncSession(ctx context.Context) (SyncSession, error)
 	Close() error
@@ -329,6 +332,64 @@ func (c *client) GetTrackers(ctx context.Context, hash string) ([]Tracker, error
 		})
 	}
 	return out, nil
+}
+
+// Pause stops the torrent identified by hash. The upstream PauseCtx
+// switches between the WebAPI 2.11+ torrents/stop endpoint and the
+// pre-2.11 torrents/pause endpoint internally based on the detected qBit
+// version — the wrapper does not branch on version itself.
+func (c *client) Pause(ctx context.Context, hash string) error {
+	if c.closed {
+		return errors.New("qbit client closed")
+	}
+	if hash == "" {
+		return fmt.Errorf("%w: empty hash", ErrTorrentNotFound)
+	}
+	if err := c.inner.PauseCtx(ctx, []string{hash}); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("qbit pause: %w", ctxErr)
+		}
+		return fmt.Errorf("qbit pause: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
+	}
+	return nil
+}
+
+// Resume starts the torrent identified by hash. The upstream ResumeCtx
+// switches between the WebAPI 2.11+ torrents/start endpoint and the
+// pre-2.11 torrents/resume endpoint internally based on the detected
+// qBit version — the wrapper does not branch on version itself.
+func (c *client) Resume(ctx context.Context, hash string) error {
+	if c.closed {
+		return errors.New("qbit client closed")
+	}
+	if hash == "" {
+		return fmt.Errorf("%w: empty hash", ErrTorrentNotFound)
+	}
+	if err := c.inner.ResumeCtx(ctx, []string{hash}); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("qbit resume: %w", ctxErr)
+		}
+		return fmt.Errorf("qbit resume: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
+	}
+	return nil
+}
+
+// Recheck triggers a hash recheck of the torrent identified by hash.
+// Posts torrents/recheck on every qBit version (no version branch).
+func (c *client) Recheck(ctx context.Context, hash string) error {
+	if c.closed {
+		return errors.New("qbit client closed")
+	}
+	if hash == "" {
+		return fmt.Errorf("%w: empty hash", ErrTorrentNotFound)
+	}
+	if err := c.inner.RecheckCtx(ctx, []string{hash}); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("qbit recheck: %w", ctxErr)
+		}
+		return fmt.Errorf("qbit recheck: %w", errors.Join(err, sharedErrors.ErrInstanceNetwork))
+	}
+	return nil
 }
 
 // Ping performs a fast reachability check against qBit. It logs in
