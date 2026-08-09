@@ -19,6 +19,7 @@ import {
   HeartPulse,
   PackageX,
   BarChart3,
+  Sparkles,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -72,6 +73,7 @@ function useActivityItems(): Item[] {
     { to: "/health", icon: HeartPulse, key: "health" },
     { to: "/gaps", icon: PackageX, key: "gaps" },
     { to: "/stats", icon: BarChart3, key: "stats" },
+    { to: "/lists", icon: Sparkles, key: "lists" },
   ]
 }
 
