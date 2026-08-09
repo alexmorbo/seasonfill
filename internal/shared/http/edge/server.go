@@ -17,6 +17,7 @@ import (
 	health "github.com/alexmorbo/seasonfill/internal/catalog/app/health"
 	apprescan "github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/stats"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/config"
@@ -73,6 +74,7 @@ func NewServer(
 	counterRepo ports.CounterRepository,
 	healthRepo ports.HealthRepository,
 	gapRepo ports.GapRepository,
+	statsRepo ports.StatsRepository,
 	watchdogRollupHandler *watchdogrest.WatchdogRollupHandler,
 	watchdogBlacklistHandler *watchdogrest.WatchdogBlacklistHandler,
 	watchdogSeasonsHandler *watchdogrest.WatchdogSeasonsHandler,
@@ -252,6 +254,9 @@ func NewServer(
 		// wall clock (already-aired boundary); repo is the dialect-portable
 		// aired-only gap query set.
 		insightsGapsHandler := catalogrest.NewGapsHandler(gaps.NewUseCase(gapRepo), logger)
+		// Story I-4 — library statistics (read-only). Usecase fans out per
+		// instance; repo is the dialect-portable aggregation set.
+		insightsStatsHandler := catalogrest.NewStatsHandler(stats.NewUseCase(statsRepo), logger)
 		// Story 217 (H-2) — person detail page. Top-level resource —
 		// `/people` is instance-independent. Nil-OK pattern matches
 		// seriesCastHandler.
@@ -440,6 +445,7 @@ func NewServer(
 		guarded.GET("/counters", countersHandler.Aggregate)
 		guarded.GET("/insights/health", insightsHealthHandler.Get)
 		guarded.GET("/insights/gaps", insightsGapsHandler.Get)
+		guarded.GET("/insights/stats", insightsStatsHandler.Get)
 		// Story 492 / N-1b — per-instance grab episode-files moved to
 		// the global namespace (`/grabs/:id/episode-files`); see route
 		// registration in the N-1b block above. The per-instance

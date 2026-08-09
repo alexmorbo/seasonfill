@@ -2828,6 +2828,95 @@ components:
           example: admin
           type: string
       type: object
+    dto.StatsGrabSuccessDTO:
+      properties:
+        failed:
+          example: 21
+          type: integer
+        grabbed:
+          example: 3
+          type: integer
+        imported:
+          example: 512
+          type: integer
+        success_rate:
+          example: 0.9606
+          type: number
+      type: object
+    dto.StatsInstanceDTO:
+      properties:
+        by_genre:
+          items:
+            $ref: '#/components/schemas/dto.StatsKindDTO'
+          type: array
+          uniqueItems: false
+        by_network:
+          items:
+            $ref: '#/components/schemas/dto.StatsKindDTO'
+          type: array
+          uniqueItems: false
+        grab_success:
+          $ref: '#/components/schemas/dto.StatsGrabSuccessDTO'
+        instance_name:
+          example: main
+          type: string
+        torrent_totals:
+          $ref: '#/components/schemas/dto.StatsTorrentTotalsDTO'
+        totals:
+          $ref: '#/components/schemas/dto.StatsTotalsDTO'
+      type: object
+    dto.StatsKindDTO:
+      properties:
+        genre:
+          example: Drama
+          type: string
+        network:
+          example: HBO
+          type: string
+        series_count:
+          example: 120
+          type: integer
+        size_bytes:
+          example: 22345678901
+          type: integer
+      type: object
+    dto.StatsReportDTO:
+      properties:
+        generated_at:
+          type: string
+        instances:
+          items:
+            $ref: '#/components/schemas/dto.StatsInstanceDTO'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.StatsTorrentTotalsDTO:
+      properties:
+        avg_ratio:
+          example: 2.14
+          type: number
+        torrent_count:
+          example: 88
+          type: integer
+        total_downloaded_bytes:
+          example: 4433221100
+          type: integer
+        total_uploaded_bytes:
+          example: 9988776655
+          type: integer
+      type: object
+    dto.StatsTotalsDTO:
+      properties:
+        episodes_on_disk:
+          example: 9871
+          type: integer
+        series_count:
+          example: 342
+          type: integer
+        total_size_bytes:
+          example: 41231234567
+          type: integer
+      type: object
     dto.SyncInfo:
       description: |-
         Sync is the TMDB-person hydration timestamp drawn from
@@ -4745,6 +4834,45 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Catalog health dashboard
+      tags:
+      - insights
+  /insights/stats:
+    get:
+      description: |-
+        Read-only library statistics per Sonarr instance: catalog
+        totals (series / episodes on disk / size), top genres and
+        networks by size on disk, grab success breakdown, and qBit
+        torrent upload/download/ratio totals. Optional ?instance=
+        scopes the report to a single instance.
+      parameters:
+      - description: scope the report to a single Sonarr instance
+        in: query
+        name: instance
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.StatsReportDTO'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Library statistics
       tags:
       - insights
   /instances/{name}/discover/qbit:

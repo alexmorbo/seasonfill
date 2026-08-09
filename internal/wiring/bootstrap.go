@@ -836,6 +836,8 @@ func BuildHTTPServer(
 	healthRepo := catalogpersistence.NewHealthRepository(persistence.DB)
 	// Story I-2a — read-only library gap-detector query repo.
 	gapRepo := catalogpersistence.NewGapRepository(persistence.DB)
+	// Story I-4 — read-only library-statistics query repo.
+	statsRepo := catalogpersistence.NewStatsRepository(persistence.DB)
 	srv := httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -865,6 +867,7 @@ func BuildHTTPServer(
 		counterRepo,
 		healthRepo,
 		gapRepo,
+		statsRepo,
 		regrabBundle.WatchdogRollupHandler,
 		regrabBundle.WatchdogBlacklistHandler,
 		regrabBundle.WatchdogSeasonsHandler,

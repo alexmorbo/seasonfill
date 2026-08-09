@@ -61,6 +61,7 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // counterRepo
 		nil,                            // healthRepo (Story I-1a)
 		nil,                            // gapRepo (Story I-2a)
+		nil,                            // statsRepo (Story I-4)
 		nil,                            // watchdogRollupHandler
 		nil,                            // watchdogBlacklistHandler
 		nil,                            // watchdogSeasonsHandler

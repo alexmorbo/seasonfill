@@ -1745,6 +1745,70 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/insights/stats": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Library statistics
+         * @description Read-only library statistics per Sonarr instance: catalog
+         *     totals (series / episodes on disk / size), top genres and
+         *     networks by size on disk, grab success breakdown, and qBit
+         *     torrent upload/download/ratio totals. Optional ?instance=
+         *     scopes the report to a single instance.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description scope the report to a single Sonarr instance */
+                    readonly instance?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.StatsReportDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/instances/{name}/discover/qbit": {
         readonly parameters: {
             readonly query?: never;
@@ -6738,6 +6802,57 @@ export type components = {
             readonly ok?: boolean;
             /** @example admin */
             readonly username?: string;
+        };
+        readonly "dto.StatsGrabSuccessDTO": {
+            /** @example 21 */
+            readonly failed?: number;
+            /** @example 3 */
+            readonly grabbed?: number;
+            /** @example 512 */
+            readonly imported?: number;
+            /** @example 0.9606 */
+            readonly success_rate?: number;
+        };
+        readonly "dto.StatsInstanceDTO": {
+            readonly by_genre?: readonly components["schemas"]["dto.StatsKindDTO"][];
+            readonly by_network?: readonly components["schemas"]["dto.StatsKindDTO"][];
+            readonly grab_success?: components["schemas"]["dto.StatsGrabSuccessDTO"];
+            /** @example main */
+            readonly instance_name?: string;
+            readonly torrent_totals?: components["schemas"]["dto.StatsTorrentTotalsDTO"];
+            readonly totals?: components["schemas"]["dto.StatsTotalsDTO"];
+        };
+        readonly "dto.StatsKindDTO": {
+            /** @example Drama */
+            readonly genre?: string;
+            /** @example HBO */
+            readonly network?: string;
+            /** @example 120 */
+            readonly series_count?: number;
+            /** @example 22345678901 */
+            readonly size_bytes?: number;
+        };
+        readonly "dto.StatsReportDTO": {
+            readonly generated_at?: string;
+            readonly instances?: readonly components["schemas"]["dto.StatsInstanceDTO"][];
+        };
+        readonly "dto.StatsTorrentTotalsDTO": {
+            /** @example 2.14 */
+            readonly avg_ratio?: number;
+            /** @example 88 */
+            readonly torrent_count?: number;
+            /** @example 4433221100 */
+            readonly total_downloaded_bytes?: number;
+            /** @example 9988776655 */
+            readonly total_uploaded_bytes?: number;
+        };
+        readonly "dto.StatsTotalsDTO": {
+            /** @example 9871 */
+            readonly episodes_on_disk?: number;
+            /** @example 342 */
+            readonly series_count?: number;
+            /** @example 41231234567 */
+            readonly total_size_bytes?: number;
         };
         /**
          * @description Sync is the TMDB-person hydration timestamp drawn from

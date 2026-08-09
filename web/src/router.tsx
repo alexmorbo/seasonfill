@@ -12,6 +12,7 @@ import { Grabs } from '@/pages/Grabs';
 import { Watchdog } from '@/pages/Watchdog';
 import { Health } from '@/pages/Health';
 import { Gaps } from '@/pages/Gaps';
+import { Stats } from '@/pages/Stats';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { SettingsRedirect } from '@/pages/settings/SettingsRedirect';
 import { ProfileTab } from '@/pages/settings/ProfileTab';
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/health',    element: <Health /> },
       { path: '/gaps',      element: <Gaps /> },
+      { path: '/stats',     element: <Stats /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
       {

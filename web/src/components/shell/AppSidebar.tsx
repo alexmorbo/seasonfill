@@ -18,6 +18,7 @@ import {
   User,
   HeartPulse,
   PackageX,
+  BarChart3,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -70,6 +71,7 @@ function useActivityItems(): Item[] {
     { to: "/watchdog", icon: Shield, key: "watchdog" },
     { to: "/health", icon: HeartPulse, key: "health" },
     { to: "/gaps", icon: PackageX, key: "gaps" },
+    { to: "/stats", icon: BarChart3, key: "stats" },
   ]
 }
 
