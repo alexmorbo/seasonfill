@@ -3682,6 +3682,24 @@ components:
           example: 2011
           type: integer
       type: object
+    rest.icsRevokeResponse:
+      properties:
+        epoch:
+          example: 1
+          type: integer
+      type: object
+    rest.icsTokenResponse:
+      properties:
+        ics_url:
+          example: https://sf.arr.morbo.dev/api/v1/calendar.ics?token=eyJ...abc
+          type: string
+        scope:
+          example: all
+          type: string
+        webcal_url:
+          example: webcal://sf.arr.morbo.dev/api/v1/calendar.ics?token=eyJ...abc
+          type: string
+      type: object
     rest.monitorSeasonResponse:
       properties:
         instance:
@@ -4443,6 +4461,110 @@ paths:
       summary: Release calendar
       tags:
       - insights
+  /calendar.ics:
+    get:
+      description: |-
+        Public, token-authenticated iCalendar (RFC 5545) feed of the
+        release calendar. The signed token carries the scope and a
+        revocation epoch; a bad or revoked token returns 401. ICS
+        clients (Google/Apple Calendar) subscribe by URL — no cookies.
+      parameters:
+      - description: signed subscription token (from /calendar.ics/token)
+        in: query
+        name: token
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            text/calendar:
+              schema:
+                type: string
+          description: iCalendar document
+        "401":
+          content:
+            text/calendar:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            text/calendar:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      summary: Subscribe to the release calendar (iCalendar feed)
+      tags:
+      - calendar
+  /calendar.ics/revoke:
+    post:
+      description: |-
+        Bumps the revocation epoch, invalidating every previously
+        minted subscription URL. Returns the new epoch. Does NOT
+        affect browser sessions (separate epoch).
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rest.icsRevokeResponse'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Revoke all calendar subscription tokens
+      tags:
+      - calendar
+  /calendar.ics/token:
+    get:
+      description: |-
+        Mints a signed subscription token at the current revocation
+        epoch and returns the absolute .ics URL plus a webcal:// URL
+        for one-click subscription. Scope defaults to all.
+      parameters:
+      - description: library|followed|all (default all)
+        in: query
+        name: scope
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rest.icsTokenResponse'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Mint a calendar subscription token
+      tags:
+      - calendar
   /config/runtime:
     get:
       responses:

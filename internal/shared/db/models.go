@@ -287,6 +287,13 @@ type AppConfigModel struct {
 	// false = proxy blobs through this pod (default); true = 302 the
 	// browser to the TMDB source_url. Hot-reloaded via the runtime bus.
 	MediaDirect bool `gorm:"column:media_direct;not null"`
+	// ICSEpoch (ADR-0015 Ф3 S3, F-14) — revocation generation for the
+	// signed ICS calendar-feed token. A token embeds the ics_epoch at
+	// mint time; the /calendar.ics handler rejects any token whose epoch
+	// != this value. Revoke bumps it → every previously minted URL dies.
+	// Deliberately SEPARATE from auth_session_epoch so revoking a leaked
+	// feed URL does not invalidate browser sessions.
+	ICSEpoch int64 `gorm:"column:ics_epoch;not null"`
 	// Timezone folded from the legacy app_settings singleton. NULL = use env / UTC fallback.
 	Timezone  *string   `gorm:"column:timezone;type:text"`
 	CreatedAt time.Time `gorm:"column:created_at;not null"`

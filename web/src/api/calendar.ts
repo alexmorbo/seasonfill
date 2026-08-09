@@ -42,3 +42,29 @@ export function useCalendar(p: CalendarParams): UseQueryResult<CalendarReport, A
     refetchOnWindowFocus: false,
   });
 }
+
+// ── ICS subscription feed (Ф3 S3) ─────────────────────────────────────────
+
+export type ICSScope = 'library' | 'followed' | 'all';
+
+// ICSToken mirrors dto.icsTokenResponse — the absolute .ics URL to paste into
+// Google/Apple Calendar plus a webcal:// one-click variant and the scope the
+// signed token encodes.
+export interface ICSToken {
+  ics_url: string;
+  webcal_url: string;
+  scope: string;
+}
+
+// mintICSToken — GET /calendar.ics/token?scope=… (guarded, cookie-auth). Mints
+// a fresh subscription token at the current revocation epoch.
+export function mintICSToken(scope: ICSScope = 'all'): Promise<ICSToken> {
+  return api<ICSToken>(`/calendar.ics/token?scope=${scope}`);
+}
+
+// revokeICSTokens — POST /calendar.ics/revoke (guarded). Bumps the revocation
+// epoch, killing every previously minted URL. Returns the new epoch. Does NOT
+// log out browser sessions (separate epoch).
+export function revokeICSTokens(): Promise<{ epoch: number }> {
+  return api<{ epoch: number }>(`/calendar.ics/revoke`, { method: 'POST' });
+}

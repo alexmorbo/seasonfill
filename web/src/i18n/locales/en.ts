@@ -171,6 +171,23 @@ export const en = {
       upcoming: 'Upcoming',
       followed_not_in_library: 'Followed (not in library)',
     },
+    subscribe: {
+      title: 'Calendar subscription',
+      cta: 'Subscribe to calendar',
+      copy: 'Copy',
+      copied: 'Copied',
+      openInApp: 'Open in calendar app',
+      revoke: 'Revoke all subscriptions',
+      revoked: 'All subscriptions revoked',
+      scope: 'Scope',
+      scopeAll: 'All',
+      scopeLibrary: 'Library only',
+      scopeFollowed: 'Followed only',
+      instructions:
+        'Copy the link and add it to Google Calendar (Settings → Add calendar → From URL) or Apple Calendar (File → New Calendar Subscription). The webcal:// link opens directly in your calendar app.',
+      mintFailed: 'Could not create the subscription link',
+      revokeFailed: 'Could not revoke subscriptions',
+    },
   },
   lists: {
     title: 'Smart lists',

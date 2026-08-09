@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { SubscribeCard } from '@/components/calendar/SubscribeCard';
 import { cn } from '@/lib/utils';
 
 // ── date helpers (local time) ────────────────────────────────────────────
@@ -424,6 +425,8 @@ export function Calendar() {
           </Button>
         </div>
       </div>
+
+      <SubscribeCard />
 
       {view === 'month' ? (
         <div className="flex items-center gap-2">

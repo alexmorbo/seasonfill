@@ -855,6 +855,9 @@ func BuildHTTPServer(
 	collectionsRepo := catalogpersistence.NewCollectionsRepository(persistence.DB)
 	// ADR-0015 Ф3 S2 — read-only release-calendar query repo.
 	calendarRepo := catalogpersistence.NewCalendarRepository(persistence.DB)
+	// ADR-0015 Ф3 S3 — ics_epoch read/bump for the ICS feed. RuntimeConfigRepository
+	// owns app_config; cipher is unused by GetICSEpoch/BumpICSEpoch.
+	icsEpochRepo := catalogpersistence.NewRuntimeConfigRepository(persistence.DB, nil)
 	// ADR-0015 Ф3 C1 — follow/watchlist bundle. Reuses the enrichment series
 	// reader (Get) + the seriesdetail OnDemandEnricher (same instance
 	// ResolveUseCase enrolls through) — no new enrichment logic. NewFollowBundle
@@ -933,6 +936,7 @@ func BuildHTTPServer(
 		seriesTitleLocalizer,
 		seriesMediaLocalizer,
 		followBundle.Handler, // ADR-0015 Ф3 C1
+		icsEpochRepo,         // ADR-0015 Ф3 S3
 		log,
 	)
 	return srv, instanceMetadataBundle

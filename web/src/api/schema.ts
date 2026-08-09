@@ -854,6 +854,190 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/calendar.ics": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Subscribe to the release calendar (iCalendar feed)
+         * @description Public, token-authenticated iCalendar (RFC 5545) feed of the
+         *     release calendar. The signed token carries the scope and a
+         *     revocation epoch; a bad or revoked token returns 401. ICS
+         *     clients (Google/Apple Calendar) subscribe by URL — no cookies.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query: {
+                    /** @description signed subscription token (from /calendar.ics/token) */
+                    readonly token: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description iCalendar document */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "text/calendar": string;
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "text/calendar": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "text/calendar": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/calendar.ics/revoke": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Revoke all calendar subscription tokens
+         * @description Bumps the revocation epoch, invalidating every previously
+         *     minted subscription URL. Returns the new epoch. Does NOT
+         *     affect browser sessions (separate epoch).
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.icsRevokeResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/calendar.ics/token": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Mint a calendar subscription token
+         * @description Mints a signed subscription token at the current revocation
+         *     epoch and returns the absolute .ics URL plus a webcal:// URL
+         *     for one-click subscription. Scope defaults to all.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description library|followed|all (default all) */
+                    readonly scope?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.icsTokenResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/config/runtime": {
         readonly parameters: {
             readonly query?: never;
@@ -7739,6 +7923,18 @@ export type components = {
             readonly tmdb_id?: number;
             /** @example 2011 */
             readonly year?: number;
+        };
+        readonly "rest.icsRevokeResponse": {
+            /** @example 1 */
+            readonly epoch?: number;
+        };
+        readonly "rest.icsTokenResponse": {
+            /** @example https://sf.arr.morbo.dev/api/v1/calendar.ics?token=eyJ...abc */
+            readonly ics_url?: string;
+            /** @example all */
+            readonly scope?: string;
+            /** @example webcal://sf.arr.morbo.dev/api/v1/calendar.ics?token=eyJ...abc */
+            readonly webcal_url?: string;
         };
         readonly "rest.monitorSeasonResponse": {
             readonly instance?: string;

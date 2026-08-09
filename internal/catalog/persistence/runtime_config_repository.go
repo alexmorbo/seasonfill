@@ -462,4 +462,77 @@ func (r *RuntimeConfigRepository) SetTimezone(ctx context.Context, name string) 
 	})
 }
 
+// GetICSEpoch returns app_config.ics_epoch (ADR-0015 §ICS, F-14). Returns
+// 0 + nil when the singleton row is absent — no ICS token could have been
+// minted before the row exists, so 0 is the correct "nothing revoked" base.
+func (r *RuntimeConfigRepository) GetICSEpoch(ctx context.Context) (int64, error) {
+	var m database.AppConfigModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Select("ics_epoch").
+		Where("id = ?", appConfigID).
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("get ics_epoch: %w", err)
+	}
+	return m.ICSEpoch, nil
+}
+
+// BumpICSEpoch atomically increments app_config.ics_epoch and returns the
+// new value, revoking every previously minted ICS token. When the singleton
+// row is absent (fresh install, pre-bootstrap) it seeds a defaults-filled
+// row with ics_epoch=1 — same seed pattern as SetTimezone/SaveAPIKey.
+func (r *RuntimeConfigRepository) BumpICSEpoch(ctx context.Context) (int64, error) {
+	var newEpoch int64
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		var existing database.AppConfigModel
+		err := tx.Where("id = ?", appConfigID).First(&existing).Error
+		switch {
+		case err == nil:
+			existing.ICSEpoch++
+			existing.UpdatedAt = now
+			newEpoch = existing.ICSEpoch
+			return tx.Save(&existing).Error
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			def := runtime.Defaults()
+			proxiesJSON, _ := json.Marshal(def.Auth.TrustedProxies)
+			row := database.AppConfigModel{
+				ID:                   appConfigID,
+				CreatedAt:            now,
+				UpdatedAt:            now,
+				ICSEpoch:             1,
+				CronEnabled:          def.Cron.Enabled,
+				CronSchedule:         def.Cron.Schedule,
+				CronJitterSeconds:    int(def.Cron.Jitter / time.Second),
+				ScanShutdownGraceSec: int(def.Scan.ShutdownGrace / time.Second),
+				ScanCooldownSweepSec: int(def.Scan.CooldownSweep / time.Second),
+				DryRun:               def.DryRun,
+				GlobalRPM:            def.GlobalRateLimit.RPM,
+				GlobalBurst:          def.GlobalRateLimit.Burst,
+				AuthSessionTTLSec:    int(def.Auth.SessionTTL / time.Second),
+				AuthSecureCookie:     def.Auth.SecureCookie,
+				AuthTrustedProxies:   string(proxiesJSON),
+				AuthSessionEpoch:     def.Auth.SessionEpoch,
+				OIDCIssuer:           def.Auth.OIDC.Issuer,
+				OIDCClientID:         def.Auth.OIDC.ClientID,
+				OIDCRedirectURL:      def.Auth.OIDC.RedirectURL,
+				OIDCScopes:           string(mustJSON(def.Auth.OIDC.Scopes)),
+				OIDCUsernameClaim:    def.Auth.OIDC.UsernameClaim,
+				OIDCAllowedGroups:    string(mustJSON(def.Auth.OIDC.AllowedGroups)),
+				OIDCGroupsClaim:      "groups",
+				GUIDRewrites:         "[]",
+			}
+			newEpoch = 1
+			return tx.Create(&row).Error
+		default:
+			return fmt.Errorf("bump ics_epoch: %w", err)
+		}
+	})
+	return newEpoch, err
+}
+
 var _ ports.RuntimeConfigRepository = (*RuntimeConfigRepository)(nil)
+var _ ports.ICSEpochRepository = (*RuntimeConfigRepository)(nil)

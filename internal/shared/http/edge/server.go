@@ -17,6 +17,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/collections"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/gaps"
 	health "github.com/alexmorbo/seasonfill/internal/catalog/app/health"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/icsfeed"
 	apprescan "github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/smartlists"
@@ -121,6 +122,10 @@ func NewServer(
 	// ADR-0015 Ф3 C1 — follow/watchlist handler. nil-OK: the /follow routes
 	// are omitted when the handler is absent (minimal/test wirings).
 	followHandler *followrest.FollowHandler,
+	// ADR-0015 Ф3 S3 — ics_epoch read/bump for the ICS calendar feed.
+	// nil-OK (together with calendarRepo): the /calendar.ics routes are
+	// omitted when either is absent (minimal/test wirings).
+	icsEpochRepo ports.ICSEpochRepository,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -478,6 +483,28 @@ func NewServer(
 		guarded.GET("/insights/lists", insightsListsHandler.Get)
 		guarded.GET("/insights/collections", insightsCollectionsHandler.Get)
 		guarded.GET("/calendar", insightsCalendarHandler.Get)
+		// ADR-0015 Ф3 S3 (F-14) — ICS subscription feed. Public
+		// token-authenticated consume + guarded mint/revoke. Built only
+		// when BOTH the calendar repo and the ics-epoch repo are wired
+		// (nil-OK: routes omitted in minimal/test wirings). The ICS
+		// signing key is HKDF-derived with a DISTINCT info label so an
+		// ICS token can never validate as a session cookie.
+		if calendarRepo != nil && icsEpochRepo != nil {
+			icsKey, kerr := crypto.DeriveICSTokenKey(cfg.Auth.APIKey)
+			if kerr != nil {
+				panic("http.NewServer: derive ICS token key: " + kerr.Error())
+			}
+			icsHandler := catalogrest.NewICSHandler(
+				icsfeed.NewUseCase(calendar.NewUseCase(calendarRepo), icsEpochRepo, icsKey),
+				logger,
+			)
+			// PUBLIC — registered on `api` (NO RequireAuth). ICS clients
+			// send no cookies/headers; the signed token IS the credential.
+			api.GET("/calendar.ics", icsHandler.Consume)
+			// Guarded — operator mints/revokes from an authenticated session.
+			guarded.GET("/calendar.ics/token", icsHandler.Mint)
+			guarded.POST("/calendar.ics/revoke", icsHandler.Revoke)
+		}
 		// Story 492 / N-1b — per-instance grab episode-files moved to
 		// the global namespace (`/grabs/:id/episode-files`); see route
 		// registration in the N-1b block above. The per-instance

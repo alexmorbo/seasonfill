@@ -16,6 +16,7 @@ const (
 	hkdfSalt        = "seasonfill-runtime-config-v1"
 	hkdfInfo        = "aes-gcm-key"
 	hkdfSessionInfo = "seasonfill-session-hmac-v1"
+	hkdfICSInfo     = "seasonfill-ics-token-v1"
 	keyLen          = 32 // AES-256
 	nonceLen        = 12
 	tagLen          = 16
@@ -37,6 +38,24 @@ func DeriveSessionHMACKey(masterKey string) ([]byte, error) {
 	out := make([]byte, keyLen)
 	if _, err := io.ReadFull(r, out); err != nil {
 		return nil, fmt.Errorf("hkdf session hmac: %w", err)
+	}
+	return out, nil
+}
+
+// DeriveICSTokenKey derives a 32-byte HMAC key from masterKey using HKDF
+// with the "seasonfill-ics-token-v1" info string. This keeps the ICS
+// calendar-feed signing key domain-separated from BOTH the AES-GCM key
+// ("aes-gcm-key") and the session-cookie HMAC key ("seasonfill-session-hmac-v1"):
+// a token minted for the ICS feed can never validate as a session cookie,
+// and vice versa, because the underlying key material differs.
+func DeriveICSTokenKey(masterKey string) ([]byte, error) {
+	if masterKey == "" {
+		return nil, ErrEmptyMasterKey
+	}
+	r := hkdf.New(sha256.New, []byte(masterKey), []byte(hkdfSalt), []byte(hkdfICSInfo))
+	out := make([]byte, keyLen)
+	if _, err := io.ReadFull(r, out); err != nil {
+		return nil, fmt.Errorf("hkdf ics token: %w", err)
 	}
 	return out, nil
 }
