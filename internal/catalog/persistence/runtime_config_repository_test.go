@@ -55,7 +55,8 @@ func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {
 					ShutdownGrace: 90 * time.Second,
 					CooldownSweep: 20 * time.Minute,
 				},
-				DryRun: false,
+				DryRun:      false,
+				MediaDirect: true,
 				GlobalRateLimit: runtime.RateLimitSnapshot{
 					RPM: 60, Burst: 20,
 				},
@@ -74,6 +75,7 @@ func TestRuntimeConfigRepository_UpsertAndGet(t *testing.T) {
 			assert.Equal(t, snap.Cron.Schedule, row.Cron.Schedule)
 			assert.Equal(t, snap.Cron.Jitter, row.Cron.Jitter)
 			assert.Equal(t, snap.DryRun, row.DryRun)
+			assert.Equal(t, snap.MediaDirect, row.MediaDirect)
 			assert.Equal(t, snap.GlobalRateLimit.RPM, row.GlobalRateLimit.RPM)
 			assert.Equal(t, snap.Auth.SessionTTL, row.Auth.SessionTTL)
 			assert.Equal(t, snap.Auth.SecureCookie, row.Auth.SecureCookie)

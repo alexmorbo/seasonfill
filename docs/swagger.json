@@ -2605,6 +2605,11 @@
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "media_direct": {
+                        "description": "MediaDirect (M1, ADR-0014 §П25) — global media direct/proxy toggle.\nfalse = proxy blobs through the pod (default); true = 302 to TMDB.",
+                        "example": false,
+                        "type": "boolean"
+                    },
                     "scan": {
                         "$ref": "#/components/schemas/dto.RuntimeScanDTO"
                     },

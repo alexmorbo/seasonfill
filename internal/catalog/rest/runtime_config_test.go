@@ -48,6 +48,7 @@ func (f *rcFakeRuntime) Upsert(_ context.Context, s runtime.Snapshot, ifUnmodifi
 	}
 	f.row = ports.RuntimeConfigRow{
 		Cron: s.Cron, Scan: s.Scan, DryRun: s.DryRun,
+		MediaDirect:     s.MediaDirect,
 		GlobalRateLimit: s.GlobalRateLimit, Auth: s.Auth,
 		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), s.GUIDRewrites...),
 		UpdatedAt:    time.Now().UTC(),
@@ -152,6 +153,21 @@ func TestRC_Put_OK_SetsLastModified(t *testing.T) {
 	require.NotEmpty(t, lm)
 	_, err := http.ParseTime(lm)
 	assert.NoError(t, err)
+}
+
+func TestRC_Put_MediaDirect_RoundTrip(t *testing.T) {
+	t.Parallel()
+	r, _ := setupRC(t)
+	body := validRCBody()
+	body["media_direct"] = true
+	w := rcDoJSON(t, r, http.MethodPut, "/api/v1/config/runtime", body, nil)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	g := rcDoJSON(t, r, http.MethodGet, "/api/v1/config/runtime", nil, nil)
+	require.Equal(t, http.StatusOK, g.Code, "body=%s", g.Body.String())
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(g.Body.Bytes(), &got))
+	assert.Equal(t, true, got["media_direct"], "media_direct must round-trip through PUT→GET")
 }
 
 func TestRC_Put_InvalidCron_400(t *testing.T) {

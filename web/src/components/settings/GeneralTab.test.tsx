@@ -27,6 +27,7 @@ function mockFetchConfig(schedule: string) {
         cron: { enabled: true, schedule, on_start: false, jitter: '1m' },
         scan: { shutdown_grace: '60s', cooldown_sweep: '15m' },
         dry_run: false,
+        media_direct: false,
         global_rate_limit: { rpm: 30, burst: 10 },
         auth: { session_ttl: '12h', secure_cookie: false, trusted_proxies: [] },
       }),
@@ -94,6 +95,7 @@ describe('<GeneralTab />', () => {
           cron: { enabled: true, schedule: '0 */6 * * *', on_start: false, jitter: '1m' },
           scan: { shutdown_grace: '60s', cooldown_sweep: '15m' },
           dry_run: false,
+          media_direct: false,
           global_rate_limit: { rpm: 30, burst: 10 },
           auth: { session_ttl: '12h', secure_cookie: false, trusted_proxies: [] },
         }),
@@ -159,6 +161,7 @@ describe('<GeneralTab />', () => {
       cron: { enabled: true, schedule: '0 */6 * * *', on_start: false, jitter: '1m' },
       scan: { shutdown_grace: '60s', cooldown_sweep: '15m' },
       dry_run: persistedDryRun,
+      media_direct: false,
       global_rate_limit: { rpm: 30, burst: 10 },
       auth: { session_ttl: '12h', secure_cookie: false, trusted_proxies: [] },
     });
@@ -190,5 +193,66 @@ describe('<GeneralTab />', () => {
       expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
     });
     expect(dryRun).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('media-direct switch reflects the loaded media_direct value', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          cron: { enabled: true, schedule: '0 */6 * * *', on_start: false, jitter: '1m' },
+          scan: { shutdown_grace: '60s', cooldown_sweep: '15m' },
+          dry_run: false,
+          media_direct: true,
+          global_rate_limit: { rpm: 30, burst: 10 },
+          auth: { session_ttl: '12h', secure_cookie: false, trusted_proxies: [] },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json', 'Last-Modified': 'Mon, 25 May 2026 12:00:00 GMT' } },
+      ),
+    ) as typeof fetch;
+
+    renderWithProviders(<GeneralTab />);
+    await screen.findByText(/every 6 hours/i);
+
+    const mediaDirect = screen.getByRole('switch', { name: /direct from tmdb/i });
+    await waitFor(() => expect(mediaDirect).toHaveAttribute('aria-checked', 'true'));
+  });
+
+  it('toggling media-direct dispatches a PUT with the flipped value', async () => {
+    let putBody: Record<string, unknown> | null = null;
+    globalThis.fetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        putBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({}),
+          { status: 200, headers: { 'Content-Type': 'application/json', 'Last-Modified': 'Mon, 25 May 2026 12:05:00 GMT' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          cron: { enabled: true, schedule: '0 */6 * * *', on_start: false, jitter: '1m' },
+          scan: { shutdown_grace: '60s', cooldown_sweep: '15m' },
+          dry_run: false,
+          media_direct: false,
+          global_rate_limit: { rpm: 30, burst: 10 },
+          auth: { session_ttl: '12h', secure_cookie: false, trusted_proxies: [] },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json', 'Last-Modified': 'Mon, 25 May 2026 12:00:00 GMT' } },
+      );
+    }) as typeof fetch;
+
+    renderWithProviders(<GeneralTab />);
+    await screen.findByText(/every 6 hours/i);
+
+    const mediaDirect = screen.getByRole('switch', { name: /direct from tmdb/i });
+    expect(mediaDirect).toHaveAttribute('aria-checked', 'false');
+    await userEvent.click(mediaDirect);
+    await waitFor(() => expect(mediaDirect).toHaveAttribute('aria-checked', 'true'));
+
+    const save = screen.getByRole('button', { name: /^save$/i });
+    await waitFor(() => expect(save).not.toBeDisabled());
+    await userEvent.click(save);
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    expect(putBody).toMatchObject({ media_direct: true });
   });
 });

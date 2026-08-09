@@ -69,7 +69,8 @@ func (r *RuntimeConfigRepository) Get(ctx context.Context) (ports.RuntimeConfigR
 			ShutdownGrace: time.Duration(m.ScanShutdownGraceSec) * time.Second,
 			CooldownSweep: time.Duration(m.ScanCooldownSweepSec) * time.Second,
 		},
-		DryRun: m.DryRun,
+		DryRun:      m.DryRun,
+		MediaDirect: m.MediaDirect,
 		GlobalRateLimit: runtime.RateLimitSnapshot{
 			RPM:   m.GlobalRPM,
 			Burst: m.GlobalBurst,
@@ -198,6 +199,7 @@ func (r *RuntimeConfigRepository) Upsert(
 			existing.ScanShutdownGraceSec = int(snap.Scan.ShutdownGrace / time.Second)
 			existing.ScanCooldownSweepSec = int(snap.Scan.CooldownSweep / time.Second)
 			existing.DryRun = snap.DryRun
+			existing.MediaDirect = snap.MediaDirect
 			existing.GlobalRPM = snap.GlobalRateLimit.RPM
 			existing.GlobalBurst = snap.GlobalRateLimit.Burst
 			existing.AuthSessionTTLSec = int(snap.Auth.SessionTTL / time.Second)
@@ -224,6 +226,7 @@ func (r *RuntimeConfigRepository) Upsert(
 				ScanShutdownGraceSec: int(snap.Scan.ShutdownGrace / time.Second),
 				ScanCooldownSweepSec: int(snap.Scan.CooldownSweep / time.Second),
 				DryRun:               snap.DryRun,
+				MediaDirect:          snap.MediaDirect,
 				GlobalRPM:            snap.GlobalRateLimit.RPM,
 				GlobalBurst:          snap.GlobalRateLimit.Burst,
 				AuthSessionTTLSec:    int(snap.Auth.SessionTTL / time.Second),

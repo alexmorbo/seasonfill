@@ -313,6 +313,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	mediaStoreImpl := mediaBundle.Store
 	mediaAssetsRepo := mediaBundle.AssetsRepo
 	mediaHandler := mediaBundle.Handler
+	// M1 — seed the media_direct flag from the boot snapshot before HTTP
+	// starts, so the very first media request honors the persisted value
+	// (the reload subscriber's first apply re-confirms it on the boot
+	// re-publish at the bottom of New).
+	mediaHandler.SetMediaDirect(snap.MediaDirect)
 
 	seriesDetailBundle, err := wiring.BuildSeriesDetail(persistence, sonarrBundle, mediaBundle, scanBundle.GrabRepo, scanUC, bootCfg.Enrichment.MediaUnifiedResolve, bootCfg.Enrichment.SkeletonColdMediaSeed, log)
 	if err != nil {
@@ -779,10 +784,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		torrentsyncBundle,
 		schedulerBundle,
 		wiring.SubscriberDeps{
-			Snap:            snap,
-			Engine:          httpServer.Engine(),
-			AuthRuntimePtr:  authRuntimePtr,
-			ClientSecretEnv: bootCfg.Auth.OIDCClientSecret,
+			Snap:             snap,
+			Engine:           httpServer.Engine(),
+			AuthRuntimePtr:   authRuntimePtr,
+			ClientSecretEnv:  bootCfg.Auth.OIDCClientSecret,
+			MediaDirectApply: mediaHandler.SetMediaDirect,
 		},
 		log,
 	)

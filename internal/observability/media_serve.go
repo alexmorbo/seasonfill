@@ -14,7 +14,7 @@ import "github.com/VictoriaMetrics/metrics"
 // label VALUES are fine.
 const (
 	// MetricMediaServeTotal — serve-mix counter, one Inc per terminal Serve branch.
-	// outcome ∈ {stored,not_modified,placeholder,degraded,sentinel,invalid,repo_error}.
+	// outcome ∈ {stored,not_modified,placeholder,degraded,sentinel,invalid,repo_error,direct}.
 	MetricMediaServeTotal = `seasonfill_media_serve_total`
 	// MetricMediaServeLRUHits / Misses — in-process byteCappedLRU lookup outcome.
 	MetricMediaServeLRUHits   = `seasonfill_media_serve_lru_hits_total`

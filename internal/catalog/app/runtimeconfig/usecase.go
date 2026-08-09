@@ -160,6 +160,7 @@ func (u *UseCase) Get(ctx context.Context) (Output, time.Time, error) {
 		def := runtime.Defaults()
 		row = ports.RuntimeConfigRow{
 			Cron: def.Cron, Scan: def.Scan, DryRun: def.DryRun,
+			MediaDirect:     def.MediaDirect,
 			GlobalRateLimit: def.GlobalRateLimit, Auth: def.Auth,
 			GUIDRewrites: def.GUIDRewrites,
 		}
@@ -274,6 +275,7 @@ func (u *UseCase) publish(ctx context.Context, row ports.RuntimeConfigRow) error
 	runtime.SortInstances(insts)
 	snap := runtime.Snapshot{
 		Cron: row.Cron, Scan: row.Scan, DryRun: row.DryRun,
+		MediaDirect:     row.MediaDirect,
 		GlobalRateLimit: row.GlobalRateLimit, Auth: row.Auth,
 		Instances:    insts,
 		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), row.GUIDRewrites...),
@@ -348,7 +350,8 @@ func (u *UseCase) inputToSnapshot(in Input, prevRow ports.RuntimeConfigRow) (run
 			ShutdownGrace: in.Scan.ShutdownGrace,
 			CooldownSweep: in.Scan.CooldownSweep,
 		},
-		DryRun: in.DryRun,
+		DryRun:      in.DryRun,
+		MediaDirect: in.MediaDirect,
 		GlobalRateLimit: runtime.RateLimitSnapshot{
 			RPM: in.GlobalRateLimit.RPM, Burst: in.GlobalRateLimit.Burst,
 		},
@@ -551,7 +554,8 @@ func rowToOutput(row ports.RuntimeConfigRow, ts time.Time, envSecret string) Out
 			ShutdownGrace: row.Scan.ShutdownGrace,
 			CooldownSweep: row.Scan.CooldownSweep,
 		},
-		DryRun: row.DryRun,
+		DryRun:      row.DryRun,
+		MediaDirect: row.MediaDirect,
 		GlobalRateLimit: GlobalRateLimitInput{
 			RPM: row.GlobalRateLimit.RPM, Burst: row.GlobalRateLimit.Burst,
 		},

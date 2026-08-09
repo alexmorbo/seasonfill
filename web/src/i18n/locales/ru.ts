@@ -1304,6 +1304,8 @@ export const ru: Translations = {
         section: 'Дефолты и лимиты',
         dryRun: 'Dry run по умолчанию',
         dryRunHint: 'Сканы вычисляют решения, но не дёргают ручки grab у Sonarr.',
+        mediaDirect: 'Изображения: напрямую с TMDB',
+        mediaDirectHint: 'Вкл — 302 на image.tmdb.org (клиент грузит постеры сам, минуя прокси; нужен доступ к TMDB у клиента). Выкл — через прокси.',
         rpm: 'Глобальный rate limit (rpm)',
         burst: 'Burst',
         rpmHint: 'rpm = 0 отключает глобальный лимитер.',

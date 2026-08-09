@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -130,6 +131,12 @@ type MediaHandler struct {
 	sf                 singleflight.Group
 	logger             *slog.Logger
 	clock              func() time.Time
+	// mediaDirect (M1, ADR-0014 §П25) — hot-reloaded global toggle. Zero
+	// value false = proxy (stream blobs). Set by the MediaDirectSubscriber
+	// via SetMediaDirect on every app_config publish + once at boot; read
+	// per-request in Serve. atomic.Bool makes the concurrent read/write
+	// data-race-free.
+	mediaDirect atomic.Bool
 }
 
 // MediaHandlerDeps groups the handler's wiring. Kept as a struct so the
@@ -206,6 +213,19 @@ func (h *MediaHandler) SetOnDemandFetcher(f MediaOnDemandSyncFetcher) {
 		return
 	}
 	h.ondemandFetcher = f
+}
+
+// SetMediaDirect flips the media_direct hot-reload flag. Called by the
+// reload MediaDirectSubscriber on every app_config publish, and once at
+// boot to seed the persisted value. Concurrent with Serve's per-request
+// h.mediaDirect.Load(); atomic.Bool keeps that race-free. Nil-receiver
+// safe so a method value bound to a nil handler in minimal wirings is a
+// no-op.
+func (h *MediaHandler) SetMediaDirect(v bool) {
+	if h == nil {
+		return
+	}
+	h.mediaDirect.Store(v)
 }
 
 // SetPendingResolver late-binds the pending resolver onto an
@@ -313,6 +333,21 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		return
 	}
 
+	// M1 (ADR-0014 §П25) — media_direct mode. When the operator has flipped
+	// the global toggle to "direct", resolve the hash's real source_url and
+	// 302 the browser straight to image.tmdb.org instead of streaming the
+	// blob through this pod. The redirect is itself cacheable (immutable) so
+	// the browser holds it for a year and never re-hits us for this hash.
+	// Sentinel hashes already returned above and are never redirected; a hash
+	// with no row / no source_url / a non-https source falls through to the
+	// normal proxy path (LRU → store → on-demand → grace → placeholder), so
+	// direct mode degrades safely rather than 302-ing to nothing.
+	if h.mediaDirect.Load() {
+		if h.tryServeDirect(c, ctx, hash) {
+			return
+		}
+	}
+
 	ifNoneMatch := c.GetHeader("If-None-Match")
 	etag := `"` + hash + `"`
 
@@ -417,6 +452,29 @@ func (h *MediaHandler) Serve(c *gin.Context) {
 		slog.String("source", served),
 		slog.Int("size", len(entry.Bytes)),
 	)
+}
+
+// tryServeDirect issues a 302 to the hash's upstream source_url when
+// media_direct is enabled. Returns true iff it wrote the redirect; false
+// means "fall through to the normal proxy path" — which happens when the
+// media_assets row does not exist yet (grace-race), the source_url is
+// empty, or the source_url is not an https URL (open-redirect guard; every
+// real TMDB CDN URL begins with https://). The redirect carries the same
+// one-year immutable Cache-Control the 200 path uses: the hash is
+// content-addressed, so the target bytes never change and the browser may
+// cache the redirect indefinitely.
+func (h *MediaHandler) tryServeDirect(c *gin.Context, ctx context.Context, hash string) bool {
+	asset, err := h.repo.Get(ctx, hash)
+	if err != nil {
+		return false
+	}
+	if !strings.HasPrefix(asset.UpstreamURL, "https://") {
+		return false
+	}
+	c.Header("Cache-Control", mediaCacheControl)
+	observability.IncMediaServeOutcome("direct")
+	c.Redirect(http.StatusFound, asset.UpstreamURL)
+	return true
 }
 
 // graceRetryOnNotFound handles the media_assets-row-absent race (Story 1125).

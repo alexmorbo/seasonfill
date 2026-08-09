@@ -67,6 +67,7 @@ const schema = z.object({
       return ms !== null && ms >= scanCooldownSweepMinMs && ms <= scanCooldownSweepMaxMs;
     }, 'settings.general.scan.cooldownSweepRange'),
   dry_run: z.boolean(),
+  media_direct: z.boolean(),
   global_rpm: z.number().int().min(0, 'settings.general.defaults.rpmRange').max(10000, 'settings.general.defaults.rpmMax'),
   global_burst: z.number().int().min(0, 'settings.general.defaults.rpmRange').max(10000, 'settings.general.defaults.rpmMax'),
 });
@@ -81,6 +82,7 @@ function configToForm(c: RuntimeConfig | undefined): FormValues {
     scan_shutdown_grace: c?.scan?.shutdown_grace ?? '60s',
     scan_cooldown_sweep: c?.scan?.cooldown_sweep ?? '15m',
     dry_run: Boolean(c?.dry_run ?? true),
+    media_direct: Boolean(c?.media_direct ?? false),
     global_rpm: c?.global_rate_limit?.rpm ?? 30,
     global_burst: c?.global_rate_limit?.burst ?? 10,
   };
@@ -93,6 +95,7 @@ function formToPayload(prev: Partial<RuntimeConfig> | undefined, v: FormValues):
     cron: { enabled: v.cron_enabled, schedule: v.cron_schedule, on_start: v.cron_on_start, jitter: v.cron_jitter },
     scan: { shutdown_grace: v.scan_shutdown_grace, cooldown_sweep: v.scan_cooldown_sweep },
     dry_run: v.dry_run,
+    media_direct: v.media_direct,
     global_rate_limit: { rpm: v.global_rpm, burst: v.global_burst },
   } as RuntimeConfig;
 }
@@ -149,6 +152,7 @@ export function GeneralTab() {
   const cronEnabled = useWatch({ control, name: 'cron_enabled' });
   const cronOnStart = useWatch({ control, name: 'cron_on_start' });
   const dryRun = useWatch({ control, name: 'dry_run' });
+  const mediaDirect = useWatch({ control, name: 'media_direct' });
   const cronInvalidLabel = t('settings.general.schedule.invalidExpression');
   const cronPreview = useMemo(
     () => describeCron(cronVal, cronInvalidLabel),
@@ -307,6 +311,17 @@ export function GeneralTab() {
             <Switch
               id="dry-run" checked={dryRun}
               onCheckedChange={(v) => setValue('dry_run', v, { shouldDirty: true })}
+            />
+          }
+        />
+        <FieldRow
+          htmlFor="media-direct"
+          label={t('settings.general.defaults.mediaDirect')}
+          hint={t('settings.general.defaults.mediaDirectHint')}
+          control={
+            <Switch
+              id="media-direct" checked={mediaDirect}
+              onCheckedChange={(v) => setValue('media_direct', v, { shouldDirty: true })}
             />
           }
         />

@@ -51,6 +51,7 @@ func (f *fakeRuntimeRepo) Upsert(_ context.Context, snap runtime.Snapshot, ifUnm
 	f.upserts++
 	f.row = ports.RuntimeConfigRow{
 		Cron: snap.Cron, Scan: snap.Scan, DryRun: snap.DryRun,
+		MediaDirect:     snap.MediaDirect,
 		GlobalRateLimit: snap.GlobalRateLimit, Auth: snap.Auth,
 		GUIDRewrites: append([]runtime.GUIDRewriteRule(nil), snap.GUIDRewrites...),
 		UpdatedAt:    time.Now().UTC(),
@@ -146,6 +147,22 @@ func TestUpdate_OK_PersistsAndPublishes(t *testing.T) {
 	case snap := <-ch:
 		assert.Equal(t, "0 */6 * * *", snap.Cron.Schedule)
 		assert.Len(t, snap.Instances, 1)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected snapshot on bus within 100ms")
+	}
+}
+
+func TestUpdate_MediaDirect_RoundTrips(t *testing.T) {
+	t.Parallel()
+	uc, _, ch := setup(t)
+	in := validInput()
+	in.MediaDirect = true
+	out, _, err := uc.Update(context.Background(), in, nil)
+	require.NoError(t, err)
+	assert.True(t, out.MediaDirect, "output must carry media_direct")
+	select {
+	case snap := <-ch:
+		assert.True(t, snap.MediaDirect, "published snapshot must carry media_direct")
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected snapshot on bus within 100ms")
 	}

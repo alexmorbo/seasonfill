@@ -177,7 +177,8 @@ func dtoToInput(d dto.RuntimeConfigDTO) (runtimeconfig.Input, error) {
 			ShutdownGrace: shutdown,
 			CooldownSweep: sweep,
 		},
-		DryRun: d.DryRun,
+		DryRun:      d.DryRun,
+		MediaDirect: d.MediaDirect,
 		GlobalRateLimit: runtimeconfig.GlobalRateLimitInput{
 			RPM: d.GlobalRateLimit.RPM, Burst: d.GlobalRateLimit.Burst,
 		},
@@ -237,7 +238,8 @@ func outputToDTO(out runtimeconfig.Output) dto.RuntimeConfigDTO {
 			ShutdownGrace: out.Scan.ShutdownGrace.String(),
 			CooldownSweep: out.Scan.CooldownSweep.String(),
 		},
-		DryRun: out.DryRun,
+		DryRun:      out.DryRun,
+		MediaDirect: out.MediaDirect,
 		GlobalRateLimit: dto.RuntimeRateLimitDTO{
 			RPM: out.GlobalRateLimit.RPM, Burst: out.GlobalRateLimit.Burst,
 		},

@@ -6402,6 +6402,12 @@ export type components = {
              *     Always emitted as `[]` when no rules are configured (never null).
              */
             readonly guid_rewrites?: readonly components["schemas"]["dto.GUIDRewriteDTO"][];
+            /**
+             * @description MediaDirect (M1, ADR-0014 §П25) — global media direct/proxy toggle.
+             *     false = proxy blobs through the pod (default); true = 302 to TMDB.
+             * @example false
+             */
+            readonly media_direct?: boolean;
             readonly scan?: components["schemas"]["dto.RuntimeScanDTO"];
             readonly updated_at?: string;
         };

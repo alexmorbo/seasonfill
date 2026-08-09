@@ -1299,6 +1299,8 @@ export const en = {
         section: 'Defaults & limits',
         dryRun: 'Dry run by default',
         dryRunHint: 'Scans evaluate decisions but never call Sonarr grab endpoints.',
+        mediaDirect: 'Images: direct from TMDB',
+        mediaDirectHint: 'On — 302 to image.tmdb.org (clients fetch posters directly, bypassing the proxy; requires client access to TMDB). Off — via proxy.',
         rpm: 'Global rate limit (rpm)',
         burst: 'Burst',
         rpmHint: 'Set rpm = 0 to disable the global limiter.',

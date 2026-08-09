@@ -259,6 +259,7 @@ func BuildRuntimeConfig(
 
 	snap := runtime.Snapshot{
 		Cron: row.Cron, Scan: row.Scan, DryRun: row.DryRun,
+		MediaDirect:     row.MediaDirect,
 		GlobalRateLimit: row.GlobalRateLimit, Auth: row.Auth,
 		Instances: instances,
 	}
@@ -633,6 +634,12 @@ type SubscriberDeps struct {
 	// ClientSecretEnv is the OIDC client_secret env override forwarded to
 	// the AuthMiddlewareSubscriber. From bootCfg.Auth.OIDCClientSecret.
 	ClientSecretEnv string
+	// MediaDirectApply is the media handler's SetMediaDirect method value,
+	// injected so the MediaDirectSubscriber can push the app_config
+	// media_direct flag on every publish without this package importing the
+	// mediaproxy REST layer. nil-OK (minimal wirings): the subscriber's
+	// apply then no-ops.
+	MediaDirectApply func(bool)
 }
 
 // StartSubscribers launches every reload subscriber under bgWG and
@@ -689,11 +696,15 @@ func StartSubscribers(
 	// (ptr, engine, logger, runtimeRepo, clientSecretEnv) per
 	// infrastructure/reload/auth_middleware_subscriber.go — preserved
 	// verbatim from the pre-344 call site.
+	// M1 (ADR-0014 §П25) — media_direct hot-reload subscriber. Always
+	// registered; deps.MediaDirectApply is nil-OK so a minimal wiring
+	// simply no-ops on publish.
+	subMedia := reload.NewMediaDirectSubscriber(deps.MediaDirectApply, log)
 
 	runners := []func(context.Context, *runtime.Bus, func()){
-		subSched.Run, subClients.Run, subRate.Run, subAuth.Run,
+		subSched.Run, subClients.Run, subRate.Run, subAuth.Run, subMedia.Run,
 	}
-	names := []string{"scheduler", "sonarrClients", "globalRateLimiter", "authMiddleware"}
+	names := []string{"scheduler", "sonarrClients", "globalRateLimiter", "authMiddleware", "mediaDirect"}
 
 	ready := make([]chan struct{}, len(runners))
 	for i := range ready {

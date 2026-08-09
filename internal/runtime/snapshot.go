@@ -6,9 +6,12 @@ import (
 )
 
 type Snapshot struct {
-	Cron            CronSnapshot
-	Scan            ScanSnapshot
-	DryRun          bool
+	Cron   CronSnapshot
+	Scan   ScanSnapshot
+	DryRun bool
+	// MediaDirect (M1) — global media direct/proxy toggle. Consumed by the
+	// MediaDirectSubscriber → media handler. Zero value false = proxy.
+	MediaDirect     bool
 	GlobalRateLimit RateLimitSnapshot
 	Auth            AuthSnapshot
 	Instances       []InstanceSnapshot

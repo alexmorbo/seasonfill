@@ -13,9 +13,12 @@ import (
 // the repo and its callers (no DB model leaks). UpdatedAt sources the
 // Last-Modified header on the HTTP GET (027c).
 type RuntimeConfigRow struct {
-	Cron                       runtime.CronSnapshot
-	Scan                       runtime.ScanSnapshot
-	DryRun                     bool
+	Cron   runtime.CronSnapshot
+	Scan   runtime.ScanSnapshot
+	DryRun bool
+	// MediaDirect (M1) — app_config.media_direct column round-tripped
+	// through the runtime-config GET/PUT path. false = proxy default.
+	MediaDirect                bool
 	GlobalRateLimit            runtime.RateLimitSnapshot
 	Auth                       runtime.AuthSnapshot
 	OIDCClientSecretCiphertext []byte
