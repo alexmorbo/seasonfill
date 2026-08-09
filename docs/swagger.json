@@ -4452,6 +4452,55 @@
                 },
                 "type": "object"
             },
+            "rest.followListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/rest.followedItemResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "rest.followRequest": {
+                "properties": {
+                    "series_id": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "rest.followedItemResponse": {
+                "properties": {
+                    "followed_at": {
+                        "example": "2026-08-09T12:00:00Z",
+                        "type": "string"
+                    },
+                    "poster_asset": {
+                        "example": "/abc.jpg",
+                        "type": "string"
+                    },
+                    "series_id": {
+                        "example": 140,
+                        "type": "integer"
+                    },
+                    "title": {
+                        "example": "Game of Thrones",
+                        "type": "string"
+                    },
+                    "tmdb_id": {
+                        "example": 1399,
+                        "type": "integer"
+                    },
+                    "year": {
+                        "example": 2011,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "rest.monitorSeasonResponse": {
                 "properties": {
                     "instance": {
@@ -6357,6 +6406,192 @@
                 "summary": "Test external service connectivity",
                 "tags": [
                     "external-services"
+                ]
+            }
+        },
+        "/follow": {
+            "get": {
+                "description": "Returns the follow/watchlist as minimal cards, newest first.\nThe FE derives per-series follow-state from the returned series_ids.",
+                "parameters": [
+                    {
+                        "description": "Preferred language tag (e.g. ru-RU); falls back to en-US then canon",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/rest.followListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "List followed series (watchlist)",
+                "tags": [
+                    "follow"
+                ]
+            },
+            "post": {
+                "description": "Adds the canonical series to the global follow/watchlist and\nenrolls it into full enrichment. Idempotent — following an\nalready-followed series returns 200. The series must already\nexist as canon (resolve a TMDB-only card via GET /series/resolve first).",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/rest.followRequest",
+                                        "summary": "body",
+                                        "description": "{\\"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "{\\",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.OKResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Follow a series (watchlist)",
+                "tags": [
+                    "follow"
+                ]
+            }
+        },
+        "/follow/{series_id}": {
+            "delete": {
+                "description": "Removes the series from the follow/watchlist. Idempotent —\nunfollowing a non-followed series returns 200.",
+                "parameters": [
+                    {
+                        "description": "Canonical series.id",
+                        "in": "path",
+                        "name": "series_id",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.OKResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Unfollow a series",
+                "tags": [
+                    "follow"
                 ]
             }
         },

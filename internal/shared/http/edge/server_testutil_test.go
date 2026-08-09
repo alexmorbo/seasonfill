@@ -49,5 +49,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
+		nil, // followHandler (ADR-0015 Ф3 C1) — nil-OK, routes omitted
 		logger)
 }

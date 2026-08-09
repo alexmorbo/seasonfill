@@ -272,6 +272,14 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/follow/ inherits the same carve-out — the FollowUseCase
+      # (app) and FollowHandler (rest) constructors accept *slog.Logger
+      # and fall back to sharedports.DomainLogger(slog.Default(),
+      # "follow"|"http") when nil (ADR-0015 Ф3 C1).
+      - path: 'internal/follow/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:

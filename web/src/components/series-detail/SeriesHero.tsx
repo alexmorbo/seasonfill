@@ -28,6 +28,7 @@ import { TrailerModal } from './TrailerModal';
 import { MonogramFallback } from '@/components/MonogramFallback';
 import { NextEpisodeCard } from './NextEpisodeCard';
 import { HeroLibraryStrip } from './HeroLibraryStrip';
+import { FollowButton } from '@/components/follow/FollowButton';
 import {
   useAddToSonarrLauncher,
   type AddToSonarrTarget,
@@ -365,6 +366,7 @@ export function SeriesHero({
                     {t('seriesDetail.hero.trailer')}
                   </Button>
                 )}
+                <FollowButton seriesId={seriesId} />
                 <Button variant="outline" size="sm" data-testid="hero-action-monitored" disabled>
                   <BookmarkCheck className="w-3.5 h-3.5" aria-hidden="true" />
                   {t('seriesDetail.hero.monitored')}

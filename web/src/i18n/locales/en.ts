@@ -1892,6 +1892,10 @@ export const en = {
     torrentRechecking: 'Recheck started',
     torrentActionFailed: 'Action failed: {{error}}',
     torrentQbitDown: 'qBittorrent unreachable — try again shortly',
+    followed: 'Added to watchlist',
+    followFailed: 'Could not follow: {{error}}',
+    unfollowed: 'Removed from watchlist',
+    unfollowFailed: 'Could not unfollow: {{error}}',
   },
   categories: {
     action_taken: 'Action taken',
@@ -2084,6 +2088,12 @@ export const en = {
         empty: 'No recent grabs',
       },
     },
+  },
+  follow: {
+    follow: 'Follow',
+    following: 'Following',
+    railTitle: 'Watchlist',
+    empty: 'Nothing followed yet.',
   },
   seriesCard: {
     open: '{{title}} — open',

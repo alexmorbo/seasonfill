@@ -25,6 +25,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
+	followrest "github.com/alexmorbo/seasonfill/internal/follow/rest"
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
@@ -115,6 +116,9 @@ func NewServer(
 	// Story 584b — optional per-language poster localizer for the global
 	// series-cache list (?lang=). nil-OK: pass-through, canon poster_hash.
 	seriesMediaLocalizer catalogrest.SeriesMediaLocalizer,
+	// ADR-0015 Ф3 C1 — follow/watchlist handler. nil-OK: the /follow routes
+	// are omitted when the handler is absent (minimal/test wirings).
+	followHandler *followrest.FollowHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -329,6 +333,13 @@ func NewServer(
 		// route is omitted when the handler is absent (minimal/test wirings).
 		if monitorSeasonHandler != nil {
 			guarded.POST("/instances/:name/series/:id/seasons/:season/monitor", monitorSeasonHandler.Post)
+		}
+		// ADR-0015 Ф3 C1 — follow/watchlist. nil-OK: routes omitted when the
+		// handler is absent (minimal/test wirings).
+		if followHandler != nil {
+			guarded.POST("/follow", followHandler.Post)
+			guarded.DELETE("/follow/:series_id", followHandler.Delete)
+			guarded.GET("/follow", followHandler.List)
 		}
 		// ADR-0013 Q2 — instance-scoped torrent actions (F-16: actions ONLY
 		// on the instance path). nil-OK: the routes are omitted when the

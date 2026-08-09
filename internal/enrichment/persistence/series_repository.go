@@ -939,7 +939,9 @@ func (r *SeriesRepository) ListLibraryWithIMDBStale(ctx context.Context, limit i
 
 // ListOrphanCandidates returns series.id rows older than cutoff that
 // have no live series_cache reference AND no series_recommendations
-// reference. Story 218 (E-2).
+// reference AND no followed_series reference. Story 218 (E-2); the
+// followed_series exclusion is ADR-0015 Ф3 C1 (F-04 data-loss guard —
+// a followed-not-in-library series must never be GC'd).
 func (r *SeriesRepository) ListOrphanCandidates(ctx context.Context, cutoff time.Time, limit int) ([]domain.SeriesID, error) {
 	if limit <= 0 {
 		limit = 1000
@@ -955,6 +957,9 @@ func (r *SeriesRepository) ListOrphanCandidates(ctx context.Context, cutoff time
 		Where(`NOT EXISTS (
 		    SELECT 1 FROM series_recommendations sr
 		     WHERE sr.recommended_series_id = s.id)`).
+		Where(`NOT EXISTS (
+		    SELECT 1 FROM followed_series fs
+		     WHERE fs.series_id = s.id)`).
 		Limit(limit).
 		Pluck("s.id", &ids).Error
 	if err != nil {

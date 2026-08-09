@@ -1,4 +1,4 @@
-h1:OW2cG84GoZxzJeggusOYEp9DybXQnEV/OpPGiXyOG6Y=
+h1:NFuZSXqaBiOms4orTyjjdnrrZl/JgDCRvcEKJYdgeKQ=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -89,3 +89,5 @@ h1:OW2cG84GoZxzJeggusOYEp9DybXQnEV/OpPGiXyOG6Y=
 000044_torrent_action_audit.up.sql h1:0UVmC/yQwRwsDYQBifdz3G3JVazHBNAGl0U4/T4U1NA=
 000045_media_direct.down.sql h1:zjvD206pfKDC3+wPs3GVV/zTlNMS6WYUt/PoVdvKQMY=
 000045_media_direct.up.sql h1:wXLKOYVlwFrp36StyrX12QGleUKmY6USNvHezBSzXhk=
+000046_followed_series.down.sql h1:1nq4Eu/xzZJh8Jd7D3Xznjx6rAQEVIXOEvy/CQwdzeE=
+000046_followed_series.up.sql h1:g3VViJ2MhAF86u6pKbxXvWMBNbJSIfw0AVf0VJGpiGs=

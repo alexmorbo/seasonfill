@@ -3,7 +3,8 @@
 // Orphan canonical `series` rows are deleted when ALL of:
 //   1. no live (deleted_at IS NULL) series_cache reference, AND
 //   2. no series_recommendations reference (as recommended_series_id), AND
-//   3. created_at < now - 90d (PRD §5.8 grace).
+//   3. no followed_series reference (ADR-0015 Ф3 C1 — F-04 data-loss guard), AND
+//   4. created_at < now - 90d (PRD §5.8 grace).
 //
 // Deletion is HARD — the canon row goes. Texts / seasons / episodes /
 // people-joins / taxonomy joins are dropped by the application via
@@ -35,7 +36,8 @@ type OrphanSeriesDeps struct {
 type OrphanSeriesRepo interface {
 	// ListOrphanCandidates returns series.id rows that have NO live
 	// series_cache reference AND NO series_recommendations reference
-	// AND created_at < cutoff. Sweep callers pass cutoff = now - grace.
+	// AND NO followed_series reference AND created_at < cutoff. Sweep
+	// callers pass cutoff = now - grace.
 	ListOrphanCandidates(ctx context.Context, cutoff time.Time, limit int) ([]domain.SeriesID, error)
 	// DropSeriesCascade hard-deletes one canon series + every
 	// dependent row across the entity model. Single transaction;

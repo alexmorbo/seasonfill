@@ -1438,6 +1438,177 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/follow": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List followed series (watchlist)
+         * @description Returns the follow/watchlist as minimal cards, newest first.
+         *     The FE derives per-series follow-state from the returned series_ids.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description Preferred language tag (e.g. ru-RU); falls back to en-US then canon */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.followListResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        /**
+         * Follow a series (watchlist)
+         * @description Adds the canonical series to the global follow/watchlist and
+         *     enrolls it into full enrichment. Idempotent — following an
+         *     already-followed series returns 200. The series must already
+         *     exist as canon (resolve a TMDB-only card via GET /series/resolve first).
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description {\ */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": Record<string, never> | components["schemas"]["rest.followRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.OKResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/follow/{series_id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        /**
+         * Unfollow a series
+         * @description Removes the series from the follow/watchlist. Idempotent —
+         *     unfollowing a non-followed series returns 200.
+         */
+        readonly delete: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description Canonical series.id */
+                    readonly series_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.OKResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/grabs": {
         readonly parameters: {
             readonly query?: never;
@@ -7428,6 +7599,26 @@ export type components = {
             readonly notification_id?: number;
             /** @example https://sf.example.com/api/v1/webhook/sonarr/homelab */
             readonly url?: string;
+        };
+        readonly "rest.followListResponse": {
+            readonly items?: readonly components["schemas"]["rest.followedItemResponse"][];
+        };
+        readonly "rest.followRequest": {
+            readonly series_id?: number;
+        };
+        readonly "rest.followedItemResponse": {
+            /** @example 2026-08-09T12:00:00Z */
+            readonly followed_at?: string;
+            /** @example /abc.jpg */
+            readonly poster_asset?: string;
+            /** @example 140 */
+            readonly series_id?: number;
+            /** @example Game of Thrones */
+            readonly title?: string;
+            /** @example 1399 */
+            readonly tmdb_id?: number;
+            /** @example 2011 */
+            readonly year?: number;
         };
         readonly "rest.monitorSeasonResponse": {
             readonly instance?: string;

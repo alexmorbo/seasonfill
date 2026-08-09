@@ -1890,6 +1890,10 @@ export const ru: Translations = {
     torrentRechecking: 'Перепроверка запущена',
     torrentActionFailed: 'Действие не удалось: {{error}}',
     torrentQbitDown: 'qBittorrent недоступен — попробуйте чуть позже',
+    followed: 'Добавлено в отслеживаемые',
+    followFailed: 'Не удалось подписаться: {{error}}',
+    unfollowed: 'Убрано из отслеживаемых',
+    unfollowFailed: 'Не удалось отписаться: {{error}}',
   },
   categories: {
     action_taken: 'Действие выполнено',
@@ -2082,6 +2086,12 @@ export const ru: Translations = {
         empty: 'Нет недавних grab’ов',
       },
     },
+  },
+  follow: {
+    follow: 'Следить',
+    following: 'Слежу',
+    railTitle: 'Слежу',
+    empty: 'Пока ничего нет.',
   },
   seriesCard: {
     open: '{{title}} — открыть',

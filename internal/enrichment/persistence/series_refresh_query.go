@@ -34,16 +34,17 @@ type RefreshCandidate struct {
 }
 
 // PickRefreshCandidates returns up to `limit` candidates across all
-// four tiers, ordered by priority (changed → hot → normal → cold) and
-// within-tier by staleness ascending (NULL first, then oldest first).
+// five tiers, ordered by priority (changed → hot → followed → normal → cold)
+// and within-tier by staleness ascending (NULL first, then oldest first).
 //
 // Tier semantics:
 //   - CHANGED (tier 0): tmdb_id IS NOT NULL AND tmdb_changed_at marks the
 //     series as changed-pending (§5.4). Library-wide — NO series_cache /
 //     discovery_lists membership constraint; TMDB /tv/changes is sole truth.
-//   - HOT: EXISTS in series_cache (deleted_at IS NULL).
-//   - NORMAL: EXISTS in discovery_lists AND NOT in HOT.
-//   - COLD: tmdb_id IS NOT NULL AND NOT in HOT AND NOT in NORMAL.
+//   - HOT (tier 1): EXISTS in series_cache (deleted_at IS NULL).
+//   - FOLLOWED (tier 2, ADR-0015 C1): EXISTS in followed_series AND NOT in HOT.
+//   - NORMAL (tier 3): EXISTS in discovery_lists AND NOT in HOT AND NOT FOLLOWED.
+//   - COLD (tier 4): tmdb_id IS NOT NULL AND NOT in HOT/FOLLOWED/NORMAL.
 //
 // All four tiers require:
 //   - series.tmdb_id IS NOT NULL (TMDB-enrichable),
@@ -134,6 +135,7 @@ func (r *SeriesRepository) PickRefreshCandidates(
 		limit = 50
 	}
 	hotCutoff := now.UTC().Add(-ttl.Hot)
+	followedCutoff := now.UTC().Add(-ttl.Followed) // ADR-0015 C1 — Followed tier (10d)
 	normalCutoff := now.UTC().Add(-ttl.Normal)
 	coldCutoff := now.UTC().Add(-ttl.Cold)
 	// W17-1 poster-branch race guard: a series stamped inside the last
@@ -220,6 +222,11 @@ SELECT * FROM (
         WHERE ee.entity_type = 'series' AND ee.entity_id = s.id
           AND ee.source = ? AND ee.attempts > 5)
   UNION ALL
+  -- FOLLOWED (tier 2, ADR-0015 C1): on the watchlist (followed_series) but NOT
+  -- in any library. Hot wins for followed+in-library (that row matches the HOT
+  -- arm's EXISTS series_cache and this arm's NOT EXISTS series_cache excludes it
+  -- here). Followed wins over Normal/Cold (those arms now NOT EXISTS followed_series).
+  -- Mirrors the NORMAL arm's TTL/heal/tvdb predicate with followedCutoff.
   SELECT s.id, 2, s.enrichment_tmdb_synced_at, 0,
          CASE WHEN s.enrichment_tmdb_synced_at < ?
               AND EXISTS (
@@ -249,11 +256,11 @@ SELECT * FROM (
         OR (s.enrichment_tmdb_synced_at < ?
             AND s.tvdb_id IS NULL)
          )
+     AND EXISTS (
+       SELECT 1 FROM followed_series fs WHERE fs.series_id = s.id)
      AND NOT EXISTS (
        SELECT 1 FROM series_cache sc
         WHERE sc.series_id = s.id AND sc.deleted_at IS NULL)
-     AND EXISTS (
-       SELECT 1 FROM discovery_lists dl WHERE dl.series_id = s.id)
      AND NOT EXISTS (
        SELECT 1 FROM enrichment_errors ee
         WHERE ee.entity_type = 'series' AND ee.entity_id = s.id
@@ -291,8 +298,51 @@ SELECT * FROM (
      AND NOT EXISTS (
        SELECT 1 FROM series_cache sc
         WHERE sc.series_id = s.id AND sc.deleted_at IS NULL)
+     AND EXISTS (
+       SELECT 1 FROM discovery_lists dl WHERE dl.series_id = s.id)
+     AND NOT EXISTS (
+       SELECT 1 FROM followed_series fs WHERE fs.series_id = s.id)
+     AND NOT EXISTS (
+       SELECT 1 FROM enrichment_errors ee
+        WHERE ee.entity_type = 'series' AND ee.entity_id = s.id
+          AND ee.source = ? AND ee.attempts > 5)
+  UNION ALL
+  SELECT s.id, 4, s.enrichment_tmdb_synced_at, 0,
+         CASE WHEN s.enrichment_tmdb_synced_at < ?
+              AND EXISTS (
+                SELECT 1 FROM person_credits pc
+                 WHERE pc.media_type = 'tv' AND pc.tmdb_media_id = s.tmdb_id)
+              AND NOT EXISTS (
+                SELECT 1 FROM person_credits pc2
+                 WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
+                   AND pc2.last_appearance_season IS NOT NULL)
+              THEN 1 ELSE 0 END AS heal
+    FROM series s
+   WHERE s.tmdb_id IS NOT NULL
+     AND NOT (s.tmdb_changed_at IS NOT NULL
+              AND (s.enrichment_tmdb_synced_at IS NULL
+                   OR s.enrichment_tmdb_synced_at < s.tmdb_changed_at))
+     AND (
+           s.enrichment_tmdb_synced_at IS NULL
+        OR s.enrichment_tmdb_synced_at < ?
+        OR (s.enrichment_tmdb_synced_at < ?
+            AND EXISTS (
+              SELECT 1 FROM person_credits pc
+               WHERE pc.media_type = 'tv' AND pc.tmdb_media_id = s.tmdb_id)
+            AND NOT EXISTS (
+              SELECT 1 FROM person_credits pc2
+               WHERE pc2.media_type = 'tv' AND pc2.tmdb_media_id = s.tmdb_id
+                 AND pc2.last_appearance_season IS NOT NULL))
+        OR (s.enrichment_tmdb_synced_at < ?
+            AND s.tvdb_id IS NULL)
+         )
+     AND NOT EXISTS (
+       SELECT 1 FROM series_cache sc
+        WHERE sc.series_id = s.id AND sc.deleted_at IS NULL)
      AND NOT EXISTS (
        SELECT 1 FROM discovery_lists dl WHERE dl.series_id = s.id)
+     AND NOT EXISTS (
+       SELECT 1 FROM followed_series fs WHERE fs.series_id = s.id)
      AND NOT EXISTS (
        SELECT 1 FROM enrichment_errors ee
         WHERE ee.entity_type = 'series' AND ee.entity_id = s.id
@@ -324,6 +374,10 @@ LIMIT ?
 			// then WHERE normal (hotCutoff), poster (posterGuardCutoff),
 			// heal (healGuardCutoff), tvdb-heal (healGuardCutoff), errSrc.
 			hotCutoff, healGuardCutoff, hotCutoff, posterGuardCutoff, healGuardCutoff, healGuardCutoff, errSrc,
+			// FOLLOWED tier-2 (ADR-0015 C1): heal CASE (healGuardCutoff),
+			// WHERE followed (followedCutoff), heal (healGuardCutoff),
+			// tvdb-heal (healGuardCutoff), errSrc.
+			healGuardCutoff, followedCutoff, healGuardCutoff, healGuardCutoff, errSrc,
 			// NORMAL: heal CASE (healGuardCutoff), WHERE normal (normalCutoff),
 			// heal (healGuardCutoff), tvdb-heal (healGuardCutoff), errSrc.
 			healGuardCutoff, normalCutoff, healGuardCutoff, healGuardCutoff, errSrc,

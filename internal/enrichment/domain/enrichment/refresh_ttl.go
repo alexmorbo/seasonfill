@@ -24,31 +24,30 @@ import "time"
 type RefreshTier int
 
 const (
-	// RefreshTierChanged — series that TMDB /tv/changes flagged as changed
-	// (series.tmdb_changed_at set, enrichment_tmdb_synced_at not yet caught
-	// up). Value 0 so it sorts FIRST in the tiered picker. Not a TTL tier:
-	// RefreshTTL.For never returns a duration for it (the picker's tier-0
-	// arm is gated on the changed-pending predicate, not a cutoff).
+	// RefreshTierChanged — TMDB /tv/changes flagged. Value 0 → drains first.
 	RefreshTierChanged RefreshTier = 0
-	// RefreshTierHot — series present in at least one Sonarr library
-	// (series_cache row exists, deleted_at IS NULL). User cares most.
+	// RefreshTierHot — present in ≥1 Sonarr library (series_cache row live).
 	RefreshTierHot RefreshTier = 1
-	// RefreshTierNormal — series referenced by discovery_lists rows
-	// (user-visible discovery rails). User likely to view soon.
-	RefreshTierNormal RefreshTier = 2
-	// RefreshTierCold — every other TMDB-enrichable series in DB
-	// (legacy stubs, recommendations cache). Refresh, but rarely.
-	RefreshTierCold RefreshTier = 3
+	// RefreshTierFollowed — on the follow/watchlist (followed_series row) but
+	// NOT in any library. Sits between Hot and Normal so a followed-not-in-
+	// library series keeps a tight refresh cadence (F-04: else its air_date
+	// decays to Cold-TTL and the calendar rots).
+	RefreshTierFollowed RefreshTier = 2
+	// RefreshTierNormal — referenced by discovery_lists (user-visible rails).
+	RefreshTierNormal RefreshTier = 3
+	// RefreshTierCold — every other TMDB-enrichable series. Refresh, but rarely.
+	RefreshTierCold RefreshTier = 4
 )
 
-// String returns the label used in metric tags and slog attrs. Must
-// stay low-cardinality (4 values) — never include a series id here.
+// String returns the low-cardinality metric/slog label (5 values now).
 func (t RefreshTier) String() string {
 	switch t {
 	case RefreshTierChanged:
 		return "changed"
 	case RefreshTierHot:
 		return "hot"
+	case RefreshTierFollowed:
+		return "followed"
 	case RefreshTierNormal:
 		return "normal"
 	case RefreshTierCold:
@@ -61,34 +60,33 @@ func (t RefreshTier) String() string {
 // RefreshTTL is the per-tier freshness window. A series is considered
 // "stale" when enrichment_tmdb_synced_at IS NULL OR < now - TTL.
 type RefreshTTL struct {
-	Hot    time.Duration
-	Normal time.Duration
-	Cold   time.Duration
+	Hot      time.Duration
+	Followed time.Duration
+	Normal   time.Duration
+	Cold     time.Duration
 }
 
-// DefaultRefreshTTL is the production schedule. Tuned for ~50 series
-// per 30-min tick assuming a steady-state library of a few thousand:
-//   - Hot 7d  → 95% library refreshed weekly on small libraries.
-//   - Normal 14d → discovery rails see refreshes biweekly.
-//   - Cold 30d → stubs hit once a month; floor against unbounded growth.
+// DefaultRefreshTTL is the production schedule.
+//   - Hot 7d, Followed 10d (tighter than Normal — the user explicitly asked
+//     to track these), Normal 14d, Cold 30d.
 func DefaultRefreshTTL() RefreshTTL {
 	return RefreshTTL{
-		Hot:    7 * 24 * time.Hour,
-		Normal: 14 * 24 * time.Hour,
-		Cold:   30 * 24 * time.Hour,
+		Hot:      7 * 24 * time.Hour,
+		Followed: 10 * 24 * time.Hour,
+		Normal:   14 * 24 * time.Hour,
+		Cold:     30 * 24 * time.Hour,
 	}
 }
 
-// For returns the per-tier duration; falls through to Cold when the
-// tier is unrecognised so a misconfigured caller cannot accidentally
-// schedule a 0-TTL ("refresh everything every tick") sweep.
-// RefreshTierChanged has no TTL (the picker's tier-0 arm is gated on the
-// changed-pending predicate, not a cutoff), so it intentionally has no
-// case here — a caller must never pass it to For.
+// For returns the per-tier duration; unknown/Changed fall through to Cold so a
+// misconfigured caller cannot schedule a 0-TTL sweep. (Changed has no TTL — the
+// picker gates it on the changed-pending predicate, not a cutoff.)
 func (t RefreshTTL) For(tier RefreshTier) time.Duration {
 	switch tier {
 	case RefreshTierHot:
 		return t.Hot
+	case RefreshTierFollowed:
+		return t.Followed
 	case RefreshTierNormal:
 		return t.Normal
 	case RefreshTierCold:

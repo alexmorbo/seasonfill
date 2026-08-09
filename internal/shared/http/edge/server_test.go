@@ -333,6 +333,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
+		nil, // followHandler (ADR-0015 Ф3 C1)
 		lg)
 }
 
@@ -406,6 +407,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
+		nil, // followHandler (ADR-0015 Ф3 C1)
 		lg)
 }
 
@@ -486,6 +488,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
+		nil, // followHandler (ADR-0015 Ф3 C1)
 		lg)
 }
 
@@ -713,6 +716,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
+		nil, // followHandler (ADR-0015 Ф3 C1)
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

@@ -349,6 +349,12 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// (migration 000044), no FK, appended last like webhook_inbox.
 	addTorrentActionAudit(s, d)
 
+	// ADR-0015 Ф3 C1 — followed_series watchlist. Standalone single table
+	// (migration 000046), FK series_id → series(id) CASCADE. FK target
+	// `series` is present (addCoreSeries ran first). No dev-time skip flag —
+	// it is the newest migration and nothing splits a later migration off it.
+	addFollowedSeries(s, d)
+
 	return s
 }
 
@@ -388,6 +394,39 @@ func buildTorrentActionAuditTable(d Dialect) *atlasschema.Table {
 		AddIndexes(
 			atlasschema.NewIndex("torrent_action_audit_hash_created_idx").
 				AddColumns(hash, createdAt),
+		)
+}
+
+// addFollowedSeries appends followed_series to s. Standalone single-table
+// migration (000046, ADR-0015 Ф3 C1). FK series_id → series(id) CASCADE:
+// a followed row is meaningless once its canon series is hard-dropped by
+// OrphanSeries-GC, so it cascades (same "dead-without-parent" family as
+// discovery_lists / series_recommendations).
+func addFollowedSeries(s *atlasschema.Schema, d Dialect) {
+	series := mustTable(s, "series")
+	s.AddTables(buildFollowedSeriesTable(d, series))
+}
+
+// buildFollowedSeriesTable returns followed_series — 2 cols. series_id is
+// BOTH the primary key and the FK to series(id) (one watchlist row per
+// canon series; global pre-RBAC — a user_id column arrives in Фаза 8).
+// created_at defaults to now() (pg) / CURRENT_TIMESTAMP (sqlite). No
+// secondary index: the PK covers the point read (follow-state) and the
+// ListFollowed sweep is a full bounded scan ordered by created_at.
+func buildFollowedSeriesTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+	seriesID := fkColumn(d, "series_id", false /* not null */)
+	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("followed_series").
+		AddColumns(seriesID, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("followed_series_series_id_fkey").
+				AddColumns(seriesID).
+				SetRefTable(seriesTable).
+				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
 		)
 }
 

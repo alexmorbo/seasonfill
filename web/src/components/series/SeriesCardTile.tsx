@@ -7,6 +7,7 @@ import { formatSeriesTitle } from '@/lib/title';
 import type { SeriesCacheItem } from '@/lib/api/seriesCache';
 import { MediaImage } from '@/components/MediaImage';
 import { SonarrLink } from '@/components/SonarrLink';
+import { FollowButton } from '@/components/follow/FollowButton';
 import { useInstancePublicURL } from '@/lib/useInstancePublicURL';
 
 export interface SeriesCardTileProps {
@@ -122,6 +123,17 @@ export function SeriesCardTile({ item }: SeriesCardTileProps) {
         size="sm"
         className="absolute z-30 bottom-2.5 right-2.5"
       />
+
+      {typeof item.series_id === 'number' && (
+        <div
+          className="absolute z-30 top-2.5 left-2.5"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          role="presentation"
+        >
+          <FollowButton seriesId={item.series_id} variant="compact" />
+        </div>
+      )}
 
       {/* import status chip (top-right) */}
       <span

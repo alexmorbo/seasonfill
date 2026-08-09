@@ -27,6 +27,7 @@ var AllowedDomains = map[string]struct{}{
 	"boot":       {},
 	"gc":         {},
 	"shutdown":   {},
+	"follow":     {}, // ADR-0015 Ф3 C1 — follow/watchlist bounded context.
 
 	"catalog_counts":          {},
 	"library_poster_coverage": {},

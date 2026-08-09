@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { mediaUrl, SENTINEL_MISSING_HASH } from '@/api/series';
 import { formatSeriesTitle } from '@/lib/title';
 import { MediaImage } from '@/components/MediaImage';
+import { FollowButton } from '@/components/follow/FollowButton';
 import { useResolveSeriesNav } from './useResolveSeriesNav';
 
 export interface SeriesCardProps {
@@ -29,6 +30,10 @@ export interface SeriesCardProps {
   readonly characterName?: string | undefined;
   /** Extra slot below the meta line (instance label / dept pill). */
   readonly footer?: ReactNode | undefined;
+  /** Opt-in compact follow toggle as a poster overlay. Only rendered when a
+   *  canon `seriesId` is present. Off by default so surfaces without a
+   *  QueryClient (and the base SeriesCard tests) are unaffected. */
+  readonly showFollowButton?: boolean | undefined;
   readonly className?: string | undefined;
 }
 
@@ -115,6 +120,7 @@ export function SeriesCard({
   libraryBadge,
   characterName,
   footer,
+  showFollowButton,
   className,
 }: SeriesCardProps) {
   const { t } = useTranslation();
@@ -212,7 +218,7 @@ export function SeriesCard({
   );
 
   if (hasDirectId) {
-    return (
+    const link = (
       <Link
         to={`/series/${seriesId}`}
         data-testid="series-card"
@@ -222,6 +228,23 @@ export function SeriesCard({
       >
         {body}
       </Link>
+    );
+    if (!showFollowButton) return link;
+    // Overlay must be a SIBLING of the anchor (not a descendant) — a <button>
+    // nested inside an <a> is invalid HTML. stopPropagation keeps a follow
+    // click from bubbling into card navigation.
+    return (
+      <div className="relative">
+        {link}
+        <div
+          className="absolute left-2 top-2 z-30"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          role="presentation"
+        >
+          <FollowButton seriesId={seriesId as number} variant="compact" />
+        </div>
+      </div>
     );
   }
 

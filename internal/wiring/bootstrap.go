@@ -853,6 +853,21 @@ func BuildHTTPServer(
 	smartListsRepo := catalogpersistence.NewSmartListsRepository(persistence.DB)
 	// Story I-5 — read-only curated collections query repo.
 	collectionsRepo := catalogpersistence.NewCollectionsRepository(persistence.DB)
+	// ADR-0015 Ф3 C1 — follow/watchlist bundle. Reuses the enrichment series
+	// reader (Get) + the seriesdetail OnDemandEnricher (same instance
+	// ResolveUseCase enrolls through) — no new enrichment logic. NewFollowBundle
+	// only errors on a nil dep (programmer error), so a wiring failure panics
+	// like the other BuildHTTPServer nil-dep guards.
+	followSeriesReader := enrichpersistence.NewSeriesRepository(persistence.DB)
+	followBundle, err := NewFollowBundle(
+		persistence.DB,
+		followSeriesReader,
+		seriesDetailBundle.OnDemandEnricherHolder,
+		log,
+	)
+	if err != nil {
+		panic("BuildHTTPServer: wire follow bundle: " + err.Error())
+	}
 	srv := httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -914,6 +929,7 @@ func BuildHTTPServer(
 		seriesDetailBundle.ETagFreshness,
 		seriesTitleLocalizer,
 		seriesMediaLocalizer,
+		followBundle.Handler, // ADR-0015 Ф3 C1
 		log,
 	)
 	return srv, instanceMetadataBundle

@@ -236,6 +236,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"external_ids",
 	"external_service_config",
 	"external_service_quota_state",
+	"followed_series",
 	"genres",
 	"genres_i18n",
 	"grab_records",

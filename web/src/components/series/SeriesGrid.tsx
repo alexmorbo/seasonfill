@@ -60,6 +60,7 @@ export function SeriesGrid({
             posterHash={item.poster_hash}
             rating={item.tmdb_rating}
             missingCount={item.missing_count}
+            showFollowButton
           />
         ))}
         {isFetchingNextPage && (
