@@ -77,6 +77,7 @@ func seedStatsSeriesNetwork(t *testing.T, db *gorm.DB, seriesID domain.SeriesID,
 
 func seedStatsGrab(t *testing.T, db *gorm.DB, instance string, status grab.Status) {
 	t.Helper()
+	seedSonarrInstance(t, db, domain.InstanceName(instance)) // FK parent for grab_records_instance_name_fkey
 	require.NoError(t, db.Create(&database.GrabRecordModel{
 		ID:           uuid.NewString(),
 		InstanceName: domain.InstanceName(instance),
@@ -88,6 +89,7 @@ func seedStatsGrab(t *testing.T, db *gorm.DB, instance string, status grab.Statu
 
 func seedStatsTorrent(t *testing.T, db *gorm.DB, instance, hash string, uploaded, downloaded int64, ratio float64, present bool) {
 	t.Helper()
+	seedSonarrInstance(t, db, domain.InstanceName(instance)) // FK parent for qbit_torrents_instance_name_fkey
 	require.NoError(t, db.Create(&database.QbitTorrentModel{
 		InstanceName: domain.InstanceName(instance),
 		Hash:         hash,
