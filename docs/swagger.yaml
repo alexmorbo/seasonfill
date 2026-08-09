@@ -2828,6 +2828,63 @@ components:
           example: admin
           type: string
       type: object
+    dto.SmartListSeriesDTO:
+      properties:
+        last_aired_at:
+          type: string
+        missing_count:
+          example: 5
+          type: integer
+        next_air_date:
+          type: string
+        series_id:
+          example: 42
+          type: integer
+        sonarr_id:
+          example: 31
+          type: integer
+        title:
+          example: The Expanse
+          type: string
+      type: object
+    dto.SmartListsInstanceDTO:
+      properties:
+        instance_name:
+          example: main
+          type: string
+        shelves:
+          items:
+            $ref: '#/components/schemas/dto.SmartShelfDTO'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.SmartListsReportDTO:
+      properties:
+        generated_at:
+          type: string
+        instances:
+          items:
+            $ref: '#/components/schemas/dto.SmartListsInstanceDTO'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.SmartShelfDTO:
+      properties:
+        count:
+          example: 7
+          type: integer
+        key:
+          example: ended_incomplete
+          type: string
+        series:
+          items:
+            $ref: '#/components/schemas/dto.SmartListSeriesDTO'
+          type: array
+          uniqueItems: false
+        title:
+          example: Ended with gaps
+          type: string
+      type: object
     dto.StatsGrabSuccessDTO:
       properties:
         failed:
@@ -4834,6 +4891,46 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Catalog health dashboard
+      tags:
+      - insights
+  /insights/lists:
+    get:
+      description: |-
+        Curated read-only "smart lists" per Sonarr instance: ended
+        series with library gaps, series returning soon (next episode
+        within 35 days), and returning series on hiatus (last aired
+        > 90 days, no scheduled next airing). Each shelf carries an
+        exact match count and a bounded top-50 series slice. Optional
+        ?instance= scopes the report to a single instance.
+      parameters:
+      - description: scope the report to a single Sonarr instance
+        in: query
+        name: instance
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.SmartListsReportDTO'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Smart lists
       tags:
       - insights
   /insights/stats:

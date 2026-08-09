@@ -1745,6 +1745,71 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/insights/lists": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Smart lists
+         * @description Curated read-only "smart lists" per Sonarr instance: ended
+         *     series with library gaps, series returning soon (next episode
+         *     within 35 days), and returning series on hiatus (last aired
+         *     > 90 days, no scheduled next airing). Each shelf carries an
+         *     exact match count and a bounded top-50 series slice. Optional
+         *     ?instance= scopes the report to a single instance.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description scope the report to a single Sonarr instance */
+                    readonly instance?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.SmartListsReportDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/insights/stats": {
         readonly parameters: {
             readonly query?: never;
@@ -6802,6 +6867,36 @@ export type components = {
             readonly ok?: boolean;
             /** @example admin */
             readonly username?: string;
+        };
+        readonly "dto.SmartListSeriesDTO": {
+            readonly last_aired_at?: string;
+            /** @example 5 */
+            readonly missing_count?: number;
+            readonly next_air_date?: string;
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @example 31 */
+            readonly sonarr_id?: number;
+            /** @example The Expanse */
+            readonly title?: string;
+        };
+        readonly "dto.SmartListsInstanceDTO": {
+            /** @example main */
+            readonly instance_name?: string;
+            readonly shelves?: readonly components["schemas"]["dto.SmartShelfDTO"][];
+        };
+        readonly "dto.SmartListsReportDTO": {
+            readonly generated_at?: string;
+            readonly instances?: readonly components["schemas"]["dto.SmartListsInstanceDTO"][];
+        };
+        readonly "dto.SmartShelfDTO": {
+            /** @example 7 */
+            readonly count?: number;
+            /** @example ended_incomplete */
+            readonly key?: string;
+            readonly series?: readonly components["schemas"]["dto.SmartListSeriesDTO"][];
+            /** @example Ended with gaps */
+            readonly title?: string;
         };
         readonly "dto.StatsGrabSuccessDTO": {
             /** @example 21 */
