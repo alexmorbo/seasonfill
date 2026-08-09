@@ -12,6 +12,7 @@ import { Grabs } from '@/pages/Grabs';
 import { Watchdog } from '@/pages/Watchdog';
 import { Health } from '@/pages/Health';
 import { Gaps } from '@/pages/Gaps';
+import { Calendar } from '@/pages/Calendar';
 import { Stats } from '@/pages/Stats';
 import { Lists } from '@/pages/Lists';
 import { Collections } from '@/pages/Collections';
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
       { path: '/series/:instance/:id/cast', element: <LegacySeriesRedirect kind="cast" /> },
       { path: '/person/:tmdbId',            element: <Person /> },
       { path: '/discovery', element: <DiscoveryPage /> },
+      { path: '/calendar',  element: <Calendar /> },
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/health',    element: <Health /> },
       { path: '/gaps',      element: <Gaps /> },

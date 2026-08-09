@@ -21,6 +21,7 @@ import {
   BarChart3,
   Sparkles,
   Layers,
+  CalendarDays,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -46,6 +47,7 @@ const OVERVIEW: Item[] = [
   { to: "/", end: true, icon: LayoutDashboard, key: "dashboard" },
   { to: "/series", icon: Library, key: "series" },
   { to: "/discovery", icon: Compass, key: "discovery" },
+  { to: "/calendar", icon: CalendarDays, key: "calendar" },
 ]
 const SETUP: Item[] = [
   { to: "/instances", icon: Server, key: "instances" },

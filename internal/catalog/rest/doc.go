@@ -18,6 +18,7 @@
 //   - GET  /api/v1/insights/health                         (catalog health dashboard)
 //   - GET  /api/v1/insights/gaps                           (library gap detector)
 //   - GET  /api/v1/insights/stats                          (library statistics)
+//   - GET  /api/v1/calendar                                (release calendar)
 //   - GET  /api/v1/runtime-config                          (runtime config get)
 //   - PATCH /api/v1/runtime-config                         (runtime config update)
 //   - POST /api/v1/webhook/sonarr/:instance_name           (inbound Sonarr webhook)

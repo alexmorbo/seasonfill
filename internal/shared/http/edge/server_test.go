@@ -307,7 +307,7 @@ func buildServer(t *testing.T) *Server {
 		&stubAdminRepo{}, nil, nil,
 		catalogrest.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
-		nil, nil, nil, nil, nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (I-1a), gapRepo (I-2a), statsRepo (I-4), smartListsRepo (I-3), collectionsRepo (I-5)
+		nil, nil, nil, nil, nil, nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (I-1a), gapRepo (I-2a), statsRepo (I-4), smartListsRepo (I-3), collectionsRepo (I-5), calendarRepo (S2)
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		nil,      // mediaHandler (Story 214 F-1)
 		nil,      // mediaPending (Story 352, nil-OK)
@@ -381,7 +381,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 			return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
 		}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
-		nil, nil, nil, nil, nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (I-1a), gapRepo (I-2a), statsRepo (I-4), smartListsRepo (I-3), collectionsRepo (I-5)
+		nil, nil, nil, nil, nil, nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (I-1a), gapRepo (I-2a), statsRepo (I-4), smartListsRepo (I-3), collectionsRepo (I-5), calendarRepo (S2)
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		nil,      // mediaHandler (Story 214 F-1)
 		nil,      // mediaPending (Story 352, nil-OK)
@@ -462,7 +462,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 			return map[string]scan.Instance{"main": {Config: config.SonarrInstance{Name: "main"}}}
 		}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
-		nil, nil, nil, nil, nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (I-1a), gapRepo (I-2a), statsRepo (I-4), smartListsRepo (I-3), collectionsRepo (I-5)
+		nil, nil, nil, nil, nil, nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (I-1a), gapRepo (I-2a), statsRepo (I-4), smartListsRepo (I-3), collectionsRepo (I-5), calendarRepo (S2)
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		mediaHandler, // mediaHandler (Story 214 F-1; W16-2 public route)
 		nil,          // mediaPending (Story 352, nil-OK)
@@ -690,7 +690,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		&stubAdminRepo{}, nil, nil,
 		catalogrest.InstanceRegistry{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, // cooldown, grab, rescan, instanceCRUD, instanceProbe, runtimeConfig, qbitSettings, externalServices, oidcUC, webhookReconciler, webhookStatusCache
-		nil, nil, nil, nil, nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (I-1a), gapRepo (I-2a), statsRepo (I-4), smartListsRepo (I-3), collectionsRepo (I-5)
+		nil, nil, nil, nil, nil, nil, nil, nil, // seriesCacheRepo, counterRepo, healthRepo (I-1a), gapRepo (I-2a), statsRepo (I-4), smartListsRepo (I-3), collectionsRepo (I-5), calendarRepo (S2)
 		nil, nil, nil, nil, // watchdogRollupHandler, watchdogBlacklistHandler, watchdogSeasonsHandler, webhooksAggregateHandler
 		nil,      // mediaHandler (Story 214 F-1)
 		nil,      // mediaPending (Story 352, nil-OK)

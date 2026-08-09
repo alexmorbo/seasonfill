@@ -769,6 +769,91 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/calendar": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Release calendar
+         * @description Release calendar over TMDB episode air dates (covers library
+         *     AND followed series). Days group events by UTC date; each
+         *     event carries a milestone (premiere/finale/return) and a
+         *     per-episode library status. Window defaults to ±3 months
+         *     around now when from/to are omitted.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description window start (YYYY-MM-DD) */
+                    readonly from?: string;
+                    /** @description window end (YYYY-MM-DD, inclusive) */
+                    readonly to?: string;
+                    /** @description library|followed|all (default all) */
+                    readonly scope?: string;
+                    /** @description narrow library scope to one Sonarr instance */
+                    readonly instance?: string;
+                    /** @description shortcut for scope=library */
+                    readonly "only-library"?: boolean;
+                    /** @description keep only season-premiere events */
+                    readonly "only-premieres"?: boolean;
+                    /** @description preferred BCP-47 title/poster language */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.CalendarDTO"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/config/runtime": {
         readonly parameters: {
             readonly query?: never;
@@ -5220,6 +5305,41 @@ export type components = {
              * @example false
              */
             readonly oidc_ready?: boolean;
+        };
+        readonly "dto.CalendarDTO": {
+            readonly days?: readonly components["schemas"]["dto.CalendarDayDTO"][];
+            readonly from?: string;
+            readonly generated_at?: string;
+            readonly to?: string;
+        };
+        readonly "dto.CalendarDayDTO": {
+            /** @example 2026-08-09 */
+            readonly date?: string;
+            readonly events?: readonly components["schemas"]["dto.CalendarEventDTO"][];
+        };
+        readonly "dto.CalendarEventDTO": {
+            readonly air_date?: string;
+            /** @example 1 */
+            readonly episode?: number;
+            readonly in_library_instances?: readonly string[];
+            /** @example tv */
+            readonly media_type?: string;
+            /** @example premiere */
+            readonly milestone?: string;
+            /** @example abc123 */
+            readonly poster?: string;
+            /** @example 2 */
+            readonly season?: number;
+            /** @example true */
+            readonly season_premiere?: boolean;
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @example downloaded */
+            readonly state?: string;
+            /** @example The Expanse */
+            readonly title?: string;
+            /** @example 1399 */
+            readonly tmdb_id?: number;
         };
         readonly "dto.CastPageMember": {
             /**

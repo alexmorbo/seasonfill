@@ -853,6 +853,8 @@ func BuildHTTPServer(
 	smartListsRepo := catalogpersistence.NewSmartListsRepository(persistence.DB)
 	// Story I-5 — read-only curated collections query repo.
 	collectionsRepo := catalogpersistence.NewCollectionsRepository(persistence.DB)
+	// ADR-0015 Ф3 S2 — read-only release-calendar query repo.
+	calendarRepo := catalogpersistence.NewCalendarRepository(persistence.DB)
 	// ADR-0015 Ф3 C1 — follow/watchlist bundle. Reuses the enrichment series
 	// reader (Get) + the seriesdetail OnDemandEnricher (same instance
 	// ResolveUseCase enrolls through) — no new enrichment logic. NewFollowBundle
@@ -900,6 +902,7 @@ func BuildHTTPServer(
 		statsRepo,
 		smartListsRepo,
 		collectionsRepo, // Story I-5
+		calendarRepo,    // ADR-0015 Ф3 S2
 		regrabBundle.WatchdogRollupHandler,
 		regrabBundle.WatchdogBlacklistHandler,
 		regrabBundle.WatchdogSeasonsHandler,

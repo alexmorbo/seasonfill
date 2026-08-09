@@ -67,6 +67,71 @@ components:
           example: false
           type: boolean
       type: object
+    dto.CalendarDTO:
+      properties:
+        days:
+          items:
+            $ref: '#/components/schemas/dto.CalendarDayDTO'
+          type: array
+          uniqueItems: false
+        from:
+          type: string
+        generated_at:
+          type: string
+        to:
+          type: string
+      type: object
+    dto.CalendarDayDTO:
+      properties:
+        date:
+          example: "2026-08-09"
+          type: string
+        events:
+          items:
+            $ref: '#/components/schemas/dto.CalendarEventDTO'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.CalendarEventDTO:
+      properties:
+        air_date:
+          type: string
+        episode:
+          example: 1
+          type: integer
+        in_library_instances:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        media_type:
+          example: tv
+          type: string
+        milestone:
+          example: premiere
+          type: string
+        poster:
+          example: abc123
+          type: string
+        season:
+          example: 2
+          type: integer
+        season_premiere:
+          example: true
+          type: boolean
+        series_id:
+          example: 42
+          type: integer
+        state:
+          example: downloaded
+          type: string
+        title:
+          example: The Expanse
+          type: string
+        tmdb_id:
+          example: 1399
+          type: integer
+      type: object
     dto.CastPageMember:
       properties:
         character_name:
@@ -4303,6 +4368,81 @@ paths:
       summary: Verify the current session
       tags:
       - auth
+  /calendar:
+    get:
+      description: |-
+        Release calendar over TMDB episode air dates (covers library
+        AND followed series). Days group events by UTC date; each
+        event carries a milestone (premiere/finale/return) and a
+        per-episode library status. Window defaults to ±3 months
+        around now when from/to are omitted.
+      parameters:
+      - description: window start (YYYY-MM-DD)
+        in: query
+        name: from
+        schema:
+          type: string
+      - description: window end (YYYY-MM-DD, inclusive)
+        in: query
+        name: to
+        schema:
+          type: string
+      - description: library|followed|all (default all)
+        in: query
+        name: scope
+        schema:
+          type: string
+      - description: narrow library scope to one Sonarr instance
+        in: query
+        name: instance
+        schema:
+          type: string
+      - description: shortcut for scope=library
+        in: query
+        name: only-library
+        schema:
+          type: boolean
+      - description: keep only season-premiere events
+        in: query
+        name: only-premieres
+        schema:
+          type: boolean
+      - description: preferred BCP-47 title/poster language
+        in: query
+        name: lang
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.CalendarDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Release calendar
+      tags:
+      - insights
   /config/runtime:
     get:
       responses:
