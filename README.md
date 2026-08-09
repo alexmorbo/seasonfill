@@ -351,9 +351,26 @@ cycles.
 
 Catalog tiles, the series-detail hero backdrop, cast portraits, season
 posters, episode stills, and network logos are sourced from TMDB during
-enrichment and cached in an S3-compatible object store
-(`mediaStore.mode=s3` — SeaweedFS and MinIO both work; `fs` mode keeps
-bytes on a PVC for single-replica deploys).
+enrichment and cached in a pluggable object store. Two backends are
+supported for self-hosting:
+
+- **`mediaStore.mode=s3`** — an S3-compatible object store (SeaweedFS
+  and MinIO both work). Required if you run more than one backend
+  replica, since every replica shares the same bucket.
+- **`mediaStore.mode=fs`** — a plain filesystem directory backed by a
+  persistent volume (PVC). A first-class option for self-hosters who
+  don't want to run S3/SeaweedFS: bytes are written atomically under
+  the PVC and survive restarts.
+
+> **Single-replica constraint (fs mode):** a filesystem store lives on
+> a single ReadWriteOnce (RWO) PVC, which only one pod can mount at a
+> time. **`fs` mode therefore requires `replicas=1`.** Run more than
+> one replica only with `mode=s3`, where all replicas share one
+> bucket.
+
+Both backends are content-addressed and share the same key layout, so
+switching between them is a matter of re-hydrating from TMDB (the store
+is a cache — see [Self-healing](#self-healing) below).
 
 The wire contract is content-addressed: every image URL the SPA renders
 is `GET /api/v1/media/{hash}`, where `{hash}` is
@@ -417,9 +434,13 @@ renders its tile within seconds, not the next scan tick.
 - The bucket grows roughly **5–10 MiB per fully-hydrated series**
   (poster + backdrop + 10–15 cast portraits + episode stills). Budget
   ~10 GiB per 1 000 series.
-- There is no built-in GC. The `media_assets.last_access_at` column is
-  updated on every serve and reserved for a future sweep; today the
-  bucket only grows.
+- A weekly garbage-collection sweep reclaims orphaned blobs — assets
+  no longer referenced by any series whose `media_assets.last_access_at`
+  is older than the cooldown (30d). The sweep is store-agnostic: it
+  deletes through the same `Store` interface, so it reclaims space on
+  both the `s3` and `fs` (PVC) backends. Removing a blob that the store
+  no longer has is a no-op, and the DB row is only dropped once the
+  store delete succeeds, so an interrupted sweep is retried next week.
 - External TMDB / OMDb traffic is observable via
   `seasonfill_external_http_requests_total{client,endpoint,method,status}`
   and `seasonfill_external_http_request_duration_seconds{...}` on
