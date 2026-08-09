@@ -142,6 +142,82 @@
                 },
                 "type": "object"
             },
+            "dto.CollectionDTO": {
+                "properties": {
+                    "is_franchise": {
+                        "example": false,
+                        "type": "boolean"
+                    },
+                    "owned_count": {
+                        "example": 40,
+                        "type": "integer"
+                    },
+                    "series": {
+                        "items": {
+                            "$ref": "#/components/schemas/dto.CollectionSeriesDTO"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "slug": {
+                        "example": "books",
+                        "type": "string"
+                    },
+                    "title": {
+                        "example": "Based on books",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.CollectionSeriesDTO": {
+                "properties": {
+                    "series_id": {
+                        "example": 42,
+                        "type": "integer"
+                    },
+                    "sonarr_id": {
+                        "example": 31,
+                        "type": "integer"
+                    },
+                    "title": {
+                        "example": "The Expanse",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.CollectionsInstanceDTO": {
+                "properties": {
+                    "collections": {
+                        "items": {
+                            "$ref": "#/components/schemas/dto.CollectionDTO"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "instance_name": {
+                        "example": "homelab",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.CollectionsReportDTO": {
+                "properties": {
+                    "generated_at": {
+                        "type": "string"
+                    },
+                    "instances": {
+                        "items": {
+                            "$ref": "#/components/schemas/dto.CollectionsInstanceDTO"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "dto.CounterBucketDTO": {
                 "properties": {
                     "date": {
@@ -6495,6 +6571,65 @@
                 "summary": "Liveness probe",
                 "tags": [
                     "health"
+                ]
+            }
+        },
+        "/insights/collections": {
+            "get": {
+                "description": "Curated read-only theme/collection buckets per Sonarr instance:\nthe owned library grouped by TMDB keyword sets (based on books,\ntrue crime, sci-fi \u0026 alt-history, comic-book, MCU, …). Each\ncollection carries its exact owned series count and a bounded\ntop-50 title-ordered series slice; empty collections are hidden\nand the rest are ordered by owned count. Optional ?instance=\nscopes the report to a single instance.",
+                "parameters": [
+                    {
+                        "description": "scope the report to a single Sonarr instance",
+                        "in": "query",
+                        "name": "instance",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.CollectionsReportDTO"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Curated collections",
+                "tags": [
+                    "insights"
                 ]
             }
         },

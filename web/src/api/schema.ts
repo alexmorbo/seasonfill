@@ -1620,6 +1620,72 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/insights/collections": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Curated collections
+         * @description Curated read-only theme/collection buckets per Sonarr instance:
+         *     the owned library grouped by TMDB keyword sets (based on books,
+         *     true crime, sci-fi & alt-history, comic-book, MCU, …). Each
+         *     collection carries its exact owned series count and a bounded
+         *     top-50 title-ordered series slice; empty collections are hidden
+         *     and the rest are ordered by owned count. Optional ?instance=
+         *     scopes the report to a single instance.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description scope the report to a single Sonarr instance */
+                    readonly instance?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.CollectionsReportDTO"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/insights/gaps": {
         readonly parameters: {
             readonly query?: never;
@@ -5042,6 +5108,34 @@ export type components = {
              *     member comes from TMDB aggregate_credits).
              */
             readonly tmdb_id?: number;
+        };
+        readonly "dto.CollectionDTO": {
+            /** @example false */
+            readonly is_franchise?: boolean;
+            /** @example 40 */
+            readonly owned_count?: number;
+            readonly series?: readonly components["schemas"]["dto.CollectionSeriesDTO"][];
+            /** @example books */
+            readonly slug?: string;
+            /** @example Based on books */
+            readonly title?: string;
+        };
+        readonly "dto.CollectionSeriesDTO": {
+            /** @example 42 */
+            readonly series_id?: number;
+            /** @example 31 */
+            readonly sonarr_id?: number;
+            /** @example The Expanse */
+            readonly title?: string;
+        };
+        readonly "dto.CollectionsInstanceDTO": {
+            readonly collections?: readonly components["schemas"]["dto.CollectionDTO"][];
+            /** @example homelab */
+            readonly instance_name?: string;
+        };
+        readonly "dto.CollectionsReportDTO": {
+            readonly generated_at?: string;
+            readonly instances?: readonly components["schemas"]["dto.CollectionsInstanceDTO"][];
         };
         readonly "dto.CounterBucketDTO": {
             readonly date?: string;

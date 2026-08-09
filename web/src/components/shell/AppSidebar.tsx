@@ -20,6 +20,7 @@ import {
   PackageX,
   BarChart3,
   Sparkles,
+  Layers,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -74,6 +75,7 @@ function useActivityItems(): Item[] {
     { to: "/gaps", icon: PackageX, key: "gaps" },
     { to: "/stats", icon: BarChart3, key: "stats" },
     { to: "/lists", icon: Sparkles, key: "lists" },
+    { to: "/collections", icon: Layers, key: "collections" },
   ]
 }
 

@@ -840,6 +840,8 @@ func BuildHTTPServer(
 	statsRepo := catalogpersistence.NewStatsRepository(persistence.DB)
 	// Story I-3 — read-only smart-lists query repo.
 	smartListsRepo := catalogpersistence.NewSmartListsRepository(persistence.DB)
+	// Story I-5 — read-only curated collections query repo.
+	collectionsRepo := catalogpersistence.NewCollectionsRepository(persistence.DB)
 	srv := httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -871,6 +873,7 @@ func BuildHTTPServer(
 		gapRepo,
 		statsRepo,
 		smartListsRepo,
+		collectionsRepo, // Story I-5
 		regrabBundle.WatchdogRollupHandler,
 		regrabBundle.WatchdogBlacklistHandler,
 		regrabBundle.WatchdogSeasonsHandler,

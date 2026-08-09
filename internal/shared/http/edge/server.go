@@ -13,6 +13,7 @@ import (
 	auth "github.com/alexmorbo/seasonfill/internal/admin/app"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
 	"github.com/alexmorbo/seasonfill/internal/admin/rest/healthcheck"
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/collections"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/gaps"
 	health "github.com/alexmorbo/seasonfill/internal/catalog/app/health"
 	apprescan "github.com/alexmorbo/seasonfill/internal/catalog/app/rescan"
@@ -77,6 +78,7 @@ func NewServer(
 	gapRepo ports.GapRepository,
 	statsRepo ports.StatsRepository,
 	smartListsRepo ports.SmartListsRepository,
+	collectionsRepo ports.CollectionsRepository, // Story I-5 — curated collections
 	watchdogRollupHandler *watchdogrest.WatchdogRollupHandler,
 	watchdogBlacklistHandler *watchdogrest.WatchdogBlacklistHandler,
 	watchdogSeasonsHandler *watchdogrest.WatchdogSeasonsHandler,
@@ -263,6 +265,10 @@ func NewServer(
 		// and builds the three fixed shelves; repo is the dialect-portable
 		// shelf query set.
 		insightsListsHandler := catalogrest.NewSmartListsHandler(smartlists.NewUseCase(smartListsRepo), logger)
+		// Story I-5 — curated collections (read-only). Usecase fans out per instance
+		// and evaluates the static curated seed; repo is the dialect-portable
+		// keyword-match query set.
+		insightsCollectionsHandler := catalogrest.NewCollectionsHandler(collections.NewUseCase(collectionsRepo), logger)
 		// Story 217 (H-2) — person detail page. Top-level resource —
 		// `/people` is instance-independent. Nil-OK pattern matches
 		// seriesCastHandler.
@@ -453,6 +459,7 @@ func NewServer(
 		guarded.GET("/insights/gaps", insightsGapsHandler.Get)
 		guarded.GET("/insights/stats", insightsStatsHandler.Get)
 		guarded.GET("/insights/lists", insightsListsHandler.Get)
+		guarded.GET("/insights/collections", insightsCollectionsHandler.Get)
 		// Story 492 / N-1b — per-instance grab episode-files moved to
 		// the global namespace (`/grabs/:id/episode-files`); see route
 		// registration in the N-1b block above. The per-instance

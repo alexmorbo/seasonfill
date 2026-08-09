@@ -14,6 +14,7 @@ import { Health } from '@/pages/Health';
 import { Gaps } from '@/pages/Gaps';
 import { Stats } from '@/pages/Stats';
 import { Lists } from '@/pages/Lists';
+import { Collections } from '@/pages/Collections';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { SettingsRedirect } from '@/pages/settings/SettingsRedirect';
 import { ProfileTab } from '@/pages/settings/ProfileTab';
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
       { path: '/gaps',      element: <Gaps /> },
       { path: '/stats',     element: <Stats /> },
       { path: '/lists',     element: <Lists /> },
+      { path: '/collections', element: <Collections /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
       {
