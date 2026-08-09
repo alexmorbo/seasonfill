@@ -31,6 +31,52 @@ func TestSealOpen_RoundTrip(t *testing.T) {
 	assert.Equal(t, plaintext, decrypted)
 }
 
+func TestNotificationAgentCipher_RoundTrip(t *testing.T) {
+	t.Parallel()
+	c, err := NewNotificationAgentCipher("test-master-key-for-aes-gcm")
+	require.NoError(t, err)
+
+	plaintext := []byte("telegram://token@telegram?chats=123")
+	ct, err := c.Seal(plaintext)
+	require.NoError(t, err)
+
+	pt, err := c.Open(ct)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestNotificationAgentCipher_EmptyMasterKey(t *testing.T) {
+	t.Parallel()
+	_, err := NewNotificationAgentCipher("")
+	require.Error(t, err)
+	assert.Equal(t, ErrEmptyMasterKey, err)
+}
+
+// TestNotificationAgentCipher_DomainSeparation proves the notification-agent
+// HKDF domain is separated from the general secret domain: a ciphertext sealed
+// by New(k) does NOT open under NewNotificationAgentCipher(k) and vice versa,
+// even though the master key is identical.
+func TestNotificationAgentCipher_DomainSeparation(t *testing.T) {
+	t.Parallel()
+	const masterKey = "shared-master-key"
+	general, err := New(masterKey)
+	require.NoError(t, err)
+	agent, err := NewNotificationAgentCipher(masterKey)
+	require.NoError(t, err)
+
+	plaintext := []byte("discord://token@id")
+
+	generalCT, err := general.Seal(plaintext)
+	require.NoError(t, err)
+	_, err = agent.Open(generalCT)
+	require.Error(t, err, "agent cipher must not open a general-domain ciphertext")
+
+	agentCT, err := agent.Seal(plaintext)
+	require.NoError(t, err)
+	_, err = general.Open(agentCT)
+	require.Error(t, err, "general cipher must not open an agent-domain ciphertext")
+}
+
 func TestSealOpen_DifferentKey(t *testing.T) {
 	t.Parallel()
 	c1, err := New("key1")

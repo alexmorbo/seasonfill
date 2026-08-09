@@ -34,8 +34,8 @@ func TestSchemaCoverage_BothDialects(t *testing.T) {
 			if s == nil {
 				t.Fatalf("Schema(%q) returned nil", d)
 			}
-			if len(s.Tables) != 60 {
-				t.Fatalf("Schema(%q) tables = %d, want 60 (after C1 followed_series)", d, len(s.Tables))
+			if len(s.Tables) != 62 {
+				t.Fatalf("Schema(%q) tables = %d, want 62 (after N1 notifications)", d, len(s.Tables))
 			}
 		})
 	}
@@ -48,8 +48,8 @@ func TestSchemaCoverage_BothDialects(t *testing.T) {
 func TestSchemaCoverage_TaxonomySkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_TAXONOMY_JOINS", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 56 {
-		t.Fatalf("Schema(postgres) with skip flag tables = %d, want 56 (60 - 4 joins)", len(s.Tables))
+	if len(s.Tables) != 58 {
+		t.Fatalf("Schema(postgres) with skip flag tables = %d, want 58 (62 - 4 joins)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -67,8 +67,8 @@ func TestSchemaCoverage_TaxonomySkipFlag(t *testing.T) {
 func TestSchemaCoverage_PeopleSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_PEOPLE", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 55 {
-		t.Fatalf("Schema(postgres) with skip people tables = %d, want 55 (60 - 5 people)", len(s.Tables))
+	if len(s.Tables) != 57 {
+		t.Fatalf("Schema(postgres) with skip people tables = %d, want 57 (62 - 5 people)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -88,8 +88,8 @@ func TestSchemaCoverage_PeopleSkipFlag(t *testing.T) {
 func TestSchemaCoverage_SeriesExtrasSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_SERIES_EXTRAS", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 55 {
-		t.Fatalf("Schema(postgres) with skip series_extras tables = %d, want 55 (60 - 5 extras)", len(s.Tables))
+	if len(s.Tables) != 57 {
+		t.Fatalf("Schema(postgres) with skip series_extras tables = %d, want 57 (62 - 5 extras)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -123,8 +123,8 @@ func TestSchemaCoverage_LoadHonorsEnv(t *testing.T) {
 	if s == nil {
 		t.Fatal("Load() returned nil with ATLAS_DIALECT=sqlite")
 	}
-	if len(s.Tables) != 60 {
-		t.Fatalf("Load() tables = %d, want 60 (after C1 followed_series)", len(s.Tables))
+	if len(s.Tables) != 62 {
+		t.Fatalf("Load() tables = %d, want 62 (after N1 notifications)", len(s.Tables))
 	}
 }
 
@@ -182,8 +182,8 @@ func TestSchemaCoverage_MustTablePanic(t *testing.T) {
 func TestSchemaCoverage_InstanceProjectionsSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_INSTANCE_PROJECTIONS", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 57 {
-		t.Fatalf("Schema(postgres) with skip projections tables = %d, want 57 (60 - 3 projections)", len(s.Tables))
+	if len(s.Tables) != 59 {
+		t.Fatalf("Schema(postgres) with skip projections tables = %d, want 59 (62 - 3 projections)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -201,8 +201,8 @@ func TestSchemaCoverage_InstanceProjectionsSkipFlag(t *testing.T) {
 func TestSchemaCoverage_EnrichmentTrackingSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_ENRICHMENT_TRACKING", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 59 {
-		t.Fatalf("Schema(postgres) with skip enrichment tables = %d, want 59 (60 - 1 enrichment_errors)", len(s.Tables))
+	if len(s.Tables) != 61 {
+		t.Fatalf("Schema(postgres) with skip enrichment tables = %d, want 61 (62 - 1 enrichment_errors)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		if tbl.Name == "enrichment_errors" {
@@ -219,8 +219,8 @@ func TestSchemaCoverage_EnrichmentTrackingSkipFlag(t *testing.T) {
 func TestSchemaCoverage_SeriesImagesSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_SERIES_IMAGES", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 59 {
-		t.Fatalf("Schema(postgres) with skip series_images tables = %d, want 59 (60 - 1 series_images)", len(s.Tables))
+	if len(s.Tables) != 61 {
+		t.Fatalf("Schema(postgres) with skip series_images tables = %d, want 61 (62 - 1 series_images)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		if tbl.Name == "series_images" {
@@ -254,8 +254,8 @@ func TestSchemaCoverage_AdminSkipFlag(t *testing.T) {
 	// - 3 grab_audit = 30. addAppConfig + addGrabAudit depend on
 	// sonarr_instance (FK target) so ATLAS_SCHEMA_SKIP_ADMIN implies
 	// they must also be skipped.
-	if len(s.Tables) != 38 {
-		t.Fatalf("Schema(postgres) with skip admin+auth+app_config+grab+watchdog+grab_audit tables = %d, want 38 (59 - 5 admin - 2 auth - 2 app_config - 3 grab - 2 watchdog - 3 grab_audit - 4 qbit_runtime)", len(s.Tables))
+	if len(s.Tables) != 40 {
+		t.Fatalf("Schema(postgres) with skip admin+auth+app_config+grab+watchdog+grab_audit tables = %d, want 40 (61 - 5 admin - 2 auth - 2 app_config - 3 grab - 2 watchdog - 3 grab_audit - 4 qbit_runtime)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -273,8 +273,8 @@ func TestSchemaCoverage_AdminSkipFlag(t *testing.T) {
 func TestSchemaCoverage_AuthSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_AUTH", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 58 {
-		t.Fatalf("Schema(postgres) with skip auth tables = %d, want 58 (60 - 2 auth)", len(s.Tables))
+	if len(s.Tables) != 60 {
+		t.Fatalf("Schema(postgres) with skip auth tables = %d, want 60 (62 - 2 auth)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -291,8 +291,8 @@ func TestSchemaCoverage_AuthSkipFlag(t *testing.T) {
 func TestSchemaCoverage_GrabSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_GRAB", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 57 {
-		t.Fatalf("Schema(postgres) with skip grab tables = %d, want 57 (60 - 3 grab)", len(s.Tables))
+	if len(s.Tables) != 59 {
+		t.Fatalf("Schema(postgres) with skip grab tables = %d, want 59 (62 - 3 grab)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -311,8 +311,8 @@ func TestSchemaCoverage_WatchdogSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_WATCHDOG", "1")
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
 		s := Schema(d)
-		if len(s.Tables) != 58 {
-			t.Fatalf("with skip set: Schema(%q) tables = %d, want 58 (60 - 2 watchdog)", d, len(s.Tables))
+		if len(s.Tables) != 60 {
+			t.Fatalf("with skip set: Schema(%q) tables = %d, want 60 (62 - 2 watchdog)", d, len(s.Tables))
 		}
 		for _, tbl := range s.Tables {
 			if tbl.Name == "watchdog_state" || tbl.Name == "watchdog_blacklist" {
@@ -338,8 +338,8 @@ func TestSchemaCoverage_GrabAuditSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_GRAB_AUDIT", "1")
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
 		s := Schema(d)
-		if len(s.Tables) != 57 {
-			t.Fatalf("with skip set: Schema(%q) tables = %d, want 57 (60 - 3 grab_audit)", d, len(s.Tables))
+		if len(s.Tables) != 59 {
+			t.Fatalf("with skip set: Schema(%q) tables = %d, want 59 (62 - 3 grab_audit)", d, len(s.Tables))
 		}
 		for _, tbl := range s.Tables {
 			switch tbl.Name {
@@ -354,8 +354,8 @@ func TestSchemaCoverage_ScanRunsSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_SCAN_RUNS", "1")
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
 		s := Schema(d)
-		if len(s.Tables) != 59 {
-			t.Fatalf("with skip set: Schema(%q) tables = %d, want 59 (60 - 1 scan_runs)", d, len(s.Tables))
+		if len(s.Tables) != 61 {
+			t.Fatalf("with skip set: Schema(%q) tables = %d, want 61 (62 - 1 scan_runs)", d, len(s.Tables))
 		}
 		for _, tbl := range s.Tables {
 			if tbl.Name == "scan_runs" {
@@ -633,6 +633,80 @@ func TestD2_DiscoveryListsSeriesFKCascade(t *testing.T) {
 			}
 			if got := len(fk.Columns); got != 1 || fk.Columns[0].Name != "series_id" {
 				t.Errorf("FK Columns = %v, want [series_id]", fk.Columns)
+			}
+		})
+	}
+}
+
+func TestSchema_NotificationTables_Shape(t *testing.T) {
+	t.Parallel()
+	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
+		t.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+			s := Schema(d)
+
+			outbox := mustTable(s, "notification_outbox")
+			if got, want := len(outbox.Columns), 8; got != want {
+				t.Fatalf("notification_outbox columns = %d, want %d", got, want)
+			}
+			wantOutbox := []string{
+				"id", "event_type", "payload", "status",
+				"attempts", "next_attempt_at", "dedup_key", "created_at",
+			}
+			gotOutbox := make(map[string]bool, len(outbox.Columns))
+			for _, c := range outbox.Columns {
+				gotOutbox[c.Name] = true
+			}
+			for _, want := range wantOutbox {
+				if !gotOutbox[want] {
+					t.Errorf("missing column %q on notification_outbox", want)
+				}
+			}
+			if outbox.PrimaryKey == nil || len(outbox.PrimaryKey.Parts) != 1 ||
+				outbox.PrimaryKey.Parts[0].C.Name != "id" {
+				t.Errorf("notification_outbox PK = %+v, want single col id", outbox.PrimaryKey)
+			}
+			if got, want := len(outbox.Indexes), 2; got != want {
+				t.Errorf("notification_outbox indexes = %d, want %d", got, want)
+			}
+			wantIdx := map[string]bool{
+				"notification_outbox_pending": false,
+				"notification_outbox_dedup":   false,
+			}
+			for _, idx := range outbox.Indexes {
+				if _, ok := wantIdx[idx.Name]; ok {
+					wantIdx[idx.Name] = true
+				}
+			}
+			for name, seen := range wantIdx {
+				if !seen {
+					t.Errorf("missing index %q on notification_outbox", name)
+				}
+			}
+			if len(outbox.ForeignKeys) != 0 {
+				t.Errorf("notification_outbox has %d FKs, want 0", len(outbox.ForeignKeys))
+			}
+
+			agents := mustTable(s, "notification_agents")
+			if got, want := len(agents.Columns), 6; got != want {
+				t.Fatalf("notification_agents columns = %d, want %d", got, want)
+			}
+			wantAgents := []string{"id", "name", "enabled", "config_encrypted", "event_types", "created_at"}
+			gotAgents := make(map[string]bool, len(agents.Columns))
+			for _, c := range agents.Columns {
+				gotAgents[c.Name] = true
+			}
+			for _, want := range wantAgents {
+				if !gotAgents[want] {
+					t.Errorf("missing column %q on notification_agents", want)
+				}
+			}
+			if agents.PrimaryKey == nil || len(agents.PrimaryKey.Parts) != 1 ||
+				agents.PrimaryKey.Parts[0].C.Name != "id" {
+				t.Errorf("notification_agents PK = %+v, want single col id", agents.PrimaryKey)
+			}
+			if len(agents.ForeignKeys) != 0 {
+				t.Errorf("notification_agents has %d FKs, want 0", len(agents.ForeignKeys))
 			}
 		})
 	}

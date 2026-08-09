@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	hkdfSalt        = "seasonfill-runtime-config-v1"
-	hkdfInfo        = "aes-gcm-key"
-	hkdfSessionInfo = "seasonfill-session-hmac-v1"
-	hkdfICSInfo     = "seasonfill-ics-token-v1"
-	keyLen          = 32 // AES-256
-	nonceLen        = 12
-	tagLen          = 16
+	hkdfSalt                  = "seasonfill-runtime-config-v1"
+	hkdfInfo                  = "aes-gcm-key"
+	hkdfSessionInfo           = "seasonfill-session-hmac-v1"
+	hkdfICSInfo               = "seasonfill-ics-token-v1"
+	hkdfNotificationAgentInfo = "seasonfill-notification-agent-config-v1"
+	keyLen                    = 32 // AES-256
+	nonceLen                  = 12
+	tagLen                    = 16
 )
 
 var (
@@ -62,11 +63,23 @@ func DeriveICSTokenKey(masterKey string) ([]byte, error) {
 
 type Cipher struct{ aead cipher.AEAD }
 
-func New(masterKey string) (*Cipher, error) {
+// New returns the general runtime-config AES-GCM cipher (qbit/oidc/instance
+// secrets — "aes-gcm-key" domain). Unchanged behaviour.
+func New(masterKey string) (*Cipher, error) { return newWithInfo(masterKey, hkdfInfo) }
+
+// NewNotificationAgentCipher returns an AES-GCM cipher keyed under the
+// "seasonfill-notification-agent-config-v1" HKDF domain — domain-separated
+// from the general secret cipher so an agent-config ciphertext can never be
+// decrypted with (or confused for) an instance/qbit secret and vice versa.
+func NewNotificationAgentCipher(masterKey string) (*Cipher, error) {
+	return newWithInfo(masterKey, hkdfNotificationAgentInfo)
+}
+
+func newWithInfo(masterKey, info string) (*Cipher, error) {
 	if masterKey == "" {
 		return nil, ErrEmptyMasterKey
 	}
-	r := hkdf.New(sha256.New, []byte(masterKey), []byte(hkdfSalt), []byte(hkdfInfo))
+	r := hkdf.New(sha256.New, []byte(masterKey), []byte(hkdfSalt), []byte(info))
 	key := make([]byte, keyLen)
 	if _, err := io.ReadFull(r, key); err != nil {
 		return nil, fmt.Errorf("hkdf read: %w", err)

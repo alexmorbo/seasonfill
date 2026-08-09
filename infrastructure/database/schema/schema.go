@@ -355,6 +355,13 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// it is the newest migration and nothing splits a later migration off it.
 	addFollowedSeries(s, d)
 
+	// ADR-0016 Ф4 N1 — notifications outbox + agents. Two standalone
+	// single-table shapes (migration 000048), no FK to domain tables
+	// (the outbox/agents outlive any series/instance row). Appended last
+	// like webhook_inbox/torrent_action_audit — no dev-time skip flag.
+	addNotificationOutbox(s, d)
+	addNotificationAgents(s, d)
+
 	return s
 }
 
@@ -3772,6 +3779,102 @@ func webhookPayloadColumn(d Dialect) *atlasschema.Column {
 		return atlasschema.NewStringColumn("payload", "text").SetNull(false)
 	}
 	c := &atlasschema.Column{Name: "payload"}
+	c.Type = &atlasschema.ColumnType{
+		Type: &atlasschema.JSONType{T: postgres.TypeJSONB},
+		Raw:  postgres.TypeJSONB,
+		Null: false,
+	}
+	return c
+}
+
+// addNotificationOutbox appends notification_outbox to s. Standalone
+// single-table (migration 000048, ADR-0016 N1) — no FK, no dependency on
+// any prior table (rows outlive their source series/instance). Mirrors
+// webhook_inbox: durable outbox drained by the notification dispatcher.
+func addNotificationOutbox(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildNotificationOutboxTable(d))
+}
+
+// buildNotificationOutboxTable returns notification_outbox — 8 cols,
+// surrogate PK id. status pending|sent|dead is app-owned (no DB CHECK,
+// mirrors webhook_inbox). Two indexes: a partial index on next_attempt_at
+// WHERE status='pending' (the dispatcher's due-batch scan) and a partial
+// index on dedup_key WHERE status='pending' (storm-collapse lookup).
+func buildNotificationOutboxTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	eventType := atlasschema.NewStringColumn("event_type", "text").SetNull(false)
+	payload := notificationPayloadColumn(d) // jsonb(pg)/text(sqlite) NOT NULL
+	status := atlasschema.NewStringColumn("status", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'pending'"})
+	attempts := atlasschema.NewIntColumn("attempts", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	nextAttemptAt := timestampColumn(d, "next_attempt_at", false /* withDefault */, false /* notNull */)
+	dedupKey := atlasschema.NewNullStringColumn("dedup_key", "text")
+	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("notification_outbox").
+		AddColumns(id, eventType, payload, status, attempts, nextAttemptAt, dedupKey, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			partialIndex(d, "notification_outbox_pending",
+				[]*atlasschema.Column{nextAttemptAt},
+				"status = 'pending'"),
+			partialIndex(d, "notification_outbox_dedup",
+				[]*atlasschema.Column{dedupKey},
+				"status = 'pending'"),
+		)
+}
+
+// notificationPayloadColumn — jsonb(pg)/text(sqlite) NOT NULL. Copy of
+// webhookPayloadColumn with the column name "payload".
+func notificationPayloadColumn(d Dialect) *atlasschema.Column {
+	if d == DialectSQLite {
+		return atlasschema.NewStringColumn("payload", "text").SetNull(false)
+	}
+	c := &atlasschema.Column{Name: "payload"}
+	c.Type = &atlasschema.ColumnType{
+		Type: &atlasschema.JSONType{T: postgres.TypeJSONB},
+		Raw:  postgres.TypeJSONB,
+		Null: false,
+	}
+	return c
+}
+
+// addNotificationAgents appends notification_agents to s. Standalone
+// single-table (migration 000048). config_encrypted holds the AES-GCM
+// shoutrrr URL (BYTEA pg / bytea-affinity sqlite, same as app_secret).
+// event_types is a JSON array of subscribed event_type strings.
+func addNotificationAgents(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildNotificationAgentsTable(d))
+}
+
+// buildNotificationAgentsTable returns notification_agents — 6 cols,
+// surrogate PK id. enabled defaults false. No FK. No secondary index
+// (the dispatcher loads all enabled agents once per due-batch; table is
+// tiny). config_encrypted is NOT NULL — an agent with no URL is useless.
+func buildNotificationAgentsTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
+	enabled := atlasschema.NewBoolColumn("enabled", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	configEncrypted := atlasschema.NewBinaryColumn("config_encrypted", "bytea").SetNull(false)
+	eventTypes := notificationEventTypesColumn(d) // jsonb(pg)/text(sqlite) NOT NULL
+	createdAt := timestampColumn(d, "created_at", true, true)
+
+	return atlasschema.NewTable("notification_agents").
+		AddColumns(id, name, enabled, configEncrypted, eventTypes, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id))
+}
+
+// notificationEventTypesColumn — jsonb(pg)/text(sqlite) NOT NULL, JSON array.
+func notificationEventTypesColumn(d Dialect) *atlasschema.Column {
+	if d == DialectSQLite {
+		return atlasschema.NewStringColumn("event_types", "text").SetNull(false)
+	}
+	c := &atlasschema.Column{Name: "event_types"}
 	c.Type = &atlasschema.ColumnType{
 		Type: &atlasschema.JSONType{T: postgres.TypeJSONB},
 		Raw:  postgres.TypeJSONB,

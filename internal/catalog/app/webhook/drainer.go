@@ -2,7 +2,9 @@ package webhook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
@@ -34,6 +36,12 @@ type Drainer struct {
 	clock    clock.Clock
 	logger   *slog.Logger
 	pending  PendingDepthCounter // optional; nil disables the depth gauge
+	// outbox + tx are the ADR-0016 N2.5 nil-OK transactional-outbox pair.
+	// On dead-letter, markDead emits an inbox.dead_letter row (with a
+	// dedup_key so a cascade collapses to one ping) in the SAME tx as
+	// MarkDead when tx is wired, else best-effort after MarkDead.
+	outbox ports.OutboxEmitter
+	tx     ports.Transactor
 
 	tick          time.Duration
 	claimLimit    int
@@ -84,6 +92,12 @@ type DrainerDeps struct {
 	Logger *slog.Logger
 	// PendingCounter is optional; nil disables the pending-depth gauge.
 	PendingCounter PendingDepthCounter
+	// Outbox is the ADR-0016 notification emitter (nil-OK). Wired, markDead
+	// emits an inbox.dead_letter row.
+	Outbox ports.OutboxEmitter
+	// Tx wraps MarkDead + the outbox Insert in one tx (nil-OK — best-effort
+	// emit after MarkDead when absent).
+	Tx ports.Transactor
 
 	Tick          time.Duration // default 2s
 	ClaimLimit    int           // default 50
@@ -140,6 +154,8 @@ func NewDrainer(d DrainerDeps) *Drainer {
 		clock:         clk,
 		logger:        lg,
 		pending:       d.PendingCounter,
+		outbox:        d.Outbox,
+		tx:            d.Tx,
 		tick:          tick,
 		claimLimit:    limit,
 		perJobTimeout: perJob,
@@ -360,7 +376,35 @@ func (d *Drainer) markSuccess(ctx context.Context, id int64, log *slog.Logger) {
 }
 
 func (d *Drainer) markDead(ctx context.Context, id int64, cause error, log *slog.Logger) {
-	if err := d.inbox.MarkDead(ctx, id, cause.Error()); err != nil {
+	// ADR-0016 N2.5: emit inbox.dead_letter with a per-inbox-id dedup_key so
+	// a dead-letter cascade collapses to one ping. When a Transactor is
+	// wired the MarkDead + Insert run in one tx; otherwise the emit is
+	// best-effort after MarkDead.
+	emit := func(txCtx context.Context) error {
+		if err := d.inbox.MarkDead(txCtx, id, cause.Error()); err != nil {
+			return err
+		}
+		if d.outbox != nil {
+			dk := fmt.Sprintf("inbox_dead:%d", id)
+			payload, _ := json.Marshal(map[string]any{
+				"inbox_id":   id,
+				"event_type": "inbox.dead_letter",
+			})
+			return d.outbox.Insert(txCtx, ports.OutboxRow{
+				EventType: "inbox.dead_letter",
+				Payload:   payload,
+				DedupKey:  &dk,
+			})
+		}
+		return nil
+	}
+	var err error
+	if d.tx != nil {
+		err = d.tx.Transaction(ctx, emit)
+	} else {
+		err = emit(ctx)
+	}
+	if err != nil {
 		log.ErrorContext(ctx, "webhook_inbox_mark_dead_failed", slog.String("error", err.Error()))
 		return
 	}

@@ -12,6 +12,7 @@ import (
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	handlers "github.com/alexmorbo/seasonfill/internal/shared/http/handlers"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -157,6 +158,7 @@ func BuildRegrab(
 	scanBundle *ScanBundle,
 	webhookBundle *WebhookBundle,
 	bgWG *sync.WaitGroup,
+	outbox ports.OutboxEmitter,
 	log *slog.Logger,
 ) (*RegrabBundle, error) {
 	db := persistence.DB
@@ -196,7 +198,11 @@ func BuildRegrab(
 		scanBundle.Evaluator, scanBundle.GrabUC,
 		watchdogLog,
 	).WithMetrics(observability.WatchdogMetricsAdapter{}).
-		WithDecisions(scanBundle.DecisionRepo)
+		WithDecisions(scanBundle.DecisionRepo).
+		// ADR-0016 N2.4 — nil-OK transactional watchdog.regrab emit; the
+		// shared GormTransactor ties the replay-stamp UPDATE + emit atomic.
+		WithTransactor(scanBundle.Txr).
+		WithOutbox(outbox)
 
 	// RegrabLoop owns per-instance polling goroutines; SwapSettings is
 	// called from the OnApplied fanout. NOT started here — server.go

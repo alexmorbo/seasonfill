@@ -51,5 +51,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through
 		nil, // followHandler (ADR-0015 Ф3 C1) — nil-OK, routes omitted
 		nil, // icsEpochRepo (ADR-0015 Ф3 S3) — nil-OK, routes omitted
+		nil, // notificationAgentsHandler (ADR-0016 Ф4 N1) — nil-OK, routes omitted
 		logger)
 }

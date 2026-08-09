@@ -2,6 +2,7 @@ package grab
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -56,10 +57,15 @@ type UseCase struct {
 	cooldowns ports.CooldownRepository
 	origins   ports.OriginReleaseRepository
 	tx        ports.Transactor // optional (M-7); nil = direct writes
-	classify  classifier
-	sleep     Sleeper
-	logger    *slog.Logger
-	now       func() time.Time // injectable clock — defaults to time.Now().UTC()
+	// outbox is the ADR-0016 nil-OK notification emitter. When wired,
+	// the final-failure and success paths enqueue a grab.failed / grab.ok
+	// row in the SAME tx as the grab_records write (transactional outbox).
+	// nil = notifications off; no emit.
+	outbox   ports.OutboxEmitter
+	classify classifier
+	sleep    Sleeper
+	logger   *slog.Logger
+	now      func() time.Time // injectable clock — defaults to time.Now().UTC()
 }
 
 func NewUseCase(
@@ -86,6 +92,11 @@ func (u *UseCase) WithClock(f func() time.Time) *UseCase { u.now = f; return u }
 
 // WithTransactor wires the M-7 atomic-success-path transactor.
 func (u *UseCase) WithTransactor(t ports.Transactor) *UseCase { u.tx = t; return u }
+
+// WithOutbox wires the ADR-0016 notification outbox emitter (nil-OK). When
+// set, grab.failed / grab.ok rows are enqueued transactionally with the
+// grab_records write.
+func (u *UseCase) WithOutbox(e ports.OutboxEmitter) *UseCase { u.outbox = e; return u }
 
 // WithSleeper swaps the sleeper for tests.
 func (u *UseCase) WithSleeper(s Sleeper) *UseCase { u.sleep = s; return u }
@@ -231,7 +242,30 @@ func (u *UseCase) Execute(ctx context.Context, in Input) Output {
 		rec.ErrorMessage = errtext.Clamp(lastErr.Error())
 	}
 	rec.UpdatedAt = u.now()
-	if persistErr := u.grabs.Create(ctx, rec); persistErr != nil {
+	// ADR-0016 N2.1: wrap the grab_records insert + the grab.failed emit in
+	// one tx so the outbox row is atomic with the failure write. Without a
+	// Transactor the two calls run in sequence (best-effort emit).
+	failWork := func(txCtx context.Context) error {
+		if err := u.grabs.Create(txCtx, rec); err != nil {
+			return err
+		}
+		if u.outbox != nil {
+			payload, _ := json.Marshal(map[string]any{
+				"series_title": rec.SeriesTitle,
+				"season":       rec.SeasonNumber,
+				"error":        rec.ErrorMessage,
+			})
+			return u.outbox.Insert(txCtx, ports.OutboxRow{EventType: "grab.failed", Payload: payload})
+		}
+		return nil
+	}
+	var persistErr error
+	if u.tx != nil {
+		persistErr = u.tx.Transaction(ctx, failWork)
+	} else {
+		persistErr = failWork(ctx)
+	}
+	if persistErr != nil {
 		u.logger.ErrorContext(ctx, "persist grab_record failed",
 			slog.String("error", persistErr.Error()),
 			slog.String("guid", rec.ReleaseGUID),
@@ -280,6 +314,20 @@ func (u *UseCase) persistSuccess(ctx context.Context, rec domaingrab.Record, in 
 			}
 			if err := u.origins.Upsert(txCtx, or); err != nil {
 				return fmt.Errorf("upsert origin_release: %w", err)
+			}
+		}
+		// ADR-0016 N2.2: grab.ok emit (default OFF — delivered only if an
+		// agent subscribed to grab.ok, which the default set excludes).
+		// Inside the same tx as the grab_records insert + origin upsert, so
+		// a rollback of any success-side write drops the outbox row too.
+		if u.outbox != nil {
+			payload, _ := json.Marshal(map[string]any{
+				"series_title": rec.SeriesTitle,
+				"season":       in.SeasonNumber,
+				"indexer":      in.Selected.Release.IndexerName,
+			})
+			if err := u.outbox.Insert(txCtx, ports.OutboxRow{EventType: "grab.ok", Payload: payload}); err != nil {
+				return fmt.Errorf("emit grab.ok: %w", err)
 			}
 		}
 		return nil

@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { SlidersHorizontal, ShieldCheck, Plug } from 'lucide-react';
+import { SlidersHorizontal, ShieldCheck, Plug, Bell } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
-const TAB_KEYS = ['general', 'security', 'integrations'] as const;
+const TAB_KEYS = ['general', 'security', 'integrations', 'agents'] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 const TRIGGER_BASE =
@@ -76,6 +76,14 @@ export function SystemTabs() {
         >
           <Plug className="w-4 h-4" />
           {t('settings.tabs.integrations')}
+        </TabsTrigger>
+        <TabsTrigger
+          value="agents"
+          className={cn(TRIGGER_BASE, TRIGGER_ACTIVE)}
+          data-tab="agents"
+        >
+          <Bell className="w-4 h-4" />
+          {t('settings.tabs.agents')}
         </TabsTrigger>
       </TabsList>
     </Tabs>

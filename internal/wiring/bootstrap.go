@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	notifrest "github.com/alexmorbo/seasonfill/internal/notification/rest"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
@@ -808,6 +809,9 @@ func BuildHTTPServer(
 	counterRepo ports.CounterRepository,
 	discoveryHTTP *DiscoveryHTTPBundle,
 	tmdbSeasonsClient TMDBSeasonsClient,
+	// ADR-0016 Ф4 N1 — notification agents CRUD/test handler. nil-OK: the
+	// /admin/notification-agents routes are omitted when absent.
+	notificationAgentsHandler *notifrest.AgentsHandler,
 	log *slog.Logger,
 ) (*httpserver.Server, *InstanceMetadataBundle) {
 	var discoveryHandler *discoveryrest.DiscoveryHandler
@@ -935,8 +939,9 @@ func BuildHTTPServer(
 		seriesDetailBundle.ETagFreshness,
 		seriesTitleLocalizer,
 		seriesMediaLocalizer,
-		followBundle.Handler, // ADR-0015 Ф3 C1
-		icsEpochRepo,         // ADR-0015 Ф3 S3
+		followBundle.Handler,      // ADR-0015 Ф3 C1
+		icsEpochRepo,              // ADR-0015 Ф3 S3
+		notificationAgentsHandler, // ADR-0016 Ф4 N1
 		log,
 	)
 	return srv, instanceMetadataBundle

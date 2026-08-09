@@ -253,6 +253,7 @@ func BuildScan(
 	watchdogBundle *WatchdogBundle,
 	cfg HTTPServeConfig,
 	bgWG *sync.WaitGroup,
+	outbox ports.OutboxEmitter,
 	log *slog.Logger,
 ) (*ScanBundle, error) {
 	db := persistence.DB
@@ -273,7 +274,8 @@ func BuildScan(
 	txr := catalogpersistence.NewGormTransactor(db)
 	evaluator := evaluate.NewPerInstanceUseCase(decisionRepo, log)
 	grabUC := grab.NewUseCase(grabRepo, cooldownRepo, originRepo, sonarr.Classifier{}, log).
-		WithTransactor(txr)
+		WithTransactor(txr).
+		WithOutbox(outbox) // ADR-0016 N2.1/N2.2 — nil-OK grab.failed/grab.ok emit
 
 	// seriesCacheRepo is local to this wirer — see godoc above.
 	seriesRepo := enrichpersistence.NewSeriesRepository(db)
@@ -429,6 +431,7 @@ func BuildWebhook(
 	sonarrBundle *SonarrBundle,
 	scanBundle *ScanBundle,
 	cfg HTTPServeConfig,
+	outbox ports.OutboxEmitter,
 	log *slog.Logger,
 ) (*WebhookBundle, error) {
 	_ = scanBundle // reserved — see godoc
@@ -522,6 +525,7 @@ func BuildWebhook(
 		EpisodeStates:    webhookEpisodeStatesRepo,
 		SeasonStats:      webhookSeasonStatsRepo,
 		TorrentSeriesMap: torrentSeriesMapRepo,
+		Outbox:           outbox, // ADR-0016 N2.3 — nil-OK import.failed emit
 		SeriesSyncer:     webhookSeriesSyncer,
 		GUIDCooldownLookup: func(name domain.InstanceName) time.Duration {
 			inst, ok := holder.Load()[string(name)]
@@ -576,6 +580,8 @@ func BuildWebhook(
 		Clock:          clock.Real(),
 		Logger:         webhookLog,
 		PendingCounter: webhookInboxRepo,
+		Outbox:         outbox,         // ADR-0016 N2.5 — nil-OK inbox.dead_letter emit
+		Tx:             scanBundle.Txr, // shared GormTransactor for MarkDead+emit atomicity
 		Tick:           inboxCfg.DrainInterval,
 		ClaimLimit:     inboxCfg.ClaimLimit,
 		PerJobTimeout:  inboxCfg.JobTimeout,

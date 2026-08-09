@@ -5,6 +5,7 @@ package regrab
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -126,6 +127,13 @@ type UseCase struct {
 	// inject a stub via WithReleaseAlreadyAddedClassifier the same way
 	// they do for releaseGoneClassifier.
 	releaseAlreadyAddedClassifier func(error) bool
+	// tx + outbox are the ADR-0016 N2.4 nil-OK transactional-outbox pair.
+	// When both are wired, runGrab wraps the SetReplayOfID replay-stamp
+	// UPDATE + the watchdog.regrab emit in ONE tx. When tx==nil the stamp
+	// and emit run sequentially (best-effort, preserving the pre-existing
+	// warn-log-and-continue semantics). nil outbox = no emit.
+	tx     ports.Transactor
+	outbox ports.OutboxEmitter
 }
 
 // NewUseCase wires the regrab orchestrator. logger=nil → sharedports.DomainLogger(slog.Default(), "watchdog") per F-4b-3.
@@ -175,6 +183,21 @@ func (u *UseCase) WithMetrics(m Metrics) *UseCase {
 		m = nullMetrics{}
 	}
 	u.metrics = m
+	return u
+}
+
+// WithTransactor wires the ADR-0016 N2.4 nil-OK transactor so the regrab
+// replay-stamp UPDATE + the watchdog.regrab emit run in one tx. nil restores
+// the best-effort sequential path.
+func (u *UseCase) WithTransactor(t ports.Transactor) *UseCase {
+	u.tx = t
+	return u
+}
+
+// WithOutbox wires the ADR-0016 N2.4 notification outbox emitter (nil-OK).
+// When set, a watchdog.regrab row is enqueued on regrab success.
+func (u *UseCase) WithOutbox(e ports.OutboxEmitter) *UseCase {
+	u.outbox = e
 	return u
 }
 
@@ -1003,13 +1026,39 @@ func (u *UseCase) runGrab(ctx context.Context, inst scan.Instance, sett Settings
 	// UPDATE called after grab.UseCase.Execute returns success. Trade-off:
 	// two writes per re-grab (the original INSERT, then this UPDATE).
 	// Acceptable because re-grabs are rare.
-	if err := u.grabs.SetReplayOfID(runCtx, out.Record.ID, origGrab.ID); err != nil {
+	//
+	// ADR-0016 N2.4: wrap the replay-stamp UPDATE + the watchdog.regrab emit
+	// in ONE tx when a Transactor is wired, so the outbox row is atomic with
+	// the stamp. When tx==nil, run best-effort sequentially. Either way a
+	// stamp/emit failure is warn-logged and MUST NOT fail the regrab.
+	stampWork := func(txCtx context.Context) error {
+		if err := u.grabs.SetReplayOfID(txCtx, out.Record.ID, origGrab.ID); err != nil {
+			return err
+		}
+		if u.outbox != nil {
+			payload, _ := json.Marshal(map[string]any{
+				"series_title": origGrab.SeriesTitle,
+				"season":       origGrab.SeasonNumber,
+			})
+			return u.outbox.Insert(txCtx, ports.OutboxRow{EventType: "watchdog.regrab", Payload: payload})
+		}
+		return nil
+	}
+	if u.tx != nil {
+		if err := u.tx.Transaction(runCtx, stampWork); err != nil {
+			u.logger.WarnContext(runCtx, "regrab_replay_stamp_failed",
+				slog.String("new_id", out.Record.ID.String()),
+				slog.String("original_id", origGrab.ID.String()),
+				slog.String("error", err.Error()))
+			// Best-effort: the grab landed; the audit pointer/emit is
+			// missing but the row itself is fine. Do NOT fail the regrab.
+		}
+	} else if err := stampWork(runCtx); err != nil {
 		u.logger.WarnContext(runCtx, "regrab_replay_stamp_failed",
 			slog.String("new_id", out.Record.ID.String()),
 			slog.String("original_id", origGrab.ID.String()),
 			slog.String("error", err.Error()))
-		// Best-effort: the grab landed; the audit pointer is missing
-		// but the row itself is fine. Do NOT fail the regrab outcome.
+		// Best-effort: same rationale as the tx path above.
 	}
 	u.logger.InfoContext(runCtx, "regrab_grabbed",
 		slog.String("instance", string(origGrab.InstanceName)),

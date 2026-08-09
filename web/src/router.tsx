@@ -24,6 +24,7 @@ import { SystemTabGuard } from '@/components/settings/SystemTabGuard';
 import { GeneralTab } from '@/components/settings/GeneralTab';
 import { SecurityTab } from '@/components/settings/SecurityTab';
 import { IntegrationsTab } from '@/components/settings/IntegrationsTab';
+import { AgentsTab } from '@/pages/settings/AgentsTab';
 import { SettingsExternalServices } from '@/pages/SettingsExternalServices';
 import { Series } from '@/pages/Series';
 import { SeriesDetail } from '@/pages/SeriesDetail';
@@ -76,6 +77,7 @@ export const router = createBrowserRouter([
               { path: 'general',      element: <GeneralTab /> },
               { path: 'security',     element: <SecurityTab /> },
               { path: 'integrations', element: <IntegrationsTab /> },
+              { path: 'agents', element: <AgentsTab /> },
             ],
           },
         ],

@@ -1807,6 +1807,85 @@ components:
         title:
           type: string
       type: object
+    dto.NotificationAgentCreateRequest:
+      properties:
+        enabled:
+          example: true
+          type: boolean
+        event_types:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        name:
+          example: telegram-main
+          type: string
+        url:
+          example: telegram://token@telegram?chats=123
+          type: string
+      required:
+      - name
+      - url
+      type: object
+    dto.NotificationAgentListResponse:
+      properties:
+        agents:
+          items:
+            $ref: '#/components/schemas/dto.NotificationAgentView'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.NotificationAgentUpdateRequest:
+      properties:
+        enabled:
+          example: true
+          type: boolean
+        event_types:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        name:
+          example: telegram-main
+          type: string
+        url:
+          example: ""
+          type: string
+      required:
+      - name
+      type: object
+    dto.NotificationAgentView:
+      properties:
+        configured:
+          example: true
+          type: boolean
+        enabled:
+          example: true
+          type: boolean
+        event_types:
+          example:
+          - grab.failed
+          - import.failed
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        id:
+          example: 1
+          type: integer
+        name:
+          example: telegram-main
+          type: string
+        scheme:
+          example: telegram
+          type: string
+      type: object
+    dto.NotificationTestResponse:
+      properties:
+        ok:
+          example: true
+          type: boolean
+      type: object
     dto.OKResponse:
       properties:
         ok:
@@ -4202,6 +4281,187 @@ paths:
       summary: Probe a Sonarr instance for reachability/auth
       tags:
       - instances
+  /admin/notification-agents:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.NotificationAgentListResponse'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List notification agents (masked)
+      tags:
+      - notifications
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.NotificationAgentCreateRequest'
+                description: Agent fields
+                summary: body
+        description: Agent fields
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.NotificationAgentView'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Create a notification agent
+      tags:
+      - notifications
+  /admin/notification-agents/{id}:
+    delete:
+      parameters:
+      - description: Agent id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "204":
+          description: No Content
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Delete a notification agent
+      tags:
+      - notifications
+    get:
+      parameters:
+      - description: Agent id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.NotificationAgentView'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Get one notification agent (masked)
+      tags:
+      - notifications
+    put:
+      parameters:
+      - description: Agent id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.NotificationAgentUpdateRequest'
+                description: Agent fields
+                summary: body
+        description: Agent fields
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.NotificationAgentView'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Update a notification agent
+      tags:
+      - notifications
+  /admin/notification-agents/{id}/test:
+    post:
+      parameters:
+      - description: Agent id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.NotificationTestResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "502":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: SEND_FAILED
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Send a test notification via an agent
+      tags:
+      - notifications
   /auth/config:
     get:
       responses:

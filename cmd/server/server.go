@@ -174,7 +174,23 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		wd.Run(ctx)
 	})
 
-	scanBundle, err := wiring.BuildScan(persistence, sonarrBundle, watchdogBundle, cfg, &bgWG, log)
+	// ADR-0016 Ф4 N1 — notifications. Built BEFORE the scan/webhook/regrab
+	// bundles so the durable notification_outbox emitter (OutboxRepo) can be
+	// threaded into the system-event sources (§N2) as a nil-OK OutboxEmitter.
+	// The dispatcher drains the outbox on the lifecycle group like the
+	// webhook-inbox drainer. BuildNotification only errors on an empty master
+	// key (config error), which never happens after ResolveAPIKey.
+	notificationBundle, err := wiring.BuildNotification(persistence.DB, persistence.MasterKey, log)
+	if err != nil {
+		return nil, fmt.Errorf("build notification bundle: %w", err)
+	}
+	if notificationBundle.Dispatcher != nil {
+		lifecycle.Go(rootCtx, "notification_dispatcher", func(ctx context.Context) {
+			notificationBundle.Dispatcher.RunForever(ctx)
+		})
+	}
+
+	scanBundle, err := wiring.BuildScan(persistence, sonarrBundle, watchdogBundle, cfg, &bgWG, notificationBundle.OutboxRepo, log)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +209,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		WithSeriesTexts(enrichpersistence.NewSeriesTextsRepository(db))
 	counterRepo := catalogpersistence.NewCounterRepository(db)
 
-	webhookBundle, err := wiring.BuildWebhook(persistence, sonarrBundle, scanBundle, cfg, log)
+	webhookBundle, err := wiring.BuildWebhook(persistence, sonarrBundle, scanBundle, cfg, notificationBundle.OutboxRepo, log)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +239,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		return nil, err
 	}
 
-	regrabBundle, err := wiring.BuildRegrab(persistence, sonarrBundle, scanBundle, webhookBundle, &bgWG, log)
+	regrabBundle, err := wiring.BuildRegrab(persistence, sonarrBundle, scanBundle, webhookBundle, &bgWG, notificationBundle.OutboxRepo, log)
 	if err != nil {
 		return nil, err
 	}
@@ -727,7 +743,8 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
 		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
 		mediaBundle, seriesDetailBundle,
-		seriesCacheRepo, counterRepo, discoveryHTTPBundle, tmdbSeasonsClient, log,
+		seriesCacheRepo, counterRepo, discoveryHTTPBundle, tmdbSeasonsClient,
+		notificationBundle.AgentsHandler, log,
 	)
 
 	// F-07: the two static-named cachewatch caches (discover LRU +

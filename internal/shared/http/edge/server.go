@@ -31,6 +31,7 @@ import (
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
+	notificationrest "github.com/alexmorbo/seasonfill/internal/notification/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
@@ -126,6 +127,10 @@ func NewServer(
 	// nil-OK (together with calendarRepo): the /calendar.ics routes are
 	// omitted when either is absent (minimal/test wirings).
 	icsEpochRepo ports.ICSEpochRepository,
+	// ADR-0016 Ф4 N1 — notification agents CRUD/test handler. nil-OK: the
+	// /admin/notification-agents routes are omitted when the handler is absent
+	// (minimal/test wirings).
+	notificationAgentsHandler *notificationrest.AgentsHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -415,6 +420,16 @@ func NewServer(
 			probeRateLimit(loginLimiter),
 			instanceProbe.Metadata,
 		)
+		// ADR-0016 Ф4 N1 — notification agents CRUD + Test. nil-OK: routes
+		// omitted when the handler is absent (minimal/test wirings).
+		if notificationAgentsHandler != nil {
+			guarded.GET("/admin/notification-agents", notificationAgentsHandler.List)
+			guarded.GET("/admin/notification-agents/:id", notificationAgentsHandler.Get)
+			guarded.POST("/admin/notification-agents", notificationAgentsHandler.Create)
+			guarded.PUT("/admin/notification-agents/:id", notificationAgentsHandler.Update)
+			guarded.DELETE("/admin/notification-agents/:id", notificationAgentsHandler.Delete)
+			guarded.POST("/admin/notification-agents/:id/test", notificationAgentsHandler.Test)
+		}
 		// Story 507 (N-2f) — curated discovery read endpoints.
 		// Nil-OK pattern: when wiring did not construct the handler
 		// (TMDB disabled at boot or test wiring) the routes are

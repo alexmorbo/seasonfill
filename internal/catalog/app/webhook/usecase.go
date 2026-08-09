@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -72,6 +73,10 @@ type UseCase struct {
 	// (the map row is then populated later by the reconciler's
 	// grab_record source).
 	torrentSeriesMap torrentsync.MapRepo
+	// outbox is the ADR-0016 nil-OK notification emitter. On import_failed
+	// the Process work closure enqueues an import.failed row in the SAME tx
+	// as the status update + cooldown write. nil = notifications off.
+	outbox ports.OutboxEmitter
 }
 
 // Deps groups constructor parameters.
@@ -101,6 +106,9 @@ type Deps struct {
 	// UpdateTorrentHash so a rollback of either rolls both back.
 	// Nil-OK: pre-Story-221 wiring runs unchanged.
 	TorrentSeriesMap torrentsync.MapRepo
+	// Outbox is the ADR-0016 notification emitter (nil-OK). Wired, the
+	// import_failed branch emits an import.failed row in the same tx.
+	Outbox ports.OutboxEmitter
 }
 
 // New constructs a UseCase. Logger defaults to slog.Default().
@@ -137,6 +145,7 @@ func New(d Deps) *UseCase {
 		episodeStates:      d.EpisodeStates,
 		seasonStats:        d.SeasonStats,
 		torrentSeriesMap:   d.TorrentSeriesMap,
+		outbox:             d.Outbox,
 	}
 }
 
@@ -258,6 +267,18 @@ func (u *UseCase) Process(ctx context.Context, evt webhook.Event) error {
 				}
 				if err := u.cooldowns.Set(txCtx, cd); err != nil {
 					return fmt.Errorf("set guid cooldown: %w", err)
+				}
+			}
+			// ADR-0016 N2.3: emit import.failed in the SAME tx as the status
+			// update + cooldown write, so a rollback drops all three.
+			if u.outbox != nil {
+				payload, _ := json.Marshal(map[string]any{
+					"series_title": evt.SeriesTitle,
+					"season":       evt.SeasonNumber,
+					"message":      message,
+				})
+				if err := u.outbox.Insert(txCtx, ports.OutboxRow{EventType: "import.failed", Payload: payload}); err != nil {
+					return fmt.Errorf("emit import.failed: %w", err)
 				}
 			}
 		}

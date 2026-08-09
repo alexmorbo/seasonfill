@@ -96,6 +96,7 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // seriesMediaLocalizer
 		nil,                            // followHandler (ADR-0015 Ф3 C1)
 		nil,                            // icsEpochRepo (ADR-0015 Ф3 S3)
+		nil,                            // notificationAgentsHandler (ADR-0016 Ф4 N1)
 		logger,
 	)
 }
