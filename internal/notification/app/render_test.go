@@ -21,7 +21,6 @@ func TestRender_KnownEvents(t *testing.T) {
 		{"inbox.dead_letter", `{"inbox_id":7,"event_type":"inbox.dead_letter"}`, "7"},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.event, func(t *testing.T) {
 			t.Parallel()
 			msg := Render(c.event, []byte(c.payload))

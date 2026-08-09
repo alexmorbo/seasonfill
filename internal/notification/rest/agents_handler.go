@@ -12,6 +12,7 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 type AgentsHandler struct {
@@ -21,7 +22,7 @@ type AgentsHandler struct {
 
 func NewAgentsHandler(uc *notifapp.AgentsUseCase, logger *slog.Logger) *AgentsHandler {
 	if logger == nil {
-		logger = slog.Default()
+		logger = sharedports.DomainLogger(slog.Default(), "http")
 	}
 	return &AgentsHandler{uc: uc, logger: logger}
 }

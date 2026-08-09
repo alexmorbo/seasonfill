@@ -32,7 +32,7 @@ func (n *ShoutrrrNotifier) Send(ctx context.Context, configEncrypted []byte, msg
 	if err != nil {
 		return fmt.Errorf("decrypt agent config: %w", err) // no URL in error
 	}
-	sender, err := shoutrrr.CreateSender(string(urlBytes))
+	sender, err := shoutrrr.CreateSenderWithOptions(types.SenderOptions{}, string(urlBytes))
 	if err != nil {
 		// shoutrrr error text may echo the scheme but not tokens; still, wrap
 		// generically so a bad URL never leaks the raw string upstream.

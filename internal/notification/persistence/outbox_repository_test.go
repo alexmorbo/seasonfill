@@ -14,8 +14,6 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
-func strptr(s string) *string { return &s }
-
 func TestOutboxRepository_InsertFetch_FIFO(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
@@ -160,8 +158,8 @@ func TestOutboxRepository_Dedup(t *testing.T) {
 			ctx := context.Background()
 
 			dk := "inbox_dead:7"
-			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{EventType: "inbox.dead_letter", Payload: []byte(`{}`), DedupKey: strptr(dk)}))
-			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{EventType: "inbox.dead_letter", Payload: []byte(`{}`), DedupKey: strptr(dk)}))
+			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{EventType: "inbox.dead_letter", Payload: []byte(`{}`), DedupKey: new(dk)}))
+			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{EventType: "inbox.dead_letter", Payload: []byte(`{}`), DedupKey: new(dk)}))
 
 			rows, err := repo.FetchDueBatch(ctx, time.Now().UTC(), 10)
 			require.NoError(t, err)
@@ -169,7 +167,7 @@ func TestOutboxRepository_Dedup(t *testing.T) {
 
 			// After the first is sent, the window reopens.
 			require.NoError(t, repo.MarkSent(ctx, rows[0].ID))
-			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{EventType: "inbox.dead_letter", Payload: []byte(`{}`), DedupKey: strptr(dk)}))
+			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{EventType: "inbox.dead_letter", Payload: []byte(`{}`), DedupKey: new(dk)}))
 			rows, err = repo.FetchDueBatch(ctx, time.Now().UTC(), 10)
 			require.NoError(t, err)
 			require.Len(t, rows, 1)

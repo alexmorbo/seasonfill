@@ -280,6 +280,14 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/notification/ inherits the same carve-out — the
+      # Dispatcher (app) and AgentsHandler (rest) constructors accept
+      # *slog.Logger and fall back to sharedports.DomainLogger(
+      # slog.Default(), "notification"|"http") when nil (ADR-0016 N1).
+      - path: 'internal/notification/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:

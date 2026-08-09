@@ -43,10 +43,10 @@ func do(r *gin.Engine, method, path, body string) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	var rd *http.Request
 	if body != "" {
-		rd = httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		rd = httptest.NewRequestWithContext(context.Background(), method, path, bytes.NewBufferString(body))
 		rd.Header.Set("Content-Type", "application/json")
 	} else {
-		rd = httptest.NewRequest(method, path, nil)
+		rd = httptest.NewRequestWithContext(context.Background(), method, path, nil)
 	}
 	r.ServeHTTP(w, rd)
 	return w

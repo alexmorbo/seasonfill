@@ -7,6 +7,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/shared/clock"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // Dispatcher is the durable notification-outbox drainer (ADR-0016 N1, mirrors
@@ -50,7 +51,7 @@ func NewDispatcher(d DispatcherDeps) *Dispatcher {
 	}
 	lg := d.Logger
 	if lg == nil {
-		lg = slog.Default()
+		lg = sharedports.DomainLogger(slog.Default(), "notification")
 	}
 	tick := d.Tick
 	if tick <= 0 {
