@@ -164,12 +164,12 @@ func (h *TMDBClientHolder) Popular(ctx context.Context, language string, page in
 
 // DiscoverTV forwards to the live tmdb.Client; DiscoveryWorker entry
 // point for the by_genre / by_network / by_keyword curated lists.
-func (h *TMDBClientHolder) DiscoverTV(ctx context.Context, filter tmdb.DiscoverFilter, page int) (*tmdb.TVListResponse, error) {
+func (h *TMDBClientHolder) DiscoverTV(ctx context.Context, filter tmdb.DiscoverFilter, lang string, page int) (*tmdb.TVListResponse, error) {
 	c := h.Load()
 	if c == nil {
 		return nil, ErrTMDBClientNotReady
 	}
-	return c.DiscoverTV(ctx, filter, page)
+	return c.DiscoverTV(ctx, filter, lang, page)
 }
 
 // SearchTV forwards to the live tmdb.Client; discovery search fallback

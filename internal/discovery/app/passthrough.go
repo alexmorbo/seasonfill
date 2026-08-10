@@ -39,7 +39,7 @@ import (
 // Note: tmdb.Client does NOT yet expose a LastWaitDuration accessor —
 // the adapter measures wall-clock around its DiscoverTV call itself.
 type TMDBDiscoverClient interface {
-	DiscoverTV(ctx context.Context, filter tmdb.DiscoverFilter, page int) (*tmdb.TVListResponse, error)
+	DiscoverTV(ctx context.Context, filter tmdb.DiscoverFilter, lang string, page int) (*tmdb.TVListResponse, error)
 }
 
 // TMDBPassthrough is the port the handler reads through. Two methods:
@@ -89,20 +89,19 @@ func NewTMDBPassthrough(client TMDBDiscoverClient, stubs StubUpserter, log *slog
 }
 
 // Fetch performs the single /discover/tv call + materialises every
-// returned TV id as a local stub. Note: the lang argument is preserved
-// for the canonical-cache-key parity but the underlying tmdb.Client
-// always uses its own default language (PRD §5.1.2 — Discover stays on
-// the client default). Wiring tests assert this.
+// returned TV id as a local stub. The lang argument is passed through to
+// tmdb.DiscoverTV so discover rows localize titles + posters to the
+// requesting user, and is used to seed the stub series_texts row under the
+// same language (matches Trending/Popular; canonical cache key already
+// keys on lang).
 func (a *tmdbPassthroughAdapter) Fetch(
 	ctx context.Context,
 	filter tmdb.DiscoverFilter,
 	lang string,
 	page int,
 ) ([]disco.Item, error) {
-	_ = lang // canonical key already captured lang; tmdb.Client default wins on wire.
-
 	start := time.Now()
-	resp, err := a.tmdb.DiscoverTV(ctx, filter, page)
+	resp, err := a.tmdb.DiscoverTV(ctx, filter, lang, page)
 	wait := time.Since(start)
 	a.lastWaitNanos.Store(wait.Nanoseconds())
 
@@ -119,7 +118,7 @@ func (a *tmdbPassthroughAdapter) Fetch(
 
 	out := make([]disco.Item, 0, len(resp.Results))
 	for _, r := range resp.Results {
-		it, ok := a.materialiseEntry(ctx, r)
+		it, ok := a.materialiseEntry(ctx, lang, r)
 		if !ok {
 			continue
 		}
@@ -152,7 +151,7 @@ func (a *tmdbPassthroughAdapter) LastWaitSeconds() float64 {
 // The mapper does NOT enqueue for hot enrichment — Discover is an
 // exploration surface, not a watch-list signal. The next scan picks up
 // the new stub via the standard enrichment path.
-func (a *tmdbPassthroughAdapter) materialiseEntry(ctx context.Context, r tmdb.TVListEntry) (disco.Item, bool) {
+func (a *tmdbPassthroughAdapter) materialiseEntry(ctx context.Context, lang string, r tmdb.TVListEntry) (disco.Item, bool) {
 	if r.ID <= 0 || r.Name == "" {
 		return disco.Item{}, false
 	}
@@ -166,12 +165,10 @@ func (a *tmdbPassthroughAdapter) materialiseEntry(ctx context.Context, r tmdb.TV
 		v := r.BackdropPath
 		backdrop = &v
 	}
-	// Discover's wire language is always the tmdb.Client default (en-US):
-	// Fetch discards its `lang` arg and DiscoverTV runs on c.languageFor("").
-	// So the name in `r.Name` is en-US — seed the series_texts row under
-	// DefaultLanguage, NOT the discarded canonical cache-key lang (which
-	// would mislabel an en-US title as, say, ru-RU).
-	sid, err := a.stubs.EnsureStub(ctx, tmdbID, tmdb.DefaultLanguage, r.Name, r.OriginalName, r.OriginalLanguage, poster, backdrop)
+	// DiscoverTV now fetches under the request lang, so r.Name/r.OriginalName
+	// are localized. Seed the series_texts row under the SAME lang the row was
+	// fetched in (matches the worker's materialiseItem seeding).
+	sid, err := a.stubs.EnsureStub(ctx, tmdbID, lang, r.Name, r.OriginalName, r.OriginalLanguage, poster, backdrop)
 	if err != nil {
 		a.log.WarnContext(ctx, "discovery.discover.stub_upsert_failed",
 			slog.Int64("tmdb_id", int64(tmdbID)),

@@ -70,16 +70,14 @@ const (
 // match; tests pass an in-memory fake.
 //
 // Trending takes a TrendingScope (day|week); Popular takes only
-// language+page; DiscoverTV reads filter+page+the client's default
-// language (filter struct does NOT carry a language field per the
-// DiscoverFilter contract — by_genre/by_network ride the client
-// default language, which the wiring layer sets per-call by
-// constructing a per-language tmdb.Client adapter — see story 506
-// wiring notes).
+// language+page; DiscoverTV takes filter+lang+page — by_genre/by_network/
+// by_keyword localize titles + posters to the requesting user's language
+// just like the leaderboards (the DiscoverFilter struct does NOT carry a
+// language field; lang is a first-class arg).
 type TMDBClient interface {
 	Trending(ctx context.Context, scope tmdb.TrendingScope, language string, page int) (*tmdb.TVListResponse, error)
 	Popular(ctx context.Context, language string, page int) (*tmdb.TVListResponse, error)
-	DiscoverTV(ctx context.Context, filter tmdb.DiscoverFilter, page int) (*tmdb.TVListResponse, error)
+	DiscoverTV(ctx context.Context, filter tmdb.DiscoverFilter, lang string, page int) (*tmdb.TVListResponse, error)
 }
 
 // TopKindsProvider returns the top-N TMDB genre / network ids by
@@ -547,19 +545,19 @@ func (w *Worker) fetchPage(ctx context.Context, kind disco.Kind, param, lang str
 		if err != nil {
 			return nil, errors.New("by_genre param must be int tmdb id")
 		}
-		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithGenres: []int{id}}, page)
+		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithGenres: []int{id}}, lang, page)
 	case disco.KindByNetwork:
 		id, err := strconv.Atoi(param)
 		if err != nil {
 			return nil, errors.New("by_network param must be int tmdb id")
 		}
-		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithNetworks: []int{id}}, page)
+		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithNetworks: []int{id}}, lang, page)
 	case disco.KindByKeyword:
 		id, err := strconv.Atoi(param)
 		if err != nil {
 			return nil, errors.New("by_keyword param must be int tmdb id")
 		}
-		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithKeywords: []int{id}}, page)
+		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithKeywords: []int{id}}, lang, page)
 	}
 	return nil, errors.New("unknown kind " + string(kind))
 }

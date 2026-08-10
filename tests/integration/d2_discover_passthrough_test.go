@@ -26,12 +26,14 @@ import (
 )
 
 type stubCounter struct {
-	mu  sync.Mutex
-	ids map[shareddomain.TMDBID]shareddomain.SeriesID
-	n   atomic.Int64
+	mu       sync.Mutex
+	ids      map[shareddomain.TMDBID]shareddomain.SeriesID
+	n        atomic.Int64
+	lastLang atomic.Value // string
 }
 
-func (s *stubCounter) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, _, _, _, _ string, _, _ *string) (shareddomain.SeriesID, error) {
+func (s *stubCounter) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, lang, _, _, _ string, _, _ *string) (shareddomain.SeriesID, error) {
+	s.lastLang.Store(lang)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if v, ok := s.ids[tmdbID]; ok {
@@ -47,12 +49,14 @@ func (s *stubCounter) EnsureStub(_ context.Context, tmdbID shareddomain.TMDBID, 
 }
 
 type scriptedTMDB struct {
-	calls atomic.Int64
-	resp  *tmdb.TVListResponse
+	calls    atomic.Int64
+	lastLang atomic.Value // string
+	resp     *tmdb.TVListResponse
 }
 
-func (s *scriptedTMDB) DiscoverTV(_ context.Context, _ tmdb.DiscoverFilter, _ int) (*tmdb.TVListResponse, error) {
+func (s *scriptedTMDB) DiscoverTV(_ context.Context, _ tmdb.DiscoverFilter, lang string, _ int) (*tmdb.TVListResponse, error) {
 	s.calls.Add(1)
+	s.lastLang.Store(lang)
 	return s.resp, nil
 }
 
@@ -89,7 +93,7 @@ func TestD2_DiscoverPassthrough_CacheHitAcrossRequests(t *testing.T) {
 	// First request — miss → 5 items.
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), "GET",
-		"/discovery/discover?with_genres=18&first_air_date.gte=2020-01-01", nil)
+		"/discovery/discover?with_genres=18&first_air_date.gte=2020-01-01&lang=ru-RU", nil)
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var first discoveryrest.DiscoverResponse
@@ -98,6 +102,15 @@ func TestD2_DiscoverPassthrough_CacheHitAcrossRequests(t *testing.T) {
 	require.Len(t, first.Items, 5)
 	require.EqualValues(t, 1, tmdbFake.calls.Load(), "first call must hit upstream")
 	require.EqualValues(t, 5, stubs.n.Load(), "stub upsert ran once per result")
+
+	// The lang the handler resolved must be threaded into BOTH the upstream
+	// discover call and the stub seed — they must agree (no en-US hardcode).
+	discoverLang, _ := tmdbFake.lastLang.Load().(string)
+	seedLang, _ := stubs.lastLang.Load().(string)
+	require.Equal(t, discoverLang, seedLang,
+		"passthrough must seed the stub under the same lang it fetched discover in")
+	require.NotEmpty(t, discoverLang, "discover lang must be resolved, not empty")
+	require.Equal(t, "ru-RU", discoverLang, "handler must thread the request lang into discover")
 
 	// Second request — hit.
 	rec2 := httptest.NewRecorder()

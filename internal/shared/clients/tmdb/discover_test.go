@@ -128,7 +128,7 @@ func TestClient_DiscoverTV_HappyPath(t *testing.T) {
 		VoteAverageGte:  &voteGte,
 		SortBy:          "popularity.desc",
 	}
-	if _, err := c.DiscoverTV(context.Background(), filter, 1); err != nil {
+	if _, err := c.DiscoverTV(context.Background(), filter, "en-US", 1); err != nil {
 		t.Fatalf("DiscoverTV: %v", err)
 	}
 	want := map[string]string{
@@ -147,6 +147,44 @@ func TestClient_DiscoverTV_HappyPath(t *testing.T) {
 	}
 }
 
+func TestClient_DiscoverTV_HonorsLanguage(t *testing.T) {
+	body := loadFixture(t, "discover_tv_basic.json")
+	var seenLang string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenLang = r.URL.Query().Get("language")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, "tk")
+	defer c.Close()
+
+	if _, err := c.DiscoverTV(context.Background(), DiscoverFilter{WithGenres: []int{18}}, "ru-RU", 1); err != nil {
+		t.Fatalf("DiscoverTV: %v", err)
+	}
+	if seenLang != "ru-RU" {
+		t.Fatalf("language = %q want ru-RU (DiscoverTV must honor the per-call lang)", seenLang)
+	}
+}
+
+func TestClient_DiscoverTV_EmptyLang_DefaultsToEnUS(t *testing.T) {
+	body := loadFixture(t, "discover_tv_basic.json")
+	var seenLang string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenLang = r.URL.Query().Get("language")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, "tk")
+	defer c.Close()
+
+	if _, err := c.DiscoverTV(context.Background(), DiscoverFilter{}, "", 1); err != nil {
+		t.Fatalf("DiscoverTV: %v", err)
+	}
+	if seenLang != DefaultLanguage {
+		t.Fatalf("empty lang must default to %q, got %q", DefaultLanguage, seenLang)
+	}
+}
+
 func TestClient_DiscoverTV_StatusOpOr(t *testing.T) {
 	body := loadFixture(t, "discover_tv_basic.json")
 	var seenRawQuery string
@@ -162,7 +200,7 @@ func TestClient_DiscoverTV_StatusOpOr(t *testing.T) {
 		WithStatus:   []int{0, 3},
 		WithStatusOp: "or",
 	}
-	if _, err := c.DiscoverTV(context.Background(), filter, 1); err != nil {
+	if _, err := c.DiscoverTV(context.Background(), filter, "en-US", 1); err != nil {
 		t.Fatalf("DiscoverTV: %v", err)
 	}
 	// %7C is the URL-encoded pipe.
@@ -186,7 +224,7 @@ func TestClient_DiscoverTV_StatusOpAnd(t *testing.T) {
 		WithStatus:   []int{0, 3},
 		WithStatusOp: "and",
 	}
-	if _, err := c.DiscoverTV(context.Background(), filter, 1); err != nil {
+	if _, err := c.DiscoverTV(context.Background(), filter, "en-US", 1); err != nil {
 		t.Fatalf("DiscoverTV: %v", err)
 	}
 	// %2C is the URL-encoded comma.
@@ -210,7 +248,7 @@ func TestClient_DiscoverTV_TypeOpOr(t *testing.T) {
 		WithType:   []int{0, 4},
 		WithTypeOp: "or",
 	}
-	if _, err := c.DiscoverTV(context.Background(), filter, 1); err != nil {
+	if _, err := c.DiscoverTV(context.Background(), filter, "en-US", 1); err != nil {
 		t.Fatalf("DiscoverTV: %v", err)
 	}
 	if !contains(seenRawQuery, "with_type=0%7C4") {
@@ -233,7 +271,7 @@ func TestClient_DiscoverTV_TypeOpAnd(t *testing.T) {
 		WithType:   []int{0, 4},
 		WithTypeOp: "and",
 	}
-	if _, err := c.DiscoverTV(context.Background(), filter, 1); err != nil {
+	if _, err := c.DiscoverTV(context.Background(), filter, "en-US", 1); err != nil {
 		t.Fatalf("DiscoverTV: %v", err)
 	}
 	if !contains(seenRawQuery, "with_type=0%2C4") {
@@ -252,7 +290,7 @@ func TestClient_DiscoverTV_HardcodedIncludeAdultFalse(t *testing.T) {
 	c := mustNew(t, srv.URL, "tk")
 	defer c.Close()
 
-	if _, err := c.DiscoverTV(context.Background(), DiscoverFilter{}, 1); err != nil {
+	if _, err := c.DiscoverTV(context.Background(), DiscoverFilter{}, "en-US", 1); err != nil {
 		t.Fatalf("DiscoverTV: %v", err)
 	}
 	if seenAdult != "false" {
@@ -322,7 +360,7 @@ func TestClient_Discover_429Retry(t *testing.T) {
 	c := mustNewWithClock(t, srv.URL, "tk", clk)
 	defer c.Close()
 
-	resp, err := c.DiscoverTV(context.Background(), DiscoverFilter{}, 1)
+	resp, err := c.DiscoverTV(context.Background(), DiscoverFilter{}, "en-US", 1)
 	if err != nil {
 		t.Fatalf("DiscoverTV: %v", err)
 	}

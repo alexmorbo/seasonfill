@@ -30,11 +30,12 @@ func (c *Client) Popular(ctx context.Context, language string, page int) (*TVLis
 }
 
 // DiscoverTV fetches /discover/tv with the allow-listed filter parameters.
-// Language is taken from the client's default; the filter struct does NOT
-// carry a language field (matches PRD §5.1.2 — Discover stays on the
-// client's default language).
-func (c *Client) DiscoverTV(ctx context.Context, filter DiscoverFilter, page int) (*TVListResponse, error) {
-	q := buildDiscoverQuery(filter, c.languageFor(""), page)
+// Honors the per-call language like Trending/Popular/SearchTV — an empty
+// lang falls back to the client default via c.languageFor. The DiscoverFilter
+// struct does NOT carry a language field; language is a first-class arg so
+// discover-backed rows localize titles + posters to the requesting user.
+func (c *Client) DiscoverTV(ctx context.Context, filter DiscoverFilter, lang string, page int) (*TVListResponse, error) {
+	q := buildDiscoverQuery(filter, c.languageFor(lang), page)
 	return c.fetchTVList(ctx, "/discover/tv", q, "DiscoverTV")
 }
 

@@ -153,12 +153,13 @@ func (s *fakeStubs) callCount() int {
 }
 
 type fakeTMDB struct {
-	mu       sync.Mutex
-	trending int
-	popular  int
-	discover int
-	resp     *tmdb.TVListResponse
-	err      error
+	mu           sync.Mutex
+	trending     int
+	popular      int
+	discover     int
+	discoverLang string
+	resp         *tmdb.TVListResponse
+	err          error
 }
 
 func (c *fakeTMDB) Trending(_ context.Context, _ tmdb.TrendingScope, _ string, _ int) (*tmdb.TVListResponse, error) {
@@ -181,10 +182,11 @@ func (c *fakeTMDB) Popular(_ context.Context, _ string, _ int) (*tmdb.TVListResp
 	return c.resp, nil
 }
 
-func (c *fakeTMDB) DiscoverTV(_ context.Context, _ tmdb.DiscoverFilter, _ int) (*tmdb.TVListResponse, error) {
+func (c *fakeTMDB) DiscoverTV(_ context.Context, _ tmdb.DiscoverFilter, lang string, _ int) (*tmdb.TVListResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.discover++
+	c.discoverLang = lang
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -207,6 +209,12 @@ func (c *fakeTMDB) discoverCalls() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.discover
+}
+
+func (c *fakeTMDB) lastDiscoverLang() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.discoverLang
 }
 
 func (c *fakeTMDB) setErr(err error)               { c.mu.Lock(); c.err = err; c.mu.Unlock() }
@@ -399,7 +407,7 @@ func TestTick_TMDBError_OutcomeErrorAndNoReplace(t *testing.T) {
 
 func TestTick_TopKindsPopulated_TriggersDiscoverTV(t *testing.T) {
 	repo := newFakeRepo()
-	langs := &fakeLangs{langs: []string{"en-US"}}
+	langs := &fakeLangs{langs: []string{"ru-RU"}}
 	client := &fakeTMDB{resp: makeResp(0)}
 	stubs := newFakeStubs()
 	tops := &fakeTopKinds{
@@ -412,6 +420,8 @@ func TestTick_TopKindsPopulated_TriggersDiscoverTV(t *testing.T) {
 
 	// 2 genres + 1 network = 3 DiscoverTV calls.
 	require.Equal(t, 3, client.discoverCalls())
+	// by_genre / by_network fetchPage must pass the active language through.
+	require.Equal(t, "ru-RU", client.lastDiscoverLang())
 }
 
 func TestTick_ExceedsMaxLanguages_TruncatesAndWarns(t *testing.T) {
