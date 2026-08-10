@@ -9,18 +9,46 @@ import (
 )
 
 func TestCanonicalHash_EmptyFilter_Stable(t *testing.T) {
-	h := canonicalHash(tmdb.DiscoverFilter{}, "en-US", 1)
+	h := canonicalHash(tmdb.DiscoverFilter{}, "en-US", 1, 0)
 	require.Len(t, h, 64) // sha256 hex
 	// Regression baseline — if buildCanonicalParams ever changes
 	// representation, this test fails and the operator audits the wire
 	// impact on already-warmed caches.
-	require.Equal(t, h, canonicalHash(tmdb.DiscoverFilter{}, "en-US", 1))
+	require.Equal(t, h, canonicalHash(tmdb.DiscoverFilter{}, "en-US", 1, 0))
 }
 
 func TestCanonicalHash_SliceOrderIndependent(t *testing.T) {
 	a := tmdb.DiscoverFilter{WithGenres: []int{18, 35}, WithNetworks: []int{213, 49}}
 	b := tmdb.DiscoverFilter{WithGenres: []int{35, 18}, WithNetworks: []int{49, 213}}
-	require.Equal(t, canonicalHash(a, "en-US", 1), canonicalHash(b, "en-US", 1))
+	require.Equal(t, canonicalHash(a, "en-US", 1, 0), canonicalHash(b, "en-US", 1, 0))
+}
+
+// TestCanonicalHash_BlEpoch_DifferentiatesKey proves ADR-0017 Ф5 S3 cache
+// invalidation: the same filter under two blocklist epochs hashes
+// differently, so a hide (epoch++) mints a fresh LRU key and never serves a
+// stale warmed page.
+func TestCanonicalHash_BlEpoch_DifferentiatesKey(t *testing.T) {
+	f := tmdb.DiscoverFilter{WithGenres: []int{18}}
+	e0 := canonicalHash(f, "en-US", 1, 0)
+	e1 := canonicalHash(f, "en-US", 1, 1)
+	e2 := canonicalHash(f, "en-US", 1, 2)
+	require.NotEqual(t, e0, e1, "epoch 0 vs 1 must differentiate the key")
+	require.NotEqual(t, e1, e2, "epoch 1 vs 2 must differentiate the key")
+	// Same epoch → same key (deterministic).
+	require.Equal(t, e1, canonicalHash(f, "en-US", 1, 1))
+}
+
+// TestCanonicalHash_WithoutKeywords_DifferentiatesKey proves two filters
+// differing only in WithoutKeywords key distinctly (folding the keyword
+// blocklist into the filter partitions the LRU correctly).
+func TestCanonicalHash_WithoutKeywords_DifferentiatesKey(t *testing.T) {
+	base := tmdb.DiscoverFilter{WithGenres: []int{18}}
+	blocked := tmdb.DiscoverFilter{WithGenres: []int{18}, WithoutKeywords: []int{210024}}
+	require.NotEqual(t, canonicalHash(base, "en-US", 1, 0), canonicalHash(blocked, "en-US", 1, 0))
+	// Slice-order independent, like the other multi-value fields.
+	a := tmdb.DiscoverFilter{WithoutKeywords: []int{210024, 55}}
+	b := tmdb.DiscoverFilter{WithoutKeywords: []int{55, 210024}}
+	require.Equal(t, canonicalHash(a, "en-US", 1, 0), canonicalHash(b, "en-US", 1, 0))
 }
 
 func TestCanonicalHash_AllFieldsPopulated_Deterministic(t *testing.T) {
@@ -56,17 +84,17 @@ func TestCanonicalHash_AllFieldsPopulated_Deterministic(t *testing.T) {
 		WithTypeOp:         "and",
 		SortBy:             "popularity.desc",
 	}
-	h1 := canonicalHash(f, "en-US", 1)
-	h2 := canonicalHash(f, "en-US", 1)
+	h1 := canonicalHash(f, "en-US", 1, 0)
+	h2 := canonicalHash(f, "en-US", 1, 0)
 	require.Equal(t, h1, h2, "deterministic across calls")
 	require.Len(t, h1, 64)
 }
 
 func TestCanonicalHash_LangAndPage_DifferentiateKey(t *testing.T) {
 	f := tmdb.DiscoverFilter{WithGenres: []int{18}}
-	base := canonicalHash(f, "en-US", 1)
-	require.NotEqual(t, base, canonicalHash(f, "ru-RU", 1), "lang must differentiate")
-	require.NotEqual(t, base, canonicalHash(f, "en-US", 2), "page must differentiate")
+	base := canonicalHash(f, "en-US", 1, 0)
+	require.NotEqual(t, base, canonicalHash(f, "ru-RU", 1, 0), "lang must differentiate")
+	require.NotEqual(t, base, canonicalHash(f, "en-US", 2, 0), "page must differentiate")
 }
 
 func TestCanonicalHash_EmptyVsNilPointers(t *testing.T) {
@@ -74,12 +102,12 @@ func TestCanonicalHash_EmptyVsNilPointers(t *testing.T) {
 	f := tmdb.DiscoverFilter{WithOriginalLang: &emptyStr}
 	// A pointer-to-empty-string is treated identically to nil — both
 	// omit the URL key. (buildDiscoverQuery matches.)
-	require.Equal(t, canonicalHash(f, "en-US", 1),
-		canonicalHash(tmdb.DiscoverFilter{}, "en-US", 1))
+	require.Equal(t, canonicalHash(f, "en-US", 1, 0),
+		canonicalHash(tmdb.DiscoverFilter{}, "en-US", 1, 0))
 }
 
 func TestCanonicalHash_StatusOpFlipsSeparator(t *testing.T) {
 	or := tmdb.DiscoverFilter{WithStatus: []int{0, 3}, WithStatusOp: "or"}
 	and := tmdb.DiscoverFilter{WithStatus: []int{0, 3}, WithStatusOp: "and"}
-	require.NotEqual(t, canonicalHash(or, "en-US", 1), canonicalHash(and, "en-US", 1))
+	require.NotEqual(t, canonicalHash(or, "en-US", 1, 0), canonicalHash(and, "en-US", 1, 0))
 }

@@ -153,13 +153,14 @@ func (s *fakeStubs) callCount() int {
 }
 
 type fakeTMDB struct {
-	mu           sync.Mutex
-	trending     int
-	popular      int
-	discover     int
-	discoverLang string
-	resp         *tmdb.TVListResponse
-	err          error
+	mu             sync.Mutex
+	trending       int
+	popular        int
+	discover       int
+	discoverLang   string
+	discoverFilter tmdb.DiscoverFilter
+	resp           *tmdb.TVListResponse
+	err            error
 }
 
 func (c *fakeTMDB) Trending(_ context.Context, _ tmdb.TrendingScope, _ string, _ int) (*tmdb.TVListResponse, error) {
@@ -182,11 +183,12 @@ func (c *fakeTMDB) Popular(_ context.Context, _ string, _ int) (*tmdb.TVListResp
 	return c.resp, nil
 }
 
-func (c *fakeTMDB) DiscoverTV(_ context.Context, _ tmdb.DiscoverFilter, lang string, _ int) (*tmdb.TVListResponse, error) {
+func (c *fakeTMDB) DiscoverTV(_ context.Context, filter tmdb.DiscoverFilter, lang string, _ int) (*tmdb.TVListResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.discover++
 	c.discoverLang = lang
+	c.discoverFilter = filter
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -215,6 +217,12 @@ func (c *fakeTMDB) lastDiscoverLang() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.discoverLang
+}
+
+func (c *fakeTMDB) lastDiscoverFilter() tmdb.DiscoverFilter {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.discoverFilter
 }
 
 func (c *fakeTMDB) setErr(err error)               { c.mu.Lock(); c.err = err; c.mu.Unlock() }
@@ -422,6 +430,35 @@ func TestTick_TopKindsPopulated_TriggersDiscoverTV(t *testing.T) {
 	require.Equal(t, 3, client.discoverCalls())
 	// by_genre / by_network fetchPage must pass the active language through.
 	require.Equal(t, "ru-RU", client.lastDiscoverLang())
+}
+
+// keywordBlockLoader seeds an app.BlocklistCache with a fixed keyword set.
+type keywordBlockLoader struct{ kw []int64 }
+
+func (l keywordBlockLoader) LoadBlockSets(context.Context) ([]int64, []int64, error) {
+	return nil, l.kw, nil
+}
+
+// TestTick_FetchPage_InjectsBlockedKeywords proves the worker's discover-backed
+// fetchPage folds the keyword blocklist into WithoutKeywords (ADR-0017 Ф5 S3).
+func TestTick_FetchPage_InjectsBlockedKeywords(t *testing.T) {
+	repo := newFakeRepo()
+	langs := &fakeLangs{langs: []string{"en-US"}}
+	client := &fakeTMDB{resp: makeResp(0)}
+	stubs := newFakeStubs()
+	tops := &fakeTopKinds{genres: []int{18}}
+
+	cache := app.NewBlocklistCache(keywordBlockLoader{kw: []int64{210024}})
+	require.NoError(t, cache.Refresh(context.Background()))
+
+	w := newTestWorker(t, repo, langs, stubs, client, tops)
+	w.SetBlocklist(cache)
+	require.NoError(t, w.Tick(context.Background()))
+
+	require.Positive(t, client.discoverCalls(), "by_genre must hit DiscoverTV")
+	f := client.lastDiscoverFilter()
+	require.Equal(t, []int{18}, f.WithGenres, "genre param preserved")
+	require.Contains(t, f.WithoutKeywords, 210024, "blocked keyword must be folded into without_keywords")
 }
 
 func TestTick_ExceedsMaxLanguages_TruncatesAndWarns(t *testing.T) {

@@ -35,8 +35,8 @@ import (
 // canonicalHash returns the sha256-hex digest of a canonical URL-encoded
 // query string built from (filter, lang, page). The output is stable
 // across runs, Go versions, and field declaration order.
-func canonicalHash(filter tmdb.DiscoverFilter, lang string, page int) string {
-	params := buildCanonicalParams(filter, lang, page)
+func canonicalHash(filter tmdb.DiscoverFilter, lang string, page int, blEpoch uint64) string {
+	params := buildCanonicalParams(filter, lang, page, blEpoch)
 
 	// Sort by key alphabetically for stable serialisation.
 	keys := make([]string, 0, len(params))
@@ -62,10 +62,15 @@ func canonicalHash(filter tmdb.DiscoverFilter, lang string, page int) string {
 // separator mirrors buildDiscoverQuery's choice (comma for AND, pipe for
 // OR on with_status/with_type) so the canonical key stays semantically
 // aligned with the wire request.
-func buildCanonicalParams(filter tmdb.DiscoverFilter, lang string, page int) map[string]string {
-	m := make(map[string]string, 22)
+func buildCanonicalParams(filter tmdb.DiscoverFilter, lang string, page int, blEpoch uint64) map[string]string {
+	m := make(map[string]string, 24)
 	m["lang"] = lang
 	m["page"] = strconv.Itoa(page)
+	// ADR-0017 Ф5 S3 — fold the blocklist epoch so ANY mutation (tmdb OR
+	// keyword) mints a new LRU key, invalidating already-warmed discover
+	// pages. Always present (0 before the first Refresh / nil cache) so the
+	// key representation is stable.
+	m["bl_epoch"] = strconv.FormatUint(blEpoch, 10)
 
 	if len(filter.WithGenres) > 0 {
 		m["with_genres"] = joinSorted(filter.WithGenres, ",")
@@ -105,6 +110,9 @@ func buildCanonicalParams(filter tmdb.DiscoverFilter, lang string, page int) map
 	}
 	if len(filter.WithKeywords) > 0 {
 		m["with_keywords"] = joinSorted(filter.WithKeywords, ",")
+	}
+	if len(filter.WithoutKeywords) > 0 {
+		m["without_keywords"] = joinSorted(filter.WithoutKeywords, ",")
 	}
 	if len(filter.WithWatchProviders) > 0 {
 		m["with_watch_providers"] = joinSorted(filter.WithWatchProviders, ",")

@@ -2,6 +2,7 @@ package tmdb
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +11,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func loadFixture(t *testing.T, name string) []byte {
@@ -342,6 +346,41 @@ func TestClient_SearchTV_EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestClient_SearchKeyword_HappyPath(t *testing.T) {
+	var seenPath, seenQuery, seenPage, seenLang string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		seenQuery = r.URL.Query().Get("query")
+		seenPage = r.URL.Query().Get("page")
+		seenLang = r.URL.Query().Get("language")
+		_, _ = io.WriteString(w, `{"page":1,"results":[
+			{"id":210024,"name":"anime"},
+			{"id":287501,"name":"animation"}
+		],"total_pages":1,"total_results":2}`)
+	}))
+	t.Cleanup(srv.Close)
+	c := mustNew(t, srv.URL, "tk")
+	defer c.Close()
+
+	got, err := c.SearchKeyword(context.Background(), "anim")
+	require.NoError(t, err)
+	assert.Equal(t, "/search/keyword", seenPath)
+	assert.Equal(t, "anim", seenQuery)
+	assert.Equal(t, "1", seenPage)
+	assert.Empty(t, seenLang, "keywords are language-agnostic — no language param")
+	require.Len(t, got, 2)
+	assert.Equal(t, 210024, got[0].ID)
+	assert.Equal(t, "anime", got[0].Name)
+}
+
+func TestClient_SearchKeyword_EmptyQuery(t *testing.T) {
+	c := mustNew(t, "http://example.invalid", "tk")
+	defer c.Close()
+	if _, err := c.SearchKeyword(context.Background(), "  "); err == nil {
+		t.Fatal("expected empty-query error")
+	}
+}
+
 // 429 retry path — shared by all 4 methods via c.do; one test covers it.
 func TestClient_Discover_429Retry(t *testing.T) {
 	body := loadFixture(t, "discover_tv_basic.json")
@@ -401,7 +440,7 @@ func TestBuildDiscoverQuery_AllowList(t *testing.T) {
 				"first_air_date.lte", "vote_average.gte", "vote_average.lte",
 				"vote_count.gte", "with_runtime.gte", "with_runtime.lte",
 				"with_original_language", "with_networks", "with_origin_country",
-				"with_keywords", "with_watch_providers", "watch_region",
+				"with_keywords", "without_keywords", "with_watch_providers", "watch_region",
 				"with_status", "with_type", "sort_by",
 			},
 		},
@@ -421,6 +460,7 @@ func TestBuildDiscoverQuery_AllowList(t *testing.T) {
 				WithNetworks:       []int{213},
 				WithOriginCountry:  &s,
 				WithKeywords:       []int{210024},
+				WithoutKeywords:    []int{55, 66},
 				WithWatchProviders: []int{8},
 				WatchRegion:        &s,
 				WithStatus:         []int{0, 3},
@@ -443,6 +483,7 @@ func TestBuildDiscoverQuery_AllowList(t *testing.T) {
 				"with_networks":          "213",
 				"with_origin_country":    "x",
 				"with_keywords":          "210024",
+				"without_keywords":       "55,66",
 				"with_watch_providers":   "8",
 				"watch_region":           "x",
 				"with_status":            "0,3",

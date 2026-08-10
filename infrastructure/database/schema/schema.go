@@ -375,6 +375,13 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// skip flag (nothing splits a later migration off it).
 	addDiscoveryRows(s, d)
 
+	// ADR-0017 Ф5 S3 — discovery_blocklist. Global (pre-RBAC) hide-list for
+	// the discovery surface: kind∈{tmdb,keyword}, ref_id = tmdb_id or TMDB
+	// keyword_id, UNIQUE(kind, ref_id). Standalone single-table (migration
+	// 000051), no FK (a blocked tmdb_id need not exist in the local catalog),
+	// appended last like discovery_rows — no dev-time skip flag.
+	addDiscoveryBlocklist(s, d)
+
 	return s
 }
 
@@ -452,6 +459,36 @@ func discoveryRowsParamsColumn(d Dialect) *atlasschema.Column {
 		Null: false,
 	}
 	return c
+}
+
+// addDiscoveryBlocklist appends discovery_blocklist to s. Standalone
+// single-table migration (000051, ADR-0017 Ф5 S3) — no FK (a blocked
+// tmdb_id / keyword_id need not exist in any local table), global config.
+func addDiscoveryBlocklist(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildDiscoveryBlocklistTable(d))
+}
+
+// buildDiscoveryBlocklistTable returns discovery_blocklist — 5 cols,
+// surrogate PK id, UNIQUE(kind, ref_id). No DB CHECK on kind (app-owned
+// enum {tmdb,keyword}, mirrors discovery_rows.row_type). ref_id is bigint
+// (holds a tmdb_id OR a TMDB keyword_id — keyword ids exceed int32 range).
+// label is NULL for tmdb rows (title resolves from series_texts on read)
+// and the keyword name for keyword rows. No FK — the list outlives any
+// series/keyword catalog row.
+func buildDiscoveryBlocklistTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	kind := atlasschema.NewStringColumn("kind", "text").SetNull(false)
+	refID := atlasschema.NewIntColumn("ref_id", "bigint").SetNull(false)
+	label := atlasschema.NewNullStringColumn("label", "text")
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+
+	return atlasschema.NewTable("discovery_blocklist").
+		AddColumns(id, kind, refID, label, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("discovery_blocklist_kind_ref").
+				AddColumns(kind, refID),
+		)
 }
 
 // addTorrentActionAudit appends torrent_action_audit to s. Standalone

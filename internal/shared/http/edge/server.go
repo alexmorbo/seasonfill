@@ -109,6 +109,7 @@ func NewServer(
 	discoveryHandler *discoveryrest.DiscoveryHandler,
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
 	rowConfigHandler *discoveryrest.RowConfigHandler, // ADR-0017 Ф5 D-1
+	blocklistHandler *discoveryrest.BlocklistHandler, // ADR-0017 Ф5 S3
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
 	addToSonarrHandler *discoveryrest.AddToSonarrHandler, // story 520 N-4c
 	// Story 578 / E-1-B5 — per-section freshness reader for the ETag
@@ -456,6 +457,16 @@ func NewServer(
 			guarded.GET("/discovery/rows", rowConfigHandler.Handle)
 			guarded.PUT("/discovery/rows", rowConfigHandler.Save)     // S2 D-3
 			guarded.DELETE("/discovery/rows", rowConfigHandler.Reset) // S2 D-3
+		}
+		// ADR-0017 Ф5 S3 — discovery blocklist (global hide-list) +
+		// keyword-search proxy. Distinct first path segment after
+		// /discovery/ (blocklist vs keyword-search) → no httprouter
+		// wildcard conflict with /discovery/keyword/:id.
+		if blocklistHandler != nil {
+			guarded.POST("/discovery/blocklist", blocklistHandler.Create)
+			guarded.GET("/discovery/blocklist", blocklistHandler.List)
+			guarded.DELETE("/discovery/blocklist/:id", blocklistHandler.Delete)
+			guarded.GET("/discovery/keyword-search", blocklistHandler.KeywordSearch)
 		}
 		// Story 520 (N-4c) — POST add-to-sonarr. Nil-OK pattern: when
 		// wiring did not construct the handler (test bootstrap) the

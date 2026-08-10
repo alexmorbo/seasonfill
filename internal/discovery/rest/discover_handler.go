@@ -53,6 +53,12 @@ const (
 	discoverThrottleThreshold = 1 * time.Second
 )
 
+// discoverMaxExtraPages bounds the blocklist backfill top-up: when a
+// filtered page drops below discoverPerPage the handler fetches at most
+// this many extra TMDB pages to refill toward 20. Trips → short-fill.
+// ADR-0017 Ф5 S3.
+const discoverMaxExtraPages = 2
+
 // Outcome label values exposed via discover_handler_outcome_total{outcome=…}.
 const (
 	OutcomeHit         = "hit"
@@ -87,7 +93,15 @@ type DiscoverHandler struct {
 	// for in_library_instances. Nil-OK.
 	libraryInstances app.LibraryInstancesPort
 	log              *slog.Logger
+
+	// blocklist — ADR-0017 Ф5 S3. Nil-OK passthrough. Set post-construction.
+	blocklist *app.BlocklistCache
 }
+
+// SetBlocklist injects the discovery blocklist cache (nil-OK). Wiring sets
+// it after NewDiscoverHandler so the constructor signature stays stable.
+// ADR-0017 Ф5 S3.
+func (h *DiscoverHandler) SetBlocklist(bc *app.BlocklistCache) { h.blocklist = bc }
 
 // NewDiscoverHandler wires the handler. lru/pass/bg/warming/log are
 // required; resolver is nil-OK (legacy behavior — raw TMDB paths
@@ -130,13 +144,28 @@ func (h *DiscoverHandler) Handle(c *gin.Context) {
 	if !ok {
 		return
 	}
-	cacheKey := canonicalHash(filter, lang, page)
+	// ADR-0017 Ф5 S3 — fold the blocked keyword ids into WithoutKeywords so
+	// the upstream /discover/tv query excludes them AND the LRU key partitions
+	// distinctly per active keyword-blocklist. Nil-safe (nil cache → filter
+	// unchanged). The bg fetcher inherits this merged filter via EnqueueDedup.
+	filter = h.blocklist.ApplyKeywordBlocklist(filter)
+	// bl_epoch folds the blocklist mutation counter into the key so a hide
+	// (epoch++) invalidates every warmed passthrough page. Epoch() is nil-safe.
+	cacheKey := canonicalHash(filter, lang, page, h.blocklist.Epoch())
 
 	ctx := c.Request.Context()
 
 	// 1. LRU hit.
 	if items, found := h.lru.Get(cacheKey); found {
 		observability.IncDiscoverHandlerOutcome(OutcomeHit)
+		// ADR-0017 Ф5 S3 — subtract blocked tmdb ids at the read chokepoint.
+		// The bg fetcher (async-202 warming path) writes RAW passthrough
+		// items into the LRU with no tmdb subtraction, so a page warmed
+		// under this key may still carry a hidden id; filtering here closes
+		// that leak for ANY writer (bg or sync). Idempotent for sync-cached
+		// pages (already filtered) and nil-safe. FilterBlocked stays the
+		// single shared subtraction helper.
+		items = h.blocklist.FilterBlocked(items)
 		c.JSON(http.StatusOK, h.envelope(ctx, items, page, "hit", 0))
 		return
 	}
@@ -147,6 +176,7 @@ func (h *DiscoverHandler) Handle(c *gin.Context) {
 	items, err := h.pass.Fetch(syncCtx, filter, lang, page)
 	switch {
 	case err == nil:
+		items = h.fetchWithBlocklist(syncCtx, filter, lang, page, items)
 		h.lru.Add(cacheKey, items)
 		observability.IncDiscoverHandlerOutcome(OutcomeMissSync)
 		c.JSON(http.StatusOK, h.envelope(ctx, items, page, "miss", 0))
@@ -272,6 +302,7 @@ func (h *DiscoverHandler) parse(c *gin.Context) (tmdb.DiscoverFilter, string, in
 	parseIntList("without_genres", &filter.WithoutGenres, 1, 100000)
 	parseIntList("with_networks", &filter.WithNetworks, 1, 1_000_000)
 	parseIntList("with_keywords", &filter.WithKeywords, 1, 1_000_000)
+	parseIntList("without_keywords", &filter.WithoutKeywords, 1, 1_000_000)
 	parseIntList("with_watch_providers", &filter.WithWatchProviders, 1, 1_000_000)
 	parseIntList("with_status", &filter.WithStatus, 0, 5)
 	parseIntList("with_type", &filter.WithType, 0, 6)
@@ -356,6 +387,55 @@ func (h *DiscoverHandler) parse(c *gin.Context) (tmdb.DiscoverFilter, string, in
 		return tmdb.DiscoverFilter{}, "", 0, false
 	}
 	return filter, lang, page, true
+}
+
+// fetchWithBlocklist applies the blocklist subtraction to the first page
+// and, when the filtered page falls below discoverPerPage, fetches up to
+// discoverMaxExtraPages additional TMDB pages to top the result back up to
+// 20. Bounded by discoverMaxPage (TMDB's cap) and discoverMaxExtraPages.
+// On a top-up fetch error, or when the guard trips with the page still
+// short, it returns what it has and logs a short-fill line. A nil
+// blocklist is a no-op (returns first verbatim). ADR-0017 Ф5 S3.
+func (h *DiscoverHandler) fetchWithBlocklist(
+	ctx context.Context,
+	filter tmdb.DiscoverFilter,
+	lang string,
+	page int,
+	first []disco.Item,
+) []disco.Item {
+	out := h.blocklist.FilterBlocked(first)
+	if h.blocklist == nil || len(out) >= discoverPerPage {
+		return out
+	}
+	removed := len(first) - len(out)
+	if removed == 0 {
+		return out // nothing blocked on this page; a short page is TMDB's own tail
+	}
+	for extra := 1; extra <= discoverMaxExtraPages && len(out) < discoverPerPage; extra++ {
+		next := page + extra
+		if next > discoverMaxPage {
+			break
+		}
+		more, err := h.pass.Fetch(ctx, filter, lang, next)
+		if err != nil {
+			h.log.WarnContext(ctx, "discovery.discover.backfill_fetch_failed",
+				slog.Int("page", next),
+				slog.String("error", err.Error()))
+			break
+		}
+		out = append(out, h.blocklist.FilterBlocked(more)...)
+	}
+	if len(out) > discoverPerPage {
+		out = out[:discoverPerPage]
+	}
+	if len(out) < discoverPerPage {
+		h.log.InfoContext(ctx, "discovery.discover.short_fill",
+			slog.Int("page", page),
+			slog.Int("returned", len(out)),
+			slog.Int("target", discoverPerPage),
+			slog.Int("blocked_on_first_page", removed))
+	}
+	return out
 }
 
 // appendDegraded inserts s into the slice iff not already present.

@@ -149,6 +149,12 @@ type Worker struct {
 	// same limiter as refresh() itself (§3.4 story spec).
 	preWarmer SeriesTextPreWarmer
 
+	// blocklist — ADR-0017 Ф5 S3. Nil-OK. When set, the discover-backed
+	// fetchPage kinds (by_genre/by_network/by_keyword) fold the blocked
+	// keyword ids into WithoutKeywords. Set post-construction via
+	// SetBlocklist so the WorkerDeps constructor signature stays stable.
+	blocklist *BlocklistCache
+
 	// warmingOnce flips discovery_warming 1→0 exactly once, on the
 	// first successful ReplaceList of ANY kind. atomic.Bool +
 	// CompareAndSwap so two simultaneous Tick branches can't double-
@@ -198,6 +204,10 @@ func NewWorker(deps WorkerDeps) *Worker {
 		preWarmer: deps.PreWarmer,
 	}
 }
+
+// SetBlocklist injects the discovery blocklist cache (nil-OK). Wiring sets
+// it after NewWorker so the WorkerDeps signature stays stable. ADR-0017 Ф5 S3.
+func (w *Worker) SetBlocklist(bc *BlocklistCache) { w.blocklist = bc }
 
 // RunForever blocks until ctx is cancelled. The first tick fires
 // immediately (PRD §5.1.1 cold-start contract); a HEALTHY tick then
@@ -535,29 +545,35 @@ func (w *Worker) refresh(ctx context.Context, kind disco.Kind, param, lang strin
 func (w *Worker) fetchPage(ctx context.Context, kind disco.Kind, param, lang string, page int) (*tmdb.TVListResponse, error) {
 	switch kind {
 	case disco.KindTrendingDay:
+		// ADR-0017 Ф5 S3 keyword-LEAK: /trending/tv has no keyword param —
+		// blocked keywords cannot be excluded here (documented, not a bug).
 		return w.tmdb.Trending(ctx, tmdb.TrendingDay, lang, page)
 	case disco.KindTrendingWeek:
+		// ADR-0017 Ф5 S3 keyword-LEAK: /trending/tv has no keyword param.
 		return w.tmdb.Trending(ctx, tmdb.TrendingWeek, lang, page)
 	case disco.KindPopular:
+		// ADR-0017 Ф5 S3 keyword-LEAK: /tv/popular has no keyword param.
 		return w.tmdb.Popular(ctx, lang, page)
 	case disco.KindByGenre:
 		id, err := strconv.Atoi(param)
 		if err != nil {
 			return nil, errors.New("by_genre param must be int tmdb id")
 		}
-		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithGenres: []int{id}}, lang, page)
+		// ADR-0017 Ф5 S3 — /discover/tv honours without_keywords; fold the
+		// keyword blocklist in (nil-safe).
+		return w.tmdb.DiscoverTV(ctx, w.blocklist.ApplyKeywordBlocklist(tmdb.DiscoverFilter{WithGenres: []int{id}}), lang, page)
 	case disco.KindByNetwork:
 		id, err := strconv.Atoi(param)
 		if err != nil {
 			return nil, errors.New("by_network param must be int tmdb id")
 		}
-		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithNetworks: []int{id}}, lang, page)
+		return w.tmdb.DiscoverTV(ctx, w.blocklist.ApplyKeywordBlocklist(tmdb.DiscoverFilter{WithNetworks: []int{id}}), lang, page)
 	case disco.KindByKeyword:
 		id, err := strconv.Atoi(param)
 		if err != nil {
 			return nil, errors.New("by_keyword param must be int tmdb id")
 		}
-		return w.tmdb.DiscoverTV(ctx, tmdb.DiscoverFilter{WithKeywords: []int{id}}, lang, page)
+		return w.tmdb.DiscoverTV(ctx, w.blocklist.ApplyKeywordBlocklist(tmdb.DiscoverFilter{WithKeywords: []int{id}}), lang, page)
 	}
 	return nil, errors.New("unknown kind " + string(kind))
 }

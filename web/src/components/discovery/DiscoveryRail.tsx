@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { toBcp47 } from '@/lib/locale';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SeriesCard } from '@/components/series/SeriesCard';
+import { DiscoveryCard } from './DiscoveryCard';
+import { useHideFromDiscovery } from './useHideFromDiscovery';
 import {
   useDiscoveryTrending, useDiscoveryPopular,
   type DiscoverySeriesItem,
@@ -61,9 +62,39 @@ export function DiscoveryRail({ row }: { row: DiscoveryRow }) {
     }
   })();
 
+  // Session-local optimistic hide set (keyed by tmdb_id). The POST persists
+  // server-side; the visual removal is instant and reversible via the Undo
+  // toast. A future refetch drops the item anyway once the BE filters it.
+  const [hiddenIds, setHiddenIds] = useState<ReadonlySet<number>>(
+    () => new Set<number>(),
+  );
+  const { hide } = useHideFromDiscovery();
+  const onHide = useCallback((it: DiscoverySeriesItem) => {
+    setHiddenIds((prev) => {
+      const next = new Set(prev);
+      next.add(it.tmdb_id);
+      return next;
+    });
+    hide({
+      tmdbId: it.tmdb_id,
+      title: it.title,
+      onRestore: () => setHiddenIds((prev) => {
+        const next = new Set(prev);
+        next.delete(it.tmdb_id);
+        return next;
+      }),
+    });
+  }, [hide]);
+
+  const visibleItems = useMemo(
+    () => items.filter((it) => !hiddenIds.has(it.tmdb_id)),
+    [items, hiddenIds],
+  );
+
   // Empty/error rails render nothing (a broken rail must not break the page).
+  // When every card is hidden the whole rail collapses too.
   if (isError) return null;
-  if (!isPending && items.length === 0) return null;
+  if (!isPending && visibleItems.length === 0) return null;
 
   return (
     <section
@@ -80,22 +111,14 @@ export function DiscoveryRail({ row }: { row: DiscoveryRow }) {
                 <Skeleton className="h-3 w-3/4" />
               </div>
             ))
-          : items.map((item, idx) => {
-              const inLib = (item.in_library_instances ?? []).length > 0;
-              return (
-                <SeriesCard
-                  key={`${item.series_id}-${item.tmdb_id}-${idx}`}
-                  seriesId={item.series_id}
-                  tmdbId={item.tmdb_id}
-                  title={item.title}
-                  year={item.year}
-                  posterAsset={item.poster_hash || item.poster_path}
-                  rating={item.tmdb_rating}
-                  libraryBadge={inLib ? 'inLibrary' : undefined}
-                  className={CARD}
-                />
-              );
-            })}
+          : visibleItems.map((item, idx) => (
+              <DiscoveryCard
+                key={`${item.series_id}-${item.tmdb_id}-${idx}`}
+                item={item}
+                onHide={onHide}
+                className={CARD}
+              />
+            ))}
       </div>
     </section>
   );

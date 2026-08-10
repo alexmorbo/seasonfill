@@ -95,6 +95,12 @@ type DiscoveryHandler struct {
 	libraryInstances app.LibraryInstancesPort
 	log              *slog.Logger
 
+	// blocklist — ADR-0017 Ф5 S3. Global discovery hide-list. Nil-OK: a nil
+	// cache is a no-op passthrough (FilterBlocked returns items unchanged).
+	// Set post-construction via WithBlocklist / SetBlocklist so existing
+	// call sites stay unchanged.
+	blocklist *app.BlocklistCache
+
 	// sfGroup collapses concurrent cold-cache on-demand refresh calls
 	// onto a single TMDB fetch. Key: kind|param|lang. The shared
 	// group keeps memory usage flat — singleflight evicts the entry
@@ -413,6 +419,7 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 		return
 	}
 	if len(localItems) > 0 {
+		localItems = h.blocklist.FilterBlocked(localItems) // ADR-0017 Ф5 S3
 		inLib := h.resolveInLibrary(ctx, localItems)
 		c.JSON(http.StatusOK, gin.H{
 			"items":  projectSearchItems(ctx, localItems, h.resolver, inLib),
@@ -427,6 +434,7 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 			"tmdb fallback failed")
 		return
 	}
+	tmdbItems = h.blocklist.FilterBlocked(tmdbItems) // ADR-0017 Ф5 S3
 	inLib := h.resolveInLibrary(ctx, tmdbItems)
 	c.JSON(http.StatusOK, gin.H{
 		"items":  projectSearchItems(ctx, tmdbItems, h.resolver, inLib),
@@ -510,9 +518,10 @@ func (h *DiscoveryHandler) readAndProject(
 		return nil, err
 	}
 
-	inLib := h.resolveInLibrary(ctx, pg.Items)
-	items := make([]DiscoverySeriesItem, 0, len(pg.Items))
-	for _, it := range pg.Items {
+	filtered := h.blocklist.FilterBlocked(pg.Items) // ADR-0017 Ф5 S3 — nil-OK passthrough
+	inLib := h.resolveInLibrary(ctx, filtered)
+	items := make([]DiscoverySeriesItem, 0, len(filtered))
+	for _, it := range filtered {
 		items = append(items, projectItem(ctx, it, h.resolver, inLib))
 	}
 	resp := &DiscoveryListResponse{

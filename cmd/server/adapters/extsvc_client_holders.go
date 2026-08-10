@@ -184,6 +184,18 @@ func (h *TMDBClientHolder) SearchTV(ctx context.Context, query, language string,
 	return c.SearchTV(ctx, query, language, page)
 }
 
+// SearchKeyword forwards to the live tmdb.Client for the discovery
+// /keyword-search endpoint (ADR-0017 Ф5 S3). Same Load+nil-check pattern as
+// the other forwarders — a runtime TMDB disable surfaces
+// ErrTMDBClientNotReady, which the handler maps to 502.
+func (h *TMDBClientHolder) SearchKeyword(ctx context.Context, query string) ([]tmdb.KeywordResult, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.SearchKeyword(ctx, query)
+}
+
 // GenreListTV forwards to the live tmdb.Client; entry point for the
 // discovery GenreSyncer background loop (story 540 / B-49). Same
 // Load+nil-check pattern as the other forwarders so a runtime TMDB

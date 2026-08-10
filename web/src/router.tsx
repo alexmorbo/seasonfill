@@ -25,6 +25,7 @@ import { GeneralTab } from '@/components/settings/GeneralTab';
 import { SecurityTab } from '@/components/settings/SecurityTab';
 import { IntegrationsTab } from '@/components/settings/IntegrationsTab';
 import { AgentsTab } from '@/pages/settings/AgentsTab';
+import { BlocklistTab } from '@/pages/settings/BlocklistTab';
 import { SettingsExternalServices } from '@/pages/SettingsExternalServices';
 import { Series } from '@/pages/Series';
 import { SeriesDetail } from '@/pages/SeriesDetail';
@@ -78,6 +79,7 @@ export const router = createBrowserRouter([
               { path: 'security',     element: <SecurityTab /> },
               { path: 'integrations', element: <IntegrationsTab /> },
               { path: 'agents', element: <AgentsTab /> },
+              { path: 'blocklist', element: <BlocklistTab /> },
             ],
           },
         ],

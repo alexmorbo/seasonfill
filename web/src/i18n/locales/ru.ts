@@ -1079,6 +1079,13 @@ export const ru: Translations = {
       no_results: 'Ничего не найдено по запросу «{{query}}»',
     },
     in_library: 'В библиотеке',
+    card: {
+      menu: 'Действия',
+      hide: 'Скрыть из рекомендаций',
+      hidden: 'Скрыто: {{title}}',
+      undo: 'Отменить',
+      hideFailed: 'Не удалось скрыть',
+    },
     add_to_sonarr: 'Добавить в Sonarr',
     add: {
       button: 'Добавить в Sonarr',
@@ -1305,8 +1312,23 @@ export const ru: Translations = {
       security: 'Безопасность',
       integrations: 'Интеграции',
       agents: 'Агенты',
+      blocklist: 'Скрытое',
       profile: 'Профиль',
       system: 'Системные',
+    },
+    blocklist: {
+      title: 'Скрытое из рекомендаций',
+      subtitle: 'Сериалы и ключевые слова, исключённые из блока «Обзор».',
+      seriesTitle: 'Скрытые сериалы',
+      seriesEmpty: 'Нет скрытых сериалов.',
+      keywordsTitle: 'Заблокированные ключевые слова',
+      keywordsEmpty: 'Нет заблокированных ключевых слов.',
+      remove: 'Убрать из списка',
+      loadErr: 'Не удалось загрузить список скрытого',
+      keyword: {
+        placeholder: 'Найти ключевое слово…',
+        noResults: 'Ничего не найдено',
+      },
     },
     profile: {
       placeholder: 'Раздел в разработке',

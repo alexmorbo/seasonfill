@@ -68,7 +68,7 @@ func TestD8_Closure_AllMigrationsApply(t *testing.T) {
 }
 
 // TestD8_Closure_TableInventoryMatches verifies that the live DB after
-// Up() contains exactly the 57 names in d1AcceptanceTablesPostgres.
+// Up() contains exactly the 65 names in d1AcceptanceTablesPostgres.
 // A missing name means a migration regressed; an extra name means a
 // legacy or one-off table snuck back in. ElementsMatch — order-free.
 func TestD8_Closure_TableInventoryMatches(t *testing.T) {
@@ -135,7 +135,7 @@ func TestD8_Closure_NoLegacyTables(t *testing.T) {
 // lower version pinned), plus the "previous run crashed mid-Up"
 // failure mode (dirty=true, blocks subsequent migrations).
 func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
-	const wantHead = 50
+	const wantHead = 51
 
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {

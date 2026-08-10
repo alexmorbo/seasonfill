@@ -1074,6 +1074,13 @@ export const en = {
       no_results: 'No matches for "{{query}}"',
     },
     in_library: 'In library',
+    card: {
+      menu: 'Actions',
+      hide: 'Hide from recommendations',
+      hidden: 'Hidden: {{title}}',
+      undo: 'Undo',
+      hideFailed: "Couldn't hide",
+    },
     add_to_sonarr: 'Add to Sonarr',
     add: {
       button: 'Add to Sonarr',
@@ -1300,8 +1307,23 @@ export const en = {
       security: 'Security',
       integrations: 'Integrations',
       agents: 'Agents',
+      blocklist: 'Hidden',
       profile: 'Profile',
       system: 'System',
+    },
+    blocklist: {
+      title: 'Hidden from recommendations',
+      subtitle: 'Series and keywords excluded from the Discover rails.',
+      seriesTitle: 'Hidden series',
+      seriesEmpty: 'No hidden series.',
+      keywordsTitle: 'Blocked keywords',
+      keywordsEmpty: 'No blocked keywords.',
+      remove: 'Remove from list',
+      loadErr: 'Failed to load the hidden list',
+      keyword: {
+        placeholder: 'Search a keyword…',
+        noResults: 'Nothing found',
+      },
     },
     profile: {
       placeholder: 'Section in development',

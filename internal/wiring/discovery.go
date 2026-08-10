@@ -317,6 +317,10 @@ type DiscoveryHTTPBundle struct {
 	Genres             *discopersistence.GenresPickerRepo
 	Networks           *discopersistence.NetworksPickerRepo
 	SearchUC           *discoapp.SearchUseCase // story 508 (N-2g); nil when TMDB disabled
+	// Worker — ADR-0017 Ф5 S3. The discovery refresh loop, exposed here so
+	// BuildHTTPServer can inject the blocklist cache (SetBlocklist) into the
+	// worker's by_genre/by_network/by_keyword fetches. Nil in minimal wirings.
+	Worker *discoapp.Worker
 }
 
 // BuildDiscoveryHTTP wires the story 507 N-2f HTTP handler + the
@@ -384,7 +388,61 @@ func BuildDiscoveryHTTP(
 		Genres:   genres,
 		Networks: networks,
 		SearchUC: searchUC,
+		Worker:   runtime.Worker, // ADR-0017 Ф5 S3 — for blocklist SetBlocklist
 	}
+}
+
+// BuildDiscoveryBlocklist wires the ADR-0017 Ф5 S3 discovery blocklist:
+// the repo, the process-local cache (seeded via Refresh at boot by the
+// caller), and the HTTP handler (POST/GET/DELETE /discovery/blocklist).
+// resolver is the shared *media.Resolver (nil-OK → poster_hash falls back
+// to the raw asset path); base is the root logger. The returned cache is
+// ALSO injected into the curated + discover handlers (SetBlocklist) by the
+// caller so their readers subtract the same sets. The
+// /discovery/keyword-search route is owned by the BE-keyword sibling story
+// and wired separately over the same repo/cache. keywords is the runtime
+// TMDB client for /discovery/keyword-search (nil-OK → the route returns 503).
+func BuildDiscoveryBlocklist(
+	db *gorm.DB,
+	keywords KeywordSearchClient,
+	resolver *media.Resolver,
+	base *slog.Logger,
+) (*discoveryrest.BlocklistHandler, *discoapp.BlocklistCache) {
+	log := sharedports.DomainLogger(base, "discovery")
+	repo := discopersistence.NewBlocklistRepository(db)
+	cache := discoapp.NewBlocklistCache(repo)
+
+	var searcher discoveryrest.KeywordSearcher
+	if keywords != nil {
+		searcher = &keywordSearchAdapter{inner: keywords}
+	}
+	handler := discoveryrest.NewBlocklistHandler(repo, cache, searcher, resolver, log)
+	return handler, cache
+}
+
+// KeywordSearchClient is the narrow runtime TMDB surface
+// BuildDiscoveryBlocklist takes for /discovery/keyword-search. Satisfied by
+// *adapters.TMDBClientHolder (and *tmdb.Client) via SearchKeyword.
+type KeywordSearchClient interface {
+	SearchKeyword(ctx context.Context, query string) ([]tmdb.KeywordResult, error)
+}
+
+// keywordSearchAdapter bridges tmdb.KeywordResult to the rest.KeywordHit wire
+// shape so the discovery rest package never imports the tmdb package.
+type keywordSearchAdapter struct {
+	inner KeywordSearchClient
+}
+
+func (a *keywordSearchAdapter) SearchKeyword(ctx context.Context, query string) ([]discoveryrest.KeywordHit, error) {
+	res, err := a.inner.SearchKeyword(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]discoveryrest.KeywordHit, 0, len(res))
+	for _, r := range res {
+		out = append(out, discoveryrest.KeywordHit{ID: r.ID, Name: r.Name})
+	}
+	return out, nil
 }
 
 // EnrichmentDispatcherAdapter bridges the discoapp.EnrichmentDispatcher

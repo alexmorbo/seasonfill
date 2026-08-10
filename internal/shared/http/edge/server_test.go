@@ -329,6 +329,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // rowConfigHandler (ADR-0017 Ф5 D-1)
+		nil, // blocklistHandler (ADR-0017 Ф5 S3)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
@@ -406,6 +407,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // rowConfigHandler (ADR-0017 Ф5 D-1)
+		nil, // blocklistHandler (ADR-0017 Ф5 S3)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
@@ -490,6 +492,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // rowConfigHandler (ADR-0017 Ф5 D-1)
+		nil, // blocklistHandler (ADR-0017 Ф5 S3)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
@@ -721,6 +724,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
 		nil, // rowConfigHandler (ADR-0017 Ф5 D-1)
+		nil, // blocklistHandler (ADR-0017 Ф5 S3)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through

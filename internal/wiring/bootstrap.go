@@ -832,6 +832,9 @@ func BuildHTTPServer(
 	counterRepo ports.CounterRepository,
 	discoveryHTTP *DiscoveryHTTPBundle,
 	tmdbSeasonsClient TMDBSeasonsClient,
+	// ADR-0017 Ф5 S3 — runtime TMDB client for /discovery/keyword-search.
+	// nil-OK: the keyword-search route returns 503 when TMDB is unwired.
+	keywordSearchClient KeywordSearchClient,
 	// ADR-0016 Ф4 N1 — notification agents CRUD/test handler. nil-OK: the
 	// /admin/notification-agents routes are omitted when absent.
 	notificationAgentsHandler *notifrest.AgentsHandler,
@@ -869,6 +872,32 @@ func BuildHTTPServer(
 	// gate) — the endpoint serves the code-default set even with an empty
 	// discovery_rows table.
 	rowConfigHandler := BuildDiscoveryRowConfig(persistence.DB, log)
+	// ADR-0017 Ф5 S3 — discovery blocklist. Standalone repo over
+	// persistence.DB; the shared MediaResolver resolves tmdb-row poster
+	// hashes. The cache is injected into the curated + discover readers
+	// (SetBlocklist) so they subtract the same sets, then seeded from the
+	// persisted table before serving. A seed error is non-fatal (empty
+	// cache self-heals on the next mutation / boot).
+	blocklistHandler, blocklistCache := BuildDiscoveryBlocklist(
+		persistence.DB,
+		keywordSearchClient,              // nil-OK → keyword-search returns 503
+		seriesDetailBundle.MediaResolver, // nil-OK
+		log,
+	)
+	if discoveryHandler != nil {
+		discoveryHandler.SetBlocklist(blocklistCache)
+	}
+	if discoverHandler != nil {
+		discoverHandler.SetBlocklist(blocklistCache)
+	}
+	// ADR-0017 Ф5 S3 — the worker's by_genre/by_network/by_keyword fetches
+	// fold the same keyword blocklist into without_keywords.
+	if discoveryHTTP != nil && discoveryHTTP.Worker != nil {
+		discoveryHTTP.Worker.SetBlocklist(blocklistCache)
+	}
+	if err := blocklistCache.Refresh(context.Background()); err != nil {
+		log.Warn("discovery blocklist cache seed failed", slog.String("error", err.Error()))
+	}
 	// Story E-1-B7 — series-title localizer for GET /api/v1/series?lang=.
 	// Stateless GORM wrapper over the enrichment series_texts repo.
 	seriesTitleLocalizer := enrichpersistence.NewSeriesTextsRepository(persistence.DB)
@@ -963,6 +992,7 @@ func BuildHTTPServer(
 		discoveryHandler,
 		discoverHandler,
 		rowConfigHandler, // ADR-0017 Ф5 D-1
+		blocklistHandler, // ADR-0017 Ф5 S3
 		instanceMetadataBundle.Handler,
 		addToSonarrHandler,
 		seriesDetailBundle.ETagFreshness,

@@ -1,6 +1,10 @@
 package rest
 
-import "golang.org/x/sync/singleflight"
+import (
+	"golang.org/x/sync/singleflight"
+
+	"github.com/alexmorbo/seasonfill/internal/discovery/app"
+)
 
 // refreshCoalescer collapses concurrent identical on-demand refresh
 // calls onto a single execution and shares the result with every
@@ -30,4 +34,14 @@ type DiscoveryOption func(*DiscoveryHandler)
 // hook window. Prod never calls this and keeps the singleflight adapter.
 func WithRefreshCoalescer(c refreshCoalescer) DiscoveryOption {
 	return func(h *DiscoveryHandler) { h.sfGroup = c }
+}
+
+// SetBlocklist injects the discovery blocklist cache (nil-OK). Wiring calls
+// this after NewDiscoveryHandler so the constructor signature stays stable.
+// ADR-0017 Ф5 S3.
+func (h *DiscoveryHandler) SetBlocklist(bc *app.BlocklistCache) { h.blocklist = bc }
+
+// WithBlocklist is the functional-option form of SetBlocklist.
+func WithBlocklist(bc *app.BlocklistCache) DiscoveryOption {
+	return func(h *DiscoveryHandler) { h.blocklist = bc }
 }

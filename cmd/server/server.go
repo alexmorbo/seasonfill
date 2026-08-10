@@ -741,12 +741,19 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		tmdbSeasonsClient = enrichBundle.TMDBHolder
 	}
+	// ADR-0017 Ф5 S3 — runtime TMDB client for /discovery/keyword-search.
+	// nil when TMDB is unwired → the route returns 503.
+	var keywordSearchClient wiring.KeywordSearchClient
+	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+		keywordSearchClient = enrichBundle.TMDBHolder
+	}
 	httpServer, instanceMetadataBundle := wiring.BuildHTTPServer(
 		persistence, runtimecfg, auth,
 		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
 		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
 		mediaBundle, seriesDetailBundle,
 		seriesCacheRepo, counterRepo, discoveryHTTPBundle, tmdbSeasonsClient,
+		keywordSearchClient,
 		notificationBundle.AgentsHandler, log,
 	)
 

@@ -72,6 +72,7 @@ type DiscoverFilter struct {
 	WithNetworks       []int    // with_networks=213
 	WithOriginCountry  *string  // with_origin_country=JP
 	WithKeywords       []int    // with_keywords=210024
+	WithoutKeywords    []int    // without_keywords=210024 (ADR-0017 Ф5 S3 blocklist)
 	WithWatchProviders []int    // with_watch_providers=8
 	WatchRegion        *string  // watch_region=US
 	WithStatus         []int    // with_status=0,1 (defaults to OR join per TMDB API)
@@ -79,6 +80,21 @@ type DiscoverFilter struct {
 	WithType           []int    // with_type=0,2
 	WithTypeOp         string   // "and" | "or" (default "or"; empty → "or")
 	SortBy             string   // popularity.desc | vote_average.desc | first_air_date.desc | first_air_date.asc
+}
+
+// KeywordSearchResponse is the /search/keyword envelope. Keywords are
+// language-agnostic on TMDB — no language param.
+type KeywordSearchResponse struct {
+	Page         int             `json:"page"`
+	Results      []KeywordResult `json:"results"`
+	TotalPages   int             `json:"total_pages"`
+	TotalResults int             `json:"total_results"`
+}
+
+// KeywordResult is one TMDB keyword {id, name} from /search/keyword.
+type KeywordResult struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 // TMDB Discover TV `with_status` enum (0..5):

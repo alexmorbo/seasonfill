@@ -52,6 +52,27 @@ func (c *Client) SearchTV(ctx context.Context, query, language string, page int)
 	return c.fetchTVList(ctx, "/search/tv", q, "SearchTV")
 }
 
+// SearchKeyword fetches /search/keyword?query=… (page 1). Mirrors SearchTV
+// but returns the lightweight {id, name} keyword list — TMDB keywords are
+// language-agnostic, so no language param. Empty query → error.
+func (c *Client) SearchKeyword(ctx context.Context, query string) ([]KeywordResult, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("tmdb: SearchKeyword: empty query")
+	}
+	q := url.Values{}
+	q.Set("query", query)
+	q.Set("page", "1")
+	body, err := c.do(ctx, "/search/keyword", q)
+	if err != nil {
+		return nil, fmt.Errorf("tmdb: SearchKeyword: %w", err)
+	}
+	var out KeywordSearchResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("tmdb: decode SearchKeyword: %w", err)
+	}
+	return out.Results, nil
+}
+
 // fetchTVList is the shared parse/error path for the four list endpoints.
 // `opName` shows up in the wrapped error so callers can locate the failure
 // in stack traces without parsing path strings.
@@ -119,6 +140,9 @@ func buildDiscoverQuery(filter DiscoverFilter, lang string, page int) url.Values
 	}
 	if len(filter.WithKeywords) > 0 {
 		q.Set("with_keywords", joinInts(filter.WithKeywords, ","))
+	}
+	if len(filter.WithoutKeywords) > 0 {
+		q.Set("without_keywords", joinInts(filter.WithoutKeywords, ","))
 	}
 	if len(filter.WithWatchProviders) > 0 {
 		q.Set("with_watch_providers", joinInts(filter.WithWatchProviders, ","))
