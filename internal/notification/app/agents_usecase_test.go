@@ -61,6 +61,32 @@ func TestAgentsUseCase_Create_Validation(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidAgent) // unknown event_type
 }
 
+func TestAgentsUseCase_Create_AcceptsCalendarEventTypes(t *testing.T) {
+	t.Parallel()
+	var stored ports.NotificationAgent
+	repo := &ports.NotificationAgentRepositoryMock{
+		CreateFunc: func(_ context.Context, a ports.NotificationAgent) (int64, error) { stored = a; return 1, nil },
+	}
+	uc, _ := newUC(t, repo, &stubNotifier{})
+	ctx := context.Background()
+
+	// The N3 calendar/digest event types must be subscribable (regression: the
+	// producers emitted these but the allow-list rejected them with 400).
+	for _, et := range []string{"season.premiere", "air_date.announced", "digest.weekly"} {
+		_, err := uc.Create(ctx, "n", "telegram://t@x", true, []string{et})
+		require.NoErrorf(t, err, "event_type %q must be accepted", et)
+		assert.Equal(t, []string{et}, stored.EventTypes)
+	}
+
+	// Defaults (nil input) subscribe to every known type except grab.ok.
+	_, err := uc.Create(ctx, "n", "telegram://t@x", true, nil)
+	require.NoError(t, err)
+	assert.Contains(t, stored.EventTypes, "season.premiere")
+	assert.Contains(t, stored.EventTypes, "air_date.announced")
+	assert.Contains(t, stored.EventTypes, "digest.weekly")
+	assert.NotContains(t, stored.EventTypes, "grab.ok")
+}
+
 func TestAgentsUseCase_Update_URLSemantics(t *testing.T) {
 	t.Parallel()
 	var lastNewConfig []byte

@@ -20,13 +20,18 @@ type AgentView struct {
 	Scheme     string // e.g. "telegram", "discord" — parsed from the URL scheme only
 }
 
-// DefaultEventTypes is the ADR-0016 S1 default subscription set (grab.ok OFF).
-var DefaultEventTypes = []string{"grab.failed", "import.failed", "watchdog.regrab", "inbox.dead_letter"}
+// DefaultEventTypes is the ADR-0016 D3 default subscription set (everything ON
+// except grab.ok).
+var DefaultEventTypes = []string{
+	"grab.failed", "import.failed", "watchdog.regrab", "inbox.dead_letter",
+	"season.premiere", "air_date.announced", "digest.weekly",
+}
 
 // KnownEventTypes gates client input (unknown types rejected 400).
 var KnownEventTypes = map[string]struct{}{
 	"grab.failed": {}, "import.failed": {}, "grab.ok": {},
 	"watchdog.regrab": {}, "inbox.dead_letter": {},
+	"season.premiere": {}, "air_date.announced": {}, "digest.weekly": {},
 }
 
 type AgentsUseCase struct {

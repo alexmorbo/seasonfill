@@ -36,6 +36,9 @@ export const DEFAULT_EVENT_TYPES: readonly string[] = [
   'import.failed',
   'watchdog.regrab',
   'inbox.dead_letter',
+  'season.premiere',
+  'air_date.announced',
+  'digest.weekly',
 ];
 
 const BASE_PATH = '/admin/notification-agents';
