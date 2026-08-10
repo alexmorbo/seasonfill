@@ -48,6 +48,14 @@ export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// daysAgoISO returns YYYY-MM-DD (UTC) for n days before today — used for the
+// upcoming row's first_air_date.gte window lower bound.
+export function daysAgoISO(n: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
 // useRowDiscover fetches /discovery/discover passing row.params VERBATIM —
 // the BE discover_handler.parse() reads DOTTED keys (first_air_date.gte),
 // so we must NOT route through discovery.ts:buildDiscoverQs (which renames

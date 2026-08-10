@@ -47,3 +47,28 @@ func TestDefaultRows_Invariants(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultRows_UpcomingParams(t *testing.T) {
+	t.Parallel()
+	rows := DefaultRows()
+	byType := func(rt RowType) Row {
+		for _, r := range rows {
+			if r.RowType == rt {
+				return r
+			}
+		}
+		t.Fatalf("row %q not found", rt)
+		return Row{}
+	}
+	up := byType(RowTypeUpcoming)
+	if up.Params["sort_by"] != "popularity.desc" {
+		t.Errorf("upcoming sort_by = %q, want popularity.desc", up.Params["sort_by"])
+	}
+	if up.Params["vote_count.gte"] != "10" {
+		t.Errorf("upcoming vote_count.gte = %q, want 10", up.Params["vote_count.gte"])
+	}
+	upR := byType(RowTypeUpcomingReleases)
+	if upR.Params["sort_by"] != "first_air_date.asc" {
+		t.Errorf("upcoming_releases sort_by = %q, want first_air_date.asc", upR.Params["sort_by"])
+	}
+}

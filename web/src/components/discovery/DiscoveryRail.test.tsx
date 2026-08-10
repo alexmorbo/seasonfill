@@ -79,6 +79,31 @@ describe('<DiscoveryRail />', () => {
     expect(discoverCall).toContain('with_genres=18');
   });
 
+  it('injects a [today-45d, today] window for the upcoming row', async () => {
+    renderRail(row({ row_type: 'upcoming', title: 'Новые сериалы', params: { sort_by: 'popularity.desc', 'vote_count.gte': '10' } }));
+    await waitFor(() =>
+      expect(screen.getByText('Rick and Morty')).toBeInTheDocument());
+    const call = mockApi.mock.calls
+      .map(([p]) => p as string)
+      .find((p) => p.startsWith('/discovery/discover'));
+    expect(call).toBeDefined();
+    expect(call).toContain('first_air_date.gte=');
+    expect(call).toContain('first_air_date.lte=');
+    expect(call).toContain('sort_by=popularity.desc');
+  });
+
+  it('injects first_air_date.gte for the upcoming_releases row', async () => {
+    renderRail(row({ row_type: 'upcoming_releases', title: 'Скоро на экраны', params: { sort_by: 'first_air_date.asc' } }));
+    await waitFor(() =>
+      expect(screen.getByText('Rick and Morty')).toBeInTheDocument());
+    const call = mockApi.mock.calls
+      .map(([p]) => p as string)
+      .find((p) => p.startsWith('/discovery/discover'));
+    expect(call).toBeDefined();
+    expect(call).toContain('first_air_date.gte=');
+    expect(call).toContain('sort_by=first_air_date.asc');
+  });
+
   it('renders nothing when the query returns no items', async () => {
     mockApi.mockImplementation((p: string) => {
       if (p.startsWith('/admin/instances')) return Promise.resolve({ instances: [] });

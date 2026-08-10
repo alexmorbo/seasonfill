@@ -225,7 +225,7 @@ func (h *DiscoverHandler) resolveInLibrary(ctx context.Context, items []disco.It
 //   - lang: BCP-47 (defaults to en-US).
 //   - page: 1..500 (TMDB cap).
 //   - sort_by: closed set { popularity.desc | vote_average.desc |
-//     first_air_date.desc } when present; empty allowed.
+//     first_air_date.desc | first_air_date.asc } when present; empty allowed.
 //   - WithStatus/WithType ints clamped to documented enums (0..5 / 0..6).
 //   - WithStatusOp / WithTypeOp ∈ { "", "and", "or" }.
 func (h *DiscoverHandler) parse(c *gin.Context) (tmdb.DiscoverFilter, string, int, bool) {
@@ -344,7 +344,7 @@ func (h *DiscoverHandler) parse(c *gin.Context) (tmdb.DiscoverFilter, string, in
 	}
 	if raw := strings.TrimSpace(c.Query("sort_by")); raw != "" {
 		switch raw {
-		case "popularity.desc", "vote_average.desc", "first_air_date.desc":
+		case "popularity.desc", "vote_average.desc", "first_air_date.desc", "first_air_date.asc":
 			filter.SortBy = raw
 		default:
 			bindErr = "sort_by"

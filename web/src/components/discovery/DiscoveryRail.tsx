@@ -8,7 +8,7 @@ import {
   useDiscoveryTrending, useDiscoveryPopular,
   type DiscoverySeriesItem,
 } from '@/api/discovery';
-import { useRowDiscover, todayISO, type DiscoveryRow } from '@/api/discoveryRows';
+import { useRowDiscover, todayISO, daysAgoISO, type DiscoveryRow } from '@/api/discoveryRows';
 import { useLibraryRecentlyAdded } from './useLibraryRecentlyAdded';
 
 const TRACK = cn(
@@ -39,6 +39,9 @@ export function DiscoveryRail({ row }: { row: DiscoveryRow }) {
     const p: Record<string, string> = { ...row.params };
     if (rt === 'upcoming_releases') {
       p['first_air_date.gte'] = todayISO();
+    } else if (rt === 'upcoming') {
+      p['first_air_date.gte'] = daysAgoISO(45);
+      p['first_air_date.lte'] = todayISO();
     }
     return p;
   }, [row.params, rt]);

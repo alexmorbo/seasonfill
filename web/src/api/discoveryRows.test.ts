@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
-  useDiscoveryRows, useRowDiscover, todayISO,
+  useDiscoveryRows, useRowDiscover, todayISO, daysAgoISO,
   reorderRows, useSaveDiscoveryRows, useResetDiscoveryRows,
 } from './discoveryRows';
 
@@ -26,6 +26,13 @@ beforeEach(() => mockApi.mockReset());
 describe('todayISO', () => {
   it('returns a YYYY-MM-DD string', () => {
     expect(todayISO()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('daysAgoISO', () => {
+  it('returns a YYYY-MM-DD string strictly before today', () => {
+    expect(daysAgoISO(45)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(daysAgoISO(45) < todayISO()).toBe(true);
   });
 });
 

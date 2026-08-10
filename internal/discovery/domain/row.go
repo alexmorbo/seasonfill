@@ -89,17 +89,18 @@ type Row struct {
 // discover handler parses (internal/discovery/rest/discover_handler.go
 // parse()): with_genres / with_networks / sort_by / first_air_date.gte.
 // sort_by ∈ closed set {popularity.desc, vote_average.desc,
-// first_air_date.desc}. Genre 18 = Drama, network 213 = Netflix (TMDB ids).
+// first_air_date.desc, first_air_date.asc}. Genre 18 = Drama, network 213 = Netflix (TMDB ids).
 //
 // upcoming_releases carries only sort_by here; the FE injects a live
-// first_air_date.gte=<today> at fetch time (a static date in code would rot).
+// first_air_date.gte=<today>. The upcoming row's FE injects a live
+// first_air_date.gte=<today-45d> + .lte=<today> window (static dates would rot).
 func DefaultRows() []Row {
 	return []Row{
 		{Position: 0, RowType: RowTypeTrending, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Тренды", Params: map[string]string{}},
 		{Position: 1, RowType: RowTypePopular, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Популярное", Params: map[string]string{}},
-		{Position: 2, RowType: RowTypeUpcoming, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Новые сериалы", Params: map[string]string{"sort_by": "first_air_date.desc"}},
+		{Position: 2, RowType: RowTypeUpcoming, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Новые сериалы", Params: map[string]string{"sort_by": "popularity.desc", "vote_count.gte": "10"}},
 		{Position: 3, RowType: RowTypeRecentlyAdded, Source: SourceLibrary, MediaType: MediaTypeTV, Enabled: true, Title: "Недавно добавленное", Params: map[string]string{}},
-		{Position: 4, RowType: RowTypeUpcomingReleases, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Скоро на экраны", Params: map[string]string{"sort_by": "first_air_date.desc"}},
+		{Position: 4, RowType: RowTypeUpcomingReleases, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Скоро на экраны", Params: map[string]string{"sort_by": "first_air_date.asc"}},
 		{Position: 5, RowType: RowTypeGenre, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Драмы", Params: map[string]string{"with_genres": "18", "sort_by": "popularity.desc"}},
 		{Position: 6, RowType: RowTypeNetwork, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Netflix", Params: map[string]string{"with_networks": "213", "sort_by": "popularity.desc"}},
 	}

@@ -141,6 +141,18 @@ func TestDiscover_LRUHit_200(t *testing.T) {
 	require.EqualValues(t, 1, pass.calls.Load(), "second call must NOT hit upstream")
 }
 
+func TestDiscover_SortByFirstAirDateAsc_Accepted(t *testing.T) {
+	pass := &fakeDiscoverPassthrough{items: []disco.Item{{Title: "x"}}}
+	r, _, _ := newDiscoverHarness(t, pass, &discoverFakeWarming{}, 1*time.Hour)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), "GET",
+		"/discovery/discover?sort_by=first_air_date.asc", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotContains(t, rec.Body.String(), `"error":"invalid_filter"`)
+}
+
 func TestDiscover_SyncTimeout_202(t *testing.T) {
 	pass := &fakeDiscoverPassthrough{
 		items: []disco.Item{{Title: "z"}},

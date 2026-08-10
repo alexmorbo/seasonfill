@@ -78,7 +78,7 @@ type DiscoverFilter struct {
 	WithStatusOp       string   // "and" | "or" (default "or"; empty → "or")
 	WithType           []int    // with_type=0,2
 	WithTypeOp         string   // "and" | "or" (default "or"; empty → "or")
-	SortBy             string   // popularity.desc | vote_average.desc | first_air_date.desc
+	SortBy             string   // popularity.desc | vote_average.desc | first_air_date.desc | first_air_date.asc
 }
 
 // TMDB Discover TV `with_status` enum (0..5):
