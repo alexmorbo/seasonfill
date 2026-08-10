@@ -97,7 +97,7 @@ var _ = domain.SeriesID(0)
 // so counter_repository_test can build buckets without reaching into
 // the enrichment package.
 //
-// Seeds the parent sonarr_instance row + a parent scan_run row before
+// Seeds the parent arr_instance row + a parent scan_run row before
 // the grab insert so the grab_records_instance_name_fkey AND
 // grab_records_scan_run_id_fkey constraints are satisfied on Postgres
 // (SQLite without `PRAGMA foreign_keys=on` lets the orphan slip
@@ -129,11 +129,11 @@ func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID 
 
 // seedSonarrInstance is the idempotent FK-target helper for catalog
 // persistence tests that write to grab_records (and any other table
-// whose FK targets sonarr_instance.name). Uses ON CONFLICT DO NOTHING
+// whose FK targets arr_instance.name). Uses ON CONFLICT DO NOTHING
 // so multiple callers within the same test don't trip the unique
 // constraint.
 //
-// Writes raw SQL against the D-1 sonarr_instance schema (10 columns
+// Writes raw SQL against the D-1 arr_instance schema (10 columns
 // per 000010_admin.up.sql) rather than the legacy SonarrInstanceModel
 // which carries pre-D-1 columns no longer in the table. The SQL is
 // dialect-portable for SQLite + Postgres because both honor `ON
@@ -141,7 +141,7 @@ func seedGrab(t *testing.T, db *gorm.DB, instance domain.InstanceName, seriesID 
 // `updated_at` from their DEFAULT clauses.
 func seedSonarrInstance(t *testing.T, db *gorm.DB, name domain.InstanceName) {
 	t.Helper()
-	const insertSQL = `INSERT INTO sonarr_instance (name, url, mode, health, transitions_count)
+	const insertSQL = `INSERT INTO arr_instance (name, url, mode, health, transitions_count)
 	                   VALUES (?, ?, ?, ?, ?)
 	                   ON CONFLICT (name) DO NOTHING`
 	require.NoError(t,

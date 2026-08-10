@@ -20,7 +20,7 @@ func (e *RuntimeConfigNotFoundError) Retriable() bool { return false }
 // QbitSettingsNotFoundError signals a missing qbit_settings row for the
 // given instance. Maps to HTTP 404. The repository looks rows up by
 // the typed instance name (PK of qbit_settings) — D-1 moved
-// sonarr_instance to a TEXT name PK so the surrogate uint went away
+// arr_instance to a TEXT name PK so the surrogate uint went away
 // (D-6 / story 467c).
 type QbitSettingsNotFoundError struct {
 	InstanceName domain.InstanceName

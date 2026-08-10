@@ -18,7 +18,7 @@ const MetadataCacheTTL = 10 * time.Minute
 const MetadataCacheCapacity = 100
 
 // MetadataCache fronts the two per-instance Sonarr metadata reads. Keyed
-// by instance name (the sonarr_instance PK) — ADR-0008 S1-C: the former
+// by instance name (the arr_instance PK) — ADR-0008 S1-C: the former
 // int64 id key was always 0 (no ID column on the model), so every
 // instance collided on key 0 and served the first instance's profiles.
 // `nameSuffix` is appended to the underlying cachewatch names so tests

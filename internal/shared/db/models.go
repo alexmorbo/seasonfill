@@ -332,13 +332,14 @@ func (QuotaStateModel) TableName() string { return "external_service_quota_state
 //
 // `token_secret_id` is the denormalized current-token pointer back to
 // instance_secret.id (SET NULL on delete). Repository Create wires
-// the cyclic FK in a single tx: insert sonarr_instance with NULL
+// the cyclic FK in a single tx: insert arr_instance with NULL
 // token_secret_id → insert settings → insert instance_secret →
-// UPDATE sonarr_instance SET token_secret_id = $newSecretID.
+// UPDATE arr_instance SET token_secret_id = $newSecretID.
 type SonarrInstanceModel struct {
 	Name             string     `gorm:"primaryKey;column:name;type:text"`
 	URL              string     `gorm:"column:url;type:text;not null"`
 	Mode             string     `gorm:"column:mode;type:text;not null"`
+	Type             string     `gorm:"column:type;type:text;not null;default:sonarr"`
 	TokenSecretID    *uint      `gorm:"column:token_secret_id"`
 	Health           string     `gorm:"column:health;type:text;not null"`
 	LastCheckAt      *time.Time `gorm:"column:last_check_at"`
@@ -347,10 +348,10 @@ type SonarrInstanceModel struct {
 	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
 }
 
-func (SonarrInstanceModel) TableName() string { return "sonarr_instance" }
+func (SonarrInstanceModel) TableName() string { return "arr_instance" }
 
 // SonarrInstanceSettingsModel — per-instance behavioral configuration.
-// 1:1 with sonarr_instance via FK CASCADE on instance_name (no
+// 1:1 with arr_instance via FK CASCADE on instance_name (no
 // separate PK; instance_name IS the PK).
 type SonarrInstanceSettingsModel struct {
 	InstanceName                  string  `gorm:"primaryKey;column:instance_name;type:text"`
@@ -395,7 +396,7 @@ func (SonarrInstanceSettingsModel) TableName() string { return "sonarr_instance_
 
 // InstanceSecretModel — replaces the legacy composite-PK secret row.
 // Columns match 000010_admin.up.sql: id BIGSERIAL PK, instance_name
-// TEXT FK CASCADE → sonarr_instance.name, secret_name TEXT,
+// TEXT FK CASCADE → arr_instance.name, secret_name TEXT,
 // encrypted_value BYTEA, timestamps. UNIQUE(instance_name, secret_name)
 // at the index layer.
 type InstanceSecretModel struct {
@@ -1161,7 +1162,7 @@ type MediaAssetModel struct {
 func (MediaAssetModel) TableName() string { return "media_assets" }
 
 // QbitSettingsModel — per-instance Watchdog configuration (PRD v4
-// §5.4, migration 000018). instance_name TEXT PK, FK→sonarr_instance
+// §5.4, migration 000018). instance_name TEXT PK, FK→arr_instance
 // CASCADE. password_encrypted carries the AES-GCM ciphertext blob; the
 // repo layer never decrypts (cipher.Open happens in
 // NewSettingsFromRecord under the watchdog application layer).

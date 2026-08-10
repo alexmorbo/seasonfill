@@ -123,7 +123,7 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 	}
 
 	// origin_releases is append-only. Two INNER JOINs filter ghosts:
-	//   * sonarr_instance — drops rows whose instance_name no longer
+	//   * arr_instance — drops rows whose instance_name no longer
 	//     matches a configured instance.
 	//   * series_cache    — drops rows for series with no cache row.
 	q := dbFromContext(ctx, r.db).WithContext(ctx).
@@ -146,7 +146,7 @@ func (r *WatchdogSeasonsRepository) ListSeasons(
 		// from series_texts (en-US). The ghost-row filter that was
 		// `AND s.title <> ''` becomes an EXISTS over a non-empty en-US text row.
 		Joins("JOIN series s ON s.id = sc.series_id AND EXISTS (SELECT 1 FROM series_texts st WHERE st.series_id = s.id AND st.title IS NOT NULL AND st.title <> '')").
-		Joins("JOIN sonarr_instance si ON si.name = o.instance_name")
+		Joins("JOIN arr_instance si ON si.name = o.instance_name")
 
 	if f.Instance != "" {
 		q = q.Where("o.instance_name = ?", f.Instance)

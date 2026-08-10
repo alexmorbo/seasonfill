@@ -27,10 +27,10 @@ func NewSonarrInstanceRepository(db *gorm.DB) *SonarrInstanceRepository {
 	return &SonarrInstanceRepository{db: db}
 }
 
-// List returns every sonarr_instance row converted to a runtime
+// List returns every arr_instance row converted to a runtime
 // snapshot. Issues EXACTLY two SELECT queries regardless of N:
 //
-//  1. SELECT * FROM sonarr_instance  (parent rows)
+//  1. SELECT * FROM arr_instance  (parent rows)
 //  2. SELECT * FROM sonarr_instance_settings  (joined in memory by name)
 //
 // And exactly one more SELECT against instance_secret. Total of 3
@@ -122,13 +122,13 @@ func (r *SonarrInstanceRepository) GetByName(ctx context.Context, name string, c
 	return modelToSnapshot(m, settings, hasSettings, secretBlob, c)
 }
 
-// Create wires the cyclic FK between sonarr_instance and
+// Create wires the cyclic FK between arr_instance and
 // instance_secret in a single transaction:
 //
-//  1. INSERT sonarr_instance (token_secret_id = NULL)
+//  1. INSERT arr_instance (token_secret_id = NULL)
 //  2. INSERT sonarr_instance_settings (defaults from snap)
 //  3. INSERT instance_secret (secret_name='token', encrypted_value)
-//  4. UPDATE sonarr_instance SET token_secret_id = $newSecretID
+//  4. UPDATE arr_instance SET token_secret_id = $newSecretID
 //
 // Steps 3+4 are skipped when inst.APIKey == "" (no secret to write).
 // Returns the new secret_id (or 0 when no secret was written) — the
@@ -144,7 +144,7 @@ func (r *SonarrInstanceRepository) Create(ctx context.Context, inst runtime.Inst
 		parent.UpdatedAt = now
 		// Step 1 — insert with NULL token_secret_id.
 		if err := tx.Create(&parent).Error; err != nil {
-			return fmt.Errorf("create sonarr_instance: %w", err)
+			return fmt.Errorf("create arr_instance: %w", err)
 		}
 
 		// Step 2 — insert settings sibling row.
@@ -178,7 +178,7 @@ func (r *SonarrInstanceRepository) Create(ctx context.Context, inst runtime.Inst
 		}
 		secretID = sec.ID
 
-		// Step 4 — update sonarr_instance.token_secret_id (cyclic FK).
+		// Step 4 — update arr_instance.token_secret_id (cyclic FK).
 		// Pass the same `now` so the parent row's updated_at stays
 		// in lockstep with the secret row (the
 		// TestSonarrInstanceRepository_Create_TimestampsMatch contract).
@@ -198,9 +198,9 @@ func (r *SonarrInstanceRepository) Create(ctx context.Context, inst runtime.Inst
 	return secretID, nil
 }
 
-// UpdateWithOptions writes the slim sonarr_instance row + settings row
+// UpdateWithOptions writes the slim arr_instance row + settings row
 // inside a single tx and (unless preserveSecret) upserts the
-// instance_secret + re-wires sonarr_instance.token_secret_id. A nil
+// instance_secret + re-wires arr_instance.token_secret_id. A nil
 // cipher is allowed only when preserveSecret.
 //
 // When ifUnmodifiedSince != nil, the stored sonarr_instance_settings.updated_at
@@ -257,7 +257,7 @@ func (r *SonarrInstanceRepository) UpdateWithOptions(
 		parent.LastCheckAt = existing.LastCheckAt
 		parent.TransitionsCount = existing.TransitionsCount
 		if err := tx.Save(&parent).Error; err != nil {
-			return fmt.Errorf("update sonarr_instance: %w", err)
+			return fmt.Errorf("update arr_instance: %w", err)
 		}
 
 		// Patch settings row (create-on-missing).
@@ -321,7 +321,7 @@ func (r *SonarrInstanceRepository) UpdateWithOptions(
 	})
 }
 
-// Delete hard-deletes sonarr_instance + every app-managed sibling
+// Delete hard-deletes arr_instance + every app-managed sibling
 // keyed by instance name. Explicit DELETEs cover instance_secret,
 // sonarr_instance_settings, scan_runs, grab_records, series_cache
 // — explicit rather than FK-only because SQLite test fixtures

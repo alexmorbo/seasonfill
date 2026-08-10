@@ -1,5 +1,5 @@
 // Package instance is the application-layer orchestrator for the
-// HTTP CRUD on sonarr_instance rows. It glues the repo + the cipher
+// HTTP CRUD on arr_instance rows. It glues the repo + the cipher
 // + the reload bus into a single set of methods the HTTP handler
 // can call without leaking infrastructure types.
 package instance
@@ -54,7 +54,7 @@ func newValidationErr(field, code, msg string) *ValidationError {
 	return &ValidationError{Field: field, Code: code, Message: msg}
 }
 
-// Field bounds for sonarr_instance rows. Same inclusive-on-both-ends
+// Field bounds for arr_instance rows. Same inclusive-on-both-ends
 // convention as application/runtimeconfig. Bounds picked to match
 // realistic Sonarr deployments (a 300s API timeout is already very
 // generous; a 600s search timeout covers the worst-case Prowlarr

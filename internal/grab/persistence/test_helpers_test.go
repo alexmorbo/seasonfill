@@ -13,7 +13,7 @@ import (
 // grabBackends wraps testhelpers.AllBackends and pre-seeds the canonical
 // FK targets every grab/decision test fixture references:
 //
-//   - sonarr_instance rows for "main", "homelab", and "4k" (the
+//   - arr_instance rows for "main", "homelab", and "4k" (the
 //     instance_name values fixtures hard-code).
 //   - A scan_runs row whose id is the all-zeros UUID. Decision tests
 //     emit a `uuid.New()` ScanRunID by default; the
@@ -53,7 +53,7 @@ func grabBackends(t *testing.T) []testhelpers.Backend {
 // seedSonarrInstance is the idempotent FK-target helper for grab
 // persistence tests that write to grab_records / decisions /
 // origin_releases / download_links — every D-6 audit table whose FK
-// targets sonarr_instance.name. Uses ON CONFLICT DO NOTHING so multiple
+// targets arr_instance.name. Uses ON CONFLICT DO NOTHING so multiple
 // callers within the same test don't trip the unique constraint.
 //
 // Mirrors the catalog/persistence/sample_helpers_test.go helper —
@@ -66,7 +66,7 @@ func grabBackends(t *testing.T) []testhelpers.Backend {
 // pass too — seeding the parent row keeps both branches green.
 func seedSonarrInstance(tb testing.TB, db *gorm.DB, name domain.InstanceName) {
 	tb.Helper()
-	const insertSQL = `INSERT INTO sonarr_instance (name, url, mode, health, transitions_count)
+	const insertSQL = `INSERT INTO arr_instance (name, url, mode, health, transitions_count)
 	                   VALUES (?, ?, ?, ?, ?)
 	                   ON CONFLICT (name) DO NOTHING`
 	require.NoError(tb,

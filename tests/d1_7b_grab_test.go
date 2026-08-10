@@ -105,8 +105,8 @@ func TestD1_7b_GrabRecords_InstanceFK(t *testing.T) {
 	if fk.OnDelete != atlasschema.Cascade {
 		t.Errorf("grab_records_instance_name_fkey OnDelete = %s, want CASCADE", fk.OnDelete)
 	}
-	if fk.RefTable.Name != "sonarr_instance" {
-		t.Errorf("grab_records_instance_name_fkey ref = %s, want sonarr_instance", fk.RefTable.Name)
+	if fk.RefTable.Name != "arr_instance" {
+		t.Errorf("grab_records_instance_name_fkey ref = %s, want arr_instance", fk.RefTable.Name)
 	}
 }
 
@@ -273,8 +273,9 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// F1 Q2 adds torrent_action_audit → 59.
 			// C1 adds followed_series → 60.
 			// N1 adds notification_outbox + notification_agents → 62.
-			if len(s.Tables) != 65 {
-				t.Errorf("Schema(%s) tables = %d, want 65 (after Ф5 discovery_blocklist)", d, len(s.Tables))
+			// Ф6-R-1 adds radarr_instance_settings → 66.
+			if len(s.Tables) != 66 {
+				t.Errorf("Schema(%s) tables = %d, want 66 (after Ф6-R-1 radarr_instance_settings)", d, len(s.Tables))
 			}
 		})
 	}

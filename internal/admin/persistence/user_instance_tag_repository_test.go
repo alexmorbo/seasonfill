@@ -19,8 +19,8 @@ import (
 )
 
 // seedTagDeps inserts the parent rows the user_instance_tags FKs
-// require: one user (id=1) and one sonarr_instance ("main") so the
-// CASCADE FKs resolve. The sonarr_instance insert uses raw SQL because
+// require: one user (id=1) and one arr_instance ("main") so the
+// CASCADE FKs resolve. The arr_instance insert uses raw SQL because
 // the GORM SonarrInstanceModel struct still carries legacy pre-D-6
 // columns (TimeoutSeconds etc.) that the new D-1 schema drops — until
 // D-6 catalog rewrite shrinks the model, GORM Create against the new
@@ -37,7 +37,7 @@ func seedTagDeps(t *testing.T, db *gorm.DB) {
 		UpdatedAt:  now,
 	}).Error)
 	require.NoError(t, db.Exec(
-		`INSERT INTO sonarr_instance (name, url, mode, health, transitions_count, created_at, updated_at)
+		`INSERT INTO arr_instance (name, url, mode, health, transitions_count, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"main", "http://sonarr.local", "auto", "unknown", 0, now, now,
 	).Error)

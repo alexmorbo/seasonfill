@@ -168,7 +168,7 @@ func TestD16b_AdminDialectParityShape(t *testing.T) {
 	pg := schema.Schema(schema.DialectPostgres)
 	sq := schema.Schema(schema.DialectSQLite)
 	for _, name := range []string{
-		"sonarr_instance", "instance_secret", "app_secret",
+		"arr_instance", "instance_secret", "app_secret",
 		"external_service_config", "external_service_quota_state",
 	} {
 		pgT := mustTable(t, pg, name)
@@ -189,7 +189,7 @@ func TestD16b_NoCheckConstraints(t *testing.T) {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			for _, name := range []string{
-				"sonarr_instance", "instance_secret", "app_secret",
+				"arr_instance", "instance_secret", "app_secret",
 				"external_service_config", "external_service_quota_state",
 			} {
 				tbl := mustTable(t, schema.Schema(d), name)

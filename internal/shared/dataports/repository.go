@@ -317,7 +317,7 @@ type DownloadLinkRepository interface {
 //
 // D-6 (story 467c): the row keys on InstanceName (typed
 // domain.InstanceName) — the legacy uint InstanceID surrogate was
-// dropped when sonarr_instance moved to a TEXT name PK in D-1.
+// dropped when arr_instance moved to a TEXT name PK in D-1.
 type QbitSettingsRecord struct {
 	InstanceName           domain.InstanceName
 	Enabled                bool

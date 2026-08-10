@@ -54,7 +54,7 @@ func (h *InstanceCRUDHandler) WithMetadataInvalidator(inv MetadataInvalidator) *
 
 // invalidateMetadata is the no-op-safe wrapper around the optional port.
 // Called on PUT success and after a successful DELETE. Keyed by instance
-// name (the sonarr_instance PK) — ADR-0008 S1-C.
+// name (the arr_instance PK) — ADR-0008 S1-C.
 func (h *InstanceCRUDHandler) invalidateMetadata(name string) {
 	if h.invalidator == nil {
 		return
@@ -175,7 +175,7 @@ func (h *InstanceCRUDHandler) Update(c *gin.Context) {
 	// API key — evict the per-instance metadata caches so the next
 	// /admin/instances/{name}/quality_profiles call refetches from the
 	// new Sonarr endpoint rather than serving the stale snapshot. Keyed
-	// by instance name (the sonarr_instance PK) — ADR-0008 S1-C.
+	// by instance name (the arr_instance PK) — ADR-0008 S1-C.
 	h.invalidateMetadata(stored.Name)
 	c.Header("Last-Modified", ts.UTC().Format(http.TimeFormat))
 	c.JSON(http.StatusOK, snapshotToDetailDTO(stored, ts))

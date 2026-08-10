@@ -25,11 +25,11 @@
 // D-1-6a (story 459a) appends series_images — multi-language top-3
 // poster/backdrop/logo references with the mediaproxy asset_hash
 // column for future asset-store resolution (PRD §4.3).
-// D-1-6b (story 459b) appends the admin batch: sonarr_instance,
+// D-1-6b (story 459b) appends the admin batch: arr_instance,
 // instance_secret, app_secret, external_service_config, and
 // external_service_quota_state. Encrypted secrets live in side-tables
 // (instance_secret, app_secret) keyed by name + surrogate id for FK
-// stability across rotation. sonarr_instance and instance_secret have a
+// stability across rotation. arr_instance and instance_secret have a
 // dual FK pattern (back-ref token_secret_id SET NULL, forward-ref
 // instance_name CASCADE) documented in the builder comments.
 // D-1-7a (story 460a) appends the auth batch: users (with embedded
@@ -39,7 +39,7 @@
 // FKs to both parents). user_sessions is NOT in schema — auth is
 // stateless cookie HMAC + session_epoch in runtime_config.
 // D-1-7b (story 460b) appends the grab batch: grab_records (32 cols,
-// text(36) uuid PK; FK→sonarr_instance CASCADE + scan_runs SET NULL
+// text(36) uuid PK; FK→arr_instance CASCADE + scan_runs SET NULL
 // deferred), episode_grabs (composite-PK link table, dual CASCADE), and
 // download_links (qbit_hash text(64) PK; dual-target sonarr/radarr via
 // CHECK; external_episode_ids TEXT JSON per §6.7; global_series_id
@@ -210,10 +210,10 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addMediaAssets(s, d)
 	}
 
-	// D-1-6b (story 459b) — admin tables: sonarr_instance,
+	// D-1-6b (story 459b) — admin tables: arr_instance,
 	// instance_secret, app_secret, external_service_config, and
 	// external_service_quota_state. 5 tables with a dual FK pattern
-	// between sonarr_instance and instance_secret (back-ref SET NULL,
+	// between arr_instance and instance_secret (back-ref SET NULL,
 	// forward-ref CASCADE — see addAdmin doc).
 	//
 	// Dev-time split: setting ATLAS_SCHEMA_SKIP_ADMIN=1 generates
@@ -266,7 +266,7 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// D-1-7b (story 460b) — grab tables: grab_records (consolidated
 	// from legacy 000001+000005+000007+000012+000014+000016 into a
 	// single CREATE TABLE), episode_grabs (link table), download_links
-	// (qBit matcher cache per §5.4). FK to sonarr_instance CASCADE on
+	// (qBit matcher cache per §5.4). FK to arr_instance CASCADE on
 	// grab_records + download_links; FK to series SET NULL on
 	// download_links.global_series_id; dual-CASCADE on episode_grabs
 	// (FK to grab_records + episodes). The scan_runs FK on
@@ -285,7 +285,7 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// watchdog_blacklist).
 	//
 	// Both tables key on composite PK (instance_name, sonarr_series_id,
-	// season_number); both have a single FK to sonarr_instance.name with
+	// season_number); both have a single FK to arr_instance.name with
 	// ON DELETE CASCADE. No FK to series_cache.sonarr_series_id (matches
 	// grab_records pattern — Sonarr's id is not our canon; cold-start
 	// race avoidance per buildGrabRecordsTable doc).
@@ -312,7 +312,7 @@ func Schema(d Dialect) *atlasschema.Schema {
 	//   triple. Lets replay selection prefer the original indexer when
 	//   re-grabbing.
 	//
-	// All three FK to sonarr_instance.name CASCADE (cooldowns is the
+	// All three FK to arr_instance.name CASCADE (cooldowns is the
 	// exception — keyed by encoded string, no instance column).
 	// decisions.scan_run_id FK→scan_runs SET NULL (matches grab_records).
 	//
@@ -327,12 +327,12 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// qbit_torrent_events (state-transition log, 180d retention), and
 	// torrent_series_map (qBit hash → Sonarr series_id Phase-2 fuzzy).
 	//
-	// All four FK to sonarr_instance.name with ON DELETE CASCADE so a
+	// All four FK to arr_instance.name with ON DELETE CASCADE so a
 	// single instance delete wipes its qBit runtime footprint atomically.
 	//
 	// Dev-time split: setting ATLAS_SCHEMA_SKIP_QBIT_RUNTIME=1 generates
 	// earlier migrations without these tables. Skipping ADMIN auto-skips
-	// QBIT_RUNTIME because the FK target (sonarr_instance) would be
+	// QBIT_RUNTIME because the FK target (arr_instance) would be
 	// missing — addQbitRuntime would panic in mustTable.
 	if os.Getenv("ATLAS_SCHEMA_SKIP_QBIT_RUNTIME") == "" &&
 		os.Getenv("ATLAS_SCHEMA_SKIP_ADMIN") == "" {
@@ -2276,25 +2276,25 @@ func buildMediaAssetsTable(d Dialect) *atlasschema.Table {
 //
 // FK cascade graph:
 //
-//	sonarr_instance.name (TEXT PK)
+//	arr_instance.name (TEXT PK)
 //	  ←CASCADE←  instance_secret.instance_name
 //	             instance_secret (id BIGSERIAL PK; UNIQUE(instance_name, secret_name))
-//	               ←SET NULL←  sonarr_instance.token_secret_id (denormalized current-token pointer)
+//	               ←SET NULL←  arr_instance.token_secret_id (denormalized current-token pointer)
 //
 //	app_secret.id (BIGSERIAL PK)
 //	  ←SET NULL←  external_service_config.api_key_secret_id
 //	  ←SET NULL←  external_service_config.proxy_pass_secret_id
 //
-// The cyclic FK between sonarr_instance and instance_secret is handled
+// The cyclic FK between arr_instance and instance_secret is handled
 // by building an instance_secret stub FIRST (without its instance_name
-// FK resolved), then sonarr_instance with the back-reference, then
+// FK resolved), then arr_instance with the back-reference, then
 // post-wiring the instance_secret.instance_name FK to the now-existing
-// sonarr_instance table. Atlas v0.31.0 emits this as CREATE TABLE +
+// arr_instance table. Atlas v0.31.0 emits this as CREATE TABLE +
 // ALTER TABLE ADD CONSTRAINT in the generated SQL (PG); SQLite uses a
 // recreate-table workaround because ALTER TABLE ADD CONSTRAINT for FKs
 // is not supported.
 //
-// No FK on sonarr_instance ← series_cache.instance_name — app-managed
+// No FK on arr_instance ← series_cache.instance_name — app-managed
 // cascade (consistent with D-1-5 458 design).
 func addAdmin(s *atlasschema.Schema, d Dialect) {
 	instanceSecret := buildInstanceSecretTableStub(d)
@@ -2317,10 +2317,10 @@ func addAdmin(s *atlasschema.Schema, d Dialect) {
 }
 
 // buildInstanceSecretTableStub builds the instance_secret table WITHOUT
-// the instance_name FK to sonarr_instance — that gets wired by
-// wireInstanceSecretFK after sonarr_instance exists. Two-step build is
+// the instance_name FK to arr_instance — that gets wired by
+// wireInstanceSecretFK after arr_instance exists. Two-step build is
 // needed because instance_secret.id is FK-referenced from
-// sonarr_instance.token_secret_id (cyclic dependency).
+// arr_instance.token_secret_id (cyclic dependency).
 //
 // Columns:
 //
@@ -2350,7 +2350,7 @@ func buildInstanceSecretTableStub(d Dialect) *atlasschema.Table {
 		)
 }
 
-// wireInstanceSecretFK adds the instance_name → sonarr_instance.name
+// wireInstanceSecretFK adds the instance_name → arr_instance.name
 // CASCADE FK on the instance_secret table AFTER both tables exist.
 // Mutates instanceSecret in place — relies on the Atlas table being a
 // builder-mutable struct in v0.31.0.
@@ -2369,9 +2369,11 @@ func wireInstanceSecretFK(instanceSecret, sonarrInstance *atlasschema.Table) {
 	)
 }
 
-// buildSonarrInstanceTable returns sonarr_instance — 10 cols, single PK
+// buildSonarrInstanceTable returns arr_instance — 11 cols, single PK
 // on TEXT `name` (natural key, operator-friendly). Forward-ref FK
-// token_secret_id → instance_secret.id ON DELETE SET NULL.
+// token_secret_id → instance_secret.id ON DELETE SET NULL. Generalized
+// from arr_instance in Ф6-R-1 to serve Sonarr + (future) Radarr; the
+// `type` discriminator defaults to 'sonarr'.
 //
 // Columns:
 //
@@ -2384,8 +2386,9 @@ func wireInstanceSecretFK(instanceSecret, sonarrInstance *atlasschema.Table) {
 //	last_check_at     TIMESTAMPTZ NULL
 //	transitions_count INTEGER NOT NULL DEFAULT 0
 //	created_at, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+//	type              TEXT NOT NULL DEFAULT 'sonarr'
 //
-// Partial index sonarr_instance_unhealthy ON (last_check_at) WHERE
+// Partial index arr_instance_unhealthy ON (last_check_at) WHERE
 // health <> 'healthy' — watchdog scan path "instances needing
 // recheck", covers only the small subset with non-healthy state.
 //
@@ -2400,6 +2403,9 @@ func buildSonarrInstanceTable(d Dialect, instanceSecretTable *atlasschema.Table)
 	mode := atlasschema.NewStringColumn("mode", "text").
 		SetNull(false).
 		SetDefault(&atlasschema.Literal{V: "'auto'"})
+	instType := atlasschema.NewStringColumn("type", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'sonarr'"})
 	tokenSecretID := fkColumn(d, "token_secret_id", true /* nullable */)
 	health := atlasschema.NewStringColumn("health", "text").
 		SetNull(false).
@@ -2411,17 +2417,17 @@ func buildSonarrInstanceTable(d Dialect, instanceSecretTable *atlasschema.Table)
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
-	return atlasschema.NewTable("sonarr_instance").
+	return atlasschema.NewTable("arr_instance").
 		AddColumns(name, url, publicURL, mode, tokenSecretID, health,
-			lastCheckAt, transitionsCount, createdAt, updatedAt).
+			lastCheckAt, transitionsCount, createdAt, updatedAt, instType).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(name)).
 		AddIndexes(
-			partialIndex(d, "sonarr_instance_unhealthy",
+			partialIndex(d, "arr_instance_unhealthy",
 				[]*atlasschema.Column{lastCheckAt},
 				"health <> 'healthy'"),
 		).
 		AddForeignKeys(
-			atlasschema.NewForeignKey("sonarr_instance_token_secret_id_fkey").
+			atlasschema.NewForeignKey("arr_instance_token_secret_id_fkey").
 				AddColumns(tokenSecretID).
 				SetRefTable(instanceSecretTable).
 				AddRefColumns(parentRefCol(instanceSecretTable)).
@@ -2620,7 +2626,7 @@ func buildTMDBChangesStateTable(d Dialect) *atlasschema.Table {
 //	users.id (BIGSERIAL PK)
 //	  ←CASCADE←  user_instance_tags.user_id
 //
-//	sonarr_instance.name (TEXT PK, shipped by addAdmin)
+//	arr_instance.name (TEXT PK, shipped by addAdmin)
 //	  ←CASCADE←  user_instance_tags.instance_name
 //
 // PRD-vs-reality reconciliations (full notes in story 460a):
@@ -2638,13 +2644,13 @@ func buildTMDBChangesStateTable(d Dialect) *atlasschema.Table {
 //     admin until NG-1 ships role enforcement. CHECK ('admin','user')
 //     keeps the enum closed.
 //
-// Depends on sonarr_instance from addAdmin — Schema(d) runs addAdmin
+// Depends on arr_instance from addAdmin — Schema(d) runs addAdmin
 // immediately before addAuth, so the table is guaranteed to exist.
 func addAuth(s *atlasschema.Schema, d Dialect) {
 	users := buildUsersTable(d)
 	s.AddTables(users)
 
-	sonarrInstance := mustTable(s, "sonarr_instance")
+	sonarrInstance := mustTable(s, "arr_instance")
 	userInstanceTags := buildUserInstanceTagsTable(d, users, sonarrInstance)
 	s.AddTables(userInstanceTags)
 }
@@ -2726,7 +2732,7 @@ func buildUsersTable(d Dialect) *atlasschema.Table {
 // Columns:
 //
 //	user_id          BIGINT NOT NULL  FK→users.id CASCADE
-//	instance_name    TEXT NOT NULL    FK→sonarr_instance.name CASCADE
+//	instance_name    TEXT NOT NULL    FK→arr_instance.name CASCADE
 //	sonarr_tag_id    INTEGER NOT NULL (Sonarr-side numeric tag id)
 //	sonarr_tag_label TEXT NOT NULL    ('sf-alice' — Sonarr-visible label)
 //	created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -2787,17 +2793,18 @@ func buildUserInstanceTagsTable(d Dialect, usersTable, sonarrInstanceTable *atla
 //	  secret_name — this row carries no BYTEA columns.
 //
 //	sonarr_instance_settings (instance_name TEXT PK, FK CASCADE →
-//	  sonarr_instance.name) — per-instance behavioral knobs that the
-//	  D-1 slim sonarr_instance shape dropped. 1:1 with sonarr_instance;
+//	  arr_instance.name) — per-instance behavioral knobs that the
+//	  D-1 slim arr_instance shape dropped. 1:1 with arr_instance;
 //	  CASCADE drops the settings row with its parent.
 //
-// Depends on sonarr_instance from addAdmin — Schema(d) runs addAdmin
+// Depends on arr_instance from addAdmin — Schema(d) runs addAdmin
 // before addAppConfig, so the FK target is guaranteed to exist.
 func addAppConfig(s *atlasschema.Schema, d Dialect) {
 	s.AddTables(buildAppConfigTable(d))
 
-	sonarrInstance := mustTable(s, "sonarr_instance")
-	s.AddTables(buildSonarrInstanceSettingsTable(d, sonarrInstance))
+	arrInstance := mustTable(s, "arr_instance")
+	s.AddTables(buildSonarrInstanceSettingsTable(d, arrInstance))
+	s.AddTables(buildRadarrInstanceSettingsTable(d, arrInstance))
 }
 
 // buildAppConfigTable returns app_config — 28 cols, single PK on
@@ -2900,8 +2907,8 @@ func buildAppConfigTable(d Dialect) *atlasschema.Table {
 }
 
 // buildSonarrInstanceSettingsTable returns sonarr_instance_settings —
-// 30 cols, single PK on TEXT `instance_name` (1:1 with sonarr_instance).
-// FK CASCADE on instance_name so DELETE FROM sonarr_instance drops the
+// 30 cols, single PK on TEXT `instance_name` (1:1 with arr_instance).
+// FK CASCADE on instance_name so DELETE FROM arr_instance drops the
 // sibling row.
 func buildSonarrInstanceSettingsTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
 	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
@@ -2998,6 +3005,105 @@ func buildSonarrInstanceSettingsTable(d Dialect, sonarrInstance *atlasschema.Tab
 		)
 }
 
+// buildRadarrInstanceSettingsTable returns radarr_instance_settings —
+// Ф6-R-1 placeholder mirroring sonarr_instance_settings' 34-col shape.
+// EMPTY + UNUSED until Radarr support lands in a later phase. FK CASCADE
+// on instance_name → arr_instance.name (1:1 with a future radarr-typed
+// arr_instance row). Kept byte-identical to the sonarr sibling so the
+// two converge cleanly when Radarr grab settings are wired.
+func buildRadarrInstanceSettingsTable(d Dialect, arrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	timeoutSeconds := atlasschema.NewIntColumn("timeout_seconds", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "10"})
+	searchTimeoutSeconds := atlasschema.NewIntColumn("search_timeout_seconds", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "60"})
+	dryRun := atlasschema.NewNullBoolColumn("dry_run", "boolean")
+	tagsMode := atlasschema.NewStringColumn("tags_mode", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "'any'"})
+	tagsInclude := atlasschema.NewStringColumn("tags_include", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	tagsExclude := atlasschema.NewStringColumn("tags_exclude", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	searchRequireAllAired := atlasschema.NewBoolColumn("search_require_all_aired", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	searchSkipSpecials := atlasschema.NewBoolColumn("search_skip_specials", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	searchSkipAnime := atlasschema.NewBoolColumn("search_skip_anime", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	searchMinCustomFormatScore := atlasschema.NewIntColumn("search_min_custom_format_score", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	rankingIndexerPriorityEnabled := atlasschema.NewBoolColumn("ranking_indexer_priority_enabled", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	rankingOriginBonus := atlasschema.NewFloatColumn("ranking_origin_bonus", "double precision").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	limitsScanMaxSeries := atlasschema.NewIntColumn("limits_scan_max_series", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	limitsMaxGrabsPerScan := atlasschema.NewIntColumn("limits_max_grabs_per_scan", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	rateLimitRPM := atlasschema.NewIntColumn("rate_limit_rpm", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "30"})
+	rateLimitBurst := atlasschema.NewIntColumn("rate_limit_burst", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "10"})
+	cooldownMode := atlasschema.NewStringColumn("cooldown_mode", "text").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "''"})
+	cooldownSeriesAfterGrabSec := atlasschema.NewIntColumn("cooldown_series_after_grab_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	cooldownGUIDFailedGrabSec := atlasschema.NewIntColumn("cooldown_guid_failed_grab_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	cooldownGUIDFailedImportSec := atlasschema.NewIntColumn("cooldown_guid_failed_import_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	retryMaxAttempts := atlasschema.NewIntColumn("retry_max_attempts", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	retryInitialBackoffSec := atlasschema.NewIntColumn("retry_initial_backoff_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	retryMaxBackoffSec := atlasschema.NewIntColumn("retry_max_backoff_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	healthcheckRecheckAuthSec := atlasschema.NewIntColumn("healthcheck_recheck_auth_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	healthcheckRecheckNetSec := atlasschema.NewIntColumn("healthcheck_recheck_net_sec", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	publicURL := atlasschema.NewNullStringColumn("public_url", "text")
+	webhookInstallEnabled := atlasschema.NewBoolColumn("webhook_install_enabled", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	webhookURLOverride := atlasschema.NewNullStringColumn("webhook_url_override", "text")
+	parseOnGrabEnabled := atlasschema.NewBoolColumn("parse_on_grab_enabled", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	scanSkipHandledSeasons := atlasschema.NewBoolColumn("scan_skip_handled_seasons", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+	defaultQualityProfileID := atlasschema.NewNullIntColumn("default_quality_profile_id", "integer")
+	defaultRootFolderPath := atlasschema.NewNullStringColumn("default_root_folder_path", "text")
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("radarr_instance_settings").
+		AddColumns(
+			instanceName,
+			timeoutSeconds, searchTimeoutSeconds, dryRun,
+			tagsMode, tagsInclude, tagsExclude,
+			searchRequireAllAired, searchSkipSpecials, searchSkipAnime,
+			searchMinCustomFormatScore,
+			rankingIndexerPriorityEnabled, rankingOriginBonus,
+			limitsScanMaxSeries, limitsMaxGrabsPerScan,
+			rateLimitRPM, rateLimitBurst,
+			cooldownMode, cooldownSeriesAfterGrabSec,
+			cooldownGUIDFailedGrabSec, cooldownGUIDFailedImportSec,
+			retryMaxAttempts, retryInitialBackoffSec, retryMaxBackoffSec,
+			healthcheckRecheckAuthSec, healthcheckRecheckNetSec,
+			publicURL, webhookInstallEnabled, webhookURLOverride,
+			parseOnGrabEnabled, scanSkipHandledSeasons,
+			defaultQualityProfileID, defaultRootFolderPath,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("radarr_instance_settings_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(arrInstance).
+				AddRefColumns(parentRefCol(arrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
 // D-1-7b — grab tables.
 
 // addScanRuns appends scan_runs to s. Story 465b (D-4 catalog rewrite).
@@ -3077,7 +3183,7 @@ func buildScanRunsTable(d Dialect) *atlasschema.Table {
 
 // addGrab appends the 3 grab tables to s. FK graph:
 //
-//	sonarr_instance.name ←CASCADE← grab_records.instance_name
+//	arr_instance.name ←CASCADE← grab_records.instance_name
 //	                     ←CASCADE← download_links.instance_name
 //	scan_runs.id         ←SETNULL← grab_records.scan_run_id (active once scan_runs lands)
 //	grab_records.id      ←CASCADE← episode_grabs.grab_id
@@ -3087,11 +3193,11 @@ func buildScanRunsTable(d Dialect) *atlasschema.Table {
 // PRD reconciliations: instance keyed by text name (not bigint id);
 // external_episode_ids as TEXT JSON (SQLite has no array); grab_records.id
 // stays text(36) for uuid contract; episode_grabs is the link table.
-// Depends on sonarr_instance, episodes, series. scan_runs is REQUIRED
+// Depends on arr_instance, episodes, series. scan_runs is REQUIRED
 // in prod paths (D-4 story 465b); only ATLAS_SCHEMA_SKIP_SCAN_RUNS dev
 // flag makes it optional.
 func addGrab(s *atlasschema.Schema, d Dialect) {
-	sonarrInstance := mustTable(s, "sonarr_instance")
+	sonarrInstance := mustTable(s, "arr_instance")
 	episodes := mustTable(s, "episodes")
 	series := mustTable(s, "series")
 
@@ -3326,16 +3432,16 @@ func buildDownloadLinksTable(d Dialect, sonarrInstance, series *atlasschema.Tabl
 
 // addWatchdog appends the 2 watchdog tables to s. FK graph:
 //
-//	sonarr_instance.name ←CASCADE← watchdog_state.instance_name
+//	arr_instance.name ←CASCADE← watchdog_state.instance_name
 //	                     ←CASCADE← watchdog_blacklist.instance_name
 //
 // PRD reconciliations: instance keyed by text name (not bigint id);
 // season included in composite PK (replaces legacy
 // regrab_no_better_counter triple); no surrogate id (composite PK
 // suffices); no FK on sonarr_series_id (Sonarr's id, not our canon).
-// Depends on sonarr_instance.
+// Depends on arr_instance.
 func addWatchdog(s *atlasschema.Schema, d Dialect) {
-	sonarrInstance := mustTable(s, "sonarr_instance")
+	sonarrInstance := mustTable(s, "arr_instance")
 
 	watchdogState := buildWatchdogStateTable(d, sonarrInstance)
 	s.AddTables(watchdogState)
@@ -3346,7 +3452,7 @@ func addWatchdog(s *atlasschema.Schema, d Dialect) {
 
 // buildWatchdogStateTable returns watchdog_state — 8 cols, composite
 // PK on (instance_name, sonarr_series_id, season_number),
-// 1 FK CASCADE to sonarr_instance(name), 2 secondary indexes
+// 1 FK CASCADE to arr_instance(name), 2 secondary indexes
 // (1 plain on instance_name, 1 partial on cooldown_until WHERE NOT NULL).
 //
 // Replaces legacy regrab_no_better_counter — same semantics but with
@@ -3384,7 +3490,7 @@ func buildWatchdogStateTable(d Dialect, sonarrInstance *atlasschema.Table) *atla
 		[]*atlasschema.Column{cooldownUntil},
 		"cooldown_until IS NOT NULL"))
 
-	// FK to sonarr_instance.name CASCADE.
+	// FK to arr_instance.name CASCADE.
 	tbl.AddForeignKeys(
 		atlasschema.NewForeignKey("watchdog_state_instance_name_fkey").
 			AddColumns(instanceName).
@@ -3399,7 +3505,7 @@ func buildWatchdogStateTable(d Dialect, sonarrInstance *atlasschema.Table) *atla
 
 // buildWatchdogBlacklistTable returns watchdog_blacklist — 8 cols,
 // composite PK on (instance_name, sonarr_series_id, season_number),
-// 1 FK CASCADE to sonarr_instance(name), 1 partial index on ttl_until.
+// 1 FK CASCADE to arr_instance(name), 1 partial index on ttl_until.
 //
 // Replaces legacy watchdog_blacklist — same semantics but composite PK
 // (was surrogate id + UNIQUE), no `consecutive_no_better` link to
@@ -3428,7 +3534,7 @@ func buildWatchdogBlacklistTable(d Dialect, sonarrInstance *atlasschema.Table) *
 		[]*atlasschema.Column{ttlUntil},
 		"ttl_until IS NOT NULL"))
 
-	// FK to sonarr_instance.name CASCADE.
+	// FK to arr_instance.name CASCADE.
 	tbl.AddForeignKeys(
 		atlasschema.NewForeignKey("watchdog_blacklist_instance_name_fkey").
 			AddColumns(instanceName).
@@ -3444,7 +3550,7 @@ func buildWatchdogBlacklistTable(d Dialect, sonarrInstance *atlasschema.Table) *
 // D-6 (story 467a) — grab audit tables.
 
 // addGrabAudit appends decisions, cooldowns, and origin_releases. Called
-// from Schema(d) after addWatchdog. Depends on sonarr_instance (FK CASCADE
+// from Schema(d) after addWatchdog. Depends on arr_instance (FK CASCADE
 // for decisions + origin_releases) and on scan_runs (FK SET NULL for
 // decisions.scan_run_id when scan_runs is present in s).
 //
@@ -3452,7 +3558,7 @@ func buildWatchdogBlacklistTable(d Dialect, sonarrInstance *atlasschema.Table) *
 // encoded string (e.g. "homelab:140:1") that the application layer
 // constructs from the (instance, series, season) triple.
 func addGrabAudit(s *atlasschema.Schema, d Dialect) {
-	sonarrInstance := mustTable(s, "sonarr_instance")
+	sonarrInstance := mustTable(s, "arr_instance")
 
 	// scan_runs is optional — see buildDecisionsTable.
 	var scanRuns *atlasschema.Table
@@ -3512,7 +3618,7 @@ func buildCooldownsTable(d Dialect) *atlasschema.Table {
 }
 
 // buildDecisionsTable returns the decisions table — 22 cols, text(36) PK,
-// FK sonarr_instance.name CASCADE, optional FK scan_runs.id SET NULL,
+// FK arr_instance.name CASCADE, optional FK scan_runs.id SET NULL,
 // 3 indexes (DESC composite on created_at+id, instance composite on
 // instance_name+series_id+season_number, plain on scan_run_id).
 //
@@ -3593,7 +3699,7 @@ func buildDecisionsTable(d Dialect, sonarrInstance, scanRuns *atlasschema.Table)
 
 // buildOriginReleasesTable returns the origin_releases table — 10 cols,
 // composite PK (instance_name, series_id, season_number), FK
-// sonarr_instance.name CASCADE.
+// arr_instance.name CASCADE.
 //
 // Tracks the first-seen GUID per (instance, series, season) triple so the
 // replay selection can prefer the original indexer when re-grabbing.
@@ -3630,13 +3736,13 @@ func buildOriginReleasesTable(d Dialect, sonarrInstance *atlasschema.Table) *atl
 
 // addQbitRuntime appends qbit_settings, qbit_torrents,
 // qbit_torrent_events, and torrent_series_map. Called from Schema(d)
-// after addGrabAudit. All four FK to sonarr_instance.name CASCADE so
-// a single sonarr_instance delete wipes the entire qBit runtime
+// after addGrabAudit. All four FK to arr_instance.name CASCADE so
+// a single arr_instance delete wipes the entire qBit runtime
 // footprint for that instance.
 //
 // PRD §5.4 §7.3 — qBit runtime + Phase-2 fuzzy matcher.
 func addQbitRuntime(s *atlasschema.Schema, d Dialect) {
-	sonarrInstance := mustTable(s, "sonarr_instance")
+	sonarrInstance := mustTable(s, "arr_instance")
 	s.AddTables(buildQbitSettingsTable(d, sonarrInstance))
 	s.AddTables(buildQbitTorrentsTable(d, sonarrInstance))
 	s.AddTables(buildQbitTorrentEventsTable(d, sonarrInstance))
@@ -3644,7 +3750,7 @@ func addQbitRuntime(s *atlasschema.Schema, d Dialect) {
 }
 
 // buildQbitSettingsTable returns the qbit_settings table — 13 cols,
-// instance_name TEXT PK, FK sonarr_instance.name CASCADE.
+// instance_name TEXT PK, FK arr_instance.name CASCADE.
 //
 // Per-instance Watchdog config; password_encrypted carries the AES-GCM
 // ciphertext blob (BYTEA on Postgres, BLOB on SQLite).
@@ -3690,7 +3796,7 @@ func buildQbitSettingsTable(d Dialect, sonarrInstance *atlasschema.Table) *atlas
 }
 
 // buildQbitTorrentsTable returns the qbit_torrents table — 27 cols,
-// composite PK (instance_name, hash), FK sonarr_instance.name CASCADE.
+// composite PK (instance_name, hash), FK arr_instance.name CASCADE.
 //
 // Per-(instance, hash) snapshot of the last known qBit state per PRD
 // §4.6 + §7.3. The present/deleted_at pair implements soft-delete:
@@ -3757,7 +3863,7 @@ func buildQbitTorrentsTable(d Dialect, sonarrInstance *atlasschema.Table) *atlas
 }
 
 // buildQbitTorrentEventsTable returns the qbit_torrent_events table —
-// 7 cols, bigserial PK, FK sonarr_instance.name CASCADE.
+// 7 cols, bigserial PK, FK arr_instance.name CASCADE.
 //
 // Append-only log of state_group transitions and synthetic
 // added/completed/deleted events. State_group grain (not state_raw) is
@@ -3793,7 +3899,7 @@ func buildQbitTorrentEventsTable(d Dialect, sonarrInstance *atlasschema.Table) *
 
 // buildTorrentSeriesMapTable returns the torrent_series_map table —
 // 6 cols, composite PK (instance_name, torrent_hash), FK
-// sonarr_instance.name CASCADE.
+// arr_instance.name CASCADE.
 //
 // Bridge from a qBit torrent hash to a Sonarr series_id (PRD §4.5,
 // §5.4 Phase-2 fuzzy matcher). Populated by webhook capture,

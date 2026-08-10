@@ -20,7 +20,7 @@ import (
 
 // QbitSettingsRepository persists qbit_settings (D-6 / story 467c +
 // migration 000018). Per-instance Watchdog config keyed on
-// instance_name (TEXT PK, FK→sonarr_instance.name CASCADE).
+// instance_name (TEXT PK, FK→arr_instance.name CASCADE).
 type QbitSettingsRepository struct {
 	db *gorm.DB
 }

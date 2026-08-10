@@ -144,7 +144,7 @@ func TestWatchdogSeasons_List_OriginOnly_NoSiblings(t *testing.T) {
 //   - Postgres: ON DELETE CASCADE wipes the origin row alongside the
 //     parent — LIST sees nothing for the dropped instance.
 //   - SQLite (FK pragma off in tests): origin row stays, but the
-//     query's INNER JOIN sonarr_instance filters it. Same observable
+//     query's INNER JOIN arr_instance filters it. Same observable
 //     outcome with a different mechanism — both halves of the
 //     defence-in-depth get coverage.
 func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
@@ -168,9 +168,9 @@ func TestWatchdogSeasons_List_HidesRowsForUnknownInstance(t *testing.T) {
 
 			// Drop the parent instance. On Postgres the FK CASCADE
 			// removes the origin row; on SQLite it survives but the
-			// query's INNER JOIN on sonarr_instance hides it.
+			// query's INNER JOIN on arr_instance hides it.
 			require.NoError(t, db.Exec(
-				"DELETE FROM sonarr_instance WHERE name = ?", "Sonarr",
+				"DELETE FROM arr_instance WHERE name = ?", "Sonarr",
 			).Error)
 
 			repo := NewWatchdogSeasonsRepository(db)

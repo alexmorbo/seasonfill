@@ -1,7 +1,7 @@
 //go:build integration
 
 // D-1-6b (story 459b) — verifies 000001..000010 apply cleanly on both
-// backends, exercises FK cascade between sonarr_instance and
+// backends, exercises FK cascade between arr_instance and
 // instance_secret (both directions) plus UNIQUE composite enforcement.
 package integration
 
@@ -29,15 +29,15 @@ func TestD16b_SonarrInstanceMigrationRoundTrip(t *testing.T) {
 
 			instanceName := "inst-" + uuid.NewString()[:8]
 
-			// sonarr_instance happy path (no token_secret_id yet).
+			// arr_instance happy path (no token_secret_id yet).
 			_, err := db.ExecContext(ctx, insertSonarrInstanceSQL(b.name),
 				instanceName, "https://sonarr.example.com")
-			require.NoError(t, err, "sonarr_instance insert should succeed")
+			require.NoError(t, err, "arr_instance insert should succeed")
 
 			// Dup-PK violation.
 			_, err = db.ExecContext(ctx, insertSonarrInstanceSQL(b.name),
 				instanceName, "https://other.example.com")
-			require.Error(t, err, "duplicate sonarr_instance.name should fail")
+			require.Error(t, err, "duplicate arr_instance.name should fail")
 
 			// instance_secret happy path.
 			tokenBytes := []byte{0x01, 0x02, 0xff, 0x03}
@@ -66,7 +66,7 @@ func TestD16b_SonarrInstanceMigrationRoundTrip(t *testing.T) {
 				"orphan-"+uuid.NewString()[:8], "token", []byte{0x11})
 			require.Error(t, err, "orphan instance_name should fail FK")
 
-			// SET NULL: delete the secret row, sonarr_instance.token_secret_id
+			// SET NULL: delete the secret row, arr_instance.token_secret_id
 			// should become NULL.
 			_, err = db.ExecContext(ctx, deleteInstanceSecretByIDSQL(b.name), secretID)
 			require.NoError(t, err, "delete instance_secret should succeed")
@@ -76,7 +76,7 @@ func TestD16b_SonarrInstanceMigrationRoundTrip(t *testing.T) {
 			require.NoError(t, row.Scan(&stillNull))
 			require.False(t, stillNull.Valid, "token_secret_id should be NULL after secret deleted (SET NULL)")
 
-			// CASCADE: delete the sonarr_instance, all remaining secrets
+			// CASCADE: delete the arr_instance, all remaining secrets
 			// should go.
 			_ = insertInstanceSecretAndScanID(t, ctx, db, b.name,
 				instanceName, "fresh_token", []byte{0xaa, 0xbb})
@@ -84,13 +84,13 @@ func TestD16b_SonarrInstanceMigrationRoundTrip(t *testing.T) {
 				"instance has 2 secrets (webhook_signing_key + fresh_token)")
 
 			_, err = db.ExecContext(ctx, deleteSonarrInstanceSQL(b.name), instanceName)
-			require.NoError(t, err, "delete sonarr_instance should succeed")
+			require.NoError(t, err, "delete arr_instance should succeed")
 			require.Equal(t, 0, countInstanceSecretsForName(t, ctx, db, b.name, instanceName),
-				"instance_secret rows should CASCADE on sonarr_instance drop")
+				"instance_secret rows should CASCADE on arr_instance drop")
 
 			// DOWN — rolls back 000010.
 			require.NoError(t, m.Down())
-			for _, table := range []string{"sonarr_instance", "instance_secret"} {
+			for _, table := range []string{"arr_instance", "instance_secret"} {
 				_, err = db.ExecContext(ctx, "SELECT 1 FROM "+table+" LIMIT 1")
 				require.Errorf(t, err, "%s should be dropped after Down", table)
 			}
@@ -101,10 +101,10 @@ func TestD16b_SonarrInstanceMigrationRoundTrip(t *testing.T) {
 func insertSonarrInstanceSQL(driver string) string {
 	switch driver {
 	case "postgres":
-		return `INSERT INTO sonarr_instance (name, url, updated_at)
+		return `INSERT INTO arr_instance (name, url, updated_at)
 		        VALUES ($1, $2, now())`
 	case "sqlite":
-		return `INSERT INTO sonarr_instance (name, url, updated_at)
+		return `INSERT INTO arr_instance (name, url, updated_at)
 		        VALUES (?, ?, CURRENT_TIMESTAMP)`
 	}
 	panic("unknown driver " + driver)
@@ -147,9 +147,9 @@ func insertInstanceSecretAndScanID(t *testing.T, ctx context.Context, db *sql.DB
 func updateSonarrInstanceTokenSecretSQL(driver string) string {
 	switch driver {
 	case "postgres":
-		return `UPDATE sonarr_instance SET token_secret_id = $1, updated_at = now() WHERE name = $2`
+		return `UPDATE arr_instance SET token_secret_id = $1, updated_at = now() WHERE name = $2`
 	case "sqlite":
-		return `UPDATE sonarr_instance SET token_secret_id = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`
+		return `UPDATE arr_instance SET token_secret_id = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`
 	}
 	panic("unknown driver " + driver)
 }
@@ -167,9 +167,9 @@ func deleteInstanceSecretByIDSQL(driver string) string {
 func selectTokenSecretIDSQL(driver string) string {
 	switch driver {
 	case "postgres":
-		return `SELECT token_secret_id FROM sonarr_instance WHERE name = $1`
+		return `SELECT token_secret_id FROM arr_instance WHERE name = $1`
 	case "sqlite":
-		return `SELECT token_secret_id FROM sonarr_instance WHERE name = ?`
+		return `SELECT token_secret_id FROM arr_instance WHERE name = ?`
 	}
 	panic("unknown driver " + driver)
 }
@@ -177,9 +177,9 @@ func selectTokenSecretIDSQL(driver string) string {
 func deleteSonarrInstanceSQL(driver string) string {
 	switch driver {
 	case "postgres":
-		return `DELETE FROM sonarr_instance WHERE name = $1`
+		return `DELETE FROM arr_instance WHERE name = $1`
 	case "sqlite":
-		return `DELETE FROM sonarr_instance WHERE name = ?`
+		return `DELETE FROM arr_instance WHERE name = ?`
 	}
 	panic("unknown driver " + driver)
 }

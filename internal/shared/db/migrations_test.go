@@ -29,7 +29,7 @@ func TestMigrate_CreatesTables(t *testing.T) {
 	for _, table := range []string{
 		"series", "seasons", "episodes",
 		"series_cache", "episode_states", "season_stats",
-		"sonarr_instance", "instance_secret",
+		"arr_instance", "instance_secret",
 		"users", "user_instance_tags",
 		"watchdog_state", "watchdog_blacklist",
 		"grab_records", "episode_grabs", "download_links",

@@ -32,7 +32,7 @@ func TestD17a_SchemaHasThirtySixTables(t *testing.T) {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 65; got != want {
+			if got, want := len(s.Tables), 66; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}
@@ -239,12 +239,12 @@ func TestD17a_UserInstanceTagsForeignKeys(t *testing.T) {
 						t.Errorf("user_id FK ref = %s, want users", name)
 					}
 				case "user_instance_tags_instance_name_fkey":
-					if fk.RefTable == nil || fk.RefTable.Name != "sonarr_instance" {
+					if fk.RefTable == nil || fk.RefTable.Name != "arr_instance" {
 						name := ""
 						if fk.RefTable != nil {
 							name = fk.RefTable.Name
 						}
-						t.Errorf("instance_name FK ref = %s, want sonarr_instance", name)
+						t.Errorf("instance_name FK ref = %s, want arr_instance", name)
 					}
 				default:
 					t.Errorf("unexpected FK %s", fk.Symbol)

@@ -68,8 +68,8 @@ func TestD1_7c_WatchdogState_ForeignKey(t *testing.T) {
 	if fk.OnDelete != atlasschema.Cascade {
 		t.Errorf("FK OnDelete = %s, want CASCADE", fk.OnDelete)
 	}
-	if fk.RefTable == nil || fk.RefTable.Name != "sonarr_instance" {
-		t.Errorf("FK ref table = %v, want sonarr_instance", fk.RefTable)
+	if fk.RefTable == nil || fk.RefTable.Name != "arr_instance" {
+		t.Errorf("FK ref table = %v, want arr_instance", fk.RefTable)
 	}
 	if len(fk.RefColumns) != 1 || fk.RefColumns[0].Name != "name" {
 		t.Errorf("FK ref columns = %v, want [name]", fk.RefColumns)
@@ -174,8 +174,8 @@ func TestD1_7c_WatchdogBlacklist_ForeignKey(t *testing.T) {
 	if fk.OnDelete != atlasschema.Cascade {
 		t.Errorf("FK OnDelete = %s, want CASCADE", fk.OnDelete)
 	}
-	if fk.RefTable == nil || fk.RefTable.Name != "sonarr_instance" {
-		t.Errorf("FK ref table = %v, want sonarr_instance", fk.RefTable)
+	if fk.RefTable == nil || fk.RefTable.Name != "arr_instance" {
+		t.Errorf("FK ref table = %v, want arr_instance", fk.RefTable)
 	}
 	if len(fk.RefColumns) != 1 || fk.RefColumns[0].Name != "name" {
 		t.Errorf("FK ref columns = %v, want [name]", fk.RefColumns)

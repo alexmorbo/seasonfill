@@ -11,10 +11,10 @@ import (
 )
 
 // qbitSettingsBackends wraps testhelpers.AllBackends and pre-seeds the
-// sonarr_instance FK target rows that every qBit-domain fixture writes
+// arr_instance FK target rows that every qBit-domain fixture writes
 // against — qbit_settings.instance_name, qbit_torrents.instance_name,
 // qbit_torrent_events.instance_name, torrent_series_map.instance_name
-// all FK→sonarr_instance.name CASCADE per migration 000018.
+// all FK→arr_instance.name CASCADE per migration 000018.
 //
 // Mirrors the pattern from internal/grab/persistence/test_helpers_test.go
 // (467a). SQLite without `PRAGMA foreign_keys=on` lets orphan inserts
@@ -52,7 +52,7 @@ func qbitSettingsBackends(t *testing.T) []testhelpers.Backend {
 // testing.TB rather than *testing.T.
 func seedSonarrInstanceTB(tb testing.TB, db *gorm.DB, name domain.InstanceName) {
 	tb.Helper()
-	const insertSQL = `INSERT INTO sonarr_instance (name, url, mode, health, transitions_count)
+	const insertSQL = `INSERT INTO arr_instance (name, url, mode, health, transitions_count)
 	                   VALUES (?, ?, ?, ?, ?)
 	                   ON CONFLICT (name) DO NOTHING`
 	require.NoError(tb,

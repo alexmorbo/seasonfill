@@ -54,7 +54,7 @@ func newValidationErr(field, code, msg string) *ValidationError {
 // stay inside the use case and the repo.
 //
 // D-6 (story 467c): keyed on InstanceName (typed) — the legacy
-// uint InstanceID was retired when sonarr_instance moved to TEXT name PK.
+// uint InstanceID was retired when arr_instance moved to TEXT name PK.
 type QbitSettingsView struct {
 	InstanceName           domain.InstanceName
 	Enabled                bool

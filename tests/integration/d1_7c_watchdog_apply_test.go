@@ -17,7 +17,7 @@ import (
 )
 
 // TestD1_7c_WatchdogMigrationApply applies 000001..000013 then exercises
-// a happy-path round-trip: insert sonarr_instance + watchdog_state row
+// a happy-path round-trip: insert arr_instance + watchdog_state row
 // + watchdog_blacklist row; round-trip read both back.
 func TestD1_7c_WatchdogMigrationApply(t *testing.T) {
 	for _, b := range allD1Backends(t) {
@@ -130,7 +130,7 @@ func TestD1_7c_WatchdogBlacklist_CompositePKViolation(t *testing.T) {
 }
 
 // TestD1_7c_WatchdogState_FKCascadeOnInstanceDelete — deleting the
-// parent sonarr_instance cascades the watchdog_state row.
+// parent arr_instance cascades the watchdog_state row.
 func TestD1_7c_WatchdogState_FKCascadeOnInstanceDelete(t *testing.T) {
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -151,7 +151,7 @@ func TestD1_7c_WatchdogState_FKCascadeOnInstanceDelete(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = db.ExecContext(ctx,
-				"DELETE FROM sonarr_instance WHERE name = "+placeholder(b.name, 1),
+				"DELETE FROM arr_instance WHERE name = "+placeholder(b.name, 1),
 				instance)
 			require.NoError(t, err)
 
@@ -186,7 +186,7 @@ func TestD1_7c_WatchdogBlacklist_FKCascadeOnInstanceDelete(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = db.ExecContext(ctx,
-				"DELETE FROM sonarr_instance WHERE name = "+placeholder(b.name, 1),
+				"DELETE FROM arr_instance WHERE name = "+placeholder(b.name, 1),
 				instance)
 			require.NoError(t, err)
 
