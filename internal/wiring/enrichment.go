@@ -231,6 +231,8 @@ func BuildEnrichment(
 	// media_assets pending rows inline (Story 347 unified-resolve contract).
 	// nil-OK: A4 degrades to write raw paths + stamp only.
 	mediaResolver *media.Resolver,
+	// airDateAnnouncer — Ф4 N3 (nil-OK): post-refresh air_date.announced seam.
+	airDateAnnouncer appenrich.AirDateAnnouncerPort,
 	log *slog.Logger,
 ) (*EnrichmentBundle, error) {
 	// F-4b-5 / F-4b-7: three domain loggers wrapped once each per §6.5.
@@ -495,8 +497,9 @@ func BuildEnrichment(
 		Logger:            enrichmentLog,
 		// W2-8 miss-detector (G3/ADR-0002) — both nil-OK; detector is inert until
 		// the poller advances the cursor (dark-launch safe).
-		ChangesCursor: repos.ChangesCursor,
-		ChangesMiss:   observability.NewTMDBChangesMetrics(),
+		ChangesCursor:    repos.ChangesCursor,
+		ChangesMiss:      observability.NewTMDBChangesMetrics(),
+		AirDateAnnouncer: airDateAnnouncer,
 	})
 	if err != nil {
 		return nil, err

@@ -273,8 +273,8 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// F1 Q2 adds torrent_action_audit → 59.
 			// C1 adds followed_series → 60.
 			// N1 adds notification_outbox + notification_agents → 62.
-			if len(s.Tables) != 62 {
-				t.Errorf("Schema(%s) tables = %d, want 62 (after N1 notifications)", d, len(s.Tables))
+			if len(s.Tables) != 63 {
+				t.Errorf("Schema(%s) tables = %d, want 63 (after N3 notified_events)", d, len(s.Tables))
 			}
 		})
 	}

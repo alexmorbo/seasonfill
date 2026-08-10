@@ -19,6 +19,9 @@ func TestRender_KnownEvents(t *testing.T) {
 		{"grab.ok", `{"series_title":"Baz","season":1,"indexer":"nzb"}`, "nzb"},
 		{"watchdog.regrab", `{"series_title":"Qux","season":4}`, "Qux"},
 		{"inbox.dead_letter", `{"inbox_id":7,"event_type":"inbox.dead_letter"}`, "7"},
+		{"season.premiere", `{"series_title":"Foo","season":2,"air_date":"2026-09-01"}`, "2026-09-01"},
+		{"air_date.announced", `{"series_title":"Bar","air_date":"2026-09-15"}`, "2026-09-15"},
+		{"digest.weekly", `{"from":"2026-08-09","to":"2026-08-16","premiere_count":2,"finale_count":1}`, "премьер"},
 	}
 	for _, c := range cases {
 		t.Run(c.event, func(t *testing.T) {

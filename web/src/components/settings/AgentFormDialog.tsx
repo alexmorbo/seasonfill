@@ -29,6 +29,9 @@ const EVENT_TYPE_LABEL_KEY: Record<string, string> = {
   'grab.ok': 'settings.agents.eventTypes.grabOk',
   'watchdog.regrab': 'settings.agents.eventTypes.watchdogRegrab',
   'inbox.dead_letter': 'settings.agents.eventTypes.inboxDeadLetter',
+  'season.premiere': 'settings.agents.eventTypes.seasonPremiere',
+  'air_date.announced': 'settings.agents.eventTypes.airDateAnnounced',
+  'digest.weekly': 'settings.agents.eventTypes.digestWeekly',
 };
 
 const nameRule = z.string().trim().min(1, 'settings.agents.errors.nameRequired').max(128);

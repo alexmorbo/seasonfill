@@ -44,6 +44,22 @@ func Render(eventType string, payload []byte) Message {
 			Title: "Seasonfill: webhook в dead-letter",
 			Body:  fmt.Sprintf("Событие Sonarr-webhook не обработано после ретраев (inbox #%s, %s)", s("inbox_id"), s("event_type")),
 		}
+	case "season.premiere":
+		return Message{
+			Title: "Seasonfill: премьера сезона",
+			Body:  fmt.Sprintf("%s — S%s: премьера сезона выходит %s", s("series_title"), s("season"), s("air_date")),
+		}
+	case "air_date.announced":
+		return Message{
+			Title: "Seasonfill: назначена дата выхода",
+			Body:  fmt.Sprintf("%s: следующий эпизод выходит %s", s("series_title"), s("air_date")),
+		}
+	case "digest.weekly":
+		return Message{
+			Title: "Seasonfill: дайджест недели",
+			Body: fmt.Sprintf("Неделя %s — %s: премьер — %s, финалов — %s",
+				s("from"), s("to"), s("premiere_count"), s("finale_count")),
+		}
 	default:
 		return Message{
 			Title: "Seasonfill: " + eventType,

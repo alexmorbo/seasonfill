@@ -1,4 +1,4 @@
-h1:w1ndCsmAI36cwNHp9mAznT/RnYX2+D4/k89PIqkgj3M=
+h1:1gBzZ+4x4t/ag3qjxpjmZj25qMk8EQykEZW4KDAbShA=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -95,3 +95,5 @@ h1:w1ndCsmAI36cwNHp9mAznT/RnYX2+D4/k89PIqkgj3M=
 000047_ics_epoch.up.sql h1:vYKYIkwDRaH+fK9VKTVHjYXqAdci6ktP+MqtQBvyM7Q=
 000048_notifications.down.sql h1:Ex+y8JfDL/ayn0d/9aO9HEhAoV2FD+lVolnK+sH8+Jo=
 000048_notifications.up.sql h1:Om1Kk6YZ/1Ye3Cwp3GoZ0NWWV9SBCq9uFJyfR961s34=
+000049_notified_events.down.sql h1:E24PS8knATuTRnTdYRAv48ZXRJ5bHeA6g9j8K4zSGGc=
+000049_notified_events.up.sql h1:UVlYK1cmtGYFF3w9iE8rGjk57nSh3gaU6zwwzro6Fe4=

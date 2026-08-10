@@ -395,11 +395,19 @@ type SchedulerBundle struct {
 //
 // Errors: only Register can fail (duplicate name / invalid schedule),
 // and the error is wrapped with the pre-341 message verbatim for parity.
+// NotificationProducers carries the Ф4 N3 cron closures registered by
+// BuildScheduler. Both nil-OK (cron disabled or feature off).
+type NotificationProducers struct {
+	PremiereScan func(context.Context) // daily "0 8 * * *"
+	WeeklyDigest func(context.Context) // Sunday "0 9 * * 0"
+}
+
 func BuildScheduler(
 	persistence *PersistenceBundle,
 	mediaBundle *MediaBundle,
 	cfg HTTPServeConfig,
 	enrichmentJobs SchedulerEnrichmentJobs,
+	notifProducers NotificationProducers,
 	log *slog.Logger,
 ) (*SchedulerBundle, error) {
 	db := persistence.DB
@@ -506,6 +514,21 @@ func BuildScheduler(
 		}
 		if err := bootScheduler.Register("weekly-gc", "0 5 * * 0", weeklyJob.Run); err != nil {
 			return nil, fmt.Errorf("register weekly-gc: %w", err)
+		}
+	}
+
+	// ADR-0016 Ф4 N3 — calendar-event producers. Registered only when cron is
+	// enabled (bootScheduler != nil), same gate as weekly-gc.
+	if bootScheduler != nil {
+		if notifProducers.PremiereScan != nil {
+			if err := bootScheduler.Register("notify-premiere-scan", "0 8 * * *", notifProducers.PremiereScan); err != nil {
+				return nil, fmt.Errorf("register notify-premiere-scan: %w", err)
+			}
+		}
+		if notifProducers.WeeklyDigest != nil {
+			if err := bootScheduler.Register("notify-weekly-digest", "0 9 * * 0", notifProducers.WeeklyDigest); err != nil {
+				return nil, fmt.Errorf("register notify-weekly-digest: %w", err)
+			}
 		}
 	}
 

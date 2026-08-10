@@ -201,6 +201,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	scanUC := scanBundle.ScanUC
 	sweeper := scanBundle.Sweeper
 
+	// ADR-0016 Ф4 N3 — calendar-event producers + air_date announcer.
+	notifProducers := wiring.BuildNotificationProducers(persistence.DB, notificationBundle.OutboxRepo, scanBundle.Txr, log)
+
 	// seriesRepo / seriesCacheRepo / counterRepo are stateless GORM
 	// wrappers — each call site gets its own. seriesCacheRepo +
 	// counterRepo are still consumed by BuildHTTPServer below.
@@ -452,7 +455,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		MediaAssets:        mediaAssetsRepo,
 		MediaStore:         mediaStoreImpl,
 	}
-	enrichBundle, err := wiring.BuildEnrichment(rootCtx, extSub, extSvcBundle.UC, bootCfg, enrichRepos, txr, quotaCounter, seriesDetailMediaResolver, log)
+	enrichBundle, err := wiring.BuildEnrichment(rootCtx, extSub, extSvcBundle.UC, bootCfg, enrichRepos, txr, quotaCounter, seriesDetailMediaResolver, notifProducers.AirDate, log)
 	if err != nil {
 		return nil, fmt.Errorf("wire enrichment: %w", err)
 	}
@@ -777,7 +780,12 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			OMDbBudgetReset:  enrichBundle.OMDbBudgetReset,
 			OMDbDailyBatch:   enrichBundle.OMDbDailyBatch,
 			UsesQuotaCounter: enrichBundle.UsesQuotaCounter,
-		}, log)
+		},
+		wiring.NotificationProducers{
+			PremiereScan: notifProducers.Premiere.Run,
+			WeeklyDigest: notifProducers.Digest.Run,
+		},
+		log)
 	if err != nil {
 		return nil, err
 	}

@@ -26,6 +26,9 @@ export const EVENT_TYPES = [
   'grab.ok',
   'watchdog.regrab',
   'inbox.dead_letter',
+  'season.premiere',
+  'air_date.announced',
+  'digest.weekly',
 ] as const;
 
 export const DEFAULT_EVENT_TYPES: readonly string[] = [

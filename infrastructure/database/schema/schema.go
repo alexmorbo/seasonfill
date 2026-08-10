@@ -362,7 +362,38 @@ func Schema(d Dialect) *atlasschema.Schema {
 	addNotificationOutbox(s, d)
 	addNotificationAgents(s, d)
 
+	// ADR-0016 Ф4 N3 — notified_events cross-time dedup ledger for the
+	// calendar-event producers (season.premiere / air_date.announced /
+	// digest.weekly). Standalone, composite PK (event_type, entity_key),
+	// no FK — appended last like webhook_inbox / torrent_action_audit /
+	// notification_* (migration 000049).
+	addNotifiedEvents(s, d)
+
 	return s
+}
+
+// addNotifiedEvents appends notified_events to s. Standalone single-table
+// migration (000049, ADR-0016 N3) — no FK, no dependency on any prior table.
+func addNotifiedEvents(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildNotifiedEventsTable(d))
+}
+
+// buildNotifiedEventsTable returns notified_events — 3 cols, composite PK
+// (event_type, entity_key), first_seen_at NOT NULL DEFAULT now(). No DB CHECK
+// on event_type (app-owned enum, mirrors notification_outbox.status). No FK on
+// entity_key: the ledger outlives series/instance rows.
+func buildNotifiedEventsTable(d Dialect) *atlasschema.Table {
+	eventType := atlasschema.NewStringColumn("event_type", "text").SetNull(false)
+	entityKey := atlasschema.NewStringColumn("entity_key", "text").SetNull(false)
+	firstSeenAt := timestampColumn(d, "first_seen_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("notified_events").
+		AddColumns(
+			eventType,
+			entityKey,
+			firstSeenAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(eventType, entityKey))
 }
 
 // addTorrentActionAudit appends torrent_action_audit to s. Standalone

@@ -162,6 +162,13 @@ type SeriesWorkerDeps struct {
 	// the miss-detector no-ops. Production wiring passes
 	// *observability.TMDBChangesMetrics (IncMiss → seasonfill_tmdb_changes_miss_total).
 	ChangesMiss ChangesMissMetric
+
+	// AirDateAnnouncer — Ф4 N3 (nil-OK): post-tx seam that emits
+	// air_date.announced when a refresh shifts a hydrated series'
+	// next_air_date to a future value. Production wiring passes the shared
+	// *notification/app.AirDateAnnouncer. nil-OK — inert when unset (existing
+	// test fixtures stay green; mirrors the Probe / ChangesCursor posture).
+	AirDateAnnouncer AirDateAnnouncerPort
 }
 
 // SeriesWorker is the bound worker. Construct via NewSeriesWorker.
@@ -488,12 +495,13 @@ func (w *SeriesWorker) handleInternal(ctx context.Context, seriesID domain.Serie
 	prewarmEnqueued := false
 	omdbEnqueued := false
 	missChecked := false // W2-8: once-per-Handle guard for the miss-detector
+	airDateAnnounced := false
 	failedLangs := make([]string, 0, len(w.deps.Languages))
 	succeededLangs := make([]string, 0, len(w.deps.Languages))
 	var firstErr error
 	for _, lang := range w.deps.Languages {
 		langLog := log.With(slog.String("language", lang))
-		if err := w.refreshOneLanguage(ctx, canon, lang, force, &personsEnqueued, &prewarmEnqueued, &omdbEnqueued, &missChecked, langLog); err != nil {
+		if err := w.refreshOneLanguage(ctx, canon, lang, force, &personsEnqueued, &prewarmEnqueued, &omdbEnqueued, &missChecked, &airDateAnnounced, langLog); err != nil {
 			failedLangs = append(failedLangs, lang)
 			if firstErr == nil {
 				firstErr = err
@@ -547,6 +555,7 @@ func (w *SeriesWorker) refreshOneLanguage(
 	prewarmEnqueued *bool,
 	omdbEnqueued *bool,
 	missChecked *bool,
+	airDateAnnounced *bool,
 	log *slog.Logger,
 ) error {
 	// 3a. Fetch TV payload + active seasons in this language.
@@ -642,6 +651,10 @@ func (w *SeriesWorker) refreshOneLanguage(
 	//     already has IMDb rating/awards/rated. Guards (fresh-TTL /
 	//     terminal-negative / Cold-budget) live in maybeEnqueueOMDbOnIMDBGain.
 	w.maybeEnqueueOMDbOnIMDBGain(ctx, canon, mergedCanon, omdbEnqueued, log)
+
+	// Ф4 N3 — air_date.announced: once-per-Handle, hydrated-only, post-tx.
+	// Same old(canon)→new(mergedCanon) comparison as the OMDb imdb-gain seam.
+	w.maybeAnnounceAirDate(ctx, canon, mergedCanon, airDateAnnounced, log)
 
 	log.InfoContext(ctx, "enrichment.series.handle.language_ok",
 		slog.Int("seasons_fetched", len(seasonResponses)),

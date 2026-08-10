@@ -57,6 +57,20 @@ type OutboxEmitter interface {
 	Insert(ctx context.Context, row OutboxRow) error
 }
 
+// NotifiedEventsRepository is the cross-time dedup ledger for the Ф4 N3
+// calendar-event producers. MarkIfNew is the ONLY method: it INSERTs a
+// (event_type, entity_key) marker with ON CONFLICT DO NOTHING and reports
+// whether the row was newly created. A producer enqueues its outbox row
+// only on created==true, inside the SAME tx, so a marker without a delivered
+// signal (or vice-versa) is impossible.
+type NotifiedEventsRepository interface {
+	// MarkIfNew inserts (eventType, entityKey) if absent. Returns
+	// created==true when a NEW marker row was written (caller should enqueue),
+	// false when the marker already existed (storm/re-scan — skip). now stamps
+	// first_seen_at on insert.
+	MarkIfNew(ctx context.Context, eventType, entityKey string, now time.Time) (created bool, err error)
+}
+
 // NotificationAgent is the app projection of a notification_agents row.
 // ConfigEncrypted stays encrypted end-to-end; decryption happens only at
 // Send time inside the notifier. NEVER put a decrypted URL on this struct.
