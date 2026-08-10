@@ -101,3 +101,91 @@ func TestRowConfigRepository_List_EmptyParamsObject(t *testing.T) {
 		})
 	}
 }
+
+func TestRowConfigRepository_Replace_RoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRowConfigRepository(db)
+
+			// Seed 1 pre-existing row to prove Replace clears it.
+			seedDiscoveryRow(t, db, 0, string(disco.RowTypeTrending), string(disco.SourceTMDBDiscover), "Старое", `{}`)
+
+			in := []disco.Row{
+				{RowType: disco.RowTypePopular, Source: disco.SourceTMDBDiscover, MediaType: disco.MediaTypeTV, Enabled: true, Title: "Популярное", Params: map[string]string{}},
+				{RowType: disco.RowTypeGenre, Source: disco.SourceTMDBDiscover, MediaType: disco.MediaTypeTV, Enabled: false, Title: "Драмы", Params: map[string]string{"with_genres": "18", "sort_by": "popularity.desc"}},
+				{RowType: disco.RowTypeRecentlyAdded, Source: disco.SourceLibrary, MediaType: disco.MediaTypeTV, Enabled: true, Title: "Недавнее", Params: map[string]string{}},
+			}
+			require.NoError(t, repo.Replace(context.Background(), in))
+
+			got, err := repo.List(context.Background())
+			require.NoError(t, err)
+			require.Len(t, got, 3)
+
+			// Dense positions 0..2 regardless of incoming Position (all 0 above).
+			for i := range got {
+				assert.Equal(t, i, got[i].Position)
+			}
+			// Order preserved by slice order.
+			assert.Equal(t, disco.RowTypePopular, got[0].RowType)
+			assert.Equal(t, disco.RowTypeGenre, got[1].RowType)
+			assert.Equal(t, disco.RowTypeRecentlyAdded, got[2].RowType)
+			// Params JSON round-trip.
+			assert.Equal(t, map[string]string{"with_genres": "18", "sort_by": "popularity.desc"}, got[1].Params)
+			// Empty params → non-nil empty map.
+			assert.NotNil(t, got[0].Params)
+			assert.Len(t, got[0].Params, 0)
+			// Scalars carried.
+			assert.False(t, got[1].Enabled)
+			assert.Equal(t, disco.SourceLibrary, got[2].Source)
+			// Old seeded row is gone (replaced, not appended).
+			for _, r := range got {
+				assert.NotEqual(t, "Старое", r.Title)
+			}
+		})
+	}
+}
+
+func TestRowConfigRepository_Replace_Empty_Clears(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRowConfigRepository(db)
+
+			seedDiscoveryRow(t, db, 0, string(disco.RowTypeTrending), string(disco.SourceTMDBDiscover), "Тренды", `{}`)
+			seedDiscoveryRow(t, db, 1, string(disco.RowTypePopular), string(disco.SourceTMDBDiscover), "Популярное", `{}`)
+
+			require.NoError(t, repo.Replace(context.Background(), nil))
+
+			got, err := repo.List(context.Background())
+			require.NoError(t, err)
+			assert.NotNil(t, got)
+			assert.Len(t, got, 0)
+		})
+	}
+}
+
+func TestRowConfigRepository_DeleteAll(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewRowConfigRepository(db)
+
+			seedDiscoveryRow(t, db, 0, string(disco.RowTypeGenre), string(disco.SourceTMDBDiscover), "Драмы", `{"with_genres":"18"}`)
+
+			require.NoError(t, repo.DeleteAll(context.Background()))
+			got, err := repo.List(context.Background())
+			require.NoError(t, err)
+			assert.Len(t, got, 0)
+
+			// Idempotent — second delete on empty table is a no-op success.
+			require.NoError(t, repo.DeleteAll(context.Background()))
+		})
+	}
+}

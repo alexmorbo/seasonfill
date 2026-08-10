@@ -489,7 +489,7 @@ func BuildDiscoveryDiscover(deps DiscoveryDiscoverDeps) *DiscoveryDiscoverBundle
 func BuildDiscoveryRowConfig(db *gorm.DB, base *slog.Logger) *discoveryrest.RowConfigHandler {
 	log := sharedports.DomainLogger(base, "discovery")
 	repo := discopersistence.NewRowConfigRepository(db)
-	return discoveryrest.NewRowConfigHandler(repo, log)
+	return discoveryrest.NewRowConfigHandler(repo, repo, log)
 }
 
 // === Story 540 / B-49 — Discovery genre catalog sync ===

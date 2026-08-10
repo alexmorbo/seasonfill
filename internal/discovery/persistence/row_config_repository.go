@@ -71,3 +71,55 @@ func (r *RowConfigRepository) List(ctx context.Context) ([]disco.Row, error) {
 	}
 	return out, nil
 }
+
+// Replace atomically overwrites the entire discovery_rows table with rows,
+// re-densifying position to the slice index (0..n-1). An empty slice clears
+// the table (valid: GET then falls back to the code-default set). The whole
+// operation is one tx — no partial state is ever visible. params is marshalled
+// as the exact inverse of List()'s unmarshal (nil map → "{}", never null).
+func (r *RowConfigRepository) Replace(ctx context.Context, rows []disco.Row) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Global delete: AllowGlobalUpdate lifts GORM's missing-WHERE guard.
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).
+			Delete(&discoveryRowModel{}).Error; err != nil {
+			return fmt.Errorf("discovery row replace: clear: %w", err)
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		models := make([]discoveryRowModel, 0, len(rows))
+		for i, row := range rows {
+			params := row.Params
+			if params == nil {
+				params = map[string]string{}
+			}
+			raw, err := json.Marshal(params)
+			if err != nil {
+				return fmt.Errorf("discovery row %d params encode: %w", i, err)
+			}
+			models = append(models, discoveryRowModel{
+				RowType:   string(row.RowType),
+				Source:    string(row.Source),
+				MediaType: string(row.MediaType),
+				Params:    datatypes.JSON(raw),
+				Position:  i, // dense 0..n-1, slice order authoritative
+				Enabled:   row.Enabled,
+				Title:     row.Title,
+			})
+		}
+		if err := tx.Create(&models).Error; err != nil {
+			return fmt.Errorf("discovery row replace: insert: %w", err)
+		}
+		return nil
+	})
+}
+
+// DeleteAll clears discovery_rows (S2 reset-to-default: GET then serves
+// domain.DefaultRows). Idempotent — clearing an empty table is a no-op success.
+func (r *RowConfigRepository) DeleteAll(ctx context.Context) error {
+	if err := r.db.WithContext(ctx).Session(&gorm.Session{AllowGlobalUpdate: true}).
+		Delete(&discoveryRowModel{}).Error; err != nil {
+		return fmt.Errorf("discovery row delete all: %w", err)
+	}
+	return nil
+}

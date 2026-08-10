@@ -1,4 +1,7 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import {
+  useMutation, useQuery, useQueryClient,
+  type UseMutationResult, type UseQueryResult,
+} from '@tanstack/react-query';
 import { ApiError, api } from '@/lib/api';
 import type { DiscoveryListResponse } from '@/api/discovery';
 
@@ -70,4 +73,68 @@ export function useRowDiscover(
     enabled,
     staleTime: 30_000,
   });
+}
+
+// --- S2 write path (ADR-0017 D-3) ---------------------------------------
+
+// DiscoveryRowInput is the mutable PUT shape (drops the readonly + optional id
+// of DiscoveryRow — the BE assigns fresh ids on replace). position is the
+// slice index; the BE re-densifies anyway.
+export interface DiscoveryRowInput {
+  row_type: RowType;
+  source: RowSource;
+  media_type: MediaType;
+  params: Record<string, string>;
+  position: number;
+  enabled: boolean;
+  title: string;
+}
+
+// PUT /discovery/rows — replaces the whole config, returns the persisted set.
+export async function saveDiscoveryRows(
+  rows: readonly DiscoveryRowInput[],
+): Promise<DiscoveryRowsResponse> {
+  return api<DiscoveryRowsResponse>('/discovery/rows', {
+    method: 'PUT',
+    body: { rows },
+  });
+}
+
+// DELETE /discovery/rows — reset to code-default (clears the table).
+export async function resetDiscoveryRows(): Promise<void> {
+  await api<void>('/discovery/rows', { method: 'DELETE' });
+}
+
+export function useSaveDiscoveryRows(): UseMutationResult<
+  DiscoveryRowsResponse, ApiError, readonly DiscoveryRowInput[]
+> {
+  const qc = useQueryClient();
+  return useMutation<DiscoveryRowsResponse, ApiError, readonly DiscoveryRowInput[]>({
+    mutationFn: (rows) => saveDiscoveryRows(rows),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: discoveryRowsKeys.config });
+    },
+  });
+}
+
+export function useResetDiscoveryRows(): UseMutationResult<void, ApiError, void> {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, void>({
+    mutationFn: () => resetDiscoveryRows(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: discoveryRowsKeys.config });
+    },
+  });
+}
+
+// reorderRows moves the element at `from` to `to`, returning a new array.
+// Out-of-range / no-op moves return the input unchanged. Pure — unit-tested.
+export function reorderRows<T>(rows: readonly T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= rows.length || to >= rows.length) {
+    return rows.slice();
+  }
+  const next = rows.slice();
+  const [moved] = next.splice(from, 1) as [T];
+  next.splice(to, 0, moved);
+  return next;
 }

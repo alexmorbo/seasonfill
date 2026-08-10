@@ -1,15 +1,21 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Pencil } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { useDiscoveryRows } from '@/api/discoveryRows';
 import { DiscoveryRail } from './DiscoveryRail';
+import { DiscoveryRowsEditor } from './DiscoveryRowsEditor';
 
 // DiscoveryRails — fetches the effective row-config (GET /discovery/rows) and
 // renders one DiscoveryRail per enabled row, in position order (BE already
-// sorts). Replaces the fixed Tabs in DiscoveryPage.
+// sorts). ADR-0017 S2: an edit toggle swaps the rails for the config editor
+// (DnD reorder + enable/disable + add-row + save/reset).
 export function DiscoveryRails() {
   const { t } = useTranslation();
   const q = useDiscoveryRows();
+  const [editing, setEditing] = useState(false);
 
   if (q.isPending) {
     return (
@@ -35,12 +41,35 @@ export function DiscoveryRails() {
     );
   }
 
-  const rows = (q.data?.rows ?? []).filter((r) => r.enabled);
+  const all = q.data?.rows ?? [];
+
+  if (editing) {
+    return (
+      <DiscoveryRowsEditor
+        key={q.dataUpdatedAt}
+        initial={all}
+        onExit={() => setEditing(false)}
+      />
+    );
+  }
+
+  const rows = all.filter((r) => r.enabled);
   return (
-    <div className="space-y-8" data-testid="discovery-rails">
-      {rows.map((row) => (
-        <DiscoveryRail key={row.id ?? `${row.row_type}-${row.position}`} row={row} />
-      ))}
+    <div className="space-y-6" data-testid="discovery-rails">
+      <div className="flex justify-end">
+        <Button
+          variant="outline" size="sm"
+          onClick={() => setEditing(true)}
+          data-testid="discovery-edit-open"
+        >
+          <Pencil /> {t('discovery.edit.button')}
+        </Button>
+      </div>
+      <div className="space-y-8">
+        {rows.map((row) => (
+          <DiscoveryRail key={row.id ?? `${row.row_type}-${row.position}`} row={row} />
+        ))}
+      </div>
     </div>
   );
 }
