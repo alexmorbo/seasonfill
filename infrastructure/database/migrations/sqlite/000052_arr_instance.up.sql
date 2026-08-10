@@ -34,7 +34,9 @@ CREATE TABLE `new_arr_instance` (
 -- copy old columns; `type` omitted so DEFAULT 'sonarr' backfills existing rows
 INSERT INTO `new_arr_instance` (`name`, `url`, `public_url`, `mode`, `token_secret_id`, `health`, `last_check_at`, `transitions_count`, `created_at`, `updated_at`)
   SELECT `name`, `url`, `public_url`, `mode`, `token_secret_id`, `health`, `last_check_at`, `transitions_count`, `created_at`, `updated_at` FROM `sonarr_instance`;
+-- atlas:nolint destructive
 DROP TABLE `sonarr_instance`;
+-- atlas:nolint BC101
 ALTER TABLE `new_arr_instance` RENAME TO `arr_instance`;
 CREATE INDEX `arr_instance_unhealthy` ON `arr_instance` (`last_check_at`) WHERE health <> 'healthy';
 
@@ -52,6 +54,7 @@ INSERT INTO `new_instance_secret` (`id`, `instance_name`, `secret_name`, `encryp
   SELECT `id`, `instance_name`, `secret_name`, `encrypted_value`, `created_at`, `updated_at` FROM `instance_secret`;
 DROP TABLE `instance_secret`;
 ALTER TABLE `new_instance_secret` RENAME TO `instance_secret`;
+-- atlas:nolint data_depend
 CREATE UNIQUE INDEX `instance_secret_lookup` ON `instance_secret` (`instance_name`, `secret_name`);
 
 -- rebuild user_instance_tags -> FK arr_instance (users FK unchanged)
@@ -70,6 +73,7 @@ INSERT INTO `new_user_instance_tags` (`user_id`, `instance_name`, `sonarr_tag_id
   SELECT `user_id`, `instance_name`, `sonarr_tag_id`, `sonarr_tag_label`, `created_at`, `updated_at` FROM `user_instance_tags`;
 DROP TABLE `user_instance_tags`;
 ALTER TABLE `new_user_instance_tags` RENAME TO `user_instance_tags`;
+-- atlas:nolint data_depend
 CREATE UNIQUE INDEX `user_instance_tags_label` ON `user_instance_tags` (`instance_name`, `sonarr_tag_label`);
 
 -- rebuild grab_records -> FK arr_instance
