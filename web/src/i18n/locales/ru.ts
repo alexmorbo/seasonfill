@@ -1018,6 +1018,9 @@ export const ru: Translations = {
   },
   discovery: {
     title: 'Обзор',
+    rails: {
+      empty: 'Пока нечего показать',
+    },
     tabs: {
       trending: 'Тренды',
       popular: 'Популярное',

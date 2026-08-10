@@ -864,6 +864,11 @@ func BuildHTTPServer(
 	// AddSeries dispatch). Inline for the same reason as N-4b: the
 	// bundle's only deps (auth+sonarr+persistence) are already wired.
 	addToSonarrHandler := BuildDiscoveryAddToSonarr(auth, sonarrBundle, persistence, log)
+	// ADR-0017 Ф5 D-1 — discovery row-config read API. Standalone: the
+	// repo's only dependency is persistence.DB. Always wired (no TMDB
+	// gate) — the endpoint serves the code-default set even with an empty
+	// discovery_rows table.
+	rowConfigHandler := BuildDiscoveryRowConfig(persistence.DB, log)
 	// Story E-1-B7 — series-title localizer for GET /api/v1/series?lang=.
 	// Stateless GORM wrapper over the enrichment series_texts repo.
 	seriesTitleLocalizer := enrichpersistence.NewSeriesTextsRepository(persistence.DB)
@@ -957,6 +962,7 @@ func BuildHTTPServer(
 		seriesDetailBundle.ResolveHandler,
 		discoveryHandler,
 		discoverHandler,
+		rowConfigHandler, // ADR-0017 Ф5 D-1
 		instanceMetadataBundle.Handler,
 		addToSonarrHandler,
 		seriesDetailBundle.ETagFreshness,

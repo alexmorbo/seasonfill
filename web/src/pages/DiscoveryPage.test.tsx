@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
@@ -15,11 +15,6 @@ vi.mock('@/lib/api', async () => {
   return { ...a, api: (p: string) => mockApi(p) };
 });
 
-function LocationProbe() {
-  const loc = useLocation();
-  return <div data-testid="loc">{loc.pathname}{loc.search}</div>;
-}
-
 function renderPage(initialPath = '/discovery') {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
@@ -30,11 +25,7 @@ function renderPage(initialPath = '/discovery') {
         <TooltipProvider delayDuration={0}>
           <PageTitleProvider defaultTitle="__INITIAL__">
             <MemoryRouter initialEntries={[initialPath]}>
-              <Routes>
-                <Route path="/discovery" element={
-                  <><DiscoveryPage /><LocationProbe /></>
-                } />
-              </Routes>
+              <DiscoveryPage />
             </MemoryRouter>
           </PageTitleProvider>
         </TooltipProvider>
@@ -43,36 +34,41 @@ function renderPage(initialPath = '/discovery') {
   );
 }
 
+const searchSample = {
+  items: [
+    { series_id: 91, tmdb_id: 9, title: 'Foundation', year: 2021, poster_hash: 'xyz', tmdb_rating: 8.1, in_library_instances: [] },
+  ],
+};
+
 beforeEach(() => {
   mockApi.mockReset();
-  mockApi.mockResolvedValue({ items: [], cache_status: 'hit' });
+  mockApi.mockImplementation((p: string) => {
+    if (p.startsWith('/discovery/rows')) return Promise.resolve({ rows: [] });
+    if (p.startsWith('/discovery/search')) return Promise.resolve(searchSample);
+    if (p.startsWith('/admin/instances')) return Promise.resolve({ instances: [] });
+    return Promise.resolve({ items: [] });
+  });
 });
 
-const trendingTab = () => screen.getByRole('tab', { name: /trending|тренды/i });
-const popularTab = () => screen.getByRole('tab', { name: /popular|популярное/i });
-const genresTab = () => screen.getByRole('tab', { name: /genres|жанры/i });
-
 describe('<DiscoveryPage />', () => {
-  it('renders 4 tabs and defaults to trending when ?tab is absent or invalid', () => {
+  it('renders the search bar and the discovery rails by default', async () => {
     renderPage();
-    expect(screen.getByTestId('discovery-tabs').querySelectorAll('[role="tab"]'))
-      .toHaveLength(4);
-    expect(trendingTab().getAttribute('data-state')).toBe('active');
+    expect(screen.getByTestId('discovery-search-bar')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-rails')).toBeInTheDocument());
   });
 
-  it('respects ?tab=popular and falls back to trending when unknown', () => {
-    const { unmount } = renderPage('/discovery?tab=popular');
-    expect(popularTab().getAttribute('data-state')).toBe('active');
-    unmount();
-    renderPage('/discovery?tab=garbage');
-    expect(trendingTab().getAttribute('data-state')).toBe('active');
-  });
-
-  it('updates URL when user activates a different tab', async () => {
+  it('swaps rails for search results when >= 2 chars are typed', async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.click(genresTab());
     await waitFor(() =>
-      expect(screen.getByTestId('loc').textContent ?? '').toContain('tab=genres'));
+      expect(screen.getByTestId('discovery-rails')).toBeInTheDocument());
+
+    await user.type(screen.getByTestId('discovery-search-input'), 'fo');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('discovery-search-grid')).toBeInTheDocument());
+    expect(screen.queryByTestId('discovery-rails')).toBeNull();
+    expect(screen.getByText('Foundation')).toBeInTheDocument();
   });
 });

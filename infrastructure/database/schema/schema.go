@@ -369,6 +369,12 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// notification_* (migration 000049).
 	addNotifiedEvents(s, d)
 
+	// ADR-0017 Ф5 D-1 — discovery_rows customisable rail config. Standalone
+	// single-table (migration 000050), no FK (global, pre-RBAC — user_id
+	// lands in Phase 8). Appended last like notified_events — no dev-time
+	// skip flag (nothing splits a later migration off it).
+	addDiscoveryRows(s, d)
+
 	return s
 }
 
@@ -394,6 +400,58 @@ func buildNotifiedEventsTable(d Dialect) *atlasschema.Table {
 			firstSeenAt,
 		).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(eventType, entityKey))
+}
+
+// addDiscoveryRows appends discovery_rows to s. Standalone single-table
+// migration (000050, ADR-0017 D-1) — no FK, global config. Nine columns
+// mirror the domain.Row descriptor; params is jsonb(pg)/text(sqlite).
+func addDiscoveryRows(s *atlasschema.Schema, d Dialect) {
+	s.AddTables(buildDiscoveryRowsTable(d))
+}
+
+// buildDiscoveryRowsTable returns discovery_rows — 9 cols, surrogate PK id.
+// enabled defaults true. No DB CHECK on row_type/source/media_type
+// (app-owned enums, mirrors notification_outbox.status). params is
+// jsonb(pg)/text(sqlite). One secondary index on position (the read path
+// ORDER BY position). No FK — the table is global config, not a projection.
+func buildDiscoveryRowsTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	rowType := atlasschema.NewStringColumn("row_type", "text").SetNull(false)
+	source := atlasschema.NewStringColumn("source", "text").SetNull(false)
+	mediaType := atlasschema.NewStringColumn("media_type", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'tv'"})
+	params := discoveryRowsParamsColumn(d) // jsonb(pg)/text(sqlite) NOT NULL
+	position := atlasschema.NewIntColumn("position", "integer").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "0"})
+	enabled := atlasschema.NewBoolColumn("enabled", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "true"})
+	title := atlasschema.NewStringColumn("title", "text").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+
+	return atlasschema.NewTable("discovery_rows").
+		AddColumns(id, rowType, source, mediaType, params, position, enabled, title, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewIndex("discovery_rows_position_idx").AddColumns(position),
+		)
+}
+
+// discoveryRowsParamsColumn — jsonb(pg)/text(sqlite) NOT NULL, JSON object.
+// Copy of notificationPayloadColumn with the column name "params".
+func discoveryRowsParamsColumn(d Dialect) *atlasschema.Column {
+	if d == DialectSQLite {
+		return atlasschema.NewStringColumn("params", "text").SetNull(false)
+	}
+	c := &atlasschema.Column{Name: "params"}
+	c.Type = &atlasschema.ColumnType{
+		Type: &atlasschema.JSONType{T: postgres.TypeJSONB},
+		Raw:  postgres.TypeJSONB,
+		Null: false,
+	}
+	return c
 }
 
 // addTorrentActionAudit appends torrent_action_audit to s. Standalone

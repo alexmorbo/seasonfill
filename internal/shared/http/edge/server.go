@@ -108,6 +108,7 @@ func NewServer(
 	resolveHandler *seriesdetailrest.ResolveHandler, // BE-3 card-unification
 	discoveryHandler *discoveryrest.DiscoveryHandler,
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
+	rowConfigHandler *discoveryrest.RowConfigHandler, // ADR-0017 Ф5 D-1
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
 	addToSonarrHandler *discoveryrest.AddToSonarrHandler, // story 520 N-4c
 	// Story 578 / E-1-B5 — per-section freshness reader for the ETag
@@ -449,6 +450,10 @@ func NewServer(
 			// Story 509 (N-2h) — ad-hoc TMDB Discover passthrough with LRU
 			// + background fetcher Pattern B (PRD §5.1.2).
 			guarded.GET("/discovery/discover", discoverHandler.Handle)
+		}
+		// ADR-0017 Ф5 D-1 — customisable rail config (row-config read API).
+		if rowConfigHandler != nil {
+			guarded.GET("/discovery/rows", rowConfigHandler.Handle)
 		}
 		// Story 520 (N-4c) — POST add-to-sonarr. Nil-OK pattern: when
 		// wiring did not construct the handler (test bootstrap) the

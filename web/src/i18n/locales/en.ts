@@ -1013,6 +1013,9 @@ export const en = {
   },
   discovery: {
     title: 'Discover',
+    rails: {
+      empty: 'Nothing to show yet',
+    },
     tabs: {
       trending: 'Trending',
       popular: 'Popular',

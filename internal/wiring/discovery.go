@@ -21,6 +21,7 @@ import (
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // discovery.go wires the discovery bounded-context persistence
@@ -479,6 +480,16 @@ func BuildDiscoveryDiscover(deps DiscoveryDiscoverDeps) *DiscoveryDiscoverBundle
 		BgFetcher: bg,
 		LRU:       lru,
 	}
+}
+
+// BuildDiscoveryRowConfig wires GET /discovery/rows (ADR-0017 D-1 Ф5).
+// Read-only row-config read API: the repo lists discovery_rows and the
+// handler falls back to the code-default set when the table is empty.
+// db is the app *gorm.DB; base is the root logger (domain-tagged here).
+func BuildDiscoveryRowConfig(db *gorm.DB, base *slog.Logger) *discoveryrest.RowConfigHandler {
+	log := sharedports.DomainLogger(base, "discovery")
+	repo := discopersistence.NewRowConfigRepository(db)
+	return discoveryrest.NewRowConfigHandler(repo, log)
 }
 
 // === Story 540 / B-49 — Discovery genre catalog sync ===
