@@ -624,6 +624,15 @@ func IncDiscoverHandlerOutcome(outcome string) {
 		`seasonfill_discover_handler_outcome_total{outcome="` + outcome + `"}`).Inc()
 }
 
+// IncMovieDiscoverHandlerOutcome ticks the per-outcome counter for the movie
+// discovery handler (Ф6-R-4a). outcome ∈ {"hit","miss_sync","miss_warming",
+// "error"}. Separate metric from the TV discover counter so movie + series
+// discovery outcomes never share a series (do NOT repurpose the TV metric).
+func IncMovieDiscoverHandlerOutcome(outcome string) {
+	metrics.GetOrCreateCounter(
+		`seasonfill_movie_discover_handler_outcome_total{outcome="` + outcome + `"}`).Inc()
+}
+
 // ObserveDiscoveryRefreshPaceWait records wall-clock spent waiting on the
 // worker's pace-limiter (B-39). Histogram in seconds. Steady-state near
 // zero; cold-start spikes confirm the limiter is smoothing the stub-upsert

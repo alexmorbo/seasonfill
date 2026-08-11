@@ -108,6 +108,8 @@ func NewServer(
 	resolveHandler *seriesdetailrest.ResolveHandler, // BE-3 card-unification
 	discoveryHandler *discoveryrest.DiscoveryHandler,
 	discoverHandler *discoveryrest.DiscoverHandler, // story 509 N-2h
+	movieDiscoverHandler *discoveryrest.MovieDiscoverHandler, // Ф6-R-4a L3-1
+
 	rowConfigHandler *discoveryrest.RowConfigHandler, // ADR-0017 Ф5 D-1
 	blocklistHandler *discoveryrest.BlocklistHandler, // ADR-0017 Ф5 S3
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
@@ -451,6 +453,13 @@ func NewServer(
 			// Story 509 (N-2h) — ad-hoc TMDB Discover passthrough with LRU
 			// + background fetcher Pattern B (PRD §5.1.2).
 			guarded.GET("/discovery/discover", discoverHandler.Handle)
+		}
+		if movieDiscoverHandler != nil {
+			// Ф6-R-4a L3-1 — movie discovery surface (TMDB-driven).
+			guarded.GET("/discovery/movie/discover", movieDiscoverHandler.Discover)
+			guarded.GET("/discovery/movie/trending", movieDiscoverHandler.Trending)
+			guarded.GET("/discovery/movie/popular", movieDiscoverHandler.Popular)
+			guarded.GET("/discovery/movie/search", movieDiscoverHandler.Search)
 		}
 		// ADR-0017 Ф5 D-1/S2 — customisable rail config (read + write).
 		if rowConfigHandler != nil {

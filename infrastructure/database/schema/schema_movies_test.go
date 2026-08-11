@@ -13,7 +13,7 @@ func TestSchema_Movies_Shape(t *testing.T) {
 			t.Parallel()
 			s := Schema(d)
 			tbl := mustTable(s, "movies")
-			if got, want := len(tbl.Columns), 31; got != want {
+			if got, want := len(tbl.Columns), 32; got != want {
 				t.Fatalf("movies columns = %d, want %d", got, want)
 			}
 			if tbl.PrimaryKey == nil || len(tbl.PrimaryKey.Parts) != 1 ||
@@ -37,7 +37,7 @@ func TestSchema_Movies_Shape(t *testing.T) {
 			for _, want := range []string{
 				"movies_tmdb_id_idx", "movies_imdb_id_idx",
 				"movies_popularity_idx", "movies_tmdb_rating_idx",
-				"movies_collection_id_idx",
+				"movies_collection_id_idx", "movies_tmdb_changed_at_idx",
 			} {
 				if !idxByName[want] {
 					t.Errorf("missing index %q", want)

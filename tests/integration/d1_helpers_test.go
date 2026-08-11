@@ -252,6 +252,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"keywords",
 	"keywords_i18n",
 	"media_assets",
+	"movie_changes_state",
 	"movie_i18n",
 	"movie_states",
 	"movies",

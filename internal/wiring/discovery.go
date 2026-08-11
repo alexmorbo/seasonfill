@@ -311,12 +311,13 @@ func (a *libraryInstancesAdapter) ListByCanonicalSeriesIDs(
 // 508 (SearchUC) + story 509 (DiscoverHandler) + story 520 (N-4c
 // AddToSonarr).
 type DiscoveryHTTPBundle struct {
-	Handler            *discoveryrest.DiscoveryHandler
-	DiscoverHandler    *discoveryrest.DiscoverHandler    // story 509 N-2h
-	AddToSonarrHandler *discoveryrest.AddToSonarrHandler // story 520 N-4c
-	Genres             *discopersistence.GenresPickerRepo
-	Networks           *discopersistence.NetworksPickerRepo
-	SearchUC           *discoapp.SearchUseCase // story 508 (N-2g); nil when TMDB disabled
+	Handler              *discoveryrest.DiscoveryHandler
+	DiscoverHandler      *discoveryrest.DiscoverHandler      // story 509 N-2h
+	MovieDiscoverHandler *discoveryrest.MovieDiscoverHandler // Ф6-R-4a L3-1
+	AddToSonarrHandler   *discoveryrest.AddToSonarrHandler   // story 520 N-4c
+	Genres               *discopersistence.GenresPickerRepo
+	Networks             *discopersistence.NetworksPickerRepo
+	SearchUC             *discoapp.SearchUseCase // story 508 (N-2g); nil when TMDB disabled
 	// Worker — ADR-0017 Ф5 S3. The discovery refresh loop, exposed here so
 	// BuildHTTPServer can inject the blocklist cache (SetBlocklist) into the
 	// worker's by_genre/by_network/by_keyword fetches. Nil in minimal wirings.

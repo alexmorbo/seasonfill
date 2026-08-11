@@ -184,6 +184,46 @@ func (h *TMDBClientHolder) SearchTV(ctx context.Context, query, language string,
 	return c.SearchTV(ctx, query, language, page)
 }
 
+// DiscoverMovie forwards to the live tmdb.Client; movie discovery entry
+// point (Ф6-R-4a). Same Load+nil-check pattern as DiscoverTV.
+func (h *TMDBClientHolder) DiscoverMovie(ctx context.Context, filter tmdb.MovieDiscoverFilter, lang string, page int) (*tmdb.MovieListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.DiscoverMovie(ctx, filter, lang, page)
+}
+
+// TrendingMovie forwards to the live tmdb.Client; movie trending entry
+// point (Ф6-R-4a).
+func (h *TMDBClientHolder) TrendingMovie(ctx context.Context, scope tmdb.TrendingScope, language string, page int) (*tmdb.MovieListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.TrendingMovie(ctx, scope, language, page)
+}
+
+// MoviePopular forwards to the live tmdb.Client; movie popular entry
+// point (Ф6-R-4a).
+func (h *TMDBClientHolder) MoviePopular(ctx context.Context, language string, page int) (*tmdb.MovieListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.MoviePopular(ctx, language, page)
+}
+
+// SearchMovie forwards to the live tmdb.Client; movie search entry
+// point (Ф6-R-4a).
+func (h *TMDBClientHolder) SearchMovie(ctx context.Context, query, language string, page int) (*tmdb.MovieListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.SearchMovie(ctx, query, language, page)
+}
+
 // SearchKeyword forwards to the live tmdb.Client for the discovery
 // /keyword-search endpoint (ADR-0017 Ф5 S3). Same Load+nil-check pattern as
 // the other forwarders — a runtime TMDB disable surfaces

@@ -89,6 +89,7 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // resolveHandler
 		nil,                            // discoveryHandler
 		nil,                            // discoverHandler
+		nil,                            // movieDiscoverHandler (Ф6-R-4a L3-1)
 		nil,                            // rowConfigHandler (ADR-0017 Ф5 D-1)
 		nil,                            // blocklistHandler (ADR-0017 Ф5 S3)
 		nil,                            // instanceMetadataHandler

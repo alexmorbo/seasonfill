@@ -841,10 +841,12 @@ func BuildHTTPServer(
 	log *slog.Logger,
 ) (*httpserver.Server, *InstanceMetadataBundle) {
 	var discoveryHandler *discoveryrest.DiscoveryHandler
-	var discoverHandler *discoveryrest.DiscoverHandler // story 509 N-2h
+	var discoverHandler *discoveryrest.DiscoverHandler           // story 509 N-2h
+	var movieDiscoverHandler *discoveryrest.MovieDiscoverHandler // Ф6-R-4a L3-1
 	if discoveryHTTP != nil {
 		discoveryHandler = discoveryHTTP.Handler
 		discoverHandler = discoveryHTTP.DiscoverHandler
+		movieDiscoverHandler = discoveryHTTP.MovieDiscoverHandler
 	}
 	// Story 519 (N-4b) — per-instance metadata cache + handler. Built
 	// inline because the bundle's only dependency is sonarrBundle which
@@ -991,8 +993,9 @@ func BuildHTTPServer(
 		seriesDetailBundle.ResolveHandler,
 		discoveryHandler,
 		discoverHandler,
-		rowConfigHandler, // ADR-0017 Ф5 D-1
-		blocklistHandler, // ADR-0017 Ф5 S3
+		movieDiscoverHandler, // Ф6-R-4a L3-1
+		rowConfigHandler,     // ADR-0017 Ф5 D-1
+		blocklistHandler,     // ADR-0017 Ф5 S3
 		instanceMetadataBundle.Handler,
 		addToSonarrHandler,
 		seriesDetailBundle.ETagFreshness,

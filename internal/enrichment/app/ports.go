@@ -79,11 +79,19 @@ const (
 	// series workers. The job's EntityID is a series.id (NOT a
 	// series_cache.id).
 	EntityOMDb EntityKind = "omdb"
+	// Ф6-R-4a (L3-2): movie TMDB hydration. RESERVED — mirrors the EntityOMDb
+	// "don't compete with series" rationale so a future interactive movie-add
+	// (R-4b) enqueues hydrate jobs off the series worker's goroutine/retry
+	// budget. In R-4a movie hydration is scheduler-driven (MovieRefreshScheduler
+	// calls MovieWorker.HandleForced directly), so nothing dequeues this kind
+	// yet; it is declared here for forward-compat + IsValid completeness. The
+	// job's EntityID is a movies.id.
+	EntityMovie EntityKind = "movie"
 )
 
 // IsValid reports whether k is one of the known kinds.
 func (k EntityKind) IsValid() bool {
-	return k == EntitySeries || k == EntityPerson || k == EntityOMDb
+	return k == EntitySeries || k == EntityPerson || k == EntityOMDb || k == EntityMovie
 }
 
 // Job is one dispatch unit. EntityID maps to `series.id` for

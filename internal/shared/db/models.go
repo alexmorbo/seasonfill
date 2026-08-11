@@ -1360,11 +1360,33 @@ type MovieModel struct {
 	OMDBAwards             *string        `gorm:"column:omdb_awards;type:text"`
 	EnrichmentTMDBSyncedAt *time.Time     `gorm:"column:enrichment_tmdb_synced_at"`
 	EnrichmentOMDBSyncedAt *time.Time     `gorm:"column:enrichment_omdb_synced_at"`
-	CreatedAt              time.Time      `gorm:"column:created_at;not null"`
-	UpdatedAt              time.Time      `gorm:"column:updated_at;not null"`
+	// TMDBChangedAt (Ф6-R-4a) — write-once "TMDB /movie/changes last reported
+	// a change" clock. NULL = never reported. Stamped ONLY by the movie
+	// changes-writer; deliberately ABSENT from movieUpsertAssignments() so a
+	// Radarr/TMDB canon write can never null it (mirror of the series invariant).
+	TMDBChangedAt *time.Time `gorm:"column:tmdb_changed_at"`
+	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (MovieModel) TableName() string { return "movies" }
+
+// MovieChangesStateModel — single-row (id=1) cursor for the TMDB
+// /movie/changes firehose poller (Ф6-R-4a, migration 000054). Structural
+// mirror of TMDBChangesStateModel with a DEDICATED table so the movie
+// firehose cursor never collides with the /tv/changes cursor.
+type MovieChangesStateModel struct {
+	ID            int64      `gorm:"primaryKey;column:id"`
+	SchemaVersion int        `gorm:"column:schema_version;not null;default:1"`
+	LastWindowEnd *time.Time `gorm:"column:last_window_end"`
+	LastPollAt    *time.Time `gorm:"column:last_poll_at"`
+	LastMatched   int        `gorm:"column:last_matched;not null;default:0"`
+	LastFirehose  int        `gorm:"column:last_firehose;not null;default:0"`
+	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (MovieChangesStateModel) TableName() string { return "movie_changes_state" }
 
 // MovieI18nModel is the per-language localized movie side-table (Ф6-R-3).
 type MovieI18nModel struct {

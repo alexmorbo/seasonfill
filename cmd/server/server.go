@@ -715,6 +715,22 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		})
 	}
 
+	// Ф6-R-4a L3-1 — movie discovery surface (TMDB-driven). Built only when
+	// the live TMDB holder exists; routes auth-gated. No bg fetcher / prewarm
+	// worker in R-4a (passthrough-sync trending/popular/search + LRU-backed
+	// /discover).
+	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+		movieDiscoverBundle := wiring.BuildMovieDiscovery(wiring.MovieDiscoveryDeps{
+			Persistence: persistence,
+			TMDBClient:  enrichBundle.TMDBHolder,
+			Resolver:    seriesDetailMediaResolver, // shared MediaResolver
+			Log:         sharedports.DomainLogger(log, "discovery"),
+		})
+		if discoveryHTTPBundle != nil {
+			discoveryHTTPBundle.MovieDiscoverHandler = movieDiscoverBundle.Handler
+		}
+	}
+
 	// Story 508 (N-2g / B-9 Scope A) — late-bind the ColdStartKicker's
 	// OnSyncCompleted hook into the scan use case via
 	// WithPostScanCycle. BuildScan ran earlier (before BuildEnrichment)
@@ -887,6 +903,58 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		log.InfoContext(rootCtx, "tmdb changes poller disabled",
 			slog.Bool("cron_enabled", cfg.Cron.Enabled),
 			slog.Bool("changes_enabled", bootCfg.Enrichment.Changes.Enabled))
+	}
+
+	// Ф6-R-4a L3-2 — movie enrichment: SEPARATE movie refresh scheduler (own
+	// budget/ticker; never dequeues series budget) + /movie/changes firehose
+	// poller (generic ChangesPoller reused with movie deps + dedicated cursor).
+	// Built only when the live TMDB holder exists. The movie refresh scheduler is
+	// gated by cfg.Cron.Enabled (same single operator lever as series refresh);
+	// the movie changes poller is DARK-LAUNCH gated (default OFF) by
+	// SEASONFILL_MOVIE_CHANGES_ENABLED, mirroring the /tv/changes dark-launch.
+	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
+		movieEnrichLog := sharedports.DomainLogger(log, "enrichment")
+		movieEnrich, merr := wiring.BuildMovieEnrichment(wiring.MovieEnrichmentDeps{
+			Persistence: persistence,
+			TMDBHolder:  enrichBundle.TMDBHolder,
+			Resolver:    seriesDetailMediaResolver, // shared MediaResolver
+			OMDbHolder:  enrichBundle.OMDbHolder,   // Ф6-R-4a L3-3: movie OMDb follow-up
+			Log:         movieEnrichLog,
+		})
+		if merr != nil {
+			log.WarnContext(rootCtx, "movie enrichment disabled",
+				slog.String("error", merr.Error()))
+		} else {
+			if cfg.Cron.Enabled && movieEnrich.RefreshScheduler != nil {
+				movieRefreshInterval := 30 * time.Minute
+				if v := os.Getenv("SEASONFILL_MOVIE_REFRESH_INTERVAL"); v != "" {
+					if d, perr := time.ParseDuration(v); perr == nil && d > 0 {
+						movieRefreshInterval = d
+					}
+				}
+				lifecycle.Go(rootCtx, "movie-refresh-scheduler", func(ctx context.Context) {
+					movieEnrich.RefreshScheduler.RunForever(ctx, movieRefreshInterval)
+				})
+			}
+			movieChangesEnabled := os.Getenv("SEASONFILL_MOVIE_CHANGES_ENABLED") == "true"
+			if cfg.Cron.Enabled && movieChangesEnabled && movieEnrich.ChangesPoller != nil {
+				movieChangesInterval := 8 * time.Hour
+				if v := os.Getenv("SEASONFILL_MOVIE_CHANGES_INTERVAL"); v != "" {
+					if d, perr := time.ParseDuration(v); perr == nil && d > 0 {
+						movieChangesInterval = d
+					}
+				}
+				movieEnrichLog.InfoContext(rootCtx, "movie changes poller enabled",
+					slog.Duration("interval", movieChangesInterval))
+				lifecycle.Go(rootCtx, "movie-changes-poller", func(ctx context.Context) {
+					loops.RunChanges(ctx, movieEnrich.ChangesPoller, movieChangesInterval, movieEnrichLog)
+				})
+			} else {
+				log.InfoContext(rootCtx, "movie changes poller disabled",
+					slog.Bool("cron_enabled", cfg.Cron.Enabled),
+					slog.Bool("movie_changes_enabled", movieChangesEnabled))
+			}
+		}
 	}
 
 	// Re-publish the boot snapshot now that subscribers are alive

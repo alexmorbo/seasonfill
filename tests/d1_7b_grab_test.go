@@ -275,8 +275,9 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// N1 adds notification_outbox + notification_agents → 62.
 			// Ф6-R-1 adds radarr_instance_settings → 66.
 			// Ф6-R-3 adds movies+movie_i18n+movie_states+collections → 70.
-			if len(s.Tables) != 70 {
-				t.Errorf("Schema(%s) tables = %d, want 70 (after Ф6-R-3 movies+movie_i18n+movie_states+collections)", d, len(s.Tables))
+			// Ф6-R-4a adds movie_changes_state → 71.
+			if len(s.Tables) != 71 {
+				t.Errorf("Schema(%s) tables = %d, want 71 (after Ф6-R-4a movie_changes_state)", d, len(s.Tables))
 			}
 		})
 	}

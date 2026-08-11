@@ -44,6 +44,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // resolveHandler (BE-3 card-unification)
 		nil, // discoveryHandler (Story 507 N-2f)
 		nil, // discoverHandler (Story 509 N-2h)
+		nil, // movieDiscoverHandler (Ф6-R-4a L3-1)
 		nil, // rowConfigHandler (ADR-0017 Ф5 D-1)
 		nil, // blocklistHandler (ADR-0017 Ф5 S3)
 		nil, // instanceMetadataHandler (Story 519 N-4b)

@@ -51,6 +51,10 @@ type Canon struct {
 	OMDBAwards             *string
 	EnrichmentTMDBSyncedAt *time.Time
 	EnrichmentOMDBSyncedAt *time.Time
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	// TMDBChangedAt (Ф6-R-4a) — write-once /movie/changes clock. Written ONLY
+	// by the movie changes-marker; never by Upsert (absent from
+	// movieUpsertAssignments).
+	TMDBChangedAt *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }

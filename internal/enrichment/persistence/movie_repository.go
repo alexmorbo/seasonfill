@@ -232,6 +232,7 @@ func movieToCanon(m database.MovieModel) movie.Canon {
 		OMDBAwards:             m.OMDBAwards,
 		EnrichmentTMDBSyncedAt: m.EnrichmentTMDBSyncedAt,
 		EnrichmentOMDBSyncedAt: m.EnrichmentOMDBSyncedAt,
+		TMDBChangedAt:          m.TMDBChangedAt,
 		CreatedAt:              m.CreatedAt,
 		UpdatedAt:              m.UpdatedAt,
 	}
@@ -268,6 +269,7 @@ func movieFromCanon(c movie.Canon) database.MovieModel {
 		OMDBAwards:             c.OMDBAwards,
 		EnrichmentTMDBSyncedAt: c.EnrichmentTMDBSyncedAt,
 		EnrichmentOMDBSyncedAt: c.EnrichmentOMDBSyncedAt,
+		TMDBChangedAt:          c.TMDBChangedAt,
 		CreatedAt:              c.CreatedAt,
 		UpdatedAt:              c.UpdatedAt,
 	}

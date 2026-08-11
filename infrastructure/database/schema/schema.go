@@ -3119,13 +3119,57 @@ func buildRadarrInstanceSettingsTable(d Dialect, arrInstance *atlasschema.Table)
 // series_cache). See ADR-0018 §6b.
 // ----------------------------------------------------------------------
 
-// addMovies appends movies, movie_i18n, movie_states, collections.
+// addMovies appends movies, movie_i18n, movie_states, collections,
+// movie_changes_state.
 func addMovies(s *atlasschema.Schema, d Dialect) {
 	movies := buildMoviesTable(d)
 	s.AddTables(movies)
 	s.AddTables(buildMovieI18nTable(d, movies))
 	s.AddTables(buildMovieStatesTable(d, movies))
 	s.AddTables(buildCollectionsTable(d))
+	s.AddTables(buildMovieChangesStateTable(d))
+}
+
+// buildMovieChangesStateTable returns movie_changes_state — a single-row
+// (id=1, enforced by CHECK) cursor / machine-state table for the Ф6-R-4a
+// TMDB /movie/changes firehose poller. Byte-for-byte structural mirror of
+// tmdb_changes_state; a dedicated cursor so the movie firehose never
+// collides with the /tv/changes cursor.
+func buildMovieChangesStateTable(d Dialect) *atlasschema.Table {
+	idType := "bigint"
+	if d == DialectSQLite {
+		idType = "integer"
+	}
+	id := atlasschema.NewIntColumn("id", idType).SetNull(false)
+
+	schemaVersion := atlasschema.NewIntColumn("schema_version", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "1"})
+	lastWindowEnd := timestampColumn(d, "last_window_end", false, false)
+	lastPollAt := timestampColumn(d, "last_poll_at", false, false)
+	lastMatched := atlasschema.NewIntColumn("last_matched", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	lastFirehose := atlasschema.NewIntColumn("last_firehose", "integer").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	singletonCheck := atlasschema.NewCheck().
+		SetName("movie_changes_state_single").
+		SetExpr("id = 1")
+
+	return atlasschema.NewTable("movie_changes_state").
+		AddColumns(
+			id,
+			schemaVersion,
+			lastWindowEnd,
+			lastPollAt,
+			lastMatched,
+			lastFirehose,
+			createdAt,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddChecks(singletonCheck)
 }
 
 // buildMoviesTable returns the canonical `movies` table — 31 cols, PK id,
@@ -3171,6 +3215,12 @@ func buildMoviesTable(d Dialect) *atlasschema.Table {
 	omdbAwards := atlasschema.NewNullStringColumn("omdb_awards", "text")
 	enrichmentTMDBSyncedAt := timestampColumn(d, "enrichment_tmdb_synced_at", false, false)
 	enrichmentOMDBSyncedAt := timestampColumn(d, "enrichment_omdb_synced_at", false, false)
+	// tmdbChangedAt (Ф6-R-4a) — write-once "TMDB /movie/changes last reported
+	// a change for this movie" clock. NULL = never reported. Stamped ONLY by
+	// the dedicated movie changes-writer; deliberately absent from
+	// movieUpsertAssignments() so a Radarr scan can never null it (mirror of
+	// series.tmdb_changed_at).
+	tmdbChangedAt := timestampColumn(d, "tmdb_changed_at", false, false)
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
@@ -3205,6 +3255,7 @@ func buildMoviesTable(d Dialect) *atlasschema.Table {
 			omdbAwards,
 			enrichmentTMDBSyncedAt,
 			enrichmentOMDBSyncedAt,
+			tmdbChangedAt,
 			createdAt,
 			updatedAt,
 		).
@@ -3219,6 +3270,9 @@ func buildMoviesTable(d Dialect) *atlasschema.Table {
 			partialIndex(d, "movies_collection_id_idx",
 				[]*atlasschema.Column{collectionID},
 				"collection_id IS NOT NULL"),
+			partialIndex(d, "movies_tmdb_changed_at_idx",
+				[]*atlasschema.Column{tmdbChangedAt},
+				"tmdb_changed_at IS NOT NULL"),
 		)
 }
 
