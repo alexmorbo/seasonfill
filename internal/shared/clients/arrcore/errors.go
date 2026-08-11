@@ -20,16 +20,23 @@ const BodyMaxBytes = 4096
 // rows. Error() emits the full body verbatim; persistence sites cap downstream
 // via errtext.Clamp (story 092 / F-P2-4).
 //
-// NOTE: the "sonarr" literal in Error() is intentionally preserved for ZERO
-// behavior change — errtext/clamp_test.go and grab/.../error_detail_test.go
-// assert the exact string. R-3 must parameterize the prefix before wiring a
-// Radarr client that surfaces this error to users.
+// NOTE: the arr prefix in Error() is parameterized via the Arr field (Ф6-R-3).
+// A zero-value Arr ("") renders as "sonarr" for ZERO behavior change — the
+// sonarr client never sets Arr, so errtext/clamp_test.go and
+// grab/.../error_detail_test.go keep asserting the exact "sonarr …" string.
+// The radarr client constructs arrcore with WithArrName("radarr"), which stamps
+// Arr="radarr" onto every StatusError it surfaces.
 type StatusError struct {
 	Endpoint string
 	Status   int
 	Body     string
+	Arr      string // "" ⇒ "sonarr" (zero-value compat: keeps errtext/grab test strings byte-identical)
 }
 
 func (e *StatusError) Error() string {
-	return fmt.Sprintf("sonarr %s returned status=%d body=%s", e.Endpoint, e.Status, e.Body)
+	arr := e.Arr
+	if arr == "" {
+		arr = "sonarr"
+	}
+	return fmt.Sprintf("%s %s returned status=%d body=%s", arr, e.Endpoint, e.Status, e.Body)
 }

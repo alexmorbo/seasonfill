@@ -10,6 +10,7 @@ package people
 import (
 	"context"
 
+	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	enrichment "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	dompeople "github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
@@ -49,6 +50,16 @@ type PersonCreditsReader interface {
 // person_credits → canon series → series_cache.
 type SeriesByTMDBLookup interface {
 	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (series.Canon, error)
+}
+
+// MovieCanonByTMDB resolves a TMDB media id to the movies canon row (via the
+// partial-unique `movies_tmdb_id_idx WHERE tmdb_id IS NOT NULL`), the movie
+// analog of SeriesByTMDBLookup. The composer uses it to classify a movie
+// person_credit as CategoryCanon when a canon row exists (F-20). The
+// production impl is *enrichpersistence.MovieRepository (GetByTMDBID). nil-OK:
+// when unwired, movie credits stay CategoryTMDB.
+type MovieCanonByTMDB interface {
+	GetByTMDBID(ctx context.Context, tmdbID domain.TMDBID) (movie.Canon, error)
 }
 
 // SeriesCacheLookup returns the live series_cache rows for a

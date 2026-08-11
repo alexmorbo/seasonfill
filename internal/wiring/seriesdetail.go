@@ -457,6 +457,7 @@ func BuildSeriesDetail(
 		People:           adapters.NewPeopleReaderAdapter(sdPeopleRepo),
 		PersonCredits:    adapters.NewPersonCreditsReaderAdapter(sdPersonCreditsRepo),
 		SeriesByTMDB:     sdSeriesRepo,
+		MoviesByTMDB:     enrichpersistence.NewMovieRepository(db),
 		SeriesCache:      sdSeriesCacheRepo,
 		SeriesTexts:      sdSeriesTextsRepo,
 		SeriesMediaTexts: sdSeriesMediaTextsRepo,

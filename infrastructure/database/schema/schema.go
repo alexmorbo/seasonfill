@@ -248,6 +248,14 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addAppConfig(s, d)
 	}
 
+	// Ф6-R-3 — movie canon vertical: movies (canon), movie_i18n (localized
+	// side-table, mirrors series_texts+series_media_texts collapsed), movie_states
+	// (per-instance library membership, mirrors series_cache — NO FK on
+	// instance_name, app-managed cascade), collections (TMDB collection canon +
+	// Radarr collection-monitor state). Additive; no dev-time skip flag — these
+	// leaf tables are always materialized.
+	addMovies(s, d)
+
 	// D-4 (story 465b) — scan_runs table. MUST be added BEFORE
 	// addGrab(s, d) so the conditional grab_records.scan_run_id FK
 	// declared in buildGrabRecordsTable (schema.go:2118-2128) picks
@@ -3101,6 +3109,213 @@ func buildRadarrInstanceSettingsTable(d Dialect, arrInstance *atlasschema.Table)
 				AddRefColumns(parentRefCol(arrInstance)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// ----------------------------------------------------------------------
+// Ф6-R-3 — movie canon vertical (movies, movie_i18n, movie_states,
+// collections). Separate catalog from series; leaf tables with no
+// dependency on arr_instance (movie_states is app-managed cascade, mirrors
+// series_cache). See ADR-0018 §6b.
+// ----------------------------------------------------------------------
+
+// addMovies appends movies, movie_i18n, movie_states, collections.
+func addMovies(s *atlasschema.Schema, d Dialect) {
+	movies := buildMoviesTable(d)
+	s.AddTables(movies)
+	s.AddTables(buildMovieI18nTable(d, movies))
+	s.AddTables(buildMovieStatesTable(d, movies))
+	s.AddTables(buildCollectionsTable(d))
+}
+
+// buildMoviesTable returns the canonical `movies` table — 31 cols, PK id,
+// 5 indexes (partial-unique tmdb_id, imdb_id, popularity DESC, tmdb_rating
+// DESC, partial collection_id). Mirrors buildSeriesTable. budget/revenue
+// are bigint on Postgres, integer on SQLite (same dialect branch used for
+// size_on_disk_bytes in buildSeriesCacheTable).
+func buildMoviesTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	tmdbID := atlasschema.NewNullIntColumn("tmdb_id", "integer")
+	imdbID := atlasschema.NewNullStringColumn("imdb_id", "text")
+	hydration := atlasschema.NewStringColumn("hydration", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'stub'"})
+	title := atlasschema.NewStringColumn("title", "text").SetNull(false)
+	originalTitle := atlasschema.NewNullStringColumn("original_title", "text")
+	status := atlasschema.NewNullStringColumn("status", "text")
+	releaseDate := dateColumn(d, "release_date")
+	digitalReleaseDate := dateColumn(d, "digital_release_date")
+	physicalReleaseDate := dateColumn(d, "physical_release_date")
+	year := atlasschema.NewNullIntColumn("year", "integer")
+	runtimeMinutes := atlasschema.NewNullIntColumn("runtime_minutes", "integer")
+	homepage := atlasschema.NewNullStringColumn("homepage", "text")
+	originalLanguage := atlasschema.NewNullStringColumn("original_language", "text")
+	originCountries := atlasschema.NewStringColumn("origin_countries", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'[]'"})
+	collectionID := atlasschema.NewNullIntColumn("collection_id", "integer")
+	popularity := atlasschema.NewNullFloatColumn("popularity", "double precision")
+	budget := atlasschema.NewNullIntColumn("budget", "bigint")
+	revenue := atlasschema.NewNullIntColumn("revenue", "bigint")
+	if d == DialectSQLite {
+		budget = atlasschema.NewNullIntColumn("budget", "integer")
+		revenue = atlasschema.NewNullIntColumn("revenue", "integer")
+	}
+	posterAsset := atlasschema.NewNullStringColumn("poster_asset", "text")
+	backdropAsset := atlasschema.NewNullStringColumn("backdrop_asset", "text")
+	tmdbRating := atlasschema.NewNullFloatColumn("tmdb_rating", "double precision")
+	tmdbVotes := atlasschema.NewNullIntColumn("tmdb_votes", "integer")
+	imdbRating := atlasschema.NewNullFloatColumn("imdb_rating", "double precision")
+	imdbVotes := atlasschema.NewNullIntColumn("imdb_votes", "integer")
+	omdbRated := atlasschema.NewNullStringColumn("omdb_rated", "text")
+	omdbAwards := atlasschema.NewNullStringColumn("omdb_awards", "text")
+	enrichmentTMDBSyncedAt := timestampColumn(d, "enrichment_tmdb_synced_at", false, false)
+	enrichmentOMDBSyncedAt := timestampColumn(d, "enrichment_omdb_synced_at", false, false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("movies").
+		AddColumns(
+			id,
+			tmdbID,
+			imdbID,
+			hydration,
+			title,
+			originalTitle,
+			status,
+			releaseDate,
+			digitalReleaseDate,
+			physicalReleaseDate,
+			year,
+			runtimeMinutes,
+			homepage,
+			originalLanguage,
+			originCountries,
+			collectionID,
+			popularity,
+			budget,
+			revenue,
+			posterAsset,
+			backdropAsset,
+			tmdbRating,
+			tmdbVotes,
+			imdbRating,
+			imdbVotes,
+			omdbRated,
+			omdbAwards,
+			enrichmentTMDBSyncedAt,
+			enrichmentOMDBSyncedAt,
+			createdAt,
+			updatedAt,
+		).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			partialUniqueIndex(d, "movies_tmdb_id_idx",
+				[]*atlasschema.Column{tmdbID},
+				"tmdb_id IS NOT NULL"),
+			atlasschema.NewIndex("movies_imdb_id_idx").AddColumns(imdbID),
+			descIndex("movies_popularity_idx", popularity),
+			descIndex("movies_tmdb_rating_idx", tmdbRating),
+			partialIndex(d, "movies_collection_id_idx",
+				[]*atlasschema.Column{collectionID},
+				"collection_id IS NOT NULL"),
+		)
+}
+
+// buildMovieI18nTable returns movie_i18n — 9 cols, composite PK
+// (movie_id, language), FK movie_id → movies(id) NO ACTION. Reuses the
+// i18nTextTable helper (parent_id, language PK + enriched_at + updated_at)
+// with the movie-localized extra columns.
+func buildMovieI18nTable(d Dialect, movies *atlasschema.Table) *atlasschema.Table {
+	return i18nTextTable(d, "movie_i18n", movies, "movie_id",
+		[]*atlasschema.Column{
+			atlasschema.NewNullStringColumn("title", "text"),
+			atlasschema.NewNullStringColumn("overview", "text"),
+			atlasschema.NewNullStringColumn("tagline", "text"),
+			atlasschema.NewNullStringColumn("poster_asset", "text"),
+			atlasschema.NewNullStringColumn("backdrop_asset", "text"),
+		},
+		"",   // no (language, name) lookup index
+		true, // include enriched_at
+	)
+}
+
+// buildMovieStatesTable returns movie_states — per-instance Radarr library
+// membership, 11 cols, composite PK (instance_name, radarr_movie_id). FK
+// movie_id → movies(id) NO ACTION. Soft-deleted via deleted_at; readers
+// filter `WHERE deleted_at IS NULL`. NO FK on instance_name (app-managed
+// cascade, mirrors series_cache). Indexes: movie_states_instance_active
+// (partial deleted_at IS NULL) + movie_states_movie_id.
+func buildMovieStatesTable(d Dialect, movies *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	radarrMovieID := atlasschema.NewIntColumn("radarr_movie_id", "integer").SetNull(false)
+	movieID := fkColumn(d, "movie_id", false /* not null */)
+	titleSlug := atlasschema.NewStringColumn("title_slug", "text").SetNull(false)
+	monitored := atlasschema.NewBoolColumn("monitored", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	hasFile := atlasschema.NewBoolColumn("has_file", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	availability := atlasschema.NewNullStringColumn("availability", "text")
+	sizeOnDiskBytes := atlasschema.NewIntColumn("size_on_disk_bytes", "bigint")
+	if d == DialectSQLite {
+		sizeOnDiskBytes = atlasschema.NewIntColumn("size_on_disk_bytes", "integer")
+	}
+	sizeOnDiskBytes.SetNull(false).SetDefault(&atlasschema.Literal{V: "0"})
+	addedToRadarr := atlasschema.NewBoolColumn("added_to_radarr", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	updatedAt := timestampColumn(d, "updated_at", false /* withDefault */, true /* notNull */)
+	deletedAt := timestampColumn(d, "deleted_at", false, false)
+
+	return atlasschema.NewTable("movie_states").
+		AddColumns(instanceName, radarrMovieID, movieID, titleSlug,
+			monitored, hasFile, availability, sizeOnDiskBytes,
+			addedToRadarr, updatedAt, deletedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, radarrMovieID)).
+		AddIndexes(
+			partialIndex(d, "movie_states_instance_active",
+				[]*atlasschema.Column{instanceName}, "deleted_at IS NULL"),
+			atlasschema.NewIndex("movie_states_movie_id").
+				AddColumns(movieID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("movie_states_movie_id_fkey").
+				AddColumns(movieID).
+				SetRefTable(movies).
+				AddRefColumns(parentRefCol(movies)).
+				SetOnDelete(atlasschema.NoAction).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildCollectionsTable returns collections — TMDB collection canon + Radarr
+// collection-monitor state, 10 cols, PK id, 1 UNIQUE index
+// (collections_tmdb_collection_id), NO FK.
+func buildCollectionsTable(d Dialect) *atlasschema.Table {
+	id := pkColumn(d)
+	tmdbCollectionID := atlasschema.NewIntColumn("tmdb_collection_id", "integer").SetNull(false)
+	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
+	overview := atlasschema.NewNullStringColumn("overview", "text")
+	posterAsset := atlasschema.NewNullStringColumn("poster_asset", "text")
+	backdropAsset := atlasschema.NewNullStringColumn("backdrop_asset", "text")
+	monitored := atlasschema.NewBoolColumn("monitored", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	radarrMonitored := atlasschema.NewBoolColumn("radarr_monitored", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("collections").
+		AddColumns(id, tmdbCollectionID, name, overview, posterAsset,
+			backdropAsset, monitored, radarrMonitored, createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewUniqueIndex("collections_tmdb_collection_id").
+				AddColumns(tmdbCollectionID),
 		)
 }
 

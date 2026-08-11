@@ -314,6 +314,50 @@ func TestClient_WithGlobalLimiterPointer_LiveReload(t *testing.T) {
 	assert.Same(t, lim, c.globalLimiter())
 }
 
+// TestClient_StatusError_DefaultArrIsSonarr verifies the zero-value arr path:
+// a client built WITHOUT WithArrName surfaces StatusError text beginning
+// "sonarr " — byte-identical to pre-Ф6-R-3 (errtext/grab tests depend on this).
+func TestClient_StatusError_DefaultArrIsSonarr(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("oops"))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, nil)
+	_, err := c.SystemStatus(context.Background())
+	require.Error(t, err)
+	var se *StatusError
+	require.True(t, errors.As(err, &se))
+	assert.Equal(t, "sonarr", se.Arr, "New() defaults arr to sonarr")
+	assert.Equal(t,
+		"sonarr /api/v3/system/status returned status=500 body=oops",
+		se.Error(),
+	)
+}
+
+// TestClient_StatusError_RadarrArrName verifies WithArrName("radarr") stamps
+// the StatusError so its text begins "radarr " — the whole point of the R-3
+// parameterization (radarr errors must not lie and say "sonarr").
+func TestClient_StatusError_RadarrArrName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, nil, WithArrName("radarr"))
+	_, err := c.SystemStatus(context.Background())
+	require.Error(t, err)
+	var se *StatusError
+	require.True(t, errors.As(err, &se))
+	assert.Equal(t, "radarr", se.Arr)
+	assert.Equal(t,
+		"radarr /api/v3/system/status returned status=500 body=boom",
+		se.Error(),
+	)
+}
+
 // TestClient_SearchGet_UsesSearchTimeout directly covers the moved httpSearch
 // path: base timeout 50ms, search timeout 1s, server sleeps 200ms — succeeds.
 func TestClient_SearchGet_UsesSearchTimeout(t *testing.T) {

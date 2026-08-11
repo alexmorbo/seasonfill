@@ -64,6 +64,10 @@ type Client struct {
 	// pointer wins if both are supplied (last write wins in option order).
 	global    *ratelimit.Limiter
 	globalPtr *atomic.Pointer[ratelimit.Limiter]
+	// arr is the arr kind ("sonarr" | "radarr") baked into StatusError text and
+	// the seasonfill_<arr>_api_* metric names. Defaults to "sonarr" (set in New)
+	// so the sonarr client — which never passes WithArrName — is unchanged.
+	arr string
 }
 
 // Option configures a Client at construction.
@@ -84,6 +88,17 @@ func WithGlobalLimiterPointer(p *atomic.Pointer[ratelimit.Limiter]) Option {
 		if p != nil {
 			c.globalPtr = p
 			c.global = nil
+		}
+	}
+}
+
+// WithArrName sets the arr kind ("sonarr" | "radarr") used in StatusError text
+// and the seasonfill_<arr>_api_* metric names. Defaults to "sonarr" (zero
+// behavior change for the sonarr client, which does not pass this option).
+func WithArrName(name string) Option {
+	return func(c *Client) {
+		if name != "" {
+			c.arr = name
 		}
 	}
 }
@@ -111,6 +126,7 @@ func New(name shareddomain.InstanceName, baseURL, apiKey string, timeout time.Du
 		http:       base,
 		httpSearch: base, // default alias — overridden by WithSearchTimeout
 		limiter:    limiter,
+		arr:        "sonarr", // default — WithArrName("radarr") overrides below
 	}
 	for _, o := range opts {
 		o(c)
@@ -166,8 +182,8 @@ func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Re
 	dur := time.Since(start).Seconds()
 
 	if err != nil {
-		observability.SonarrAPIRequest(c.name, endpoint, "error")
-		observability.ObserveSonarrAPIDuration(c.name, endpoint, dur)
+		observability.ArrAPIRequest(c.arr, c.name, endpoint, "error")
+		observability.ObserveArrAPIDuration(c.arr, c.name, endpoint, dur)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("call %s: %w", endpoint, ctxErr)
 		}
@@ -177,12 +193,12 @@ func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Re
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	observability.ObserveSonarrAPIDuration(c.name, endpoint, dur)
-	observability.SonarrAPIRequest(c.name, endpoint, strconv.Itoa(resp.StatusCode))
+	observability.ObserveArrAPIDuration(c.arr, c.name, endpoint, dur)
+	observability.ArrAPIRequest(c.arr, c.name, endpoint, strconv.Itoa(resp.StatusCode))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, BodyMaxBytes))
-		se := &StatusError{Endpoint: endpoint, Status: resp.StatusCode, Body: string(body)}
+		se := &StatusError{Endpoint: endpoint, Status: resp.StatusCode, Body: string(body), Arr: c.arr}
 		if resp.StatusCode == 401 || resp.StatusCode == 403 {
 			return fmt.Errorf("%w: %w", sharedErrors.ErrInstanceUnauthorized, se)
 		}

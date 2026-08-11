@@ -220,12 +220,24 @@ func GrabAttempt(instance domain.InstanceName, status string) {
 	metrics.GetOrCreateCounter(`seasonfill_grab_attempts_total{instance="` + string(instance) + `",status="` + status + `"}`).Inc()
 }
 
+// ArrAPIRequest increments seasonfill_<arr>_api_requests_total. arr ∈
+// {"sonarr","radarr"} — a bounded label baked into the metric NAME to keep
+// the historical seasonfill_sonarr_api_* series intact while adding a
+// parallel radarr series. Ф6-R-3.
+func ArrAPIRequest(arr string, instance domain.InstanceName, endpoint, status string) {
+	metrics.GetOrCreateCounter(`seasonfill_` + arr + `_api_requests_total{instance="` + string(instance) + `",endpoint="` + endpoint + `",status="` + status + `"}`).Inc()
+}
+
+func ObserveArrAPIDuration(arr string, instance domain.InstanceName, endpoint string, seconds float64) {
+	metrics.GetOrCreateHistogram(`seasonfill_` + arr + `_api_duration_seconds{instance="` + string(instance) + `",endpoint="` + endpoint + `"}`).Update(seconds)
+}
+
 func SonarrAPIRequest(instance domain.InstanceName, endpoint, status string) {
-	metrics.GetOrCreateCounter(`seasonfill_sonarr_api_requests_total{instance="` + string(instance) + `",endpoint="` + endpoint + `",status="` + status + `"}`).Inc()
+	ArrAPIRequest("sonarr", instance, endpoint, status)
 }
 
 func ObserveSonarrAPIDuration(instance domain.InstanceName, endpoint string, seconds float64) {
-	metrics.GetOrCreateHistogram(`seasonfill_sonarr_api_duration_seconds{instance="` + string(instance) + `",endpoint="` + endpoint + `"}`).Update(seconds)
+	ObserveArrAPIDuration("sonarr", instance, endpoint, seconds)
 }
 
 func ObserveScanDuration(instance domain.InstanceName, seconds float64) {

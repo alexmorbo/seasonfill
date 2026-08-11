@@ -394,6 +394,52 @@ type SonarrInstanceSettingsModel struct {
 
 func (SonarrInstanceSettingsModel) TableName() string { return "sonarr_instance_settings" }
 
+// RadarrInstanceSettingsModel is the per-instance Radarr settings row
+// (Ф6-R-3). The radarr_instance_settings table (migration 000052) is
+// column-identical to sonarr_instance_settings by R-1 design, so the field
+// set is copied verbatim — only TableName() differs. R-3 reads only the
+// client-construction knobs (TimeoutSeconds / SearchTimeoutSeconds /
+// RateLimitRPM / RateLimitBurst); the full column set is declared so the R-6
+// admin CRUD needs no second model edit.
+type RadarrInstanceSettingsModel struct {
+	InstanceName                  string    `gorm:"primaryKey;column:instance_name;type:text"`
+	TimeoutSeconds                int       `gorm:"column:timeout_seconds;not null"`
+	SearchTimeoutSeconds          int       `gorm:"column:search_timeout_seconds;not null"`
+	DryRun                        *bool     `gorm:"column:dry_run"`
+	TagsMode                      string    `gorm:"column:tags_mode;type:text;not null"`
+	TagsInclude                   string    `gorm:"column:tags_include;type:text;not null"`
+	TagsExclude                   string    `gorm:"column:tags_exclude;type:text;not null"`
+	SearchRequireAllAired         bool      `gorm:"column:search_require_all_aired;not null"`
+	SearchSkipSpecials            bool      `gorm:"column:search_skip_specials;not null"`
+	SearchSkipAnime               bool      `gorm:"column:search_skip_anime;not null"`
+	SearchMinCustomFormatScore    int       `gorm:"column:search_min_custom_format_score;not null"`
+	RankingIndexerPriorityEnabled bool      `gorm:"column:ranking_indexer_priority_enabled;not null"`
+	RankingOriginBonus            float64   `gorm:"column:ranking_origin_bonus;not null"`
+	LimitsScanMaxSeries           int       `gorm:"column:limits_scan_max_series;not null"`
+	LimitsMaxGrabsPerScan         int       `gorm:"column:limits_max_grabs_per_scan;not null"`
+	RateLimitRPM                  int       `gorm:"column:rate_limit_rpm;not null"`
+	RateLimitBurst                int       `gorm:"column:rate_limit_burst;not null"`
+	CooldownMode                  string    `gorm:"column:cooldown_mode;type:text;not null"`
+	CooldownSeriesAfterGrabSec    int       `gorm:"column:cooldown_series_after_grab_sec;not null"`
+	CooldownGUIDFailedGrabSec     int       `gorm:"column:cooldown_guid_failed_grab_sec;not null"`
+	CooldownGUIDFailedImportSec   int       `gorm:"column:cooldown_guid_failed_import_sec;not null"`
+	RetryMaxAttempts              int       `gorm:"column:retry_max_attempts;not null"`
+	RetryInitialBackoffSec        int       `gorm:"column:retry_initial_backoff_sec;not null"`
+	RetryMaxBackoffSec            int       `gorm:"column:retry_max_backoff_sec;not null"`
+	HealthcheckRecheckAuthSec     int       `gorm:"column:healthcheck_recheck_auth_sec;not null"`
+	HealthcheckRecheckNetSec      int       `gorm:"column:healthcheck_recheck_net_sec;not null"`
+	PublicURL                     *string   `gorm:"column:public_url;type:text"`
+	WebhookInstallEnabled         bool      `gorm:"column:webhook_install_enabled;not null"`
+	WebhookURLOverride            *string   `gorm:"column:webhook_url_override;type:text"`
+	ParseOnGrabEnabled            bool      `gorm:"column:parse_on_grab_enabled;not null"`
+	ScanSkipHandledSeasons        bool      `gorm:"column:scan_skip_handled_seasons;not null"`
+	DefaultQualityProfileID       *int      `gorm:"column:default_quality_profile_id"`
+	DefaultRootFolderPath         *string   `gorm:"column:default_root_folder_path;type:text"`
+	UpdatedAt                     time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (RadarrInstanceSettingsModel) TableName() string { return "radarr_instance_settings" }
+
 // InstanceSecretModel — replaces the legacy composite-PK secret row.
 // Columns match 000010_admin.up.sql: id BIGSERIAL PK, instance_name
 // TEXT FK CASCADE → arr_instance.name, secret_name TEXT,
@@ -1279,3 +1325,94 @@ type QbitTorrentEventModel struct {
 }
 
 func (QbitTorrentEventModel) TableName() string { return "qbit_torrent_events" }
+
+// MovieModel is the canonical movies row (Ф6-R-3). Separate from
+// SeriesModel — movies are a distinct catalog vertical. TMDB/OMDb
+// enrichment columns are COALESCE-guarded by MovieRepository.Upsert
+// against Radarr-sync NULL clobber (mirror seriesUpsertAssignments).
+type MovieModel struct {
+	ID                     domain.MovieID `gorm:"primaryKey;column:id"`
+	TMDBID                 *domain.TMDBID `gorm:"column:tmdb_id"`
+	IMDBID                 *domain.IMDBID `gorm:"column:imdb_id;type:text"`
+	Hydration              string         `gorm:"column:hydration;type:text;not null;default:'stub'"`
+	Title                  string         `gorm:"column:title;type:text;not null"`
+	OriginalTitle          *string        `gorm:"column:original_title;type:text"`
+	Status                 *string        `gorm:"column:status;type:text"`
+	ReleaseDate            *time.Time     `gorm:"column:release_date"`
+	DigitalReleaseDate     *time.Time     `gorm:"column:digital_release_date"`
+	PhysicalReleaseDate    *time.Time     `gorm:"column:physical_release_date"`
+	Year                   *int           `gorm:"column:year"`
+	RuntimeMinutes         *int           `gorm:"column:runtime_minutes"`
+	Homepage               *string        `gorm:"column:homepage;type:text"`
+	OriginalLanguage       *string        `gorm:"column:original_language;type:text"`
+	OriginCountries        datatypes.JSON `gorm:"column:origin_countries;type:text;not null;default:'[]'"`
+	CollectionID           *int           `gorm:"column:collection_id"`
+	Popularity             *float64       `gorm:"column:popularity"`
+	Budget                 *int64         `gorm:"column:budget"`
+	Revenue                *int64         `gorm:"column:revenue"`
+	PosterAsset            *string        `gorm:"column:poster_asset;type:text"`
+	BackdropAsset          *string        `gorm:"column:backdrop_asset;type:text"`
+	TMDBRating             *float64       `gorm:"column:tmdb_rating"`
+	TMDBVotes              *int           `gorm:"column:tmdb_votes"`
+	IMDBRating             *float64       `gorm:"column:imdb_rating"`
+	IMDBVotes              *int           `gorm:"column:imdb_votes"`
+	OMDBRated              *string        `gorm:"column:omdb_rated;type:text"`
+	OMDBAwards             *string        `gorm:"column:omdb_awards;type:text"`
+	EnrichmentTMDBSyncedAt *time.Time     `gorm:"column:enrichment_tmdb_synced_at"`
+	EnrichmentOMDBSyncedAt *time.Time     `gorm:"column:enrichment_omdb_synced_at"`
+	CreatedAt              time.Time      `gorm:"column:created_at;not null"`
+	UpdatedAt              time.Time      `gorm:"column:updated_at;not null"`
+}
+
+func (MovieModel) TableName() string { return "movies" }
+
+// MovieI18nModel is the per-language localized movie side-table (Ф6-R-3).
+type MovieI18nModel struct {
+	MovieID       domain.MovieID `gorm:"primaryKey;column:movie_id"`
+	Language      string         `gorm:"primaryKey;column:language;type:text"`
+	Title         *string        `gorm:"column:title;type:text"`
+	Overview      *string        `gorm:"column:overview;type:text"`
+	Tagline       *string        `gorm:"column:tagline;type:text"`
+	PosterAsset   *string        `gorm:"column:poster_asset;type:text"`
+	BackdropAsset *string        `gorm:"column:backdrop_asset;type:text"`
+	EnrichedAt    *time.Time     `gorm:"column:enriched_at"`
+	UpdatedAt     time.Time      `gorm:"column:updated_at;not null"`
+}
+
+func (MovieI18nModel) TableName() string { return "movie_i18n" }
+
+// MovieStateModel is the per-instance Radarr library-membership projection
+// (Ф6-R-3). Soft-deleted via deleted_at; NO DB-level FK on instance_name
+// (app-managed cascade, mirrors SeriesCacheModel).
+type MovieStateModel struct {
+	InstanceName    string         `gorm:"primaryKey;column:instance_name;type:text"`
+	RadarrMovieID   int            `gorm:"primaryKey;column:radarr_movie_id"`
+	MovieID         domain.MovieID `gorm:"column:movie_id;not null"`
+	TitleSlug       string         `gorm:"column:title_slug;type:text;not null"`
+	Monitored       bool           `gorm:"column:monitored;not null"`
+	HasFile         bool           `gorm:"column:has_file;not null"`
+	Availability    *string        `gorm:"column:availability;type:text"`
+	SizeOnDiskBytes int64          `gorm:"column:size_on_disk_bytes;not null"`
+	AddedToRadarr   bool           `gorm:"column:added_to_radarr;not null"`
+	UpdatedAt       time.Time      `gorm:"column:updated_at;not null"`
+	DeletedAt       *time.Time     `gorm:"column:deleted_at"`
+}
+
+func (MovieStateModel) TableName() string { return "movie_states" }
+
+// CollectionModel is the TMDB collection canon + Radarr collection-monitor
+// state (Ф6-R-3).
+type CollectionModel struct {
+	ID               int64     `gorm:"primaryKey;column:id"`
+	TMDBCollectionID int       `gorm:"column:tmdb_collection_id;not null"`
+	Name             string    `gorm:"column:name;type:text;not null"`
+	Overview         *string   `gorm:"column:overview;type:text"`
+	PosterAsset      *string   `gorm:"column:poster_asset;type:text"`
+	BackdropAsset    *string   `gorm:"column:backdrop_asset;type:text"`
+	Monitored        bool      `gorm:"column:monitored;not null"`
+	RadarrMonitored  bool      `gorm:"column:radarr_monitored;not null"`
+	CreatedAt        time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt        time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (CollectionModel) TableName() string { return "collections" }

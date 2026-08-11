@@ -109,7 +109,12 @@ type Deps struct {
 	People        PeopleReader
 	PersonCredits PersonCreditsReader
 	SeriesByTMDB  SeriesByTMDBLookup
-	SeriesCache   SeriesCacheLookup
+	// MoviesByTMDB (F-20) links movie credits to the movies canon by tmdb_id,
+	// the movie analog of SeriesByTMDB. nil-OK: a nil dep leaves movie credits
+	// classified CategoryTMDB (the pre-Ф6-R-3 behavior), so existing fixtures
+	// that don't set it keep passing.
+	MoviesByTMDB MovieCanonByTMDB
+	SeriesCache  SeriesCacheLookup
 	// SeriesTexts / SeriesMediaTexts (S-E3a) — resolve library-credit
 	// display titles + poster raw paths from the i18n side-tables. nil-OK:
 	// title falls back to canon OriginalTitle, poster to nil.
@@ -375,9 +380,42 @@ const (
 // CategoryTMDB. Instances is non-empty only when category is
 // CategoryLibrary.
 func (uc *UseCase) classifyCredit(ctx context.Context, pc dompeople.PersonCredit) (CreditCategory, series.Canon, []LibraryInstance) {
-	if pc.MediaType != "tv" {
+	switch pc.MediaType {
+	case "tv":
+		return uc.classifyTVCredit(ctx, pc)
+	case "movie":
+		return uc.classifyMovieCredit(ctx, pc)
+	default:
 		return CategoryTMDB, series.Canon{}, nil
 	}
+}
+
+// classifyMovieCredit links a movie person_credit to the movies canon by
+// tmdb_id (F-20). A present canon row → CategoryCanon (a MovieDetail-routable
+// card in R-6); an absent one → CategoryTMDB (graceful, no orphan — identical
+// to the series SeriesNotFoundError fall-through). series.Canon stays zero:
+// R-3 only needs the canon PRESENCE here; the credit keeps its raw
+// person_credits title/poster (R-6 adds the movie-canon card + distinct
+// route). MoviesByTMDB is nil-tolerant.
+func (uc *UseCase) classifyMovieCredit(ctx context.Context, pc dompeople.PersonCredit) (CreditCategory, series.Canon, []LibraryInstance) {
+	if uc.d.MoviesByTMDB == nil {
+		return CategoryTMDB, series.Canon{}, nil
+	}
+	if _, err := uc.d.MoviesByTMDB.GetByTMDBID(ctx, domain.TMDBID(pc.TMDBMediaID)); err != nil {
+		var movieNF *sharedErrors.MovieNotFoundError
+		if !errors.As(err, &movieNF) && !errors.Is(err, ports.ErrNotFound) {
+			uc.d.Logger.WarnContext(ctx, "person_classify_movie_canon_lookup_failed",
+				slog.Int64("tmdb_media_id", pc.TMDBMediaID),
+				slog.String("error", err.Error()))
+		}
+		return CategoryTMDB, series.Canon{}, nil
+	}
+	return CategoryCanon, series.Canon{}, nil
+}
+
+// classifyTVCredit bridges a tv person_credit → canon series → series_cache
+// (unchanged pre-Ф6-R-3 series linkage, extracted from classifyCredit).
+func (uc *UseCase) classifyTVCredit(ctx context.Context, pc dompeople.PersonCredit) (CreditCategory, series.Canon, []LibraryInstance) {
 	canon, err := uc.d.SeriesByTMDB.GetByTMDBID(ctx, domain.TMDBID(pc.TMDBMediaID))
 	if err != nil {
 		var seriesNF *sharedErrors.SeriesNotFoundError
