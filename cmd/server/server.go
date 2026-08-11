@@ -971,6 +971,41 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	observability.CheckRateOversubscription(rootCtx, log, snap.GlobalRateLimit.RPM, snap.Instances)
 	bus.Publish(rootCtx, snap)
 
+	// Ф6-R-6b (Gap 1 boot kick): a fresh boot with an existing radarr instance
+	// must sync its movie library immediately rather than wait for the first
+	// "radarr-sync" cron tick (up to the scan cadence away). bus.Publish above
+	// is async (buffered latest-wins channels), so the fanout that populates
+	// the radarr partition may not have run yet — poll HasInstances briefly,
+	// then fire RunAll once. Bounded + ctx-cancellable + off the boot path
+	// (lifecycle goroutine), so a slow/unreachable Radarr never blocks startup.
+	// Gated on the boot scheduler existing (cron enabled), mirroring the scan
+	// boot-kick gate; cron-disabled deployments intentionally skip both.
+	if bootScheduler != nil && scanBundle.RadarrSync != nil && scanBundle.RadarrSync.SyncUC != nil {
+		radarrSyncUC := scanBundle.RadarrSync.SyncUC
+		lifecycle.Go(rootCtx, "radarr-sync-startup", func(ctx context.Context) {
+			deadline := time.NewTimer(30 * time.Second)
+			defer deadline.Stop()
+			ticker := time.NewTicker(200 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				if radarrSyncUC.HasInstances() {
+					if err := radarrSyncUC.RunAll(ctx); err != nil {
+						bootLog.WarnContext(ctx, "radarr sync startup failed",
+							slog.String("error", err.Error()))
+					}
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-deadline.C:
+					return // no radarr instances appeared — the cron handles it
+				case <-ticker.C:
+				}
+			}
+		})
+	}
+
 	// No-op in production (testcontext_stub.go); E2E builds use it to
 	// assert per-subscriber state.
 	notifyTestContext(bus, subSched, subClients, authRuntimePtr, globalLimiterPtr, holder.Load, checker.Snapshot)

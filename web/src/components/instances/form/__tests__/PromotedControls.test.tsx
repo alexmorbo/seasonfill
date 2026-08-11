@@ -7,17 +7,57 @@ import i18n from '@/i18n';
 import { PromotedControls } from '../PromotedControls';
 import { FORM_DEFAULTS } from '@/components/settings/instance-form-helpers';
 
-function Harness({ defaultValues = FORM_DEFAULTS as Record<string, unknown> }) {
+function Harness({
+  defaultValues = FORM_DEFAULTS as Record<string, unknown>,
+  mode = 'create' as 'create' | 'edit',
+}) {
   const { control } = useForm<Record<string, unknown>>({ defaultValues });
-  return <PromotedControls control={control} />;
+  return <PromotedControls control={control} mode={mode} />;
 }
 
 const wrap = (n: React.ReactElement) => <I18nextProvider i18n={i18n}>{n}</I18nextProvider>;
 
 describe('<PromotedControls />', () => {
-  it('renders Mode + Dry-run strips', () => {
+  it('renders Type + Mode + Dry-run strips in create mode', () => {
     render(wrap(<Harness />));
     expect(screen.getByTestId('promoted-controls')).toBeInTheDocument();
+    expect(screen.getByTestId('promoted-type')).toBeInTheDocument();
+    // Type + Mode + Dry-run = three segmented strips in create mode.
+    expect(screen.getAllByTestId('segmented-field')).toHaveLength(3);
+  });
+
+  it('type selector defaults to "sonarr" (per FORM_DEFAULTS)', () => {
+    render(wrap(<Harness />));
+    const typeStrip = screen
+      .getByTestId('promoted-type')
+      .querySelector('[data-testid="segmented-field"]') as HTMLElement;
+    const sonarrBtn = typeStrip.querySelector('[data-value="sonarr"]') as HTMLElement;
+    expect(sonarrBtn.getAttribute('data-state')).toBe('on');
+  });
+
+  it('switches type to radarr via SegmentedField click', async () => {
+    const user = userEvent.setup();
+    render(wrap(<Harness />));
+    const radarr = screen.getByRole('radio', { name: /radarr/i });
+    await user.click(radarr);
+    expect(radarr.getAttribute('data-state')).toBe('on');
+  });
+
+  it('edit mode renders a read-only type badge (no type selector)', () => {
+    render(
+      wrap(
+        <Harness
+          mode="edit"
+          defaultValues={{ ...(FORM_DEFAULTS as Record<string, unknown>), type: 'radarr' }}
+        />,
+      ),
+    );
+    // Read-only badge shown; the type SegmentedField is absent → only Mode +
+    // Dry-run strips remain.
+    expect(screen.getByTestId('promoted-type-readonly')).toBeInTheDocument();
+    expect(screen.getByTestId('promoted-type-readonly')).toHaveTextContent(
+      i18n.t('settings.instances.form.type.radarr'),
+    );
     expect(screen.getAllByTestId('segmented-field')).toHaveLength(2);
   });
 
@@ -31,10 +71,11 @@ describe('<PromotedControls />', () => {
 
   it('default dry-run choice is "auto" (per FORM_DEFAULTS)', () => {
     render(wrap(<Harness />));
-    // The "auto" button under the dry-run strip is the second strip's first option.
-    const strips = screen.getAllByTestId('segmented-field');
-    const dryStrip = strips[1]!;
-    const autoBtn = dryStrip.querySelector('[data-value="auto"]') as HTMLElement;
+    const dryStrip = screen
+      .getByTestId('promoted-controls')
+      .querySelectorAll('[data-testid="segmented-field"]');
+    // Within promoted-controls: [0] = mode, [1] = dry-run.
+    const autoBtn = dryStrip[1]!.querySelector('[data-value="auto"]') as HTMLElement;
     expect(autoBtn.getAttribute('data-state')).toBe('on');
   });
 });

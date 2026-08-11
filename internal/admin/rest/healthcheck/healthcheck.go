@@ -32,7 +32,7 @@ const preflightConcurrency = 4
 // an atomic.Pointer swap. See story 028c.
 type Checker struct {
 	db        *gorm.DB
-	instances atomic.Pointer[[]ports.SonarrClient]
+	instances atomic.Pointer[[]ports.ArrHealthProbe]
 	registry  *instance.Registry
 	// preflightRunning is a single-flight gate: concurrent Preflight()
 	// calls coalesce to one in-flight run. Burst CRUD (e.g. several
@@ -42,17 +42,22 @@ type Checker struct {
 	preflightRunning atomic.Bool
 }
 
+// New seeds the checker with the boot sonarr client set. The boot seed is
+// sonarr-only (radarr instances land via the reload fanout's ReplaceClients,
+// same as the radarr holder — see wiring.BuildOnAppliedFanout); the stored
+// slice is the widened ArrHealthProbe seam so both arr kinds share one loop.
 func New(db *gorm.DB, instances []ports.SonarrClient) *Checker {
 	names := make([]string, 0, len(instances))
+	probes := make([]ports.ArrHealthProbe, 0, len(instances))
 	for _, inst := range instances {
 		names = append(names, inst.Name())
+		probes = append(probes, inst)
 	}
 	reg := instance.NewRegistry(names).WithListener(metricsListener{})
 	c := &Checker{db: db, registry: reg}
 	// atomic.Pointer must never load nil — seed with the boot slice
 	// (or an empty slice if instances is nil).
-	cp := append([]ports.SonarrClient(nil), instances...)
-	c.instances.Store(&cp)
+	c.instances.Store(&probes)
 	return c
 }
 
@@ -90,7 +95,7 @@ func (c *Checker) Preflight(ctx context.Context) {
 	_ = g.Wait()
 }
 
-func (c *Checker) checkOne(ctx context.Context, client ports.SonarrClient) {
+func (c *Checker) checkOne(ctx context.Context, client ports.ArrHealthProbe) {
 	name := client.Name()
 	callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	_, err := client.SystemStatus(callCtx)
@@ -203,8 +208,8 @@ func healthCode(h instance.Health) int {
 // is the source of truth for polling. In production the subscriber
 // derives both from the same source so they always agree, but the
 // two-arg signature makes the contract explicit.
-func (c *Checker) ReplaceClients(clients []ports.SonarrClient, names []string) {
-	cp := append([]ports.SonarrClient(nil), clients...)
+func (c *Checker) ReplaceClients(clients []ports.ArrHealthProbe, names []string) {
+	cp := append([]ports.ArrHealthProbe(nil), clients...)
 	c.instances.Store(&cp)
 	c.registry.SetNames(names)
 }

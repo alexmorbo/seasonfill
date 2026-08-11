@@ -169,6 +169,14 @@ func (u *RadarrSyncUseCase) SwapInstances(next []RadarrInstance) {
 	u.instances.Store(&cp)
 }
 
+// HasInstances reports whether any radarr instance is currently registered.
+// Ф6-R-6b: the boot kick polls this after the async reload publish so it only
+// fires RunAll once the fanout has populated the radarr partition — avoiding a
+// wasted no-op sync at boot and the 6h wait for the first cron tick.
+func (u *RadarrSyncUseCase) HasInstances() bool {
+	return len(u.loadInstances()) > 0
+}
+
 // RunAll syncs every radarr instance. Best-effort per instance — a ListMovies
 // failure warn-logs and continues to the next. Returns nil (errors are logged,
 // never abort the caller). DORMANT until R-6 schedules it.

@@ -14,6 +14,9 @@ import (
 // the OnApplied closure so a CRUD-added instance does not wait for the
 // next periodic tick before its LastCheckAt is populated.
 type HealthChecker interface {
-	ReplaceClients(clients []ports.SonarrClient, names []string)
+	// ReplaceClients takes the widened ArrHealthProbe seam (Ф6-R-6b) so the
+	// fanout can feed BOTH sonarr and radarr clients into one health loop. A
+	// *sonarr.Client satisfies ArrHealthProbe unchanged.
+	ReplaceClients(clients []ports.ArrHealthProbe, names []string)
 	Preflight(ctx context.Context)
 }

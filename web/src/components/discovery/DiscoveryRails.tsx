@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useDiscoveryRows } from '@/api/discoveryRows';
 import { DiscoveryRail } from './DiscoveryRail';
+import { MovieDiscoveryRail } from '@/components/movies/MovieDiscoveryRail';
 import { DiscoveryRowsEditor } from './DiscoveryRowsEditor';
 
 // DiscoveryRails — fetches the effective row-config (GET /discovery/rows) and
@@ -66,9 +67,12 @@ export function DiscoveryRails() {
         </Button>
       </div>
       <div className="space-y-8">
-        {rows.map((row) => (
-          <DiscoveryRail key={row.id ?? `${row.row_type}-${row.position}`} row={row} />
-        ))}
+        {rows.map((row) => {
+          const key = row.id ?? `${row.row_type}-${row.position}`;
+          return row.media_type === 'movie'
+            ? <MovieDiscoveryRail key={key} row={row} />
+            : <DiscoveryRail key={key} row={row} />;
+        })}
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import { AppShell } from "./shell/AppShell"
 import { AddToSonarrProvider } from "./discovery/AddToSonarrProvider"
+import { AddToRadarrProvider } from "./movies/AddToRadarrProvider"
 import { PageTitleProvider } from "./shell/page-title-context"
 import { NetBanner } from "./NetBanner"
 import { NewScanModal } from "./NewScanModal"
@@ -61,12 +62,14 @@ export function ProtectedLayout() {
     <InstanceFilterProvider>
       <PageTitleProvider defaultTitle={t("nav.dashboard")}>
         <AddToSonarrProvider>
-          <AutoGenPasswordBanner />
-          <AppShell>
-            <Outlet />
-          </AppShell>
-          <NetBanner />
-          <NewScanModal open={scanModalOpen} onOpenChange={setScanModalOpen} />
+          <AddToRadarrProvider>
+            <AutoGenPasswordBanner />
+            <AppShell>
+              <Outlet />
+            </AppShell>
+            <NetBanner />
+            <NewScanModal open={scanModalOpen} onOpenChange={setScanModalOpen} />
+          </AddToRadarrProvider>
         </AddToSonarrProvider>
       </PageTitleProvider>
     </InstanceFilterProvider>

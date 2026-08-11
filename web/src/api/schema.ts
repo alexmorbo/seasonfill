@@ -3967,6 +3967,87 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/movies": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List movie library
+         * @description Global movie library backed by movie_states (radarr membership)
+         *     joined to the movies canon. One item per movie (deduplicated by
+         *     tmdb id; instance memberships aggregated). Filter by state
+         *     (all|downloaded|missing), sort (updated_desc|title_asc|
+         *     release_desc), title search (q), and offset/limit pagination.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description all|downloaded|missing */
+                    readonly state?: PathsMoviesGetParametersQueryState;
+                    /** @description updated_desc|title_asc|release_desc */
+                    readonly sort?: PathsMoviesGetParametersQuerySort;
+                    /** @description case-insensitive title substring */
+                    readonly q?: string;
+                    /** @description page size (1-100, default 24) */
+                    readonly limit?: number;
+                    /** @description opaque offset cursor from a prior next_cursor */
+                    readonly cursor?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieLibraryList"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/movies/{tmdb_id}": {
         readonly parameters: {
             readonly query?: never;
@@ -6812,6 +6893,15 @@ export type components = {
             /** @example https://sonarr.example.com */
             readonly public_url?: string;
             readonly transitions_count?: number;
+            /**
+             * @description Type discriminates the arr kind ("sonarr" | "radarr"). Ф6-R-6b: radarr
+             *     instances now appear in this list alongside sonarr. Empty/absent is
+             *     treated as "sonarr" by the FE (`type ?? 'sonarr'`) so pre-existing
+             *     clients keep working; the handler always populates it explicitly.
+             * @example sonarr
+             * @enum {string}
+             */
+            readonly type?: DtoInstanceType;
             /** @example http://sonarr:8989 */
             readonly url?: string;
         };
@@ -7387,6 +7477,41 @@ export type components = {
             readonly tmdb_id?: number;
             readonly tmdb_rating?: number;
             readonly year?: number;
+        };
+        readonly "dto.MovieLibraryItem": {
+            readonly has_file?: boolean;
+            /** @example 8 */
+            readonly imdb_rating?: number;
+            /** @description Instances lists every radarr instance holding the movie (sorted). */
+            readonly instances?: readonly string[];
+            /** @description Monitored / HasFile are OR-aggregated across every holding instance. */
+            readonly monitored?: boolean;
+            readonly poster?: string;
+            readonly release_date?: string;
+            /**
+             * @description SizeOnDisk is the largest copy across instances (bytes).
+             * @example 5000000000
+             */
+            readonly size_on_disk_bytes?: number;
+            /** @example released */
+            readonly status?: string;
+            /** @example Dune */
+            readonly title?: string;
+            /** @example 438631 */
+            readonly tmdb_id?: number;
+            /** @example 8.1 */
+            readonly tmdb_rating?: number;
+            readonly updated_at?: string;
+            /** @example 2021 */
+            readonly year?: number;
+        };
+        readonly "dto.MovieLibraryList": {
+            /** @example true */
+            readonly has_more?: boolean;
+            readonly items?: readonly components["schemas"]["dto.MovieLibraryItem"][];
+            readonly next_cursor?: string;
+            /** @example 42 */
+            readonly total?: number;
         };
         /**
          * @description NextEpisodeToAir is the earliest future-dated episode (monitored
@@ -8853,6 +8978,16 @@ export enum PathsGrabsGetParametersQueryStatus {
     grab_failed = "grab_failed",
     expired = "expired"
 }
+export enum PathsMoviesGetParametersQueryState {
+    all = "all",
+    downloaded = "downloaded",
+    missing = "missing"
+}
+export enum PathsMoviesGetParametersQuerySort {
+    updated_desc = "updated_desc",
+    title_asc = "title_asc",
+    release_desc = "release_desc"
+}
 export enum PathsScansGetParametersQueryStatus {
     running = "running",
     completed = "completed",
@@ -8920,6 +9055,10 @@ export enum DtoInstanceHealth {
 export enum DtoInstanceMode {
     auto = "auto",
     manual = "manual"
+}
+export enum DtoInstanceType {
+    sonarr = "sonarr",
+    radarr = "radarr"
 }
 export enum DtoInstanceCooldownMode {
     smart = "smart",

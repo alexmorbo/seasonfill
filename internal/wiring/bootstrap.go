@@ -615,18 +615,25 @@ func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, radarrS
 		}
 		scanUC.SwapInstances(nextSlice)
 
-		// Ф6-R-4b: feed the DORMANT radarr-sync usecase from the radarr
-		// partition. Empty today (no radarr rows) → SwapInstances([]) →
-		// nothing runs. R-6 activates it via a cron on RunAll.
+		// Ф6-R-4b/R-6: feed the radarr-sync usecase + radarr holder from the
+		// radarr partition, and collect radarr health probes so radarr
+		// instances are polled by the SAME checker loop as sonarr (Gap 2b).
+		// Empty today on a pure-sonarr snapshot → nothing radarr-side runs.
+		var radarrProbes []ports.ArrHealthProbe
+		var radarrNames []string
 		if radarrSyncUC != nil || radarrHolder != nil {
 			_, radarrSnaps := scan.PartitionInstancesByType(snap.Instances)
 			radarrInsts := make([]scan.RadarrInstance, 0, len(radarrSnaps))
 			radarrMap := make(map[string]scan.RadarrInstance, len(radarrSnaps))
+			radarrProbes = make([]ports.ArrHealthProbe, 0, len(radarrSnaps))
+			radarrNames = make([]string, 0, len(radarrSnaps))
 			for _, rs := range radarrSnaps {
 				rc := radarr.NewWithLimiter(shareddomain.InstanceName(rs.Name), rs.URL, rs.APIKey, rs.Timeout, nil, log)
 				ri := scan.RadarrInstance{Config: rs, Client: rc}
 				radarrInsts = append(radarrInsts, ri)
 				radarrMap[rs.Name] = ri
+				radarrProbes = append(radarrProbes, rc) // *radarr.Client satisfies ArrHealthProbe
+				radarrNames = append(radarrNames, rs.Name)
 			}
 			if radarrSyncUC != nil {
 				radarrSyncUC.SwapInstances(radarrInsts)
@@ -637,7 +644,19 @@ func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, radarrS
 		}
 
 		holder.Replace(nextMap)
-		checker.ReplaceClients(clientSlice, names)
+		// Merge sonarr + radarr probes into the single health loop. Sonarr
+		// entries are byte-identical (same clients, same order, first);
+		// radarr entries are appended so radarr rows appear in Snapshot()
+		// with a real health state instead of NULL.
+		probes := make([]ports.ArrHealthProbe, 0, len(clientSlice)+len(radarrProbes))
+		for _, c := range clientSlice {
+			probes = append(probes, c)
+		}
+		probes = append(probes, radarrProbes...)
+		allNames := make([]string, 0, len(names)+len(radarrNames))
+		allNames = append(allNames, names...)
+		allNames = append(allNames, radarrNames...)
+		checker.ReplaceClients(probes, allNames)
 		wd.SwapConfigs(cfgByName)
 		if sweeper != nil {
 			sweeper.SetInterval(snap.Scan.CooldownSweep)
@@ -691,6 +710,27 @@ type SubscriberDeps struct {
 	// mediaproxy REST layer. nil-OK (minimal wirings): the subscriber's
 	// apply then no-ops.
 	MediaDirectApply func(bool)
+}
+
+// registerRadarrSync schedules the radarr-sync usecase's RunAll on the given
+// cronspec (Ф6-R-6b Gap 1 — the KEY functional fix: R-4b shipped the usecase
+// DORMANT, nothing ever called RunAll, so a radarr library never synced into
+// movie_states/movies). No-op when cron is disabled (sched == nil) or the
+// radarr-sync usecase is absent — same nil-gate as the other cron jobs. The
+// scheduler job type is func(context.Context); RunAll is per-instance /
+// per-movie failure-isolated and returns nil on the normal path, so the
+// (ctx-cancellation-only) error is warn-logged and swallowed like the other
+// registered jobs. Extracted from StartSubscribers so it is unit-testable.
+func registerRadarrSync(sched *scheduler.Scheduler, radarrSync *RadarrSyncBundle, schedule string, log *slog.Logger) error {
+	if sched == nil || radarrSync == nil || radarrSync.SyncUC == nil {
+		return nil
+	}
+	uc := radarrSync.SyncUC
+	return sched.Register("radarr-sync", schedule, func(ctx context.Context) {
+		if err := uc.RunAll(ctx); err != nil {
+			log.WarnContext(ctx, "radarr_sync_run_failed", slog.String("error", err.Error()))
+		}
+	})
 }
 
 // StartSubscribers launches every reload subscriber under bgWG and
@@ -753,6 +793,15 @@ func StartSubscribers(
 	// registered; deps.MediaDirectApply is nil-OK so a minimal wiring
 	// simply no-ops on publish.
 	subMedia := reload.NewMediaDirectSubscriber(deps.MediaDirectApply, log)
+
+	// Ф6-R-6b (Gap 1): schedule the radarr-sync usecase. R-4b shipped it
+	// DORMANT (the fanout feeds SwapInstances but nothing ever called
+	// RunAll), so a radarr library never synced into movie_states/movies.
+	// Registered here, BEFORE server.go calls BootScheduler.Start — the
+	// Register-before-Start contract holds.
+	if err := registerRadarrSync(scheduler.BootScheduler, scan.RadarrSync, deps.Snap.Cron.Schedule, log); err != nil {
+		return nil, nil, fmt.Errorf("register radarr-sync: %w", err)
+	}
 
 	runners := []func(context.Context, *runtime.Bus, func()){
 		subSched.Run, subClients.Run, subRate.Run, subAuth.Run, subMedia.Run,
@@ -886,7 +935,7 @@ func BuildHTTPServer(
 	// sonarr-lookup endpoint can override Sonarr's stub episode_count
 	// (=0 for not-yet-added series) with our catalog / TMDB data. The
 	// helper resolver is nil-safe; passing nil falls back to Sonarr-only.
-	instanceMetadataBundle := BuildInstanceMetadata(sonarrBundle, persistence, tmdbSeasonsClient, log)
+	instanceMetadataBundle := BuildInstanceMetadata(sonarrBundle, persistence, scanBundle.RadarrSync.RadarrHolder, tmdbSeasonsClient, log)
 	// Story 521 (N-4d) — late-bind the metadata-cache invalidator into the
 	// instance CRUD handler. We resolve the chicken-and-egg ordering
 	// (catalog.BuildInstance must run before admin.BuildInstanceMetadata
@@ -1042,9 +1091,11 @@ func BuildHTTPServer(
 		seriesDetailBundle.ETagFreshness,
 		seriesTitleLocalizer,
 		seriesMediaLocalizer,
-		followBundle.Handler,      // ADR-0015 Ф3 C1
-		icsEpochRepo,              // ADR-0015 Ф3 S3
-		notificationAgentsHandler, // ADR-0016 Ф4 N1
+		followBundle.Handler,               // ADR-0015 Ф3 C1
+		icsEpochRepo,                       // ADR-0015 Ф3 S3
+		notificationAgentsHandler,          // ADR-0016 Ф4 N1
+		scanBundle.RadarrSync.RadarrHolder, // Ф6-R-6b Gap 2a
+		movieDetailBundle.LibraryHandler,   // Ф6-R-6b movie library list
 		log,
 	)
 	return srv, instanceMetadataBundle

@@ -1,18 +1,60 @@
 import { Controller, type Control } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { SegmentedField } from './SegmentedField';
 import type { DryRunChoice } from '@/components/settings/instance-form-helpers';
 
 export interface PromotedControlsProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly control: Control<any, any, any>;
+  readonly mode: 'create' | 'edit';
 }
 
-export function PromotedControls({ control }: PromotedControlsProps) {
+export function PromotedControls({ control, mode }: PromotedControlsProps) {
   const { t } = useTranslation();
+  const isEdit = mode === 'edit';
   return (
-    <div className="grid grid-cols-2 gap-4" data-testid="promoted-controls">
+    <div className="flex flex-col gap-4">
+      {/* Ф6-R-6b: arr kind. Chosen at creation, immutable afterwards. */}
+      <div className="flex flex-col gap-1.5" data-testid="promoted-type">
+        <Label htmlFor="promoted-type" className="text-[12.5px]">
+          {t('settings.instances.form.typeLabel')}
+        </Label>
+        <Controller
+          control={control}
+          name="type"
+          render={({ field }) => {
+            const current = (field.value as string) === 'radarr' ? 'radarr' : 'sonarr';
+            if (isEdit) {
+              return (
+                <div className="flex flex-col gap-1" data-testid="promoted-type-readonly">
+                  <Badge variant="solid" mono className="w-fit">
+                    {t(`settings.instances.form.type.${current}`)}
+                  </Badge>
+                  <span className="text-[11px] text-tx-faint">
+                    {t('settings.instances.form.typeImmutableHint')}
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <SegmentedField
+                id="promoted-type"
+                value={current}
+                onChange={(v) => field.onChange(v)}
+                ariaLabel={t('settings.instances.form.typeLabel')}
+                options={[
+                  { value: 'sonarr', label: t('settings.instances.form.type.sonarr') },
+                  { value: 'radarr', label: t('settings.instances.form.type.radarr') },
+                ]}
+              />
+            );
+          }}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4" data-testid="promoted-controls">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="promoted-mode" className="text-[12.5px]">
           {t('settings.instances.form.modeLabel')}
@@ -55,6 +97,7 @@ export function PromotedControls({ control }: PromotedControlsProps) {
             />
           )}
         />
+      </div>
       </div>
     </div>
   );

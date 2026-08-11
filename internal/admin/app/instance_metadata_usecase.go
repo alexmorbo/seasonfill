@@ -19,6 +19,23 @@ type InstanceLookup interface {
 	Lookup(name string) (client ports.SonarrClient, ok bool)
 }
 
+// QPRFClient is the narrowest client surface the quality-profiles /
+// root-folders endpoints need. Both ports.SonarrClient and ports.RadarrClient
+// are supersets (the endpoints are byte-identical across arrs via arrcore), so
+// the metadata UC can serve QP/RF for either arr kind without depending on the
+// full SonarrClient. Ф6-R-6b Gap 2c.
+type QPRFClient interface {
+	ListQualityProfiles(ctx context.Context) ([]ports.QualityProfile, error)
+	ListRootFolders(ctx context.Context) ([]ports.RootFolder, error)
+}
+
+// RadarrQPRFLookup resolves a radarr instance name to its QP/RF client. Wired
+// over the reload-aware radarr holder; nil when radarr is unwired (minimal/
+// test wirings) → QP/RF stay sonarr-only. Ф6-R-6b Gap 2c.
+type RadarrQPRFLookup interface {
+	Lookup(name string) (client QPRFClient, ok bool)
+}
+
 // CacheStatus values for metadata responses.
 const (
 	CacheStatusHit  = "hit"
@@ -63,6 +80,7 @@ type SeasonsResolver interface {
 // InstanceMetadataUseCase drives the three N-4b endpoints.
 type InstanceMetadataUseCase struct {
 	lookup  InstanceLookup
+	radarr  RadarrQPRFLookup // optional — Ф6-R-6b QP/RF radarr fallback
 	cache   *admininfra.MetadataCache
 	clock   func() time.Time
 	seasons SeasonsResolver // optional — nil falls back to Sonarr seasons
@@ -90,12 +108,36 @@ func (uc *InstanceMetadataUseCase) WithSeasonsResolver(r SeasonsResolver) *Insta
 	return uc
 }
 
+// WithRadarrLookup installs the optional radarr QP/RF fallback. Sonarr
+// resolution stays FIRST and byte-identical; radarr is consulted only when the
+// sonarr registry misses the name. Returns the receiver so wiring can chain.
+// Ф6-R-6b Gap 2c.
+func (uc *InstanceMetadataUseCase) WithRadarrLookup(r RadarrQPRFLookup) *InstanceMetadataUseCase {
+	uc.radarr = r
+	return uc
+}
+
+// resolveQPRF resolves an instance name to its QP/RF client. Sonarr is tried
+// FIRST (unchanged behavior); a radarr instance resolves only on a sonarr
+// miss when the radarr fallback is wired. Ф6-R-6b Gap 2c.
+func (uc *InstanceMetadataUseCase) resolveQPRF(instanceName string) (QPRFClient, bool) {
+	if c, ok := uc.lookup.Lookup(instanceName); ok {
+		return c, true // ports.SonarrClient satisfies QPRFClient
+	}
+	if uc.radarr != nil {
+		if c, ok := uc.radarr.Lookup(instanceName); ok {
+			return c, true
+		}
+	}
+	return nil, false
+}
+
 // GetQualityProfiles returns the cached list on hit, else fetches from
 // Sonarr and caches the result. Sonarr error + miss → SonarrUnreachable.
 // Sonarr error + hit never reaches Sonarr — the cache serves the entry
 // for the rest of the TTL window (graceful degradation).
 func (uc *InstanceMetadataUseCase) GetQualityProfiles(ctx context.Context, instanceName string) (QualityProfilesResult, error) {
-	client, ok := uc.lookup.Lookup(instanceName)
+	client, ok := uc.resolveQPRF(instanceName)
 	if !ok {
 		return QualityProfilesResult{}, instanceNotFound(instanceName)
 	}
@@ -118,7 +160,7 @@ func (uc *InstanceMetadataUseCase) GetQualityProfiles(ctx context.Context, insta
 
 // GetRootFolders mirrors GetQualityProfiles for /api/v3/rootfolder.
 func (uc *InstanceMetadataUseCase) GetRootFolders(ctx context.Context, instanceName string) (RootFoldersResult, error) {
-	client, ok := uc.lookup.Lookup(instanceName)
+	client, ok := uc.resolveQPRF(instanceName)
 	if !ok {
 		return RootFoldersResult{}, instanceNotFound(instanceName)
 	}
@@ -213,9 +255,11 @@ func sonarrTVDBTerm(tvdbID int) string {
 	return "tvdb:" + strconv.Itoa(tvdbID)
 }
 
-// RefreshMetadata evicts both caches for the named instance.
+// RefreshMetadata evicts both caches for the named instance. Resolves via the
+// QP/RF seam so radarr instances (Ф6-R-6b) can refresh their cached metadata
+// too; sonarr resolution is unchanged (tried first).
 func (uc *InstanceMetadataUseCase) RefreshMetadata(_ context.Context, instanceName string) error {
-	if _, ok := uc.lookup.Lookup(instanceName); !ok {
+	if _, ok := uc.resolveQPRF(instanceName); !ok {
 		return instanceNotFound(instanceName)
 	}
 	uc.cache.InvalidateInstance(instanceName)

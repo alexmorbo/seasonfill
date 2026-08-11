@@ -104,6 +104,8 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // followHandler (ADR-0015 Ф3 C1)
 		nil,                            // icsEpochRepo (ADR-0015 Ф3 S3)
 		nil,                            // notificationAgentsHandler (ADR-0016 Ф4 N1)
+		nil,                            // radarrConfigLookup (Ф6-R-6b Gap 2a)
+		nil,                            // movieLibraryHandler (Ф6-R-6b)
 		logger,
 	)
 }

@@ -24,6 +24,7 @@ import {
 import {
   DtoInstanceCooldownMode,
   DtoInstanceCreateRequestMode,
+  DtoInstanceCreateRequestType,
   DtoInstanceTagsMode,
 } from '@/api/schema';
 import {
@@ -117,8 +118,11 @@ function tValidationError(msg: string | undefined, t: TFunction): string {
   return t(msg, { defaultValue: msg });
 }
 
+const typeRule = z.enum(['sonarr', 'radarr']);
+
 const baseShape = {
   name: nameRule,
+  type: typeRule,
   url: urlRule,
   public_url: urlOrEmptyRule,
   webhook_install_enabled: z.boolean(),
@@ -216,6 +220,7 @@ function formFromDetail(d: InstanceDetail): Omit<FormValues, keyof typeof WATCHD
   return {
     ...FORM_DEFAULTS,
     name: d.name ?? '',
+    type: coerceEnum(d.type, ['sonarr', 'radarr'] as const, 'sonarr'),
     url: d.url ?? FORM_DEFAULTS.url,
     public_url: d.public_url ?? '',
     webhook_install_enabled: d.webhook_install_enabled ?? true,
@@ -256,6 +261,7 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
   const dr = dryRunToWire(v.dry_run as DryRunChoice);
   const base: Omit<InstanceCreateRequest, 'api_key'> = {
     name: v.name,
+    type: v.type as DtoInstanceCreateRequestType,
     url: v.url,
     mode: v.mode as DtoInstanceCreateRequestMode,
     timeout_sec: v.timeout_sec,
@@ -624,7 +630,7 @@ export function InstanceFormDialog({
           noValidate
         >
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          <PromotedControls control={control as unknown as any} />
+          <PromotedControls control={control as unknown as any} mode={mode} />
 
           <Accordion
             type="multiple"

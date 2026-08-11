@@ -343,6 +343,8 @@ func buildServer(t *testing.T) *Server {
 		nil, // followHandler (ADR-0015 Ф3 C1)
 		nil, // icsEpochRepo (ADR-0015 Ф3 S3)
 		nil, // notificationAgentsHandler (ADR-0016 Ф4 N1) — nil-OK, routes omitted
+		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
+		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		lg)
 }
 
@@ -426,6 +428,8 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // followHandler (ADR-0015 Ф3 C1)
 		nil, // icsEpochRepo (ADR-0015 Ф3 S3)
 		nil, // notificationAgentsHandler (ADR-0016 Ф4 N1) — nil-OK, routes omitted
+		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
+		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		lg)
 }
 
@@ -516,6 +520,8 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // followHandler (ADR-0015 Ф3 C1)
 		nil, // icsEpochRepo (ADR-0015 Ф3 S3)
 		nil, // notificationAgentsHandler (ADR-0016 Ф4 N1) — nil-OK, routes omitted
+		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
+		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		lg)
 }
 
@@ -753,6 +759,8 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // followHandler (ADR-0015 Ф3 C1)
 		nil, // icsEpochRepo (ADR-0015 Ф3 S3)
 		nil, // notificationAgentsHandler (ADR-0016 Ф4 N1) — nil-OK, routes omitted
+		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
+		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

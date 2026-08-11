@@ -90,7 +90,12 @@ type ScanTriggerItem struct {
 // high-traffic and the field is empty for most rows. SPA prefers
 // PublicURL over URL when rendering "open in Sonarr".
 type Instance struct {
-	Name             string     `json:"name"   example:"alpha"`
+	Name string `json:"name"   example:"alpha"`
+	// Type discriminates the arr kind ("sonarr" | "radarr"). Ф6-R-6b: radarr
+	// instances now appear in this list alongside sonarr. Empty/absent is
+	// treated as "sonarr" by the FE (`type ?? 'sonarr'`) so pre-existing
+	// clients keep working; the handler always populates it explicitly.
+	Type             string     `json:"type,omitempty" example:"sonarr" enums:"sonarr,radarr"`
 	URL              string     `json:"url"    example:"http://sonarr:8989"`
 	PublicURL        string     `json:"public_url,omitempty" example:"https://sonarr.example.com"`
 	Mode             string     `json:"mode"   example:"auto" enums:"auto,manual"`

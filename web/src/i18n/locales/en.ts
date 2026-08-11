@@ -164,7 +164,15 @@ export const en = {
     emptyWeek: 'Nothing airs this week.',
     loadFailed: 'Failed to load the calendar',
     filters: { onlyLibrary: 'Library only', onlyPremieres: 'Premieres only' },
-    milestone: { premiere: 'Season premiere', finale: 'Season finale', return: 'Returns' },
+    mediaType: { tv: 'TV', movie: 'Movies', all: 'All' },
+    milestone: {
+      premiere: 'Season premiere',
+      finale: 'Season finale',
+      return: 'Returns',
+      theatrical: 'Theatrical',
+      digital: 'Digital',
+      physical: 'Physical',
+    },
     state: {
       downloaded: 'Downloaded',
       missing: 'Missing',
@@ -378,6 +386,7 @@ export const en = {
     navigation: 'Navigation',
     dashboard: 'Dashboard',
     series: 'Series',
+    movies: 'Movies',
     discovery: 'Discover',
     calendar: 'Calendar',
     instances: 'Instances',
@@ -591,6 +600,7 @@ export const en = {
   instances: {
     title: 'Sonarr instances',
     subtitle: 'Sonarr instances connected to Seasonfill.',
+    type: { sonarr: 'Sonarr', radarr: 'Radarr' },
     loadFailed: 'Failed to load instances',
     openQueueAria: 'Open queue for {{name}}',
     columns: {
@@ -643,6 +653,7 @@ export const en = {
         forceScan: 'Force scan',
         forceScanRunning: 'Scanning…',
         openSonarr: 'Sonarr',
+        openRadarr: 'Radarr',
       },
       forceScan: {
         toastStarted: 'Scan started for {{instance}}',
@@ -1595,6 +1606,9 @@ export const en = {
         apiKeyEncryptedTooltip: 'Stored AES-256-GCM with a key derived per-row via HKDF.',
         apiKeyKeepHint: 'Leave the field empty to keep the current key. The stored key is never sent to the browser.',
         testConnection: 'Test connection',
+        typeLabel: 'Type',
+        type: { sonarr: 'Sonarr (TV)', radarr: 'Radarr (movies)' },
+        typeImmutableHint: "Type can't be changed after creation.",
         modeLabel: 'Mode',
         modes: { auto: 'Auto (scan everything)', manual: 'Manual (per-series only)' },
         timeoutLabel: 'Timeout', timeoutSuffix: 'seconds', searchTimeoutLabel: 'Search timeout',
@@ -2747,6 +2761,92 @@ export const en = {
     message: 'The page you were looking for does not exist or was moved.',
     path: 'Requested path',
     backHome: 'Back to dashboard',
+  },
+  movies: {
+    title: 'Movies',
+    subtitle: 'Your movie library',
+    empty: {
+      title: 'No movies yet',
+      body: 'Movies added to a Radarr instance appear here.',
+    },
+    filters: {
+      state: {
+        all: 'All',
+        downloaded: 'Downloaded',
+        missing: 'Missing',
+      },
+      sort: {
+        updated: 'Recently updated',
+        title: 'Title A–Z',
+        release: 'Release date',
+      },
+      search: {
+        placeholder: 'Search movies…',
+      },
+    },
+    loadMore: 'Load more',
+    add: {
+      button: 'Add to Radarr',
+      modalTitle: 'Add “{{title}}” to Radarr',
+      instance: 'Instance',
+      noRadarr: 'No Radarr instance configured.',
+      qualityProfile: 'Quality profile',
+      rootFolder: 'Root folder',
+      minAvailability: 'Minimum availability',
+      minAvail: {
+        announced: 'Announced',
+        inCinemas: 'In cinemas',
+        released: 'Released',
+      },
+      searchOnAdd: 'Search on add',
+      submit: 'Add',
+      submitting: 'Adding…',
+      cancel: 'Cancel',
+      success: 'Added as {{tag}}',
+      errors: {
+        unknown: 'Could not add movie',
+        instance_not_found: 'Instance not found',
+        radarr_unreachable: 'Radarr unreachable',
+      },
+    },
+  },
+  movieCard: {
+    open: 'Open {{title}}',
+  },
+  movieCollection: {
+    title: 'Collection',
+    monitorToggle: 'Monitor collection in Radarr',
+    monitorNoInstance: 'Add a movie from this collection first.',
+    part: {
+      inLibrary: 'In library',
+      missing: 'Missing',
+    },
+    addAll: 'Add all missing',
+    addAllResult: 'Added {{added}}, {{already}} already present, {{failed}} failed',
+  },
+  movieDetail: {
+    errors: {
+      invalidParams: 'Invalid movie',
+      loadFailedTitle: 'Failed to load movie',
+    },
+    overview: {
+      label: 'Overview',
+      empty: 'No overview available.',
+    },
+    ratings: {
+      tmdb: 'TMDB',
+      imdb: 'IMDb',
+    },
+    meta: {
+      runtime: '{{count}} min',
+      released: 'Released {{date}}',
+    },
+    library: {
+      title: 'In your library',
+      monitored: 'Monitored',
+      hasFile: 'Downloaded',
+      empty: 'Not in any library.',
+    },
   },
 };
 

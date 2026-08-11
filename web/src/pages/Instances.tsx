@@ -50,15 +50,17 @@ export function Instances() {
   const detailName = editDetail?.name;
   const detailUrl = editDetail?.url;
   const detailMode = editDetail?.mode;
+  const detailType = editDetail?.type;
   const editInitial = useMemo(() => {
     if (!editDetail) return undefined;
     return {
       name: editDetail.name ?? '',
+      type: (editDetail.type as 'sonarr' | 'radarr' | undefined) ?? 'sonarr',
       url: editDetail.url ?? '',
       mode: (editDetail.mode as 'auto' | 'manual' | undefined) ?? 'auto',
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailName, detailUrl, detailMode]);
+  }, [detailName, detailUrl, detailMode, detailType]);
 
   const openCreate = () => { setEditing(null); setDialogOpen(true); };
   const openEdit = (name: string) => { setEditing(name); setDialogOpen(true); };

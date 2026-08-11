@@ -15,8 +15,8 @@ import (
 // fanoutFakeChecker is a no-op reload.HealthChecker for the fanout test.
 type fanoutFakeChecker struct{}
 
-func (fanoutFakeChecker) ReplaceClients([]ports.SonarrClient, []string) {}
-func (fanoutFakeChecker) Preflight(context.Context)                     {}
+func (fanoutFakeChecker) ReplaceClients([]ports.ArrHealthProbe, []string) {}
+func (fanoutFakeChecker) Preflight(context.Context)                       {}
 
 func newFanoutForTest(radarrSyncUC *scan.RadarrSyncUseCase, radarrHolder *adapters.RadarrInstanceMapHolder) func(runtime.Snapshot, map[string]ports.SonarrClient) {
 	scanUC := &scan.UseCase{}

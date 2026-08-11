@@ -18,6 +18,12 @@ import {
   type CalendarParams,
   type CalendarReport,
 } from '@/api/calendar';
+import {
+  useMovieCalendar,
+  type MovieCalendarEvent,
+  type MovieCalendarParams,
+  type MovieCalendarReport,
+} from '@/api/movieCalendar';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { MediaImage } from '@/components/MediaImage';
@@ -27,7 +33,59 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { SubscribeCard } from '@/components/calendar/SubscribeCard';
+import { MovieCalendarEventItem } from '@/components/calendar/MovieCalendarEventItem';
+import {
+  movieEventTestId,
+  movieMilestoneEmoji,
+} from '@/components/calendar/movie-milestone';
 import { cn } from '@/lib/utils';
+
+// ── media-type toggle ─────────────────────────────────────────────────────
+// TV events (series_id/season/episode) and movie events (tmdb_id + milestone)
+// have DIFFERENT shapes, so they are merged into a discriminated union at the
+// day level. The default toggle state is 'tv', which keeps the TV rendering
+// (and the existing Calendar.test assertions) byte-for-byte unchanged.
+
+type MediaType = 'tv' | 'movie' | 'all';
+
+type UnifiedEvent =
+  | { kind: 'tv'; tv: CalendarEvent }
+  | { kind: 'movie'; movie: MovieCalendarEvent };
+
+interface UnifiedDay {
+  date: string;
+  events: UnifiedEvent[];
+}
+
+// buildUnifiedDays merges the TV + movie reports into one date-keyed list.
+// TV events are included unless the toggle is Movies-only; movie events unless
+// TV-only. Days are sorted ascending by their YYYY-MM-DD key — identical to
+// the BE ordering the TV-only path relied on before.
+function buildUnifiedDays(
+  tv: CalendarReport | undefined,
+  movie: MovieCalendarReport | undefined,
+  media: MediaType,
+): UnifiedDay[] {
+  const map = new Map<string, UnifiedEvent[]>();
+  const push = (date: string, ev: UnifiedEvent) => {
+    const arr = map.get(date);
+    if (arr) arr.push(ev);
+    else map.set(date, [ev]);
+  };
+  if (media !== 'movie') {
+    for (const d of tv?.days ?? []) {
+      for (const e of d.events ?? []) push(d.date ?? '', { kind: 'tv', tv: e });
+    }
+  }
+  if (media !== 'tv') {
+    for (const d of movie?.days ?? []) {
+      for (const e of d.events ?? []) push(d.date ?? '', { kind: 'movie', movie: e });
+    }
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, events]) => ({ date, events }));
+}
 
 // ── date helpers (local time) ────────────────────────────────────────────
 
@@ -192,13 +250,25 @@ function formatDayHeader(date: string, lang: string): string {
   }
 }
 
+function unifiedKey(e: UnifiedEvent): string {
+  return e.kind === 'tv' ? eventTestId(e.tv) : movieEventTestId(e.movie);
+}
+
+function UnifiedEventRow({ event }: { event: UnifiedEvent }) {
+  return event.kind === 'tv' ? (
+    <CalendarEventItem event={event.tv} />
+  ) : (
+    <MovieCalendarEventItem event={event.movie} />
+  );
+}
+
 function DayGroup({
   date,
   events,
   lang,
 }: {
   date: string;
-  events: readonly CalendarEvent[];
+  events: readonly UnifiedEvent[];
   lang: string;
 }) {
   return (
@@ -208,7 +278,7 @@ function DayGroup({
       </div>
       <div className="flex flex-col gap-1.5">
         {events.map((e, i) => (
-          <CalendarEventItem key={`${eventTestId(e)}-${i}`} event={e} />
+          <UnifiedEventRow key={`${unifiedKey(e)}-${i}`} event={e} />
         ))}
       </div>
     </div>
@@ -217,13 +287,12 @@ function DayGroup({
 
 // ── agenda view ──────────────────────────────────────────────────────────
 
-function AgendaView({ report, lang }: { report: CalendarReport | undefined; lang: string }) {
+function AgendaView({ days, lang }: { days: readonly UnifiedDay[]; lang: string }) {
   const { t } = useTranslation();
-  const days = report?.days ?? [];
   const { from, to } = weekBounds();
 
-  const thisWeek = days.filter((d) => (d.date ?? '') >= from && (d.date ?? '') <= to);
-  const rest = days.filter((d) => !((d.date ?? '') >= from && (d.date ?? '') <= to));
+  const thisWeek = days.filter((d) => d.date >= from && d.date <= to);
+  const rest = days.filter((d) => !(d.date >= from && d.date <= to));
 
   if (days.length === 0) {
     return (
@@ -240,7 +309,7 @@ function AgendaView({ report, lang }: { report: CalendarReport | undefined; lang
         <section className="flex flex-col gap-3" data-testid="calendar-this-week">
           <h2 className="text-[13px] font-semibold text-tx-primary">{t('calendar.thisWeek')}</h2>
           {thisWeek.map((d) => (
-            <DayGroup key={d.date} date={d.date ?? ''} events={d.events ?? []} lang={lang} />
+            <DayGroup key={d.date} date={d.date} events={d.events} lang={lang} />
           ))}
         </section>
       ) : null}
@@ -248,7 +317,7 @@ function AgendaView({ report, lang }: { report: CalendarReport | undefined; lang
         <section className="flex flex-col gap-3" data-testid="calendar-upcoming">
           <h2 className="text-[13px] font-semibold text-tx-primary">{t('calendar.upcoming')}</h2>
           {rest.map((d) => (
-            <DayGroup key={d.date} date={d.date ?? ''} events={d.events ?? []} lang={lang} />
+            <DayGroup key={d.date} date={d.date} events={d.events} lang={lang} />
           ))}
         </section>
       ) : null}
@@ -261,19 +330,17 @@ function AgendaView({ report, lang }: { report: CalendarReport | undefined; lang
 const MONTH_CELL_CHIPS = 3;
 
 function MonthGrid({
-  report,
+  days,
   anchor,
 }: {
-  report: CalendarReport | undefined;
+  days: readonly UnifiedDay[];
   anchor: Date;
 }) {
   const byDate = useMemo(() => {
-    const m = new Map<string, readonly CalendarEvent[]>();
-    for (const d of report?.days ?? []) {
-      if (d.date) m.set(d.date, d.events ?? []);
-    }
+    const m = new Map<string, readonly UnifiedEvent[]>();
+    for (const d of days) m.set(d.date, d.events);
     return m;
-  }, [report]);
+  }, [days]);
 
   const year = anchor.getFullYear();
   const month = anchor.getMonth();
@@ -306,21 +373,34 @@ function MonthGrid({
               {Number(date.split('-')[2])}
             </span>
             <div className="flex flex-col gap-0.5">
-              {shown.map((e, j) => (
-                <Link
-                  key={`${eventTestId(e)}-${j}`}
-                  to={typeof e.series_id === 'number' ? `/series/${e.series_id}` : '#'}
-                  className="flex items-center gap-1 truncate text-[10.5px] text-tx-secondary hover:underline"
-                  title={e.title ?? ''}
-                  data-testid={eventTestId(e)}
-                >
-                  <span>{milestoneEmoji(e.milestone) || '·'}</span>
-                  <StatusDot state={e.state} />
-                  <span className="truncate">
-                    S{pad2(e.season)}E{pad2(e.episode)}
-                  </span>
-                </Link>
-              ))}
+              {shown.map((e, j) =>
+                e.kind === 'tv' ? (
+                  <Link
+                    key={`${eventTestId(e.tv)}-${j}`}
+                    to={typeof e.tv.series_id === 'number' ? `/series/${e.tv.series_id}` : '#'}
+                    className="flex items-center gap-1 truncate text-[10.5px] text-tx-secondary hover:underline"
+                    title={e.tv.title ?? ''}
+                    data-testid={eventTestId(e.tv)}
+                  >
+                    <span>{milestoneEmoji(e.tv.milestone) || '·'}</span>
+                    <StatusDot state={e.tv.state} />
+                    <span className="truncate">
+                      S{pad2(e.tv.season)}E{pad2(e.tv.episode)}
+                    </span>
+                  </Link>
+                ) : (
+                  <Link
+                    key={`${movieEventTestId(e.movie)}-${j}`}
+                    to={typeof e.movie.tmdb_id === 'number' ? `/movies/${e.movie.tmdb_id}` : '#'}
+                    className="flex items-center gap-1 truncate text-[10.5px] text-tx-secondary hover:underline"
+                    title={e.movie.title ?? ''}
+                    data-testid={movieEventTestId(e.movie)}
+                  >
+                    <span>{movieMilestoneEmoji(e.movie.milestone) || '·'}</span>
+                    <span className="truncate">{e.movie.title ?? '—'}</span>
+                  </Link>
+                ),
+              )}
               {overflow > 0 ? (
                 <span className="text-[10px] text-tx-faint">+{overflow}</span>
               ) : null}
@@ -340,19 +420,53 @@ export function Calendar() {
   const { filter } = useInstanceFilter();
 
   const [view, setView] = useState<'agenda' | 'month'>('agenda');
+  // Default 'tv' — keeps the TV rendering (and Calendar.test) unchanged and
+  // gates the /movies/calendar fetch off until the operator opts in.
+  const [media, setMedia] = useState<MediaType>('tv');
   const [onlyLibrary, setOnlyLibrary] = useState(false);
   const [onlyPremieres, setOnlyPremieres] = useState(false);
   const [monthAnchor, setMonthAnchor] = useState(() => new Date());
 
+  const monthWindow = view === 'month' ? monthBounds(monthAnchor) : null;
+
+  const tvEnabled = media !== 'movie';
+  const movieEnabled = media !== 'tv';
+
   const params: CalendarParams = { onlyLibrary, onlyPremieres, lang: i18n.language };
   if (filter) params.instance = filter;
-  if (view === 'month') {
-    const mb = monthBounds(monthAnchor);
-    params.from = mb.from;
-    params.to = mb.to;
+  if (monthWindow) {
+    params.from = monthWindow.from;
+    params.to = monthWindow.to;
   }
   const query = useCalendar(params);
-  const data = query.data;
+
+  const movieParams: MovieCalendarParams = { enabled: movieEnabled };
+  if (monthWindow) {
+    movieParams.from = monthWindow.from;
+    movieParams.to = monthWindow.to;
+  }
+  const movieQuery = useMovieCalendar(movieParams);
+
+  const unifiedDays = useMemo(
+    () => buildUnifiedDays(query.data, movieQuery.data, media),
+    [query.data, movieQuery.data, media],
+  );
+
+  // Combine loading/error/fetching across both queries, gated by which media
+  // is active. In TV mode (tvEnabled && !movieEnabled) these collapse to the
+  // TV query's own states — the pre-Wave-C behaviour, byte-for-byte.
+  const isError = (tvEnabled && query.isError) || (movieEnabled && movieQuery.isError);
+  const isPending = (tvEnabled && query.isPending) || (movieEnabled && movieQuery.isPending);
+  const isFetching =
+    (tvEnabled && query.isFetching) || (movieEnabled && movieQuery.isFetching);
+  const errorMessage =
+    (tvEnabled && query.isError ? query.error?.message : undefined) ??
+    (movieEnabled && movieQuery.isError ? movieQuery.error?.message : undefined) ??
+    '';
+  const refetchAll = () => {
+    if (tvEnabled) void query.refetch();
+    if (movieEnabled) void movieQuery.refetch();
+  };
 
   const monthLabel = useMemo(() => {
     try {
@@ -375,16 +489,46 @@ export function Calendar() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => query.refetch()}
-          disabled={query.isFetching}
+          onClick={refetchAll}
+          disabled={isFetching}
           data-testid="calendar-refresh"
         >
-          <RefreshCw className={cn(query.isFetching && 'animate-spin')} />
-          {query.isFetching ? t('calendar.refreshing') : t('calendar.refresh')}
+          <RefreshCw className={cn(isFetching && 'animate-spin')} />
+          {isFetching ? t('calendar.refreshing') : t('calendar.refresh')}
         </Button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1" data-testid="calendar-media-toggle">
+          <Button
+            variant={media === 'tv' ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={media === 'tv'}
+            onClick={() => setMedia('tv')}
+            data-testid="calendar-media-tv"
+          >
+            {t('calendar.mediaType.tv')}
+          </Button>
+          <Button
+            variant={media === 'movie' ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={media === 'movie'}
+            onClick={() => setMedia('movie')}
+            data-testid="calendar-media-movie"
+          >
+            {t('calendar.mediaType.movie')}
+          </Button>
+          <Button
+            variant={media === 'all' ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={media === 'all'}
+            onClick={() => setMedia('all')}
+            data-testid="calendar-media-all"
+          >
+            {t('calendar.mediaType.all')}
+          </Button>
+        </div>
+
         <div className="flex items-center gap-1" data-testid="calendar-view-toggle">
           <Button
             variant={view === 'agenda' ? 'secondary' : 'ghost'}
@@ -455,28 +599,28 @@ export function Calendar() {
         </div>
       ) : null}
 
-      {query.isError ? (
+      {isError ? (
         <Alert variant="destructive" data-testid="calendar-error">
           <TriangleAlert className="size-4" />
           <AlertTitle>{t('calendar.loadFailed')}</AlertTitle>
           <AlertDescription>
-            {query.error.message}{' '}
-            <Button variant="link" size="sm" onClick={() => query.refetch()}>
+            {errorMessage}{' '}
+            <Button variant="link" size="sm" onClick={refetchAll}>
               {t('common.retry')}
             </Button>
           </AlertDescription>
         </Alert>
-      ) : query.isPending ? (
+      ) : isPending ? (
         <div className="flex flex-col gap-3" data-testid="calendar-loading">
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-16 w-full" />
           ))}
         </div>
       ) : view === 'agenda' ? (
-        <AgendaView report={data} lang={i18n.language} />
+        <AgendaView days={unifiedDays} lang={i18n.language} />
       ) : (
         <Card className="p-3">
-          <MonthGrid report={data} anchor={monthAnchor} />
+          <MonthGrid days={unifiedDays} anchor={monthAnchor} />
         </Card>
       )}
     </div>

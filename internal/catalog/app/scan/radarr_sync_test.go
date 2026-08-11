@@ -82,6 +82,20 @@ func TestPersistRadarrMovieCache_StampsMovieID(t *testing.T) {
 // TestPartitionInstancesByType — scan-dispatch regression guard: sonarr-typed
 // (and empty-typed) snapshots route to the sonarr slice; radarr-typed to the
 // radarr slice.
+// TestRadarrSyncUseCase_HasInstances proves the boot-kick gate (Ф6-R-6b Gap 1):
+// HasInstances reflects the atomically-swapped instance set so the startup kick
+// only fires RunAll once the fanout has populated the radarr partition.
+func TestRadarrSyncUseCase_HasInstances(t *testing.T) {
+	uc := NewRadarrSyncUseCase(nil, RadarrSyncDeps{})
+	assert.False(t, uc.HasInstances(), "empty seed → no instances")
+
+	uc.SwapInstances([]RadarrInstance{{Config: runtime.InstanceSnapshot{Name: "movies", Type: InstanceTypeRadarr}}})
+	assert.True(t, uc.HasInstances(), "after SwapInstances → has instances")
+
+	uc.SwapInstances(nil)
+	assert.False(t, uc.HasInstances(), "back to empty → no instances")
+}
+
 func TestPartitionInstancesByType(t *testing.T) {
 	t.Parallel()
 	snaps := []runtime.InstanceSnapshot{

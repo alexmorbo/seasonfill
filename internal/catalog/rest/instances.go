@@ -37,7 +37,17 @@ type InstancesHandler struct {
 	mediaPrewarmer adminrest.CatalogMediaPrewarmer     // story 352, nil-OK
 	localizer      SeriesTextLocalizer                 // nil-OK; Story E-1-B7
 	mediaLocalizer SeriesMediaLocalizer                // nil-OK; Story 584b
+	radarr         RadarrConfigLookup                  // nil-OK; Ф6-R-6b
 	logger         *slog.Logger
+}
+
+// RadarrConfigLookup exposes the reload-aware radarr instance map so the List
+// handler can resolve radarr rows (type + url + add-defaults) that the
+// sonarr-scoped registry deliberately excludes. Production is satisfied by
+// *adapters.RadarrInstanceMapHolder; nil-OK — when unwired the list is
+// sonarr-only (pre-Ф6-R-6b behavior). Ф6-R-6b Gap 2a.
+type RadarrConfigLookup interface {
+	Load() map[string]scan.RadarrInstance
 }
 
 // SeriesTextLocalizer is the narrow slice of the enrichment
@@ -122,6 +132,14 @@ func (h *InstancesHandler) WithMediaLocalizer(l SeriesMediaLocalizer) *Instances
 	return h
 }
 
+// WithRadarrHolder wires the reload-aware radarr instance map so List renders
+// radarr instances (type="radarr" + url + add-defaults) alongside sonarr. nil
+// is a no-op (list stays sonarr-only). Ф6-R-6b Gap 2a.
+func (h *InstancesHandler) WithRadarrHolder(l RadarrConfigLookup) *InstancesHandler {
+	h.radarr = l
+	return h
+}
+
 // WithMediaPrewarmer wires the optional downloader-enqueue kick
 // fired after EnsurePending lands the rows. nil-OK: without it,
 // the media handler's on-demand fetch path covers the bytes-not-
@@ -145,9 +163,13 @@ func (h *InstancesHandler) WithMediaPrewarmer(p adminrest.CatalogMediaPrewarmer)
 func (h *InstancesHandler) List(c *gin.Context) {
 	snap := h.checker.Snapshot()
 	instMap := h.reg.snapshot()
+	var radarrMap map[string]scan.RadarrInstance
+	if h.radarr != nil {
+		radarrMap = h.radarr.Load()
+	}
 	out := make([]dto.Instance, 0, len(snap))
 	for _, s := range snap {
-		out = append(out, snapshotToDTO(s, instMap))
+		out = append(out, snapshotToDTO(s, instMap, radarrMap))
 	}
 	c.JSON(http.StatusOK, dto.InstanceList{Instances: out})
 }
@@ -411,7 +433,7 @@ func (h *InstancesHandler) enrichMissingFromCache(ctx context.Context, name stri
 // url/public_url to "". PublicURL dereference mirrors UIURL()'s
 // "empty string = unset" rule so the SPA never has to special-case
 // an empty override.
-func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.Instance {
+func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance, radarrMap map[string]scan.RadarrInstance) dto.Instance {
 	var lastCheckAt *time.Time
 	if !s.LastCheckAt.IsZero() {
 		t := s.LastCheckAt
@@ -419,6 +441,10 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.In
 	}
 	mode := "auto"
 	var url, publicURL string
+	// Ф6-R-6b: default the arr kind to "sonarr"; a hit in the radarr map
+	// upgrades it. The FE reads `type ?? 'sonarr'` so pre-existing rows are
+	// unchanged in meaning.
+	instType := scan.InstanceTypeSonarr
 	// ADR-0009 S6 — carry the Add-to-Sonarr defaults onto the list DTO so the
 	// modal pre-fills without a second GET. inst.Config is a
 	// runtime.InstanceSnapshot (config.SonarrInstance alias) so the pointers pass
@@ -435,9 +461,22 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance) dto.In
 		}
 		defaultQualityProfileID = inst.Config.DefaultQualityProfileID
 		defaultRootFolderPath = inst.Config.DefaultRootFolderPath
+	} else if inst, ok := radarrMap[s.Name]; ok {
+		// Ф6-R-6b Gap 2a: radarr instances live in a separate holder (the
+		// sonarr registry excludes them). Resolve their config the same way.
+		instType = scan.InstanceTypeRadarr
+		if m := inst.Config.Mode; m != "" {
+			mode = m
+		}
+		url = inst.Config.URL
+		if inst.Config.PublicURL != nil && *inst.Config.PublicURL != "" {
+			publicURL = *inst.Config.PublicURL
+		}
+		defaultQualityProfileID = inst.Config.DefaultQualityProfileID
+		defaultRootFolderPath = inst.Config.DefaultRootFolderPath
 	}
 	return dto.Instance{
-		Name: s.Name, URL: url, PublicURL: publicURL,
+		Name: s.Name, Type: instType, URL: url, PublicURL: publicURL,
 		Mode: mode, Health: string(s.Health),
 		LastCheckAt: lastCheckAt, LastError: s.LastError,
 		TransitionsCount:        s.TransitionsCount,

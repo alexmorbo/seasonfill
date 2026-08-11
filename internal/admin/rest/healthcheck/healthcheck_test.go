@@ -278,7 +278,7 @@ func TestChecker_ReplaceClients_PreservesRegistryPointer(t *testing.T) {
 	regBefore := c.Registry()
 
 	c.ReplaceClients(
-		[]ports.SonarrClient{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
+		[]ports.ArrHealthProbe{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
 		[]string{"alpha", "beta"},
 	)
 	regAfter := c.Registry()
@@ -293,7 +293,7 @@ func TestChecker_ReplaceClients_NamesPropagateToRegistry(t *testing.T) {
 	c := New(db, []ports.SonarrClient{&fakeSonarr{name: "alpha"}})
 
 	c.ReplaceClients(
-		[]ports.SonarrClient{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
+		[]ports.ArrHealthProbe{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
 		[]string{"alpha", "beta"},
 	)
 	names := c.Registry().Names()
@@ -301,7 +301,7 @@ func TestChecker_ReplaceClients_NamesPropagateToRegistry(t *testing.T) {
 
 	// Remove alpha.
 	c.ReplaceClients(
-		[]ports.SonarrClient{&fakeSonarr{name: "beta"}},
+		[]ports.ArrHealthProbe{&fakeSonarr{name: "beta"}},
 		[]string{"beta"},
 	)
 	names = c.Registry().Names()
@@ -332,13 +332,13 @@ func TestChecker_ReplaceClients_AtomicSwapWithConcurrentReader(t *testing.T) {
 	})
 
 	for range 200 {
-		clients := []ports.SonarrClient{
+		clients := []ports.ArrHealthProbe{
 			&fakeSonarr{name: "alpha"},
 			&fakeSonarr{name: "beta"},
 		}
 		c.ReplaceClients(clients, []string{"alpha", "beta"})
 		c.ReplaceClients(
-			[]ports.SonarrClient{&fakeSonarr{name: "alpha"}},
+			[]ports.ArrHealthProbe{&fakeSonarr{name: "alpha"}},
 			[]string{"alpha"},
 		)
 	}
@@ -370,11 +370,11 @@ func TestChecker_ReplaceClients_RaceWithMarkAvailable(t *testing.T) {
 	// Goroutine 2: reload at full speed.
 	for range 200 {
 		c.ReplaceClients(
-			[]ports.SonarrClient{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
+			[]ports.ArrHealthProbe{&fakeSonarr{name: "alpha"}, &fakeSonarr{name: "beta"}},
 			[]string{"alpha", "beta"},
 		)
 		c.ReplaceClients(
-			[]ports.SonarrClient{&fakeSonarr{name: "alpha"}},
+			[]ports.ArrHealthProbe{&fakeSonarr{name: "alpha"}},
 			[]string{"alpha"},
 		)
 	}

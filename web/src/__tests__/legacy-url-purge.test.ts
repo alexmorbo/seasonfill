@@ -25,6 +25,11 @@ const ALLOWED_SUBSTRINGS = [
   '/watchdog/blacklist',
   '/watchdog/rollups',
   '/watchdog/seasons',
+  // Per-instance season-monitor mutation (ADR-0012 S2): flips the Sonarr
+  // season monitored flag + triggers a SeasonSearch. Legitimately per-instance
+  // like the queue/webhook/qbit/watchdog surfaces above; no globalized surface
+  // uses `/monitor`.
+  '/monitor',
 ];
 
 // Files allowlisted entirely (e.g., the purge test itself, schema.ts

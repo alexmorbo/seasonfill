@@ -1119,6 +1119,17 @@ components:
           type: string
         transitions_count:
           type: integer
+        type:
+          description: |-
+            Type discriminates the arr kind ("sonarr" | "radarr"). Ф6-R-6b: radarr
+            instances now appear in this list alongside sonarr. Empty/absent is
+            treated as "sonarr" by the FE (`type ?? 'sonarr'`) so pre-existing
+            clients keep working; the handler always populates it explicitly.
+          enum:
+          - sonarr
+          - radarr
+          example: sonarr
+          type: string
         url:
           example: http://sonarr:8989
           type: string
@@ -2008,6 +2019,65 @@ components:
         tmdb_rating:
           type: number
         year:
+          type: integer
+      type: object
+    dto.MovieLibraryItem:
+      properties:
+        has_file:
+          type: boolean
+        imdb_rating:
+          example: 8
+          type: number
+        instances:
+          description: Instances lists every radarr instance holding the movie (sorted).
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        monitored:
+          description: Monitored / HasFile are OR-aggregated across every holding
+            instance.
+          type: boolean
+        poster:
+          type: string
+        release_date:
+          type: string
+        size_on_disk_bytes:
+          description: SizeOnDisk is the largest copy across instances (bytes).
+          example: 5000000000
+          type: integer
+        status:
+          example: released
+          type: string
+        title:
+          example: Dune
+          type: string
+        tmdb_id:
+          example: 438631
+          type: integer
+        tmdb_rating:
+          example: 8.1
+          type: number
+        updated_at:
+          type: string
+        year:
+          example: 2021
+          type: integer
+      type: object
+    dto.MovieLibraryList:
+      properties:
+        has_more:
+          example: true
+          type: boolean
+        items:
+          items:
+            $ref: '#/components/schemas/dto.MovieLibraryItem'
+          type: array
+          uniqueItems: false
+        next_cursor:
+          type: string
+        total:
+          example: 42
           type: integer
       type: object
     dto.NextEpisode:
@@ -6838,6 +6908,79 @@ paths:
       summary: Stream a stored media asset
       tags:
       - media
+  /movies:
+    get:
+      description: |-
+        Global movie library backed by movie_states (radarr membership)
+        joined to the movies canon. One item per movie (deduplicated by
+        tmdb id; instance memberships aggregated). Filter by state
+        (all|downloaded|missing), sort (updated_desc|title_asc|
+        release_desc), title search (q), and offset/limit pagination.
+      parameters:
+      - description: all|downloaded|missing
+        in: query
+        name: state
+        schema:
+          enum:
+          - all
+          - downloaded
+          - missing
+          type: string
+      - description: updated_desc|title_asc|release_desc
+        in: query
+        name: sort
+        schema:
+          enum:
+          - updated_desc
+          - title_asc
+          - release_desc
+          type: string
+      - description: case-insensitive title substring
+        in: query
+        name: q
+        schema:
+          type: string
+      - description: page size (1-100, default 24)
+        in: query
+        name: limit
+        schema:
+          type: integer
+      - description: opaque offset cursor from a prior next_cursor
+        in: query
+        name: cursor
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MovieLibraryList'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List movie library
+      tags:
+      - movies
   /movies/{tmdb_id}:
     get:
       description: |-

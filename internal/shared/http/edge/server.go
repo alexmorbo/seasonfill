@@ -140,6 +140,13 @@ func NewServer(
 	// /admin/notification-agents routes are omitted when the handler is absent
 	// (minimal/test wirings).
 	notificationAgentsHandler *notificationrest.AgentsHandler,
+	// Ф6-R-6b Gap 2a — reload-aware radarr instance map so GET
+	// /admin/instances renders radarr instances (type + url + health)
+	// alongside sonarr. nil-OK: list stays sonarr-only (minimal/test wirings).
+	radarrConfigLookup catalogrest.RadarrConfigLookup,
+	// Ф6-R-6b — global movie library list (GET /api/v1/movies). nil-OK: the
+	// route is omitted when the handler is absent (minimal/test wirings).
+	movieLibraryHandler *catalogrest.MovieLibraryHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -175,7 +182,8 @@ func NewServer(
 		WithEpisodesCache(episodesCache).
 		WithMediaPending(mediaPending).
 		WithLocalizer(seriesTitleLocalizer).
-		WithMediaLocalizer(seriesMediaLocalizer)
+		WithMediaLocalizer(seriesMediaLocalizer).
+		WithRadarrHolder(radarrConfigLookup) // Ф6-R-6b Gap 2a
 	// Story 491 / N-1a — global catalog handler over the per-instance one.
 	globalCatalogHandler := catalogrest.NewGlobalCatalogHandler(instancesHandler, logger)
 	// Story 492 / N-1b — global series-scoped wrappers + global grab
@@ -495,6 +503,12 @@ func NewServer(
 		// Ф6-R-6a — movie vertical: add-to-radarr (nil-OK, matches add-to-sonarr).
 		if addToRadarrHandler != nil {
 			guarded.POST("/discovery/add-to-radarr", addToRadarrHandler.Handle)
+		}
+		// Ф6-R-6b — global movie library list. Distinct path segment from the
+		// /movies/:tmdb_id wildcard so ordering is irrelevant; grouped with the
+		// other /movies routes for readability.
+		if movieLibraryHandler != nil {
+			guarded.GET("/movies", movieLibraryHandler.List)
 		}
 		// Ф6-R-6a — movie release calendar. Register the static /movies/calendar
 		// BEFORE the /movies/:tmdb_id wildcard (static-before-wildcard).

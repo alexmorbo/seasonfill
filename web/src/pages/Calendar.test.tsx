@@ -86,6 +86,44 @@ function report() {
   };
 }
 
+// Movie calendar report — served from /movies/calendar. A movie event carries
+// tmdb_id + milestone (theatrical|digital|physical), NO series/season/episode.
+function movieReport() {
+  return {
+    generated_at: new Date().toISOString(),
+    from: `${today}T00:00:00Z`,
+    to: `${nextMonth}T00:00:00Z`,
+    days: [
+      {
+        date: today,
+        events: [
+          {
+            date: today,
+            milestone: 'theatrical',
+            tmdb_id: 438631,
+            movie_id: 7,
+            title: 'Dune: Part Two',
+            poster: 'abc123',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+// URL-aware fetch: TV report from /calendar, movie report from /movies/calendar.
+function spyFetchByMedia() {
+  const urls: string[] = [];
+  const fn = vi.fn(async (url: RequestInfo | URL) => {
+    const u = typeof url === 'string' ? url : url.toString();
+    urls.push(u);
+    if (u.includes('/movies/calendar')) return json(movieReport());
+    return json(report());
+  });
+  globalThis.fetch = fn as typeof fetch;
+  return urls;
+}
+
 // fetch spy that records every requested URL and returns the same report.
 function spyFetch(body: unknown = report(), status = 200) {
   const urls: string[] = [];
@@ -176,5 +214,35 @@ describe('<Calendar />', () => {
     globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {})) as typeof fetch;
     renderWithProviders(wrap(<Calendar />), { route: '/calendar' });
     expect(screen.getByTestId('calendar-loading')).toBeInTheDocument();
+  });
+
+  it('defaults to TV media and never fetches /movies/calendar', async () => {
+    const urls = spyFetchByMedia();
+    renderWithProviders(wrap(<Calendar />), { route: '/calendar' });
+    await screen.findByTestId('calendar-agenda');
+    // The TV event is present; the movie query is gated off in TV mode.
+    expect(screen.getByTestId('calendar-event-42-S02E01')).toBeInTheDocument();
+    expect(urls.some((u) => u.includes('/movies/calendar'))).toBe(false);
+    expect(screen.queryByTestId('calendar-movie-event-438631')).toBeNull();
+  });
+
+  it('renders movie events (linking to /movies/:tmdbId) when the media toggle is switched to All', async () => {
+    spyFetchByMedia();
+    renderWithProviders(wrap(<Calendar />), { route: '/calendar' });
+
+    // TV renders first (default); switching to All merges movie events in.
+    await screen.findByTestId('calendar-event-42-S02E01');
+    await userEvent.click(screen.getByTestId('calendar-media-all'));
+
+    const movieRow = await screen.findByTestId('calendar-movie-event-438631');
+    expect(movieRow).toBeInTheDocument();
+    // Milestone label + link to the movie detail route.
+    expect(screen.getByTestId('calendar-movie-milestone-theatrical')).toHaveTextContent(
+      i18n.t('calendar.milestone.theatrical'),
+    );
+    const link = movieRow.querySelector('a[href="/movies/438631"]');
+    expect(link).not.toBeNull();
+    // The TV event stays visible in All mode.
+    expect(screen.getByTestId('calendar-event-42-S02E01')).toBeInTheDocument();
   });
 });

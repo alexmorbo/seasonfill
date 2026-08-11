@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	authapp "github.com/alexmorbo/seasonfill/internal/admin/app"
 	admininfra "github.com/alexmorbo/seasonfill/internal/admin/infrastructure"
 	adminrest "github.com/alexmorbo/seasonfill/internal/admin/rest"
@@ -37,6 +38,22 @@ type registryLookup struct {
 func (r registryLookup) Lookup(name string) (ports.SonarrClient, bool) {
 	inst, ok := r.reg.Snapshot()[name]
 	if !ok {
+		return nil, false
+	}
+	return inst.Client, true
+}
+
+// radarrQPRFLookup adapts the reload-aware radarr holder → authapp's radarr
+// QP/RF fallback. Read through Load on every call so a runtime reload is
+// reflected immediately. ports.RadarrClient satisfies authapp.QPRFClient
+// (ListQualityProfiles + ListRootFolders via arrcore). Ф6-R-6b Gap 2c.
+type radarrQPRFLookup struct {
+	holder *adapters.RadarrInstanceMapHolder
+}
+
+func (r radarrQPRFLookup) Lookup(name string) (authapp.QPRFClient, bool) {
+	inst, ok := r.holder.Load()[name]
+	if !ok || inst.Client == nil {
 		return nil, false
 	}
 	return inst.Client, true
@@ -186,10 +203,16 @@ func tvSeasonsToInfo(stubs []tmdb.TVSeasonStub) []ports.SeasonInfo {
 // series); when either is nil the lookup falls back to Sonarr's
 // seasons unchanged. The tests that wire neither (legacy + admin REST
 // tests) keep the original Sonarr-only behavior.
-func BuildInstanceMetadata(sonarrBundle *SonarrBundle, persistence *PersistenceBundle, tmdbClient TMDBSeasonsClient, log *slog.Logger) *InstanceMetadataBundle {
+func BuildInstanceMetadata(sonarrBundle *SonarrBundle, persistence *PersistenceBundle, radarrHolder *adapters.RadarrInstanceMapHolder, tmdbClient TMDBSeasonsClient, log *slog.Logger) *InstanceMetadataBundle {
 	cache := admininfra.NewMetadataCache("")
 	lookup := registryLookup{reg: sonarrBundle.InstanceReg}
 	uc := authapp.NewInstanceMetadataUseCase(lookup, cache, nil)
+	// Ф6-R-6b Gap 2c: install the radarr QP/RF fallback so a radarr instance
+	// name resolves to its arrcore ListQualityProfiles/ListRootFolders. Sonarr
+	// resolution stays first + byte-identical.
+	if radarrHolder != nil {
+		uc.WithRadarrLookup(radarrQPRFLookup{holder: radarrHolder})
+	}
 	domainLog := sharedports.DomainLogger(log, "admin")
 	if persistence != nil && persistence.DB != nil && tmdbClient != nil {
 		uc.WithSeasonsResolver(&tmdbSeasonsResolver{

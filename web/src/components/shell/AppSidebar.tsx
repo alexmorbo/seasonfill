@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   LayoutDashboard,
   Library,
+  Film,
   Radar,
   GitBranch,
   Download,
@@ -46,6 +47,7 @@ type Item = {
 const OVERVIEW: Item[] = [
   { to: "/", end: true, icon: LayoutDashboard, key: "dashboard" },
   { to: "/series", icon: Library, key: "series" },
+  { to: "/movies", icon: Film, key: "movies" },
   { to: "/discovery", icon: Compass, key: "discovery" },
   { to: "/calendar", icon: CalendarDays, key: "calendar" },
 ]

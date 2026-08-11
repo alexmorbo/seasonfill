@@ -166,7 +166,15 @@ export const ru: Translations = {
     emptyWeek: 'На этой неделе ничего не выходит.',
     loadFailed: 'Не удалось загрузить календарь',
     filters: { onlyLibrary: 'Только библиотека', onlyPremieres: 'Только премьеры' },
-    milestone: { premiere: 'Премьера сезона', finale: 'Финал сезона', return: 'Возвращение' },
+    mediaType: { tv: 'Сериалы', movie: 'Фильмы', all: 'Все' },
+    milestone: {
+      premiere: 'Премьера сезона',
+      finale: 'Финал сезона',
+      return: 'Возвращение',
+      theatrical: 'В кино',
+      digital: 'Цифровой',
+      physical: 'Физический',
+    },
     state: {
       downloaded: 'Загружен',
       missing: 'Отсутствует',
@@ -380,6 +388,7 @@ export const ru: Translations = {
     navigation: 'Навигация',
     dashboard: 'Дашборд',
     series: 'Сериалы',
+    movies: 'Фильмы',
     discovery: 'Обзор',
     calendar: 'Календарь',
     instances: 'Инстансы',
@@ -593,6 +602,7 @@ export const ru: Translations = {
   instances: {
     title: 'Инстансы Sonarr',
     subtitle: 'Подключённые к Seasonfill серверы Sonarr.',
+    type: { sonarr: 'Sonarr', radarr: 'Radarr' },
     loadFailed: 'Не удалось загрузить инстансы',
     openQueueAria: 'Открыть очередь {{name}}',
     columns: {
@@ -645,6 +655,7 @@ export const ru: Translations = {
         forceScan: 'Сканировать',
         forceScanRunning: 'Сканирование…',
         openSonarr: 'Sonarr',
+        openRadarr: 'Radarr',
       },
       forceScan: {
         toastStarted: 'Сканирование запущено для {{instance}}',
@@ -1603,6 +1614,9 @@ export const ru: Translations = {
         apiKeyEncryptedTooltip: 'Хранится AES-256-GCM, ключ выводится через HKDF для каждой строки отдельно.',
         apiKeyKeepHint: 'Оставьте поле пустым, чтобы сохранить текущий ключ. Текущий ключ не отправляется в браузер.',
         testConnection: 'Проверить подключение',
+        typeLabel: 'Тип',
+        type: { sonarr: 'Sonarr (сериалы)', radarr: 'Radarr (фильмы)' },
+        typeImmutableHint: 'Тип нельзя изменить после создания.',
         modeLabel: 'Режим',
         modes: { auto: 'Авто (сканировать всё)', manual: 'Вручную (только выбранные сериалы)' },
         timeoutLabel: 'Таймаут', timeoutSuffix: 'секунд', searchTimeoutLabel: 'Таймаут поиска',
@@ -2745,5 +2759,91 @@ export const ru: Translations = {
     message: 'Запрошенная страница не существует или была перенесена.',
     path: 'Запрошенный путь',
     backHome: 'На главную',
+  },
+  movies: {
+    title: 'Фильмы',
+    subtitle: 'Ваша библиотека фильмов',
+    empty: {
+      title: 'Пока нет фильмов',
+      body: 'Фильмы, добавленные в инстанс Radarr, появятся здесь.',
+    },
+    filters: {
+      state: {
+        all: 'Все',
+        downloaded: 'Загружено',
+        missing: 'Отсутствует',
+      },
+      sort: {
+        updated: 'Недавно обновлённые',
+        title: 'Название А–Я',
+        release: 'Дата выхода',
+      },
+      search: {
+        placeholder: 'Поиск фильмов…',
+      },
+    },
+    loadMore: 'Показать ещё',
+    add: {
+      button: 'Добавить в Radarr',
+      modalTitle: 'Добавить «{{title}}» в Radarr',
+      instance: 'Инстанс',
+      noRadarr: 'Нет настроенного инстанса Radarr.',
+      qualityProfile: 'Профиль качества',
+      rootFolder: 'Корневая папка',
+      minAvailability: 'Минимальная доступность',
+      minAvail: {
+        announced: 'Анонсирован',
+        inCinemas: 'В кинотеатрах',
+        released: 'Вышел',
+      },
+      searchOnAdd: 'Искать при добавлении',
+      submit: 'Добавить',
+      submitting: 'Добавление…',
+      cancel: 'Отмена',
+      success: 'Добавлено как {{tag}}',
+      errors: {
+        unknown: 'Не удалось добавить фильм',
+        instance_not_found: 'Инстанс не найден',
+        radarr_unreachable: 'Radarr недоступен',
+      },
+    },
+  },
+  movieCard: {
+    open: 'Открыть {{title}}',
+  },
+  movieCollection: {
+    title: 'Коллекция',
+    monitorToggle: 'Отслеживать коллекцию в Radarr',
+    monitorNoInstance: 'Сначала добавьте фильм из коллекции.',
+    part: {
+      inLibrary: 'В библиотеке',
+      missing: 'Отсутствует',
+    },
+    addAll: 'Добавить все недостающие',
+    addAllResult: 'Добавлено {{added}}, уже есть {{already}}, ошибок {{failed}}',
+  },
+  movieDetail: {
+    errors: {
+      invalidParams: 'Неверный фильм',
+      loadFailedTitle: 'Не удалось загрузить фильм',
+    },
+    overview: {
+      label: 'Описание',
+      empty: 'Описание недоступно.',
+    },
+    ratings: {
+      tmdb: 'TMDB',
+      imdb: 'IMDb',
+    },
+    meta: {
+      runtime: '{{count}} мин',
+      released: 'Премьера {{date}}',
+    },
+    library: {
+      title: 'В вашей библиотеке',
+      monitored: 'Отслеживается',
+      hasFile: 'Загружено',
+      empty: 'Нет ни в одной библиотеке.',
+    },
   },
 };

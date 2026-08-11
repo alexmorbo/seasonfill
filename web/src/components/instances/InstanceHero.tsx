@@ -42,6 +42,12 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
   const qbit = useQbitSettings(name);
   const forceScan = useForceScanButton(name);
 
+  // Ф6-R-6b: radarr instances now appear in this list. The hero's stats,
+  // sparkline and chip row are Sonarr-shaped (episodes missing / webhook /
+  // qBit watchdog) and would render broken/empty for a radarr row, so they are
+  // hidden. The connection hooks above still fire (rules-of-hooks); their
+  // (possibly 404) results are simply not surfaced for radarr.
+  const isRadarr = (instance.type ?? 'sonarr') === 'radarr';
   const kind = healthKind(instance.health);
   // Story 488 (B-14): Bootstrapping renders neutral pill + spinner,
   // and must NOT trigger the red degraded border treatment — the
@@ -70,6 +76,9 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
           <div className="flex-1 min-w-0 flex flex-col gap-1.5">
             <div className="flex items-center gap-2.5">
               <h3 className="text-[18px] font-[650] tracking-tight m-0">{name}</h3>
+              <Badge variant="neutral" mono data-testid={`hero-type-${name}`}>
+                {t(`instances.type.${isRadarr ? 'radarr' : 'sonarr'}`)}
+              </Badge>
               <span
                 className={cn(
                   'inline-flex items-center gap-1 px-1.5 h-[18px] rounded border font-mono text-[10.5px]',
@@ -119,23 +128,25 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
               <Pencil className="w-3.5 h-3.5 mr-1.5" />
               {t('instances.hero.actions.edit')}
             </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={forceScan.start}
-              disabled={forceScan.disabled}
-              data-testid={`hero-force-scan-${name}`}
-              data-busy={forceScan.disabled ? 'true' : 'false'}
-            >
-              {forceScan.disabled ? (
-                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" aria-hidden="true" />
-              ) : (
-                <Play className="w-3.5 h-3.5 mr-1.5" />
-              )}
-              {forceScan.disabled
-                ? t('instances.hero.actions.forceScanRunning')
-                : t('instances.hero.actions.forceScan')}
-            </Button>
+            {!isRadarr && (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={forceScan.start}
+                disabled={forceScan.disabled}
+                data-testid={`hero-force-scan-${name}`}
+                data-busy={forceScan.disabled ? 'true' : 'false'}
+              >
+                {forceScan.disabled ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Play className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                {forceScan.disabled
+                  ? t('instances.hero.actions.forceScanRunning')
+                  : t('instances.hero.actions.forceScan')}
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -150,7 +161,7 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
                 <a href={sonarrHref} target="_blank" rel="noreferrer"
                    data-testid={`hero-sonarr-link-${name}`}>
                   <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-                  {t('instances.hero.actions.openSonarr')}
+                  {t(isRadarr ? 'instances.hero.actions.openRadarr' : 'instances.hero.actions.openSonarr')}
                 </a>
               </Button>
             )}
@@ -167,6 +178,7 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
           </div>
         </div>
 
+        {!isRadarr && (
         <div className="flex items-end gap-[30px] flex-wrap py-[15px] border-y border-border-faint">
           {c24.isPending ? (
             <Skeleton className="h-12 w-32" />
@@ -200,13 +212,16 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
             </span>
           </div>
         </div>
+        )}
 
-        <InstanceChipRow
-          instanceName={name}
-          missingCount={missing.data?.items?.length}
-          qbitSettings={qbit.data}
-          webhookStatus={webhook.data}
-        />
+        {!isRadarr && (
+          <InstanceChipRow
+            instanceName={name}
+            missingCount={missing.data?.items?.length}
+            qbitSettings={qbit.data}
+            webhookStatus={webhook.data}
+          />
+        )}
       </CardContent>
     </Card>
   );

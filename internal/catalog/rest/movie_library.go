@@ -1,0 +1,200 @@
+package rest
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+)
+
+const (
+	movieLibraryDefaultLimit = 24
+	movieLibraryMaxLimit     = 100
+	movieLibraryMaxSearchLen = 200
+)
+
+var (
+	errMovieState     = errors.New("state must be one of: all, downloaded, missing")
+	errMovieSort      = errors.New("sort must be one of: updated_desc, title_asc, release_desc")
+	errMovieSearchLen = errors.New("q must be at most 200 characters")
+	errMovieLimit     = errors.New("limit must be between 1 and 100")
+	errMovieCursor    = errors.New("cursor must be a non-negative integer")
+)
+
+// MovieLibraryHandler serves GET /api/v1/movies — the global movie library
+// list (Ф6-R-6b), the movie analog of the series library list.
+type MovieLibraryHandler struct {
+	repo   ports.MovieLibraryRepository
+	logger *slog.Logger
+}
+
+// NewMovieLibraryHandler constructs the handler. repo must be non-nil in
+// production; the route is omitted (nil-OK) when the wirer passes nil.
+func NewMovieLibraryHandler(repo ports.MovieLibraryRepository, logger *slog.Logger) *MovieLibraryHandler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &MovieLibraryHandler{repo: repo, logger: logger}
+}
+
+// List returns the deduplicated movie library page.
+//
+// @Summary     List movie library
+// @Description Global movie library backed by movie_states (radarr membership)
+// @Description joined to the movies canon. One item per movie (deduplicated by
+// @Description tmdb id; instance memberships aggregated). Filter by state
+// @Description (all|downloaded|missing), sort (updated_desc|title_asc|
+// @Description release_desc), title search (q), and offset/limit pagination.
+// @Tags        movies
+// @Produce     json
+// @Param       state  query     string false "all|downloaded|missing" Enums(all,downloaded,missing)
+// @Param       sort   query     string false "updated_desc|title_asc|release_desc" Enums(updated_desc,title_asc,release_desc)
+// @Param       q      query     string false "case-insensitive title substring"
+// @Param       limit  query     int    false "page size (1-100, default 24)"
+// @Param       cursor query     string false "opaque offset cursor from a prior next_cursor"
+// @Success     200    {object}  dto.MovieLibraryList
+// @Failure     400    {object}  dto.ErrorResponse
+// @Failure     401    {object}  dto.ErrorResponse
+// @Failure     500    {object}  dto.ErrorResponse
+// @Security    CookieAuth
+// @Security    ApiKeyAuth
+// @Router      /movies [get]
+func (h *MovieLibraryHandler) List(c *gin.Context) {
+	state, err := parseMovieLibraryState(c.Query("state"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+	sort, err := parseMovieLibrarySort(c.Query("sort"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+	q, err := parseMovieLibrarySearch(c.Query("q"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+	limit, err := parseMovieLibraryLimit(c.Query("limit"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+	offset, err := parseMovieLibraryCursor(c.Query("cursor"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	rows, total, err := h.repo.List(ctx, ports.MovieLibraryFilter{State: state, Search: q}, sort, limit, offset)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "movie_library_list_failed",
+			slog.String("state", string(state)),
+			slog.String("sort", string(sort)),
+			slog.String("error", err.Error()))
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "list failed"})
+		return
+	}
+
+	items := make([]dto.MovieLibraryItem, 0, len(rows))
+	for _, r := range rows {
+		insts := r.Instances
+		if insts == nil {
+			insts = []string{}
+		}
+		items = append(items, dto.MovieLibraryItem{
+			TMDBID:      r.TMDBID,
+			Title:       r.Title,
+			Year:        r.Year,
+			Poster:      r.PosterAsset,
+			Status:      r.Status,
+			ReleaseDate: r.ReleaseDate,
+			TMDBRating:  r.TMDBRating,
+			IMDBRating:  r.IMDBRating,
+			Monitored:   r.Monitored,
+			HasFile:     r.HasFile,
+			Instances:   insts,
+			SizeOnDisk:  r.SizeOnDisk,
+			UpdatedAt:   r.UpdatedAt,
+		})
+	}
+
+	hasMore := offset+len(rows) < total
+	var nextCursor string
+	if hasMore {
+		nextCursor = strconv.Itoa(offset + limit)
+	}
+	c.JSON(http.StatusOK, dto.MovieLibraryList{
+		Items:      items,
+		Total:      total,
+		HasMore:    hasMore,
+		NextCursor: nextCursor,
+	})
+}
+
+func parseMovieLibraryState(raw string) (ports.MovieLibraryState, error) {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return ports.MovieLibraryStateAll, nil
+	}
+	s := ports.MovieLibraryState(raw)
+	if !s.IsValid() {
+		return "", errMovieState
+	}
+	return s, nil
+}
+
+func parseMovieLibrarySort(raw string) (ports.MovieLibrarySort, error) {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return ports.MovieLibrarySortUpdatedDesc, nil
+	}
+	s := ports.MovieLibrarySort(raw)
+	if !s.IsValid() {
+		return "", errMovieSort
+	}
+	return s, nil
+}
+
+func parseMovieLibrarySearch(raw string) (string, error) {
+	q := strings.TrimSpace(raw)
+	if q == "" {
+		return "", nil
+	}
+	if len(q) > movieLibraryMaxSearchLen {
+		return "", errMovieSearchLen
+	}
+	return q, nil
+}
+
+func parseMovieLibraryLimit(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return movieLibraryDefaultLimit, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, errMovieLimit
+	}
+	if n < 1 || n > movieLibraryMaxLimit {
+		return 0, errMovieLimit
+	}
+	return n, nil
+}
+
+func parseMovieLibraryCursor(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, errMovieCursor
+	}
+	return n, nil
+}

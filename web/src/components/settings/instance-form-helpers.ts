@@ -14,6 +14,9 @@ export function dryRunToWire(c: DryRunChoice): boolean | undefined {
 
 export const FORM_DEFAULTS = {
   name: '',
+  // Ф6-R-6b: arr kind. New instances default to sonarr; immutable after
+  // creation (the edit dialog renders a read-only badge, never the selector).
+  type: 'sonarr' as 'sonarr' | 'radarr',
   url: 'http://sonarr:8989',
   api_key: '',
   // 041h-1: Optional browser-facing URL. Empty string in the form ↔ omitted

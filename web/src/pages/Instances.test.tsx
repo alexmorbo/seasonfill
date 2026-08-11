@@ -16,8 +16,9 @@ beforeEach(() => {
     if (url.endsWith('/instances')) {
       return new Response(JSON.stringify({
         instances: [
-          { name: 'homelab', mode: 'auto', health: 'Available', last_check_at: new Date().toISOString(), transitions_count: 0, url: 'http://sonarr:80' },
+          { name: 'homelab', type: 'sonarr', mode: 'auto', health: 'Available', last_check_at: new Date().toISOString(), transitions_count: 0, url: 'http://sonarr:80' },
           { name: '4k', mode: 'manual', health: 'Unreachable', last_check_at: new Date().toISOString(), transitions_count: 3, url: 'http://sonarr-4k:80', last_error: 'dial tcp — connection refused' },
+          { name: 'films', type: 'radarr', mode: 'auto', health: 'Available', last_check_at: new Date().toISOString(), transitions_count: 0, url: 'http://radarr:7878' },
         ],
       }), { status: 200 });
     }
@@ -57,6 +58,21 @@ describe('<Instances />', () => {
     // 4k is Unreachable with transitions_count: 3 → degraded card + flips badge.
     expect(screen.getByTestId('instance-hero-4k').className).toMatch(/border-l-status-danger/);
     expect(screen.getByTestId('hero-flips-4k')).toHaveTextContent('3');
+  });
+
+  it('Ф6-R-6b: renders a Radarr type badge for radarr rows and Sonarr for sonarr rows', async () => {
+    renderWithProviders(wrap(<Instances />));
+    await waitFor(() => {
+      expect(screen.getByTestId('instance-hero-films')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('hero-type-films')).toHaveTextContent(
+      i18n.t('instances.type.radarr'),
+    );
+    expect(screen.getByTestId('hero-type-homelab')).toHaveTextContent(
+      i18n.t('instances.type.sonarr'),
+    );
+    // Sonarr-only widgets are guarded off for the radarr row.
+    expect(screen.queryByTestId('hero-force-scan-films')).toBeNull();
   });
 
   it('shows empty state when zero instances', async () => {

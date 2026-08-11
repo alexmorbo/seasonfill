@@ -30,6 +30,8 @@ import { SettingsExternalServices } from '@/pages/SettingsExternalServices';
 import { Series } from '@/pages/Series';
 import { SeriesDetail } from '@/pages/SeriesDetail';
 import { SeriesCast } from '@/pages/SeriesCast';
+import { Movies } from '@/pages/Movies';
+import { MovieDetail } from '@/pages/MovieDetail';
 import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
 import { DiscoveryPage } from '@/pages/DiscoveryPage';
@@ -53,6 +55,8 @@ export const router = createBrowserRouter([
       // release cycle; LegacySeriesRedirect navigates to the new shape.
       { path: '/series/:instance/:id', element: <LegacySeriesRedirect /> },
       { path: '/series/:instance/:id/cast', element: <LegacySeriesRedirect kind="cast" /> },
+      { path: '/movies',          element: <Movies /> },
+      { path: '/movies/:tmdbId',  element: <MovieDetail /> },
       { path: '/person/:tmdbId',            element: <Person /> },
       { path: '/discovery', element: <DiscoveryPage /> },
       { path: '/calendar',  element: <Calendar /> },
