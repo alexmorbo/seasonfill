@@ -45,6 +45,16 @@ type MovieI18nWriter interface {
 	UpsertEnriched(ctx context.Context, movieID domain.MovieID, lang, title, overview, tagline string, poster, backdrop *string, now time.Time) error
 }
 
+// MovieCollectionPopulator is the Ф6-R-5 collection-populate seam. Production
+// impl: *MovieCollectionWorker.PopulateCollection. Kept a narrow one-method port
+// (mirror of MovieOMDbHandler) so the hydration worker never imports the
+// collections persistence/TMDB collection surface directly. nil-OK on
+// MovieWorkerDeps — when nil the collection populate step is disabled (exact
+// pre-R-5 behavior).
+type MovieCollectionPopulator interface {
+	PopulateCollection(ctx context.Context, collectionTMDBID int) error
+}
+
 // MovieRefreshCandidate mirrors the persistence DTO into the app layer so the
 // scheduler owns its own picker port without leaking GORM/domain-id types.
 type MovieRefreshCandidate struct {

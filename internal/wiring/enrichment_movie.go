@@ -74,6 +74,7 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 	movies := enrichpersistence.NewMovieRepository(deps.Persistence.DB)
 	i18n := enrichpersistence.NewMovieI18nSeeder(deps.Persistence.DB)
 	cursor := enrichpersistence.NewMovieChangesStateRepository(deps.Persistence.DB)
+	movieCollections := enrichpersistence.NewMovieCollectionsRepository(deps.Persistence.DB)
 
 	// Nil-OK: only set the port when the concrete resolver is non-nil so a nil
 	// *media.Resolver never becomes a non-nil interface wrapping a nil pointer.
@@ -102,14 +103,33 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 		}
 	}
 
+	// Ф6-R-5: collection populate step. Constructed unconditionally (all deps are
+	// non-nil here); a construction error degrades to a nil populator (movie
+	// hydration stays collection-free) rather than failing the whole bundle.
+	var collectionPopulator appenrich.MovieCollectionPopulator
+	collectionWorker, cwErr := appenrich.NewMovieCollectionWorker(appenrich.MovieCollectionWorkerDeps{
+		TMDB:        movieCollectionTMDBFromHolder{holder: deps.TMDBHolder},
+		Collections: movieCollections,
+		Movies:      movies,
+		BaseLang:    tmdb.DefaultLanguage,
+		Logger:      deps.Log,
+	})
+	if cwErr != nil {
+		deps.Log.WarnContext(context.Background(), "enrichment.movie_collection.disabled",
+			slog.String("error", cwErr.Error()))
+	} else {
+		collectionPopulator = collectionWorker
+	}
+
 	worker, err := appenrich.NewMovieWorker(appenrich.MovieWorkerDeps{
-		TMDB:     movieTMDBFromHolder{holder: deps.TMDBHolder},
-		Movies:   movies,
-		I18n:     i18n,
-		Resolver: resolver,
-		OMDb:     omdbHandler,
-		BaseLang: tmdb.DefaultLanguage,
-		Logger:   deps.Log,
+		TMDB:        movieTMDBFromHolder{holder: deps.TMDBHolder},
+		Movies:      movies,
+		I18n:        i18n,
+		Resolver:    resolver,
+		OMDb:        omdbHandler,
+		Collections: collectionPopulator,
+		BaseLang:    tmdb.DefaultLanguage,
+		Logger:      deps.Log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire movie worker: %w", err)
@@ -181,6 +201,21 @@ func (a movieTMDBFromHolder) GetMovie(ctx context.Context, id int64, language st
 	return c.GetMovie(ctx, id, language)
 }
 
+// movieCollectionTMDBFromHolder adapts the runtime-swappable TMDB holder to
+// appenrich.CollectionTMDBClient (GetCollection). Load() per call keeps it
+// swap-safe (mirror of movieTMDBFromHolder). Ф6-R-5.
+type movieCollectionTMDBFromHolder struct {
+	holder *adapters.TMDBClientHolder
+}
+
+func (a movieCollectionTMDBFromHolder) GetCollection(ctx context.Context, id int64, language string) (*tmdb.CollectionResponse, error) {
+	c := a.holder.Load()
+	if c == nil {
+		return nil, adapters.ErrTMDBClientNotReady
+	}
+	return c.GetCollection(ctx, id, language)
+}
+
 // movieChangesListerFromHolder adapts the TMDB holder to the GENERIC
 // appenrich.TVChangesLister port — its GetTVChangesPage method delegates to the
 // movie firehose (c.GetMovieChangesPage). This is the "adapter satisfying the
@@ -228,10 +263,12 @@ func (a movieRefreshPickerAdapter) PickMovieRefreshCandidates(
 // compile-time assertions that the movie repo satisfies the generic poller's
 // Marker/CursorStore seams (mirror of the series ports_assert checks).
 var (
-	_ appenrich.ChangedSeriesMarker = (*enrichpersistence.MovieRepository)(nil)
-	_ appenrich.ChangesCursorStore  = (*enrichpersistence.MovieChangesStateRepository)(nil)
-	_ appenrich.MovieCanonRepo      = (*enrichpersistence.MovieRepository)(nil)
-	_ appenrich.MovieI18nWriter     = (*enrichpersistence.MovieI18nSeeder)(nil)
-	_ appenrich.MovieOMDbRepo       = (*enrichpersistence.MovieRepository)(nil)
-	_ appenrich.MovieOMDbHandler    = (*appenrich.MovieOMDbWorker)(nil)
+	_ appenrich.ChangedSeriesMarker      = (*enrichpersistence.MovieRepository)(nil)
+	_ appenrich.ChangesCursorStore       = (*enrichpersistence.MovieChangesStateRepository)(nil)
+	_ appenrich.MovieCanonRepo           = (*enrichpersistence.MovieRepository)(nil)
+	_ appenrich.MovieI18nWriter          = (*enrichpersistence.MovieI18nSeeder)(nil)
+	_ appenrich.MovieOMDbRepo            = (*enrichpersistence.MovieRepository)(nil)
+	_ appenrich.MovieOMDbHandler         = (*appenrich.MovieOMDbWorker)(nil)
+	_ appenrich.MovieCollectionUpserter  = (*enrichpersistence.MovieCollectionsRepository)(nil)
+	_ appenrich.MovieCollectionPopulator = (*appenrich.MovieCollectionWorker)(nil)
 )

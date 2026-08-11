@@ -35,10 +35,15 @@ type MovieWorkerDeps struct {
 	// worker fires it right after MarkTMDBSynced (enqueue-after-imdb): OMDb only
 	// runs once TMDB has stamped the imdb_id. Best-effort — an OMDb failure is
 	// logged, never failing or rolling back the committed TMDB hydrate.
-	OMDb     MovieOMDbHandler
-	BaseLang string // default tmdb.DefaultLanguage
-	Logger   *slog.Logger
-	Clock    func() time.Time
+	OMDb MovieOMDbHandler
+	// Collections — Ф6-R-5 fail-soft collection populate seam. nil-OK (disabled at
+	// boot = exact pre-R-5 behavior). When set AND the hydrated canon carries a
+	// non-nil CollectionID, the worker fires it AFTER MarkTMDBSynced. Best-effort:
+	// a failure is logged, never failing/rolling back the committed TMDB hydrate.
+	Collections MovieCollectionPopulator
+	BaseLang    string // default tmdb.DefaultLanguage
+	Logger      *slog.Logger
+	Clock       func() time.Time
 }
 
 // MovieOMDbHandler is the post-hydrate OMDb trigger seam. Production impl is
@@ -153,6 +158,21 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 			w.deps.Logger.WarnContext(ctx, "enrichment.movie.omdb_followup_failed",
 				slog.Int64("movie_id", int64(canon.ID)),
 				slog.String("error", oerr.Error()),
+			)
+		}
+	}
+
+	// Ф6-R-5: fail-soft collection populate. Runs AFTER the movie hydrate is
+	// committed (canon Upsert + MarkTMDBSynced). Gated on a configured populator
+	// AND a non-nil CollectionID on the freshly hydrated canon. Best-effort — a
+	// failure is logged only and MUST NOT fail the already-committed movie
+	// hydrate (mirror of the OMDb follow-up policy above).
+	if w.deps.Collections != nil && mapped.CollectionID != nil {
+		if cerr := w.deps.Collections.PopulateCollection(ctx, *mapped.CollectionID); cerr != nil {
+			w.deps.Logger.WarnContext(ctx, "enrichment.movie.collection_populate_failed",
+				slog.Int64("movie_id", int64(canon.ID)),
+				slog.Int("collection_id", *mapped.CollectionID),
+				slog.String("error", cerr.Error()),
 			)
 		}
 	}
