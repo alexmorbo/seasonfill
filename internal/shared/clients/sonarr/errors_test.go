@@ -74,7 +74,7 @@ func TestIsTransient_NilAndUnknown(t *testing.T) {
 // TestStatusError_Error_PreservesFullBody locks in the F-P2-4 fix: the
 // previous implementation trimmed Body to 256 chars + "..." which dropped
 // most of a typical Sonarr stack trace before persistence. Body is already
-// bounded by SonarrBodyMaxBytes (4096) at the io.LimitReader call in
+// bounded by arrcore.BodyMaxBytes (4096) at the io.LimitReader call in
 // client.go, so Error() emits it verbatim.
 func TestStatusError_Error_PreservesFullBody(t *testing.T) {
 	t.Parallel()

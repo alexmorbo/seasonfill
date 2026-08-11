@@ -3,7 +3,6 @@ package sonarr
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,17 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
-	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 func newTestServer(t *testing.T, routes map[string]string) (*httptest.Server, *Client) {
@@ -48,13 +44,22 @@ func newTestServer(t *testing.T, routes map[string]string) (*httptest.Server, *C
 	return srv, client
 }
 
-func TestClient_SystemStatus(t *testing.T) {
-	_, c := newTestServer(t, map[string]string{
-		"/api/v3/system/status": "system-status.json",
-	})
+// TestClient_PromotesArrcoreSystemStatus verifies the embedded *arrcore.Client
+// promotes the shared endpoints so *sonarr.Client still satisfies
+// dataports.SonarrClient and the wire call is unchanged. Ф6-R-2.
+func TestClient_PromotesArrcoreSystemStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v3/system/status", r.URL.Path)
+		assert.Equal(t, "secret", r.Header.Get("X-Api-Key"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"3.9.9","instanceName":"http://sonarr"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	st, err := c.SystemStatus(context.Background())
 	require.NoError(t, err)
-	assert.NotEmpty(t, st.Version)
+	assert.Equal(t, "3.9.9", st.Version)
 }
 
 func TestClient_ListEpisodes(t *testing.T) {
@@ -78,16 +83,6 @@ func TestClient_SearchReleases(t *testing.T) {
 	assert.Equal(t, 500, rels[0].CustomFormatScore)
 }
 
-func TestClient_GetQualityProfile(t *testing.T) {
-	_, c := newTestServer(t, map[string]string{
-		"/api/v3/qualityprofile/14": "qualityprofile-14.json",
-	})
-	prof, err := c.GetQualityProfile(context.Background(), 14)
-	require.NoError(t, err)
-	assert.Equal(t, 14, prof.ID)
-	require.NotEmpty(t, prof.Items)
-}
-
 func TestClient_ListIndexers(t *testing.T) {
 	_, c := newTestServer(t, map[string]string{
 		"/api/v3/indexer": "indexer-list.json",
@@ -104,43 +99,6 @@ func TestClient_GrabHistory(t *testing.T) {
 	hist, err := c.GrabHistory(context.Background(), 122)
 	require.NoError(t, err)
 	require.NotEmpty(t, hist)
-}
-
-func TestClient_UnauthorizedMappedToDomainSentinel(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("t", srv.URL, "bad", 2*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.SystemStatus(context.Background())
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
-	assert.True(t, IsAuth(err))
-	var se *StatusError
-	assert.True(t, errors.As(err, &se))
-	assert.Equal(t, http.StatusUnauthorized, se.Status)
-}
-
-func TestClient_ForbiddenMappedToDomainSentinel(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("t", srv.URL, "bad", 2*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.SystemStatus(context.Background())
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
-	assert.True(t, IsAuth(err))
-}
-
-func TestClient_NetworkErrorMappedToDomainSentinel(t *testing.T) {
-	c := New("t", "http://127.0.0.1:1", "k", 200*time.Millisecond,
-		slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.SystemStatus(context.Background())
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceNetwork))
 }
 
 func TestClient_ForceGrab_Success(t *testing.T) {
@@ -233,64 +191,6 @@ func TestClient_ForceGrab_Timeout(t *testing.T) {
 	assert.True(t, IsTransient(err))
 }
 
-func TestClient_GlobalLimiterConsulted(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"version":"x"}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	global := ratelimit.New(1, 1)
-	c := NewWithOptions("test", srv.URL, "k", 5*time.Second, nil,
-		slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		WithGlobalLimiter(global))
-
-	_, err := c.SystemStatus(context.Background())
-	require.NoError(t, err)
-
-	start := time.Now()
-	_, err = c.SystemStatus(context.Background())
-	require.NoError(t, err)
-	elapsed := time.Since(start)
-	assert.GreaterOrEqual(t, elapsed, 500*time.Millisecond, "global limiter should delay the second call")
-}
-
-func TestClient_CtxCancelMidRequestReturnsCtxErrNotNetwork(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		// block until the client's context is cancelled
-		<-r.Context().Done()
-		time.Sleep(10 * time.Millisecond)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	_, err := c.SystemStatus(ctx)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, context.DeadlineExceeded), "expected context.DeadlineExceeded, got: %v", err)
-	assert.False(t, errors.Is(err, sharedErrors.ErrInstanceNetwork), "ctx cancel must not be wrapped as network error")
-}
-
-func TestClient_NilLimitersAreNoOp(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"version":"x"}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := NewWithOptions("test", srv.URL, "k", 2*time.Second, nil,
-		slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		WithGlobalLimiter(nil))
-
-	for range 5 {
-		_, err := c.SystemStatus(context.Background())
-		require.NoError(t, err)
-	}
-}
-
 func TestClient_ForceGrab_ReturnsDownloadClientID_WhenPresent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -326,43 +226,6 @@ func TestClient_ForceGrab_ReturnsEmpty_WhenDownloadClientIDAbsent(t *testing.T) 
 			assert.Equal(t, "", dlID, "case %s should yield empty downloadID", name)
 		})
 	}
-}
-
-func TestClient_GlobalLimiterObserverFiresOnBlock(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"version":"x"}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	var (
-		mu     sync.Mutex
-		calls  int
-		scopes []string
-	)
-	global := ratelimit.NewWithOptions(5, 1, ratelimit.WithObserver("global", func(s string) {
-		mu.Lock()
-		defer mu.Unlock()
-		calls++
-		scopes = append(scopes, s)
-	}))
-	require.NotNil(t, global)
-
-	c := NewWithOptions("test", srv.URL, "k", 5*time.Second, nil,
-		slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		WithGlobalLimiter(global))
-
-	// First call drains the burst — no observer fire.
-	_, err := c.SystemStatus(context.Background())
-	require.NoError(t, err)
-	// Second call must wait ~200 ms — observer fires.
-	_, err = c.SystemStatus(context.Background())
-	require.NoError(t, err)
-
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, 1, calls, "observer should fire exactly once for the blocked call")
-	assert.Equal(t, []string{"global"}, scopes)
 }
 
 // TestClient_SearchReleases_UsesSearchTimeout asserts SearchReleases
@@ -490,25 +353,6 @@ func TestClient_SearchReleases_ContextDeadlineWinsOverSearchTimeout(t *testing.T
 	require.Error(t, err)
 	// ctx-cancel must NOT be wrapped as network error (matches the
 	// pre-015 invariant from TestClient_CtxCancelMidRequestReturnsCtxErrNotNetwork).
-}
-
-func TestSonarrClient_WithGlobalLimiterPointer_LiveReload(t *testing.T) {
-	t.Parallel()
-	var ptr atomic.Pointer[ratelimit.Limiter]
-	// Start unlimited.
-	ptr.Store(nil)
-
-	c := NewWithOptions("alpha", "http://invalid.test", "k",
-		time.Millisecond, nil, slog.Default(),
-		WithGlobalLimiterPointer(&ptr))
-	require.NotNil(t, c)
-	// Calling globalLimiter on nil pointer must not panic.
-	assert.Nil(t, c.globalLimiter())
-
-	// Swap in a limiter, confirm live read sees it.
-	lim := ratelimit.NewFromRPM(1, 1)
-	ptr.Store(lim)
-	assert.Same(t, lim, c.globalLimiter())
 }
 
 func TestClient_ListEpisodeFilesBySeason_HappyPath(t *testing.T) {
@@ -824,174 +668,6 @@ func TestSeriesDTOToCacheEntry_AiredPrefersExplicit(t *testing.T) {
 	}
 	entry := seriesDTOToCacheEntry(d, "homelab")
 	assert.Equal(t, 38, entry.AiredEpisodeCount, "explicit airedEpisodeCount wins over episodeCount fallback")
-}
-
-// --- N-4a: list-quality-profiles / list-root-folders / create-tag ---
-
-// TestClient_ListQualityProfiles_Success drives GET /api/v3/qualityprofile
-// and asserts the path is the LIST endpoint (no /{id} suffix), the
-// X-Api-Key header is propagated, and the array is decoded id+name.
-func TestClient_ListQualityProfiles_Success(t *testing.T) {
-	var gotPath, gotKey string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		gotKey = r.Header.Get("X-Api-Key")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"id":1,"name":"Any"},{"id":7,"name":"HD-1080p"}]`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	profs, err := c.ListQualityProfiles(context.Background())
-	require.NoError(t, err)
-	require.Len(t, profs, 2)
-	assert.Equal(t, "/api/v3/qualityprofile", gotPath, "must hit LIST endpoint, not /{id}")
-	assert.Equal(t, "secret", gotKey)
-	assert.Equal(t, 1, profs[0].ID)
-	assert.Equal(t, "Any", profs[0].Name)
-	assert.Equal(t, 7, profs[1].ID)
-	assert.Equal(t, "HD-1080p", profs[1].Name)
-}
-
-func TestClient_ListQualityProfiles_5xxTransient(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.ListQualityProfiles(context.Background())
-	require.Error(t, err)
-	assert.True(t, IsTransient(err))
-}
-
-func TestClient_ListQualityProfiles_401IsAuth(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "bad", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.ListQualityProfiles(context.Background())
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
-	assert.True(t, IsAuth(err))
-}
-
-func TestClient_ListRootFolders_Success(t *testing.T) {
-	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[
-			{"id":1,"path":"/tv","accessible":true,"freeSpace":1099511627776},
-			{"id":2,"path":"/anime","accessible":false,"freeSpace":0}
-		]`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	roots, err := c.ListRootFolders(context.Background())
-	require.NoError(t, err)
-	require.Len(t, roots, 2)
-	assert.Equal(t, "/api/v3/rootfolder", gotPath)
-	assert.Equal(t, 1, roots[0].ID)
-	assert.Equal(t, "/tv", roots[0].Path)
-	assert.True(t, roots[0].Accessible)
-	assert.Equal(t, int64(1099511627776), roots[0].FreeSpace)
-	assert.Equal(t, "/anime", roots[1].Path)
-	assert.False(t, roots[1].Accessible)
-	assert.Equal(t, int64(0), roots[1].FreeSpace)
-}
-
-func TestClient_ListRootFolders_5xxTransient(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.ListRootFolders(context.Background())
-	require.Error(t, err)
-	assert.True(t, IsTransient(err))
-}
-
-func TestClient_ListRootFolders_401IsAuth(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "bad", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.ListRootFolders(context.Background())
-	require.Error(t, err)
-	assert.True(t, IsAuth(err))
-}
-
-// TestClient_CreateTag_Success asserts POST with the exact body
-// `{"label":"..."}`, Content-Type, and that the response is decoded
-// onto ports.Tag. Mirrors the ForceGrab pattern.
-func TestClient_CreateTag_Success(t *testing.T) {
-	var (
-		mu       sync.Mutex
-		gotPath  string
-		gotMeth  string
-		gotKey   string
-		gotCType string
-		gotBody  createTagRequest
-	)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		_ = json.Unmarshal(body, &gotBody)
-		gotPath = r.URL.Path
-		gotMeth = r.Method
-		gotKey = r.Header.Get("X-Api-Key")
-		gotCType = r.Header.Get("Content-Type")
-		mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":42,"label":"sf-alice"}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	tag, err := c.CreateTag(context.Background(), "sf-alice")
-	require.NoError(t, err)
-	assert.Equal(t, 42, tag.ID)
-	assert.Equal(t, "sf-alice", tag.Label)
-
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, "/api/v3/tag", gotPath)
-	assert.Equal(t, http.MethodPost, gotMeth)
-	assert.Equal(t, "secret", gotKey)
-	assert.Equal(t, "application/json", gotCType)
-	assert.Equal(t, "sf-alice", gotBody.Label, "label must round-trip into request body")
-}
-
-func TestClient_CreateTag_5xxTransient(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "secret", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.CreateTag(context.Background(), "sf-bob")
-	require.Error(t, err)
-	assert.True(t, IsTransient(err))
-}
-
-func TestClient_CreateTag_401IsAuth(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("test", srv.URL, "bad", 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	_, err := c.CreateTag(context.Background(), "sf-bob")
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, sharedErrors.ErrInstanceUnauthorized))
-	assert.True(t, IsAuth(err))
 }
 
 // TestClient_LookupSeries_Success asserts the lookup endpoint sends

@@ -7,11 +7,6 @@ import (
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-type systemStatusDTO struct {
-	Version     string `json:"version"`
-	InstanceURL string `json:"instanceName"`
-}
-
 type seriesDTO struct {
 	ID             int                 `json:"id"`
 	Title          string              `json:"title"`
@@ -148,20 +143,6 @@ type releaseDTO struct {
 	FullSeason           bool       `json:"fullSeason"`
 }
 
-type qualityProfileDTO struct {
-	ID    int                  `json:"id"`
-	Name  string               `json:"name"`
-	Items []qualityProfileItem `json:"items"`
-}
-
-type qualityProfileItem struct {
-	Allowed bool                 `json:"allowed"`
-	Quality *qualityNested       `json:"quality,omitempty"`
-	Items   []qualityProfileItem `json:"items,omitempty"`
-	Name    string               `json:"name,omitempty"`
-	ID      int                  `json:"id,omitempty"`
-}
-
 type indexerDTO struct {
 	ID       int    `json:"id"`
 	Name     string `json:"name"`
@@ -170,13 +151,6 @@ type indexerDTO struct {
 
 type tagDTO struct {
 	ID    int    `json:"id"`
-	Label string `json:"label"`
-}
-
-// createTagRequest is the POST /api/v3/tag body. N-4a TagResolver
-// dependency; Sonarr returns 200 with the created (or pre-existing)
-// row when a duplicate label is sent.
-type createTagRequest struct {
 	Label string `json:"label"`
 }
 
@@ -244,17 +218,6 @@ type lookupResultDTO struct {
 // /api/v3/series response — only `id` is consumed.
 type addSeriesResponseDTO struct {
 	ID int `json:"id"`
-}
-
-// rootFolderDTO mirrors Sonarr's /api/v3/rootfolder row. `accessible`
-// and `freeSpace` are present on modern Sonarr (v3+); older instances
-// may omit them — JSON decode leaves the zero value, which is fine for
-// the AddToSonarrModal picker (it shows the path regardless).
-type rootFolderDTO struct {
-	ID         int    `json:"id"`
-	Path       string `json:"path"`
-	Accessible bool   `json:"accessible"`
-	FreeSpace  int64  `json:"freeSpace"`
 }
 
 // historyResponse is the legacy un-paginated shape consumed by

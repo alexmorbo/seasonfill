@@ -1,14 +1,10 @@
 package sonarr
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
@@ -19,78 +15,43 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/admin/infrastructure/ratelimit"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/release"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
-	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/arrcore"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
-	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 )
 
 type Client struct {
-	name    shareddomain.InstanceName
-	baseURL string
-	apiKey  string
-	// http is the default client (used by every endpoint EXCEPT
-	// SearchReleases). Timeout = SonarrInstance.Timeout.
-	http *http.Client
-	// httpSearch is the long-timeout client used ONLY by
-	// SearchReleases. When WithSearchTimeout is not supplied (or is
-	// zero), httpSearch aliases `http` — i.e. behaviour identical to
-	// the pre-015 single-client model.
-	httpSearch *http.Client
-	limiter    *ratelimit.Limiter
-	// global is set by WithGlobalLimiter (frozen at construction).
-	// globalPtr is set by WithGlobalLimiterPointer (live-reloaded).
-	// The two are mutually exclusive — the pointer wins if both are
-	// supplied (last write wins in functional-options order).
-	global    *ratelimit.Limiter
-	globalPtr *atomic.Pointer[ratelimit.Limiter]
-	logger    *slog.Logger
+	// name and logger are retained on the Sonarr client (in addition to the
+	// embedded *arrcore.Client's own name) so the Sonarr-domain files
+	// (notification.go, payloads.go, ForceGrab's log) keep referencing c.name /
+	// c.logger unchanged. Ф6-R-2.
+	name   shareddomain.InstanceName
+	logger *slog.Logger
+
+	// Client is the shared arr transport + the v3 endpoints identical across
+	// Sonarr/Radarr (SystemStatus / GetQualityProfile / ListQualityProfiles /
+	// ListRootFolders / CreateTag). Embedding promotes those exported methods so
+	// *Client still satisfies dataports.SonarrClient. Ф6-R-2.
+	*arrcore.Client
 }
 
-// Option configures a Client at construction.
-type Option func(*Client)
+var _ ports.SonarrClient = (*Client)(nil)
 
-// WithGlobalLimiter sets the shared global limiter for cross-instance
-// protection. Pass nil for unlimited.
-func WithGlobalLimiter(l *ratelimit.Limiter) Option {
-	return func(c *Client) { c.global = l }
-}
+// Option configures a Client at construction. Alias of arrcore.Option so
+// existing callers (sonarr.WithSearchTimeout, sonarr.WithGlobalLimiterPointer)
+// keep compiling while the option machinery lives in arrcore.
+type Option = arrcore.Option
 
-// WithGlobalLimiterPointer captures an atomic pointer to the live
-// global limiter. The client reads the pointer on every API call
-// so reload-time swaps take effect immediately. nil-safe: a nil
-// load means "no global rate limit on this call".
+// WithGlobalLimiter forwards to arrcore.WithGlobalLimiter.
+func WithGlobalLimiter(l *ratelimit.Limiter) Option { return arrcore.WithGlobalLimiter(l) }
+
+// WithGlobalLimiterPointer forwards to arrcore.WithGlobalLimiterPointer.
 func WithGlobalLimiterPointer(p *atomic.Pointer[ratelimit.Limiter]) Option {
-	return func(c *Client) {
-		if p != nil {
-			c.globalPtr = p
-			c.global = nil
-		}
-	}
+	return arrcore.WithGlobalLimiterPointer(p)
 }
 
-// globalLimiter returns the current global limiter (or nil for
-// unlimited). Callers must nil-check before invoking Wait.
-func (c *Client) globalLimiter() *ratelimit.Limiter {
-	if c.globalPtr != nil {
-		return c.globalPtr.Load()
-	}
-	return c.global
-}
-
-// WithSearchTimeout installs a separate http.Client used ONLY by
-// SearchReleases. Pass 0 (or negative) to keep the base-timeout
-// client for search too — defensive default for operators who don't
-// opt in. The base http.Client (and its connection pool via
-// http.DefaultTransport) is unchanged.
-func WithSearchTimeout(d time.Duration) Option {
-	return func(c *Client) {
-		if d <= 0 {
-			return
-		}
-		c.httpSearch = &http.Client{Timeout: d}
-	}
-}
+// WithSearchTimeout forwards to arrcore.WithSearchTimeout.
+func WithSearchTimeout(d time.Duration) Option { return arrcore.WithSearchTimeout(d) }
 
 func New(name shareddomain.InstanceName, baseURL, apiKey string, timeout time.Duration, logger *slog.Logger) *Client {
 	return NewWithOptions(name, baseURL, apiKey, timeout, nil, logger)
@@ -100,167 +61,44 @@ func NewWithLimiter(name shareddomain.InstanceName, baseURL, apiKey string, time
 	return NewWithOptions(name, baseURL, apiKey, timeout, limiter, logger)
 }
 
-// NewWithOptions constructs a Client and applies functional options.
-// Default httpSearch aliases http (= same timeout as every other
-// endpoint). WithSearchTimeout, if applied, overrides httpSearch
-// with a longer-timeout client for SearchReleases only.
+// NewWithOptions constructs a Client, building the embedded arrcore transport
+// and applying functional options to it. Signature preserved so external
+// constructors are unchanged.
 func NewWithOptions(name shareddomain.InstanceName, baseURL, apiKey string, timeout time.Duration, limiter *ratelimit.Limiter, logger *slog.Logger, opts ...Option) *Client {
-	base := &http.Client{Timeout: timeout}
-	c := &Client{
-		name:       name,
-		baseURL:    baseURL,
-		apiKey:     apiKey,
-		http:       base,
-		httpSearch: base, // default alias — overridden by WithSearchTimeout
-		limiter:    limiter,
-		logger:     logger,
+	return &Client{
+		name:   name,
+		logger: logger,
+		Client: arrcore.New(name, baseURL, apiKey, timeout, limiter, opts...),
 	}
-	for _, o := range opts {
-		o(c)
-	}
-	return c
 }
 
+// Name returns the instance name. Shadows the promoted arrcore.Name() at depth
+// 0 (unambiguous) and reads the retained sonarr-side field.
 func (c *Client) Name() string { return string(c.name) }
 
-func (c *Client) do(ctx context.Context, req *http.Request, endpoint string, out any) error {
-	return c.doWithClient(ctx, c.http, req, endpoint, out)
-}
-
-// doWithClient is the workhorse that lets callers pick which
-// http.Client (and therefore which timeout) to use. SearchReleases
-// supplies c.httpSearch; everything else funnels through c.http via
-// the thin `do` wrapper above.
-func (c *Client) doWithClient(ctx context.Context, hc *http.Client, req *http.Request, endpoint string, out any) error {
-	req.Header.Set("X-Api-Key", c.apiKey)
-	req.Header.Set("Accept", "application/json")
-	if req.Body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	// Per-instance limiter first, then global. Both nil-safe and honor ctx.
-	// When the wait queue outruns ctx, surface as ErrInstanceSelfThrottled
-	// — distinct from "Sonarr is down" — so the healthcheck can transition
-	// the instance to SelfThrottled instead of UnavailableUnknown.
-	if err := ratelimit.Wait(c.limiter, ctx); err != nil {
-		if errors.Is(err, ratelimit.ErrSelfThrottled) {
-			return fmt.Errorf("rate limit wait %s: %w", endpoint, errors.Join(err, sharedErrors.ErrInstanceSelfThrottled))
-		}
-		return fmt.Errorf("rate limit wait %s: %w", endpoint, err)
-	}
-	if err := ratelimit.Wait(c.globalLimiter(), ctx); err != nil {
-		if errors.Is(err, ratelimit.ErrSelfThrottled) {
-			return fmt.Errorf("global rate limit wait %s: %w", endpoint, errors.Join(err, sharedErrors.ErrInstanceSelfThrottled))
-		}
-		return fmt.Errorf("global rate limit wait %s: %w", endpoint, err)
-	}
-
-	start := time.Now()
-	resp, err := hc.Do(req)
-	dur := time.Since(start).Seconds()
-
-	if err != nil {
-		observability.SonarrAPIRequest(c.name, endpoint, "error")
-		observability.ObserveSonarrAPIDuration(c.name, endpoint, dur)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("call %s: %w", endpoint, ctxErr)
-		}
-		// Transport errors (DNS/connect/timeout) join the network sentinel so
-		// the scan/watchdog can classify without re-parsing url.Error.
-		return fmt.Errorf("call %s: %w", endpoint, errors.Join(err, sharedErrors.ErrInstanceNetwork))
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	observability.ObserveSonarrAPIDuration(c.name, endpoint, dur)
-	observability.SonarrAPIRequest(c.name, endpoint, strconv.Itoa(resp.StatusCode))
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, SonarrBodyMaxBytes))
-		se := &StatusError{Endpoint: endpoint, Status: resp.StatusCode, Body: string(body)}
-		if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			return fmt.Errorf("%w: %w", sharedErrors.ErrInstanceUnauthorized, se)
-		}
-		return se
-	}
-
-	if out == nil {
-		return nil
-	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("decode %s: %w", endpoint, err)
-	}
-	return nil
-}
-
+// get/searchGet/post/put/delete forward to the embedded arrcore client's
+// exported primitives. They exist so the Sonarr-domain methods (payloads.go,
+// notification.go, this file) keep their original lowercase call sites
+// byte-identical — Go does not promote unexported methods across packages, so
+// these thin wrappers bridge the gap. Ф6-R-2.
 func (c *Client) get(ctx context.Context, endpoint string, query url.Values, out any) error {
-	full := c.baseURL + endpoint
-	if query != nil {
-		full += "?" + query.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
-	if err != nil {
-		return fmt.Errorf("build request %s: %w", endpoint, err)
-	}
-	return c.do(ctx, req, endpoint, out)
+	return c.Get(ctx, endpoint, query, out)
 }
 
-// searchGet is `get` routed through c.httpSearch — the long-timeout
-// client. Only SearchReleases uses it; every other endpoint uses
-// `get`. When WithSearchTimeout was not supplied, c.httpSearch
-// aliases c.http (same behaviour as get).
 func (c *Client) searchGet(ctx context.Context, endpoint string, query url.Values, out any) error {
-	full := c.baseURL + endpoint
-	if query != nil {
-		full += "?" + query.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
-	if err != nil {
-		return fmt.Errorf("build request %s: %w", endpoint, err)
-	}
-	return c.doWithClient(ctx, c.httpSearch, req, endpoint, out)
+	return c.SearchGet(ctx, endpoint, query, out)
 }
 
-func (c *Client) post(ctx context.Context, endpoint string, body any, out any) error {
-	full := c.baseURL + endpoint
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("encode body %s: %w", endpoint, err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, full, bytes.NewReader(buf))
-	if err != nil {
-		return fmt.Errorf("build request %s: %w", endpoint, err)
-	}
-	return c.do(ctx, req, endpoint, out)
+func (c *Client) post(ctx context.Context, endpoint string, body, out any) error {
+	return c.Post(ctx, endpoint, body, out)
 }
 
-func (c *Client) put(ctx context.Context, endpoint string, body any, out any) error {
-	full := c.baseURL + endpoint
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("encode body %s: %w", endpoint, err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, full, bytes.NewReader(buf))
-	if err != nil {
-		return fmt.Errorf("build request %s: %w", endpoint, err)
-	}
-	return c.do(ctx, req, endpoint, out)
+func (c *Client) put(ctx context.Context, endpoint string, body, out any) error {
+	return c.Put(ctx, endpoint, body, out)
 }
 
 func (c *Client) delete(ctx context.Context, endpoint string) error {
-	full := c.baseURL + endpoint
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, full, nil)
-	if err != nil {
-		return fmt.Errorf("build request %s: %w", endpoint, err)
-	}
-	return c.do(ctx, req, endpoint, nil)
-}
-
-func (c *Client) SystemStatus(ctx context.Context) (ports.SystemStatus, error) {
-	var dto systemStatusDTO
-	if err := c.get(ctx, "/api/v3/system/status", nil, &dto); err != nil {
-		return ports.SystemStatus{}, err
-	}
-	return ports.SystemStatus{Version: dto.Version, InstanceURL: dto.InstanceURL}, nil
+	return c.Delete(ctx, endpoint)
 }
 
 func (c *Client) ListSeries(ctx context.Context) ([]series.Series, error) {
@@ -628,88 +466,6 @@ func (c *Client) SetSeasonMonitored(ctx context.Context, sonarrSeriesID shareddo
 func (c *Client) SearchSeason(ctx context.Context, sonarrSeriesID shareddomain.SonarrSeriesID, seasonNumber int) error {
 	body := seasonSearchCommand{Name: "SeasonSearch", SeriesID: int(sonarrSeriesID), SeasonNumber: seasonNumber}
 	return c.post(ctx, "/api/v3/command", body, nil)
-}
-
-func (c *Client) GetQualityProfile(ctx context.Context, id int) (ports.QualityProfile, error) {
-	var dto qualityProfileDTO
-	if err := c.get(ctx, "/api/v3/qualityprofile/"+strconv.Itoa(id), nil, &dto); err != nil {
-		return ports.QualityProfile{}, err
-	}
-	prof := ports.QualityProfile{ID: dto.ID, Name: dto.Name}
-	order := 0
-	for _, it := range dto.Items {
-		order++
-		if it.Quality != nil {
-			if it.Allowed {
-				prof.Items = append(prof.Items, ports.QualityItem{
-					ID:    it.Quality.ID,
-					Name:  it.Quality.Name,
-					Order: order,
-				})
-			}
-			continue
-		}
-		for _, sub := range it.Items {
-			if sub.Quality != nil && (sub.Allowed || it.Allowed) {
-				prof.Items = append(prof.Items, ports.QualityItem{
-					ID:    sub.Quality.ID,
-					Name:  sub.Quality.Name,
-					Order: order,
-				})
-			}
-		}
-	}
-	return prof, nil
-}
-
-// ListQualityProfiles calls GET /api/v3/qualityprofile and returns the
-// full list. Unlike GetQualityProfile(id), the per-item allowance loop
-// is skipped — the N-4 modal picker only needs id+name. Callers that
-// need the rich Items slice must fall back to GetQualityProfile(id).
-func (c *Client) ListQualityProfiles(ctx context.Context) ([]ports.QualityProfile, error) {
-	var dtos []qualityProfileDTO
-	if err := c.get(ctx, "/api/v3/qualityprofile", nil, &dtos); err != nil {
-		return nil, err
-	}
-	out := make([]ports.QualityProfile, 0, len(dtos))
-	for _, d := range dtos {
-		out = append(out, ports.QualityProfile{ID: d.ID, Name: d.Name})
-	}
-	return out, nil
-}
-
-// ListRootFolders calls GET /api/v3/rootfolder. Sonarr returns every
-// configured root in one round-trip; the typical instance has 1–3 of
-// them. No filtering applied — the caller picks based on Accessible.
-func (c *Client) ListRootFolders(ctx context.Context) ([]ports.RootFolder, error) {
-	var dtos []rootFolderDTO
-	if err := c.get(ctx, "/api/v3/rootfolder", nil, &dtos); err != nil {
-		return nil, err
-	}
-	out := make([]ports.RootFolder, 0, len(dtos))
-	for _, d := range dtos {
-		out = append(out, ports.RootFolder{
-			ID:         d.ID,
-			Path:       d.Path,
-			Accessible: d.Accessible,
-			FreeSpace:  d.FreeSpace,
-		})
-	}
-	return out, nil
-}
-
-// CreateTag posts {label} to /api/v3/tag and returns the created (or
-// pre-existing — Sonarr deduplicates by label) row. The TagResolver
-// (N-4c) calls this on cache miss; Sonarr's idempotency means the
-// resolver does not race even if two concurrent users trigger the
-// same label.
-func (c *Client) CreateTag(ctx context.Context, label string) (ports.Tag, error) {
-	body := createTagRequest{Label: label}
-	var dto tagDTO
-	if err := c.post(ctx, "/api/v3/tag", body, &dto); err != nil {
-		return ports.Tag{}, err
-	}
-	return ports.Tag{ID: dto.ID, Label: dto.Label}, nil
 }
 
 func (c *Client) ListIndexers(ctx context.Context) ([]ports.Indexer, error) {
