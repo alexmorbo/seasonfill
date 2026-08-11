@@ -66,6 +66,11 @@ type Server struct {
 	// idempotent.
 	discoverBundle *wiring.DiscoveryDiscoverBundle
 	metadataBundle *wiring.InstanceMetadataBundle
+	// Ф6-R-4a — retained so Shutdown Closes (and thereby unregisters from the
+	// cachewatch singleton) the movie_discover LRU, mirroring discoverBundle.
+	// A sequential server boot in the same process (the cmd/server E2E suite)
+	// otherwise panics on duplicate registration. nil-safe; Close is idempotent.
+	movieDiscoverBundle *wiring.MovieDiscoveryBundle
 }
 
 // New wires the server. The `armed` sentinel ensures bus.Close +
@@ -719,8 +724,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// the live TMDB holder exists; routes auth-gated. No bg fetcher / prewarm
 	// worker in R-4a (passthrough-sync trending/popular/search + LRU-backed
 	// /discover).
+	var movieDiscoverBundle *wiring.MovieDiscoveryBundle
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
-		movieDiscoverBundle := wiring.BuildMovieDiscovery(wiring.MovieDiscoveryDeps{
+		movieDiscoverBundle = wiring.BuildMovieDiscovery(wiring.MovieDiscoveryDeps{
 			Persistence: persistence,
 			TMDBClient:  enrichBundle.TMDBHolder,
 			Resolver:    seriesDetailMediaResolver, // shared MediaResolver
@@ -788,6 +794,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		}
 		if discoverBundle != nil && discoverBundle.LRU != nil {
 			_ = discoverBundle.LRU.Close()
+		}
+		if movieDiscoverBundle != nil && movieDiscoverBundle.LRU != nil {
+			_ = movieDiscoverBundle.LRU.Close()
 		}
 		if instanceMetadataBundle != nil && instanceMetadataBundle.Cache != nil {
 			_ = instanceMetadataBundle.Cache.Close()
@@ -988,6 +997,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		seriesFreshenerHolder:  seriesDetailBundle.SeriesFreshenerHolder,
 		discoverBundle:         discoverBundle,
 		metadataBundle:         instanceMetadataBundle,
+		movieDiscoverBundle:    movieDiscoverBundle,
 	}, nil
 }
 
@@ -1050,6 +1060,9 @@ func (s *Server) Shutdown(parentCtx context.Context) error {
 	// nil-safe; Close is idempotent.
 	if s.discoverBundle != nil && s.discoverBundle.LRU != nil {
 		_ = s.discoverBundle.LRU.Close()
+	}
+	if s.movieDiscoverBundle != nil && s.movieDiscoverBundle.LRU != nil {
+		_ = s.movieDiscoverBundle.LRU.Close()
 	}
 	if s.metadataBundle != nil && s.metadataBundle.Cache != nil {
 		_ = s.metadataBundle.Cache.Close()
