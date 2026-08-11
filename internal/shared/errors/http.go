@@ -20,6 +20,7 @@ func StatusCode(err error) int {
 		seriesNF      *SeriesNotFoundError
 		seriesLoad    *SeriesCanonicalLoadError
 		sonarrU       *SonarrUnreachableError
+		radarrU       *RadarrUnreachableError
 		sonarrI       *SonarrInstanceInvalidError
 		tmdbRL        *TMDBRateLimitedError
 		tmdbAuth      *TMDBAuthError
@@ -84,6 +85,8 @@ func StatusCode(err error) int {
 	case errors.As(err, &omdbAuth):
 		return http.StatusBadGateway
 	case errors.As(err, &sonarrU):
+		return http.StatusBadGateway
+	case errors.As(err, &radarrU):
 		return http.StatusBadGateway
 	case errors.As(err, &omdbQ):
 		return http.StatusServiceUnavailable

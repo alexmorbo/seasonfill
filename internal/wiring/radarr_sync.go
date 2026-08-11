@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
@@ -31,6 +32,10 @@ type RadarrSyncBundle struct {
 	SyncUC      *scan.RadarrSyncUseCase
 	MovieStates *catalogpersistence.MovieStatesRepository
 	Movies      *enrichpersistence.MovieRepository
+	// RadarrHolder is the REST-side reload-aware radarr instance map. Seeded
+	// empty at boot (matches SyncUC's nil seed); Replace'd by the OnApplied
+	// fanout. The add-to-radarr + collection-monitor lookups read through it.
+	RadarrHolder *adapters.RadarrInstanceMapHolder
 }
 
 // BuildRadarrSync constructs the DORMANT radarr-sync usecase (no cron). The
@@ -44,5 +49,6 @@ func BuildRadarrSync(db *gorm.DB, log *slog.Logger) *RadarrSyncBundle {
 		MovieStates: states, // rich Upsert
 		Logger:      log,
 	})
-	return &RadarrSyncBundle{SyncUC: uc, MovieStates: states, Movies: movies}
+	holder := adapters.NewRadarrInstanceMapHolder(nil)
+	return &RadarrSyncBundle{SyncUC: uc, MovieStates: states, Movies: movies, RadarrHolder: holder}
 }

@@ -31,6 +31,7 @@ import (
 	appgrab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	grabrest "github.com/alexmorbo/seasonfill/internal/grab/rest"
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
+	moviedetailrest "github.com/alexmorbo/seasonfill/internal/moviedetail/rest"
 	notificationrest "github.com/alexmorbo/seasonfill/internal/notification/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
@@ -114,6 +115,10 @@ func NewServer(
 	blocklistHandler *discoveryrest.BlocklistHandler, // ADR-0017 Ф5 S3
 	instanceMetadataHandler *adminrest.InstanceMetadataHandler, // story 519 N-4b
 	addToSonarrHandler *discoveryrest.AddToSonarrHandler, // story 520 N-4c
+	movieDetailHandler *moviedetailrest.Handler, // Ф6-R-6a
+	addToRadarrHandler *discoveryrest.AddToRadarrHandler, // Ф6-R-6a
+	movieCalendarHandler *catalogrest.MovieCalendarHandler, // Ф6-R-6a
+	movieCollectionsHandler *catalogrest.MovieCollectionsHandler, // Ф6-R-6a
 	// Story 578 / E-1-B5 — per-section freshness reader for the ETag
 	// middleware. nil-OK: when nil the middleware is a pass-through, so
 	// minimal/test wirings keep working with zero behaviour change.
@@ -486,6 +491,27 @@ func NewServer(
 		// route is omitted rather than 5xx-stubbed.
 		if addToSonarrHandler != nil {
 			guarded.POST("/discovery/add-to-sonarr", addToSonarrHandler.Handle)
+		}
+		// Ф6-R-6a — movie vertical: add-to-radarr (nil-OK, matches add-to-sonarr).
+		if addToRadarrHandler != nil {
+			guarded.POST("/discovery/add-to-radarr", addToRadarrHandler.Handle)
+		}
+		// Ф6-R-6a — movie release calendar. Register the static /movies/calendar
+		// BEFORE the /movies/:tmdb_id wildcard (static-before-wildcard).
+		if movieCalendarHandler != nil {
+			guarded.GET("/movies/calendar", movieCalendarHandler.Get)
+		}
+		// Ф6-R-6a — movie detail aggregate. Static /movies/* siblings (e.g.
+		// /movies/calendar above) register before this wildcard. Nil-OK: the
+		// route is omitted for minimal/test wirings.
+		if movieDetailHandler != nil {
+			guarded.GET("/movies/:tmdb_id", movieDetailHandler.Get)
+		}
+		// Ф6-R-6a — TMDB franchise collections.
+		if movieCollectionsHandler != nil {
+			guarded.GET("/collections/:tmdb_collection_id", movieCollectionsHandler.Get)
+			guarded.POST("/collections/:tmdb_collection_id/add-all-missing", movieCollectionsHandler.AddAllMissing)
+			guarded.PUT("/collections/:tmdb_collection_id/monitor", movieCollectionsHandler.Monitor)
 		}
 		if qbitSettings != nil {
 			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)

@@ -38,6 +38,7 @@ func IsRetriable(err error) bool {
 		seriesNF      *SeriesNotFoundError
 		seriesLoad    *SeriesCanonicalLoadError
 		sonarrU       *SonarrUnreachableError
+		radarrU       *RadarrUnreachableError
 		sonarrI       *SonarrInstanceInvalidError
 		tmdbRL        *TMDBRateLimitedError
 		tmdbAuth      *TMDBAuthError
@@ -67,6 +68,8 @@ func IsRetriable(err error) bool {
 		return seriesLoad.Retriable()
 	case errors.As(err, &sonarrU):
 		return sonarrU.Retriable()
+	case errors.As(err, &radarrU):
+		return radarrU.Retriable()
 	case errors.As(err, &sonarrI):
 		return sonarrI.Retriable()
 	case errors.As(err, &tmdbRL):
@@ -127,6 +130,7 @@ func ErrorCode(err error) string {
 		seriesNF      *SeriesNotFoundError
 		seriesLoad    *SeriesCanonicalLoadError
 		sonarrU       *SonarrUnreachableError
+		radarrU       *RadarrUnreachableError
 		sonarrI       *SonarrInstanceInvalidError
 		tmdbRL        *TMDBRateLimitedError
 		tmdbAuth      *TMDBAuthError
@@ -156,6 +160,8 @@ func ErrorCode(err error) string {
 		return seriesLoad.Code()
 	case errors.As(err, &sonarrU):
 		return sonarrU.Code()
+	case errors.As(err, &radarrU):
+		return radarrU.Code()
 	case errors.As(err, &sonarrI):
 		return sonarrI.Code()
 	case errors.As(err, &tmdbRL):

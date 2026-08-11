@@ -238,6 +238,10 @@ func (u *UseCase) Update(
 		return err
 	}
 	newSnap.ID = existing.ID
+	// Type is immutable post-create — the discriminator drives which client
+	// stack + reload partition an instance lands in; a flip would orphan its
+	// settings/history. Ignore any wire-supplied type on Update.
+	newSnap.Type = existing.Type
 	trimmed := strings.TrimSpace(newSnap.APIKey)
 	preserveSecret := trimmed == ""
 	if !preserveSecret && isPlaceholderAPIKey(trimmed) {
@@ -368,6 +372,10 @@ func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 	if s.Mode != "" && s.Mode != "auto" && s.Mode != "manual" {
 		return newValidationErr("mode", "INVALID_INSTANCE_MODE",
 			"mode must be one of auto, manual")
+	}
+	if s.Type != "" && s.Type != "sonarr" && s.Type != "radarr" {
+		return newValidationErr("type", "INVALID_INSTANCE_TYPE",
+			"type must be one of sonarr, radarr")
 	}
 	if err := boundDuration("timeout_sec",
 		"INVALID_INSTANCE_TIMEOUT_OUT_OF_RANGE",

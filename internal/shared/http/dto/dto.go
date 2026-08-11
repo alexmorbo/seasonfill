@@ -382,6 +382,7 @@ type MissingSeriesList struct {
 // the DTO so the SPA can render "last edited" without a HEAD).
 type InstanceDetail struct {
 	Name             string              `json:"name"             example:"alpha"`
+	Type             string              `json:"type"             example:"sonarr" enums:"sonarr,radarr"`
 	URL              string              `json:"url"              example:"http://sonarr:8989"`
 	APIKey           string              `json:"api_key"          example:"***"`
 	Mode             string              `json:"mode"             example:"auto"  enums:"auto,manual"`
@@ -479,7 +480,10 @@ type InstanceHealthCheck struct {
 // see handlers/instances_crud.go writeError dispatch for the typed
 // per-field code.
 type InstanceCreateRequest struct {
-	Name             string              `json:"name"             example:"alpha"           validate:"required,min=1,max=64"`
+	Name string `json:"name"             example:"alpha"           validate:"required,min=1,max=64"`
+	// Type is the arr_instance.type discriminator. Optional on the wire —
+	// omitted/empty defaults to "sonarr" (backwards compatible). Ф6-R-6a.
+	Type             string              `json:"type,omitempty"   example:"sonarr"          validate:"omitempty,oneof=sonarr radarr"`
 	URL              string              `json:"url"              example:"http://sonarr:8989" validate:"required,url"`
 	APIKey           string              `json:"api_key"          example:"abcd..."`
 	Mode             string              `json:"mode,omitempty"   example:"auto"            validate:"omitempty,oneof=auto manual"`

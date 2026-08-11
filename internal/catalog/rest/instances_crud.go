@@ -267,6 +267,7 @@ func (h *InstanceCRUDHandler) writeError(c *gin.Context, err error) {
 func requestToSnapshot(r dto.InstanceCreateRequest) runtime.InstanceSnapshot {
 	return runtime.InstanceSnapshot{
 		Name:          r.Name,
+		Type:          r.Type, // Ф6-R-6a; ApplyInstanceDefaults fills "" → "sonarr"
 		URL:           r.URL,
 		APIKey:        r.APIKey,
 		Mode:          r.Mode,
@@ -352,7 +353,7 @@ func scanSkipHandledSeasonsOrDefault(p *bool) bool {
 
 func snapshotToDetailDTO(s runtime.InstanceSnapshot, ts time.Time) dto.InstanceDetail {
 	return dto.InstanceDetail{
-		Name: s.Name, URL: s.URL, APIKey: "***", Mode: s.Mode,
+		Name: s.Name, Type: s.Type, URL: s.URL, APIKey: "***", Mode: s.Mode,
 		TimeoutSec:       int(s.Timeout / time.Second),
 		SearchTimeoutSec: int(s.SearchTimeout / time.Second),
 		DryRun:           s.DryRun,

@@ -288,6 +288,14 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/moviedetail/ inherits the same carve-out — the movie-detail
+      # UseCase (app) and Handler (rest) constructors accept *slog.Logger and
+      # fall back to sharedports.DomainLogger(slog.Default(), "http") when nil
+      # (Ф6-R-6a).
+      - path: 'internal/moviedetail/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # Tests freely use slog.Default()/New for fixtures.
       - path: _test\.go
         linters:

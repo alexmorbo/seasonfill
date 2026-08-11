@@ -135,6 +135,23 @@ func (r *MovieStatesRepository) ListActiveByInstance(ctx context.Context, instan
 	return out, nil
 }
 
+// ListActiveByMovieID returns the ACTIVE per-instance states for one movie id.
+// Powers the movie-detail library block (Ф6-R-6a). instance_name ASC deterministic.
+func (r *MovieStatesRepository) ListActiveByMovieID(ctx context.Context, movieID domain.MovieID) ([]movie.StateEntry, error) {
+	var models []database.MovieStateModel
+	err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Where("movie_id = ? AND deleted_at IS NULL", movieID).
+		Order("instance_name ASC").Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("list movie_states by movie_id: %w", err)
+	}
+	out := make([]movie.StateEntry, 0, len(models))
+	for _, m := range models {
+		out = append(out, movieStateToEntry(m))
+	}
+	return out, nil
+}
+
 func movieStateToEntry(m database.MovieStateModel) movie.StateEntry {
 	return movie.StateEntry{
 		InstanceName:    domain.InstanceName(m.InstanceName),

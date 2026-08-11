@@ -1298,6 +1298,220 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/collections/{tmdb_collection_id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * TMDB franchise collection detail
+         * @description Collection header + member parts with per-instance library
+         *     membership. instance resolves membership; when omitted and
+         *     exactly one radarr instance is registered it is used, else 400.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description radarr instance for membership */
+                    readonly instance?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB collection id */
+                    readonly tmdb_collection_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieCollectionDetail"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/collections/{tmdb_collection_id}/add-all-missing": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /** Add every missing collection part to Radarr */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB collection id */
+                    readonly tmdb_collection_id: number;
+                };
+                readonly cookie?: never;
+            };
+            /** @description instance + quality/root knobs */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.MovieCollectionAddAllRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieCollectionAddAllResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/collections/{tmdb_collection_id}/monitor": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        /** Enable Radarr native monitor for a collection */
+        readonly put: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB collection id */
+                    readonly tmdb_collection_id: number;
+                };
+                readonly cookie?: never;
+            };
+            /** @description instance */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.MovieCollectionMonitorRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description No Content */
+                readonly 204: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/config/runtime": {
         readonly parameters: {
             readonly query?: never;
@@ -3741,6 +3955,162 @@ export type paths = {
                     };
                     content: {
                         readonly "image/jpeg": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/movies/{tmdb_id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Movie detail aggregate
+         * @description Returns the movie detail keyed by TMDB id: canon + localized
+         *     title/overview + franchise collection + per-instance Radarr
+         *     library membership. All data is local (no live TMDB). 404 when
+         *     no canon row exists for the tmdb id.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB movie id */
+                    readonly tmdb_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieDetailResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/movies/calendar": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Movie release calendar
+         * @description Theatrical/digital/physical release milestones for library
+         *     movies over a window (default ±3 months). Days group by UTC date.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description window start (YYYY-MM-DD) */
+                    readonly from?: string;
+                    /** @description window end (YYYY-MM-DD, inclusive) */
+                    readonly to?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieCalendarDTO"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
             };
@@ -6520,6 +6890,13 @@ export type components = {
             readonly search_timeout_sec?: number;
             readonly tags?: components["schemas"]["dto.InstanceTags"];
             readonly timeout_sec?: number;
+            /**
+             * @description Type is the arr_instance.type discriminator. Optional on the wire —
+             *     omitted/empty defaults to "sonarr" (backwards compatible). Ф6-R-6a.
+             * @example sonarr
+             * @enum {string}
+             */
+            readonly type?: DtoInstanceCreateRequestType;
             /** @example http://sonarr:8989 */
             readonly url: string;
             /**
@@ -6590,6 +6967,11 @@ export type components = {
             readonly search_timeout_sec?: number;
             readonly tags?: components["schemas"]["dto.InstanceTags"];
             readonly timeout_sec?: number;
+            /**
+             * @example sonarr
+             * @enum {string}
+             */
+            readonly type?: DtoInstanceDetailType;
             /**
              * @description UIURL is the derived browser-facing URL the SPA links to. Equals
              *     PublicURL when set, otherwise URL. Always emitted as a non-empty
@@ -6742,6 +7124,13 @@ export type components = {
             readonly search_timeout_sec?: number;
             readonly tags?: components["schemas"]["dto.InstanceTags"];
             readonly timeout_sec?: number;
+            /**
+             * @description Type is the arr_instance.type discriminator. Optional on the wire —
+             *     omitted/empty defaults to "sonarr" (backwards compatible). Ф6-R-6a.
+             * @example sonarr
+             * @enum {string}
+             */
+            readonly type?: DtoInstanceUpdateRequestType;
             /** @example http://sonarr:8989 */
             readonly url: string;
             /**
@@ -6904,6 +7293,100 @@ export type components = {
             readonly avatar_mode?: string;
             /** @example ru */
             readonly preferred_language?: string;
+        };
+        readonly "dto.MovieCalendarDTO": {
+            readonly days?: readonly components["schemas"]["dto.MovieCalendarDayDTO"][];
+            readonly from?: string;
+            readonly generated_at?: string;
+            readonly to?: string;
+        };
+        readonly "dto.MovieCalendarDayDTO": {
+            readonly date?: string;
+            readonly events?: readonly components["schemas"]["dto.MovieCalendarEventDTO"][];
+        };
+        readonly "dto.MovieCalendarEventDTO": {
+            readonly date?: string;
+            readonly milestone?: string;
+            readonly movie_id?: number;
+            readonly poster?: string;
+            readonly title?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "dto.MovieCollectionAddAllRequest": {
+            readonly instance_name?: string;
+            readonly minimum_availability?: string;
+            readonly monitored?: boolean;
+            readonly quality_profile_id?: number;
+            readonly root_folder_path?: string;
+            readonly search_on_add?: boolean;
+        };
+        readonly "dto.MovieCollectionAddAllResponse": {
+            readonly added?: number;
+            readonly already_present?: number;
+            readonly failed?: number;
+            readonly parts?: readonly components["schemas"]["dto.MovieCollectionAddPartDTO"][];
+            readonly requested?: number;
+        };
+        readonly "dto.MovieCollectionAddPartDTO": {
+            readonly already_added?: boolean;
+            readonly error?: string;
+            readonly radarr_movie_id?: number;
+            readonly skipped?: boolean;
+            readonly title?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "dto.MovieCollectionDetail": {
+            readonly instance?: string;
+            readonly name?: string;
+            readonly overview?: string;
+            readonly parts?: readonly components["schemas"]["dto.MovieCollectionPartDTO"][];
+            readonly poster?: string;
+            readonly radarr_monitored?: boolean;
+            readonly tmdb_collection_id?: number;
+        };
+        readonly "dto.MovieCollectionMonitorRequest": {
+            readonly instance_name?: string;
+        };
+        readonly "dto.MovieCollectionPartDTO": {
+            readonly in_library?: boolean;
+            readonly movie_id?: number;
+            readonly title?: string;
+            readonly tmdb_id?: number;
+            readonly year?: number;
+        };
+        readonly "dto.MovieDetailCollection": {
+            readonly name?: string;
+            readonly poster?: string;
+            readonly radarr_monitored?: boolean;
+            readonly tmdb_collection_id?: number;
+        };
+        readonly "dto.MovieDetailLibrary": {
+            readonly availability?: string;
+            readonly has_file?: boolean;
+            readonly instance_name?: string;
+            readonly monitored?: boolean;
+            readonly radarr_movie_id?: number;
+            readonly size_on_disk_bytes?: number;
+        };
+        readonly "dto.MovieDetailResponse": {
+            readonly backdrop?: string;
+            readonly collection?: components["schemas"]["dto.MovieDetailCollection"];
+            readonly degraded?: readonly string[];
+            readonly digital_release_date?: string;
+            readonly imdb_id?: string;
+            readonly imdb_rating?: number;
+            readonly library?: readonly components["schemas"]["dto.MovieDetailLibrary"][];
+            readonly overview?: string;
+            readonly physical_release_date?: string;
+            readonly poster?: string;
+            readonly release_date?: string;
+            readonly runtime_minutes?: number;
+            readonly status?: string;
+            readonly tagline?: string;
+            readonly title?: string;
+            readonly tmdb_id?: number;
+            readonly tmdb_rating?: number;
+            readonly year?: number;
         };
         /**
          * @description NextEpisodeToAir is the earliest future-dated episode (monitored
@@ -8451,9 +8934,17 @@ export enum DtoInstanceCreateRequestMode {
     auto = "auto",
     manual = "manual"
 }
+export enum DtoInstanceCreateRequestType {
+    sonarr = "sonarr",
+    radarr = "radarr"
+}
 export enum DtoInstanceDetailMode {
     auto = "auto",
     manual = "manual"
+}
+export enum DtoInstanceDetailType {
+    sonarr = "sonarr",
+    radarr = "radarr"
 }
 export enum DtoInstanceTagsMode {
     include = "include",
@@ -8463,6 +8954,10 @@ export enum DtoInstanceTagsMode {
 export enum DtoInstanceUpdateRequestMode {
     auto = "auto",
     manual = "manual"
+}
+export enum DtoInstanceUpdateRequestType {
+    sonarr = "sonarr",
+    radarr = "radarr"
 }
 export enum DtoMePasswordUnavailableResponseReason {
     managed_by_idp = "managed_by_idp"

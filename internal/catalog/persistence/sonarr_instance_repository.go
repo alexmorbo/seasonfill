@@ -426,6 +426,7 @@ func snapshotToInstanceModel(s runtime.InstanceSnapshot) database.SonarrInstance
 		Name: s.Name,
 		URL:  s.URL,
 		Mode: s.Mode,
+		Type: s.Type, // Ф6-R-6a: persist the discriminator; empty → DB default 'sonarr'
 	}
 }
 

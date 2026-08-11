@@ -1242,6 +1242,15 @@ components:
           maximum: 3600
           minimum: 0
           type: integer
+        type:
+          description: |-
+            Type is the arr_instance.type discriminator. Optional on the wire —
+            omitted/empty defaults to "sonarr" (backwards compatible). Ф6-R-6a.
+          enum:
+          - sonarr
+          - radarr
+          example: sonarr
+          type: string
         url:
           example: http://sonarr:8989
           type: string
@@ -1333,6 +1342,12 @@ components:
           $ref: '#/components/schemas/dto.InstanceTags'
         timeout_sec:
           type: integer
+        type:
+          enum:
+          - sonarr
+          - radarr
+          example: sonarr
+          type: string
         ui_url:
           description: |-
             UIURL is the derived browser-facing URL the SPA links to. Equals
@@ -1572,6 +1587,15 @@ components:
           maximum: 3600
           minimum: 0
           type: integer
+        type:
+          description: |-
+            Type is the arr_instance.type discriminator. Optional on the wire —
+            omitted/empty defaults to "sonarr" (backwards compatible). Ф6-R-6a.
+          enum:
+          - sonarr
+          - radarr
+          example: sonarr
+          type: string
         url:
           example: http://sonarr:8989
           type: string
@@ -1791,6 +1815,200 @@ components:
         preferred_language:
           example: ru
           type: string
+      type: object
+    dto.MovieCalendarDTO:
+      properties:
+        days:
+          items:
+            $ref: '#/components/schemas/dto.MovieCalendarDayDTO'
+          type: array
+          uniqueItems: false
+        from:
+          type: string
+        generated_at:
+          type: string
+        to:
+          type: string
+      type: object
+    dto.MovieCalendarDayDTO:
+      properties:
+        date:
+          type: string
+        events:
+          items:
+            $ref: '#/components/schemas/dto.MovieCalendarEventDTO'
+          type: array
+          uniqueItems: false
+      type: object
+    dto.MovieCalendarEventDTO:
+      properties:
+        date:
+          type: string
+        milestone:
+          type: string
+        movie_id:
+          type: integer
+        poster:
+          type: string
+        title:
+          type: string
+        tmdb_id:
+          type: integer
+      type: object
+    dto.MovieCollectionAddAllRequest:
+      properties:
+        instance_name:
+          type: string
+        minimum_availability:
+          type: string
+        monitored:
+          type: boolean
+        quality_profile_id:
+          type: integer
+        root_folder_path:
+          type: string
+        search_on_add:
+          type: boolean
+      type: object
+    dto.MovieCollectionAddAllResponse:
+      properties:
+        added:
+          type: integer
+        already_present:
+          type: integer
+        failed:
+          type: integer
+        parts:
+          items:
+            $ref: '#/components/schemas/dto.MovieCollectionAddPartDTO'
+          type: array
+          uniqueItems: false
+        requested:
+          type: integer
+      type: object
+    dto.MovieCollectionAddPartDTO:
+      properties:
+        already_added:
+          type: boolean
+        error:
+          type: string
+        radarr_movie_id:
+          type: integer
+        skipped:
+          type: boolean
+        title:
+          type: string
+        tmdb_id:
+          type: integer
+      type: object
+    dto.MovieCollectionDetail:
+      properties:
+        instance:
+          type: string
+        name:
+          type: string
+        overview:
+          type: string
+        parts:
+          items:
+            $ref: '#/components/schemas/dto.MovieCollectionPartDTO'
+          type: array
+          uniqueItems: false
+        poster:
+          type: string
+        radarr_monitored:
+          type: boolean
+        tmdb_collection_id:
+          type: integer
+      type: object
+    dto.MovieCollectionMonitorRequest:
+      properties:
+        instance_name:
+          type: string
+      type: object
+    dto.MovieCollectionPartDTO:
+      properties:
+        in_library:
+          type: boolean
+        movie_id:
+          type: integer
+        title:
+          type: string
+        tmdb_id:
+          type: integer
+        year:
+          type: integer
+      type: object
+    dto.MovieDetailCollection:
+      properties:
+        name:
+          type: string
+        poster:
+          type: string
+        radarr_monitored:
+          type: boolean
+        tmdb_collection_id:
+          type: integer
+      type: object
+    dto.MovieDetailLibrary:
+      properties:
+        availability:
+          type: string
+        has_file:
+          type: boolean
+        instance_name:
+          type: string
+        monitored:
+          type: boolean
+        radarr_movie_id:
+          type: integer
+        size_on_disk_bytes:
+          type: integer
+      type: object
+    dto.MovieDetailResponse:
+      properties:
+        backdrop:
+          type: string
+        collection:
+          $ref: '#/components/schemas/dto.MovieDetailCollection'
+        degraded:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        digital_release_date:
+          type: string
+        imdb_id:
+          type: string
+        imdb_rating:
+          type: number
+        library:
+          items:
+            $ref: '#/components/schemas/dto.MovieDetailLibrary'
+          type: array
+          uniqueItems: false
+        overview:
+          type: string
+        physical_release_date:
+          type: string
+        poster:
+          type: string
+        release_date:
+          type: string
+        runtime_minutes:
+          type: integer
+        status:
+          type: string
+        tagline:
+          type: string
+        title:
+          type: string
+        tmdb_id:
+          type: integer
+        tmdb_rating:
+          type: number
+        year:
+          type: integer
       type: object
     dto.NextEpisode:
       description: |-
@@ -4825,6 +5043,153 @@ paths:
       summary: Mint a calendar subscription token
       tags:
       - calendar
+  /collections/{tmdb_collection_id}:
+    get:
+      description: |-
+        Collection header + member parts with per-instance library
+        membership. instance resolves membership; when omitted and
+        exactly one radarr instance is registered it is used, else 400.
+      parameters:
+      - description: TMDB collection id
+        in: path
+        name: tmdb_collection_id
+        required: true
+        schema:
+          type: integer
+      - description: radarr instance for membership
+        in: query
+        name: instance
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MovieCollectionDetail'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: TMDB franchise collection detail
+      tags:
+      - collections
+  /collections/{tmdb_collection_id}/add-all-missing:
+    post:
+      parameters:
+      - description: TMDB collection id
+        in: path
+        name: tmdb_collection_id
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.MovieCollectionAddAllRequest'
+                description: instance + quality/root knobs
+                summary: body
+        description: instance + quality/root knobs
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MovieCollectionAddAllResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Add every missing collection part to Radarr
+      tags:
+      - collections
+  /collections/{tmdb_collection_id}/monitor:
+    put:
+      parameters:
+      - description: TMDB collection id
+        in: path
+        name: tmdb_collection_id
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.MovieCollectionMonitorRequest'
+                description: instance
+                summary: body
+        description: instance
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Enable Radarr native monitor for a collection
+      tags:
+      - collections
   /config/runtime:
     get:
       responses:
@@ -6473,6 +6838,109 @@ paths:
       summary: Stream a stored media asset
       tags:
       - media
+  /movies/{tmdb_id}:
+    get:
+      description: |-
+        Returns the movie detail keyed by TMDB id: canon + localized
+        title/overview + franchise collection + per-instance Radarr
+        library membership. All data is local (no live TMDB). 404 when
+        no canon row exists for the tmdb id.
+      parameters:
+      - description: TMDB movie id
+        in: path
+        name: tmdb_id
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag
+        in: query
+        name: lang
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MovieDetailResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Movie detail aggregate
+      tags:
+      - movies
+  /movies/calendar:
+    get:
+      description: |-
+        Theatrical/digital/physical release milestones for library
+        movies over a window (default ±3 months). Days group by UTC date.
+      parameters:
+      - description: window start (YYYY-MM-DD)
+        in: query
+        name: from
+        schema:
+          type: string
+      - description: window end (YYYY-MM-DD, inclusive)
+        in: query
+        name: to
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MovieCalendarDTO'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Movie release calendar
+      tags:
+      - movies
   /people/{tmdbId}:
     get:
       description: |-

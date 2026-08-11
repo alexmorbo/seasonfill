@@ -94,6 +94,10 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // blocklistHandler (ADR-0017 Ф5 S3)
 		nil,                            // instanceMetadataHandler
 		nil,                            // addToSonarrHandler
+		nil,                            // movieDetailHandler (Ф6-R-6a)
+		nil,                            // addToRadarrHandler (Ф6-R-6a)
+		nil,                            // movieCalendarHandler (Ф6-R-6a)
+		nil,                            // movieCollectionsHandler (Ф6-R-6a)
 		nil,                            // etagFreshness
 		nil,                            // seriesTitleLocalizer
 		nil,                            // seriesMediaLocalizer

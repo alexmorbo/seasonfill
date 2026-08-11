@@ -49,6 +49,10 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // blocklistHandler (ADR-0017 Ф5 S3)
 		nil, // instanceMetadataHandler (Story 519 N-4b)
 		nil, // addToSonarrHandler (Story 520 N-4c)
+		nil, // movieDetailHandler (Ф6-R-6a)
+		nil, // addToRadarrHandler (Ф6-R-6a)
+		nil, // movieCalendarHandler (Ф6-R-6a)
+		nil, // movieCollectionsHandler (Ф6-R-6a)
 		nil, // etagFreshness (Story 578 E-1-B5) — nil-OK pass-through
 		nil, // seriesTitleLocalizer (Story E-1-B7) — nil-OK pass-through
 		nil, // seriesMediaLocalizer (Story 584b) — nil-OK pass-through

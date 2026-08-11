@@ -586,7 +586,7 @@ type qbitSettingsLoader interface {
 // cross-subscriber race that would otherwise let one fan-out observer
 // (e.g. the old HealthRegistrySubscriber) read a stale View().All()
 // before the live set was rebuilt.
-func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, radarrSyncUC *scan.RadarrSyncUseCase, holder *adapters.InstanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
+func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, radarrSyncUC *scan.RadarrSyncUseCase, radarrHolder *adapters.RadarrInstanceMapHolder, holder *adapters.InstanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
 	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
 		nextMap := make(map[string]scan.Instance, len(snap.Instances))
@@ -618,14 +618,22 @@ func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, radarrS
 		// Ф6-R-4b: feed the DORMANT radarr-sync usecase from the radarr
 		// partition. Empty today (no radarr rows) → SwapInstances([]) →
 		// nothing runs. R-6 activates it via a cron on RunAll.
-		if radarrSyncUC != nil {
+		if radarrSyncUC != nil || radarrHolder != nil {
 			_, radarrSnaps := scan.PartitionInstancesByType(snap.Instances)
 			radarrInsts := make([]scan.RadarrInstance, 0, len(radarrSnaps))
+			radarrMap := make(map[string]scan.RadarrInstance, len(radarrSnaps))
 			for _, rs := range radarrSnaps {
 				rc := radarr.NewWithLimiter(shareddomain.InstanceName(rs.Name), rs.URL, rs.APIKey, rs.Timeout, nil, log)
-				radarrInsts = append(radarrInsts, scan.RadarrInstance{Config: rs, Client: rc})
+				ri := scan.RadarrInstance{Config: rs, Client: rc}
+				radarrInsts = append(radarrInsts, ri)
+				radarrMap[rs.Name] = ri
 			}
-			radarrSyncUC.SwapInstances(radarrInsts)
+			if radarrSyncUC != nil {
+				radarrSyncUC.SwapInstances(radarrInsts)
+			}
+			if radarrHolder != nil {
+				radarrHolder.Replace(radarrMap)
+			}
 		}
 
 		holder.Replace(nextMap)
@@ -722,6 +730,7 @@ func StartSubscribers(
 			ctx,
 			scan.ScanUC,
 			scan.RadarrSync.SyncUC,
+			scan.RadarrSync.RadarrHolder,
 			sonarr.Holder,
 			watchdogBundle.Checker,
 			watchdogBundle.Watchdog,
@@ -889,6 +898,14 @@ func BuildHTTPServer(
 	// AddSeries dispatch). Inline for the same reason as N-4b: the
 	// bundle's only deps (auth+sonarr+persistence) are already wired.
 	addToSonarrHandler := BuildDiscoveryAddToSonarr(auth, sonarrBundle, persistence, log)
+	// Ф6-R-6a — read-only movie detail aggregate over local repos (canon +
+	// movie_i18n + collection + per-instance membership). No TMDB gate.
+	movieDetailBundle := BuildMovieDetail(persistence.DB, log)
+	// Ф6-R-6a — movie vertical write/read handlers over the radarr holder +
+	// local repos: add-to-radarr, franchise collections, movie release calendar.
+	addToRadarrHandler := BuildDiscoveryAddToRadarr(scanBundle.RadarrSync, log)
+	movieCollectionsHandler := BuildMovieCollections(persistence.DB, scanBundle.RadarrSync, log)
+	movieCalendarHandler := BuildMovieCalendar(persistence.DB, log)
 	// ADR-0017 Ф5 D-1 — discovery row-config read API. Standalone: the
 	// repo's only dependency is persistence.DB. Always wired (no TMDB
 	// gate) — the endpoint serves the code-default set even with an empty
@@ -1018,6 +1035,10 @@ func BuildHTTPServer(
 		blocklistHandler,     // ADR-0017 Ф5 S3
 		instanceMetadataBundle.Handler,
 		addToSonarrHandler,
+		movieDetailBundle.Handler, // Ф6-R-6a
+		addToRadarrHandler,        // Ф6-R-6a
+		movieCalendarHandler,      // Ф6-R-6a
+		movieCollectionsHandler,   // Ф6-R-6a
 		seriesDetailBundle.ETagFreshness,
 		seriesTitleLocalizer,
 		seriesMediaLocalizer,
