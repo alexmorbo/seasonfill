@@ -143,8 +143,13 @@ type AuthSnapshot struct {
 }
 
 type InstanceSnapshot struct {
-	ID            uint
-	Name          string
+	ID   uint
+	Name string
+	// Type is the arr_instance.type discriminator ("sonarr" | "radarr").
+	// Empty defaults to "sonarr" (legacy rows / test fixtures). Ф6-R-4b:
+	// the single routing key for scan-dispatch (scan.IsRadarr) and the
+	// webhook drainer's per-instance map/process selection.
+	Type          string
 	URL           string
 	APIKey        string // plaintext (decrypted)
 	Mode          string
@@ -325,6 +330,9 @@ func ApplyInstanceDefaults(inst *InstanceSnapshot) {
 	}
 	if inst.Mode == "" {
 		inst.Mode = "auto"
+	}
+	if inst.Type == "" {
+		inst.Type = "sonarr"
 	}
 	// 046b: no nil-pointer story (ScanSkipHandledSeasons is a concrete
 	// bool); the migration DEFAULT TRUE handles every existing row. This

@@ -27,8 +27,10 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/radarr"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
+	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	httpserver "github.com/alexmorbo/seasonfill/internal/shared/http/edge"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -584,7 +586,7 @@ type qbitSettingsLoader interface {
 // cross-subscriber race that would otherwise let one fan-out observer
 // (e.g. the old HealthRegistrySubscriber) read a stale View().All()
 // before the live set was rebuilt.
-func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder *adapters.InstanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
+func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, radarrSyncUC *scan.RadarrSyncUseCase, holder *adapters.InstanceMapHolder, checker reload.HealthChecker, wd *watchdog.Watchdog, sweeper sweepIntervalSetter, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) reload.OnAppliedFunc {
 	return func(snap runtime.Snapshot, clients map[string]ports.SonarrClient) {
 		nextSlice := make([]scan.Instance, 0, len(snap.Instances))
 		nextMap := make(map[string]scan.Instance, len(snap.Instances))
@@ -592,6 +594,9 @@ func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder 
 		names := make([]string, 0, len(snap.Instances))
 		cfgByName := make(map[string]config.HealthCheckConfig, len(snap.Instances))
 		for _, inst := range snap.Instances {
+			if scan.IsRadarr(inst) {
+				continue // Ф6-R-4b: radarr instances excluded from sonarr scan fanout
+			}
 			client, ok := clients[inst.Name]
 			if !ok || client == nil {
 				// Should be impossible: clients is built by the same
@@ -609,6 +614,20 @@ func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, holder 
 			cfgByName[inst.Name] = config.NewHealthCheckConfig(inst.HealthCheck)
 		}
 		scanUC.SwapInstances(nextSlice)
+
+		// Ф6-R-4b: feed the DORMANT radarr-sync usecase from the radarr
+		// partition. Empty today (no radarr rows) → SwapInstances([]) →
+		// nothing runs. R-6 activates it via a cron on RunAll.
+		if radarrSyncUC != nil {
+			_, radarrSnaps := scan.PartitionInstancesByType(snap.Instances)
+			radarrInsts := make([]scan.RadarrInstance, 0, len(radarrSnaps))
+			for _, rs := range radarrSnaps {
+				rc := radarr.NewWithLimiter(shareddomain.InstanceName(rs.Name), rs.URL, rs.APIKey, rs.Timeout, nil, log)
+				radarrInsts = append(radarrInsts, scan.RadarrInstance{Config: rs, Client: rc})
+			}
+			radarrSyncUC.SwapInstances(radarrInsts)
+		}
+
 		holder.Replace(nextMap)
 		checker.ReplaceClients(clientSlice, names)
 		wd.SwapConfigs(cfgByName)
@@ -702,6 +721,7 @@ func StartSubscribers(
 		WithOnApplied(BuildOnAppliedFanout(
 			ctx,
 			scan.ScanUC,
+			scan.RadarrSync.SyncUC,
 			sonarr.Holder,
 			watchdogBundle.Checker,
 			watchdogBundle.Watchdog,

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/catalog/app/scan"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/webhook"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
@@ -48,6 +49,12 @@ type Drainer struct {
 	perJobTimeout time.Duration
 	leaseTTL      time.Duration
 	attemptCap    int
+
+	// Ф6-R-4b: radarr type-routing. All nil ⇒ every row drains via the sonarr
+	// map+process — the existing behaviour, byte-identical.
+	instanceType   func(name string) string
+	radarrMapEvent func(payload []byte, instance domain.InstanceName) (webhook.MovieEvent, error)
+	radarrProcess  func(ctx context.Context, evt webhook.MovieEvent) error
 
 	poke chan struct{}
 }
@@ -106,6 +113,16 @@ type DrainerDeps struct {
 	// LeaseTTL default = max(2*PerJobTimeout, 60s). F-13: must be
 	// >= PerJobTimeout so a full-timeout job keeps a live lease.
 	LeaseTTL time.Duration
+
+	// InstanceTypeResolver returns the arr_instance.type for an instance name
+	// ("sonarr" | "radarr"). Nil (default) ⇒ every row drains via the sonarr
+	// map+process — the existing behaviour, byte-identical. Ф6-R-4b.
+	InstanceTypeResolver func(name string) string
+	// RadarrMapEvent / RadarrProcess are the radarr-side map + unit-of-work,
+	// used only when InstanceTypeResolver reports "radarr". Nil ⇒ radarr rows
+	// fall through to the sonarr path (which classifies them Unsupported).
+	RadarrMapEvent func(payload []byte, instance domain.InstanceName) (webhook.MovieEvent, error)
+	RadarrProcess  func(ctx context.Context, evt webhook.MovieEvent) error
 }
 
 // NewDrainer constructs a Drainer, applying defaults.
@@ -161,7 +178,11 @@ func NewDrainer(d DrainerDeps) *Drainer {
 		perJobTimeout: perJob,
 		leaseTTL:      lease,
 		attemptCap:    cap,
-		poke:          make(chan struct{}, 1),
+		// Ф6-R-4b: straight assignment, no defaulting. Nil ⇒ sonarr-only drain.
+		instanceType:   d.InstanceTypeResolver,
+		radarrMapEvent: d.RadarrMapEvent,
+		radarrProcess:  d.RadarrProcess,
+		poke:           make(chan struct{}, 1),
 	}
 }
 
@@ -257,6 +278,14 @@ func (d *Drainer) drainOnce(ctx context.Context) {
 
 // processRow drains one claimed row.
 func (d *Drainer) processRow(ctx context.Context, row ports.WebhookInboxRow, succeeded map[string]struct{}) {
+	// Ф6-R-4b: route radarr-instance rows to the radarr map+process. Nil
+	// resolver / nil radarr hooks ⇒ fall through to the sonarr path unchanged.
+	if d.instanceType != nil && d.radarrProcess != nil &&
+		d.instanceType(row.InstanceName) == scan.InstanceTypeRadarr {
+		d.processRadarrRow(ctx, row, succeeded)
+		return
+	}
+
 	log := d.logger.With(
 		slog.Int64("inbox_id", row.ID),
 		slog.Int("attempt", row.Attempts+1),
@@ -320,6 +349,61 @@ func (d *Drainer) processRow(ctx context.Context, row ports.WebhookInboxRow, suc
 
 	// Retryable-but-ceiling, or a non-retryable logic error -> dead-letter.
 	d.markDead(ctx, row.ID, perr, log)
+}
+
+// processRadarrRow drains one claimed radarr-instance row. Mirror of processRow
+// with the radarr map/process + a movie dedup key. Reuses the SAME markSuccess /
+// markDead / isRetryable / withJobTimeout helpers so retry/dead-letter semantics
+// are identical to the sonarr path. Ф6-R-4b.
+func (d *Drainer) processRadarrRow(ctx context.Context, row ports.WebhookInboxRow, succeeded map[string]struct{}) {
+	log := d.logger.With(
+		slog.Int64("inbox_id", row.ID),
+		slog.Int("attempt", row.Attempts+1),
+		slog.String("instance", row.InstanceName),
+		slog.String("event_type", row.EventType),
+		slog.String("vertical", "radarr"),
+	)
+	evt, err := d.radarrMapEvent(row.Payload, domain.InstanceName(row.InstanceName))
+	if err != nil {
+		log.ErrorContext(ctx, "radarr_webhook_inbox_map_failed", slog.String("error", err.Error()))
+		d.markDead(ctx, row.ID, err, log)
+		return
+	}
+	key := radarrDedupKey(evt)
+	if _, dup := succeeded[key]; dup {
+		log.InfoContext(ctx, "radarr_webhook_inbox_duplicate_skipped")
+		d.markSuccess(ctx, row.ID, log)
+		observability.IncWebhookInboxOutcome("success")
+		return
+	}
+	jobCtx, cancel := d.withJobTimeout(ctx)
+	perr := d.radarrProcess(jobCtx, evt)
+	cancel()
+	if ctx.Err() != nil {
+		log.InfoContext(ctx, "radarr_webhook_inbox_drain_interrupted")
+		return
+	}
+	if perr == nil {
+		d.markSuccess(ctx, row.ID, log)
+		observability.IncWebhookInboxOutcome("success")
+		succeeded[key] = struct{}{}
+		return
+	}
+	if d.isRetryable(perr) && row.Attempts+1 < d.attemptCap {
+		next := d.clock.Now().Add(backoffFor(row.Attempts + 1))
+		if merr := d.inbox.MarkFailure(ctx, row.ID, perr.Error(), next); merr != nil {
+			log.ErrorContext(ctx, "radarr_webhook_inbox_mark_failure_failed", slog.String("error", merr.Error()))
+			return
+		}
+		observability.IncWebhookInboxOutcome("retry")
+		return
+	}
+	d.markDead(ctx, row.ID, perr, log)
+}
+
+// radarrDedupKey is the F-14 same-pass identity of a movie event's cache effect.
+func radarrDedupKey(evt webhook.MovieEvent) string {
+	return string(evt.InstanceName) + "|radarr|" + evt.RawEventType + "|" + strconv.Itoa(evt.RadarrMovieID)
 }
 
 // withJobTimeout derives a per-job ctx cancelled after perJobTimeout,

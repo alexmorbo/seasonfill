@@ -486,6 +486,7 @@ func modelToSnapshot(
 
 	snap := runtime.InstanceSnapshot{
 		Name:   m.Name,
+		Type:   m.Type, // Ф6-R-4b: arr_instance.type discriminator
 		URL:    m.URL,
 		APIKey: apiKey,
 		Mode:   m.Mode,

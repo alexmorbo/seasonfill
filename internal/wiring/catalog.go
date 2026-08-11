@@ -29,6 +29,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
+	radarrclient "github.com/alexmorbo/seasonfill/internal/shared/clients/radarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/clock"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -135,6 +136,9 @@ func BuildSonarr(snap runtime.Snapshot, log *slog.Logger) (*SonarrBundle, error)
 	scanInstancesByName := make(map[string]scan.Instance, n)
 	cfgByName := make(map[string]config.HealthCheckConfig, n)
 	for _, sc := range snap.Instances {
+		if scan.IsRadarr(sc) {
+			continue // Ф6-R-4b: radarr instances never enter the sonarr scan slice
+		}
 		c := clientsByName[sc.Name]
 		sonarrClients = append(sonarrClients, c)
 		si := scan.Instance{Config: sc, Client: c}
@@ -216,6 +220,10 @@ type ScanBundle struct {
 	OriginRepo   *grabpersistence.OriginReleaseRepository
 	DecisionRepo *grabpersistence.DecisionRepository
 	Txr          *catalogpersistence.GormTransactor
+	// RadarrSync (Ф6-R-4b) is the DORMANT radarr-sync usecase bundle. Its
+	// SyncUC is fed by the OnApplied fanout from the radarr partition (empty
+	// today — no radarr rows). No cron is scheduled in R-4b; R-6 activates it.
+	RadarrSync *RadarrSyncBundle
 }
 
 // BuildScan wires the scan + grab + rescan + cooldown-sweep stack.
@@ -304,6 +312,10 @@ func BuildScan(
 	}
 	sweeper := loops.NewSweepLoop(cooldownRepo, sweepInterval, scanLog)
 
+	// Ф6-R-4b: DORMANT radarr-sync usecase. Fed by the OnApplied fanout from
+	// the radarr partition; empty today (no radarr rows) → nothing runs.
+	radarrSync := BuildRadarrSync(db, scanLog)
+
 	return &ScanBundle{
 		Evaluator:    evaluator,
 		GrabUC:       grabUC,
@@ -316,6 +328,7 @@ func BuildScan(
 		OriginRepo:   originRepo,
 		DecisionRepo: decisionRepo,
 		Txr:          txr,
+		RadarrSync:   radarrSync,
 	}, nil
 }
 
@@ -574,6 +587,17 @@ func BuildWebhook(
 	// zero, so the boot config is belt-and-suspenders only.
 	webhookInboxRepo := catalogpersistence.NewWebhookInboxRepository(db)
 	inboxCfg := config.WebhookInboxConfigFromEnv()
+
+	// Ф6-R-4b: radarr movie webhook usecase (THIN movie_states writer). Reuses
+	// the SAME Movies (COALESCE-guarded canon) + MovieStates repos as the
+	// DORMANT radarr-sync, so both writers land byte-identical cache rows (F-21).
+	movieUC := webhookuc.NewMovieUseCase(webhookuc.MovieDeps{
+		Movies:      scanBundle.RadarrSync.Movies,
+		States:      stubMovieStateWriter{repo: scanBundle.RadarrSync.MovieStates}, // THIN UpsertStub
+		SoftDeleter: scanBundle.RadarrSync.MovieStates,
+		Logger:      webhookLog,
+	})
+
 	webhookInboxDrainer := webhookuc.NewDrainer(webhookuc.DrainerDeps{
 		Inbox:          webhookInboxRepo,
 		Process:        webhookUC.Process,
@@ -587,6 +611,19 @@ func BuildWebhook(
 		PerJobTimeout:  inboxCfg.JobTimeout,
 		AttemptCap:     inboxCfg.MaxAttempts,
 		LeaseTTL:       inboxCfg.LeaseTTL,
+		// Ф6-R-4b: type-routing. holder holds only sonarr instances in prod
+		// today, so the resolver always returns "sonarr" → the sonarr drain
+		// path is byte-identical. R-6 registers radarr instances.
+		InstanceTypeResolver: func(name string) string {
+			if h := holder.Load(); h != nil {
+				if inst, ok := h[name]; ok {
+					return inst.Config.Type
+				}
+			}
+			return scan.InstanceTypeSonarr
+		},
+		RadarrMapEvent: radarrclient.MapWebhookEvent,
+		RadarrProcess:  movieUC.Process,
 	})
 
 	return &WebhookBundle{

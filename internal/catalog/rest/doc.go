@@ -22,6 +22,7 @@
 //   - GET  /api/v1/runtime-config                          (runtime config get)
 //   - PATCH /api/v1/runtime-config                         (runtime config update)
 //   - POST /api/v1/webhook/sonarr/:instance_name           (inbound Sonarr webhook)
+//   - POST /api/v1/webhook/radarr/:instance_name           (inbound Radarr webhook)
 //   - POST /api/v1/instances/:name/webhook/install         (webhook install)
 //   - GET  /api/v1/instances/:name/webhook/status          (webhook status)
 //   - GET  /api/v1/webhooks/status                         (webhook aggregate)

@@ -192,6 +192,10 @@ func NewServer(
 		WithMediaPending(mediaPending).
 		WithLocalizer(seriesTitleLocalizer)
 	webhookHandler := catalogrest.NewWebhookHandler(webhookInbox, webhookTxr, webhookPoke, instanceReg, logger)
+	// Ф6-R-4b: Radarr Connect webhook handler — enqueues into the SAME durable
+	// inbox as the Sonarr handler; the drainer routes the row to the radarr
+	// map+process by arr_instance.type. Reuses the identical inbox/txr/poke/reg.
+	radarrWebhookHandler := catalogrest.NewRadarrWebhookHandler(webhookInbox, webhookTxr, webhookPoke, instanceReg, logger)
 	grabHandler := grabrest.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 
 	r.GET("/healthz", healthHandler.Live)
@@ -599,6 +603,18 @@ func NewServer(
 			wh.Use(webhookRateLimit(webhookLimiter))
 		}
 		wh.POST("", webhookHandler.Handle)
+
+		// Ф6-R-4b: Radarr Connect webhook — same durable inbox, same auth
+		// surface + per-instance rate limit as the Sonarr webhook.
+		rwh := api.Group("/webhook/radarr/:instance_name")
+		rwh.Use(middleware.RequireAuthWebhook(
+			cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime(),
+			adminRepo, loginLimiter,
+		))
+		if webhookLimiter != nil {
+			rwh.Use(webhookRateLimit(webhookLimiter))
+		}
+		rwh.POST("", radarrWebhookHandler.Handle)
 	} else {
 		// HIGH-S1: if an operator flips auth.enabled=false they get an
 		// unusable service (only /healthz, /readyz, /metrics). Make the
