@@ -234,6 +234,11 @@ func userToModel(u admin.User) database.UserModel {
 		CreatedAt:         u.CreatedAt,
 		UpdatedAt:         u.UpdatedAt,
 		LastLoginAt:       u.LastLoginAt,
+		AutoApprove:       u.AutoApprove,
+		Request:           u.Request,
+		ManageRequests:    u.ManageRequests,
+		ManageUsers:       u.ManageUsers,
+		Request4K:         u.Request4K,
 	}
 	if u.PasswordHash != "" {
 		h := u.PasswordHash
@@ -254,6 +259,11 @@ func modelToUser(m database.UserModel) admin.User {
 		CreatedAt:         m.CreatedAt,
 		UpdatedAt:         m.UpdatedAt,
 		LastLoginAt:       m.LastLoginAt,
+		AutoApprove:       m.AutoApprove,
+		Request:           m.Request,
+		ManageRequests:    m.ManageRequests,
+		ManageUsers:       m.ManageUsers,
+		Request4K:         m.Request4K,
 	}
 	if m.PasswordHash != nil {
 		u.PasswordHash = *m.PasswordHash

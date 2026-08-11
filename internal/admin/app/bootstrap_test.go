@@ -209,3 +209,25 @@ func TestConstantLatencyVerify_UnknownUserFalse(t *testing.T) {
 	t.Parallel()
 	assert.False(t, ConstantLatencyVerify("", "anything"))
 }
+
+// TestBootstrap_SeedsAdminAllPerms — Ф8-U-1: the first-run seed user is
+// role=admin AND holds all 5 permission bools. Guards the zero-regression
+// invariant (existing single user stays fully capable under RBAC).
+func TestBootstrap_SeedsAdminAllPerms(t *testing.T) {
+	repo := &fakeAdminRepo{}
+	autoGen, err := Bootstrap(context.Background(), repo, BootstrapConfig{
+		WebUser:     "admin",
+		WebPassword: "hunter2hunter2",
+	}, slog.Default())
+	require.NoError(t, err)
+	assert.False(t, autoGen, "explicit password → not auto-generated")
+
+	require.Len(t, repo.created, 1)
+	u := repo.created[0]
+	assert.Equal(t, admin.RoleAdmin, u.Role)
+	assert.True(t, u.AutoApprove, "seed admin AutoApprove")
+	assert.True(t, u.Request, "seed admin Request")
+	assert.True(t, u.ManageRequests, "seed admin ManageRequests")
+	assert.True(t, u.ManageUsers, "seed admin ManageUsers")
+	assert.True(t, u.Request4K, "seed admin Request4K")
+}

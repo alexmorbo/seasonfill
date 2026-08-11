@@ -32,7 +32,7 @@ func TestD17a_SchemaHasThirtySixTables(t *testing.T) {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			s := schema.Schema(d)
-			if got, want := len(s.Tables), 71; got != want {
+			if got, want := len(s.Tables), 72; got != want {
 				t.Fatalf("table count = %d, want %d", got, want)
 			}
 			present := map[string]bool{}
@@ -48,14 +48,14 @@ func TestD17a_SchemaHasThirtySixTables(t *testing.T) {
 	}
 }
 
-// TestD17a_UsersTableShape — users has 11 cols + single PK on id.
+// TestD17a_UsersTableShape — users has 16 cols + single PK on id.
 func TestD17a_UsersTableShape(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			tbl := mustTable(t, schema.Schema(d), "users")
-			if got, want := len(tbl.Columns), 11; got != want {
+			if got, want := len(tbl.Columns), 16; got != want {
 				t.Errorf("users column count = %d, want %d", got, want)
 			}
 			pk := tbl.PrimaryKey
@@ -93,6 +93,11 @@ func TestD17a_UsersColumns(t *testing.T) {
 		{"created_at", false},
 		{"updated_at", false},
 		{"last_login_at", true},
+		{"auto_approve", false},
+		{"request", false},
+		{"manage_requests", false},
+		{"manage_users", false},
+		{"request_4k", false},
 	}
 	for _, w := range want {
 		col := findColumnInTable(tbl, w.name)
@@ -285,4 +290,56 @@ func findColumnInTable(tbl *atlasschema.Table, name string) *atlasschema.Column 
 		}
 	}
 	return nil
+}
+
+// TestF8U1_UserInstanceAccessShape — Ф8-U-1: user_instance_access has 3
+// cols + composite PK ordered (user_id, instance_name).
+func TestF8U1_UserInstanceAccessShape(t *testing.T) {
+	t.Parallel()
+	for _, d := range dialects {
+		t.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+			tbl := mustTable(t, schema.Schema(d), "user_instance_access")
+			if got, want := len(tbl.Columns), 3; got != want {
+				t.Errorf("user_instance_access column count = %d, want %d", got, want)
+			}
+			pk := tbl.PrimaryKey
+			if pk == nil || len(pk.Parts) != 2 {
+				gotN := 0
+				if pk != nil {
+					gotN = len(pk.Parts)
+				}
+				t.Fatalf("user_instance_access PK parts = %d, want 2", gotN)
+			}
+			if pk.Parts[0].C.Name != "user_id" || pk.Parts[1].C.Name != "instance_name" {
+				t.Errorf("user_instance_access PK ordering = (%s, %s), want (user_id, instance_name)",
+					pk.Parts[0].C.Name, pk.Parts[1].C.Name)
+			}
+		})
+	}
+}
+
+// TestF8U1_UserInstanceAccessSingleFKCascade — exactly 1 FK → users
+// CASCADE (instance_name is a plain TEXT, NOT an FK to arr_instance).
+func TestF8U1_UserInstanceAccessSingleFKCascade(t *testing.T) {
+	t.Parallel()
+	for _, d := range dialects {
+		t.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+			tbl := mustTable(t, schema.Schema(d), "user_instance_access")
+			if len(tbl.ForeignKeys) != 1 {
+				t.Fatalf("user_instance_access FK count = %d, want 1 (users only)", len(tbl.ForeignKeys))
+			}
+			fk := tbl.ForeignKeys[0]
+			if fk.Symbol != "user_instance_access_user_id_fkey" {
+				t.Errorf("FK name = %q, want user_instance_access_user_id_fkey", fk.Symbol)
+			}
+			if fk.RefTable == nil || fk.RefTable.Name != "users" {
+				t.Errorf("FK ref = %v, want users", fk.RefTable)
+			}
+			if fk.OnDelete != atlasschema.Cascade {
+				t.Errorf("FK OnDelete = %q, want CASCADE", fk.OnDelete)
+			}
+		})
+	}
 }

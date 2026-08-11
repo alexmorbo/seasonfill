@@ -276,8 +276,9 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// Ф6-R-1 adds radarr_instance_settings → 66.
 			// Ф6-R-3 adds movies+movie_i18n+movie_states+collections → 70.
 			// Ф6-R-4a adds movie_changes_state → 71.
-			if len(s.Tables) != 71 {
-				t.Errorf("Schema(%s) tables = %d, want 71 (after Ф6-R-4a movie_changes_state)", d, len(s.Tables))
+			// Ф8-U-1 adds user_instance_access → 72.
+			if len(s.Tables) != 72 {
+				t.Errorf("Schema(%s) tables = %d, want 72 (after Ф8-U-1 user_instance_access)", d, len(s.Tables))
 			}
 		})
 	}

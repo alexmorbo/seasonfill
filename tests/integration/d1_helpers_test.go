@@ -291,6 +291,7 @@ var d1AcceptanceTablesPostgres = []string{
 	"tmdb_changes_state",
 	"torrent_action_audit",
 	"torrent_series_map",
+	"user_instance_access",
 	"user_instance_tags",
 	"users",
 	"videos",

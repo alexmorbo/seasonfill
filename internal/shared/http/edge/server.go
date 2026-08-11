@@ -270,10 +270,20 @@ func NewServer(
 			cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime(),
 			adminRepo, loginLimiter,
 		))
+		// Ф8-U-1 RBAC — per-route permission guards. Constructed once,
+		// reused across routes (stateless). role=='admin' and the
+		// "api-key" automation principal short-circuit, so these are
+		// no-ops for the current single admin user + all X-Api-Key
+		// callers. Only mutating routes are gated; GET reads stay open to
+		// any authenticated principal.
+		permAdmin := middleware.RequirePermission(adminRepo,
+			middleware.PermManageUsers, middleware.PermManageRequests)
+		permRequest := middleware.RequirePermission(adminRepo, middleware.PermRequest)
+		permManageUsers := middleware.RequirePermission(adminRepo, middleware.PermManageUsers)
 		guarded.GET("/auth/session", authHandler.Session)
 		guarded.DELETE("/auth/session", authHandler.Logout)
 		guarded.POST("/auth/password", authHandler.PasswordChange)
-		guarded.POST("/scan", scanHandler.Trigger)
+		guarded.POST("/scan", permAdmin, scanHandler.Trigger)
 		// Story 492 / N-1b — per-instance series-scoped routes DELETED.
 		// `/missing` (no replacement; FE drops the consumer), per-
 		// instance counters, the series-cache list / networks facet,
@@ -341,7 +351,7 @@ func NewServer(
 		etagMW := ETagMiddleware(etagFreshness, logger)
 		if globalSeriesHandler != nil {
 			guarded.GET("/series/:id", etagMW, globalSeriesHandler.Get)
-			guarded.POST("/series/:id/regrab", globalSeriesHandler.Regrab)
+			guarded.POST("/series/:id/regrab", permRequest, globalSeriesHandler.Regrab)
 		}
 		// Story 492 / N-1b — global series-scoped surfaces.
 		if globalCastHandler != nil {
@@ -369,7 +379,7 @@ func NewServer(
 		// ADR-0012 S1 — per-instance season monitor + search. nil-OK: the
 		// route is omitted when the handler is absent (minimal/test wirings).
 		if monitorSeasonHandler != nil {
-			guarded.POST("/instances/:name/series/:id/seasons/:season/monitor", monitorSeasonHandler.Post)
+			guarded.POST("/instances/:name/series/:id/seasons/:season/monitor", permRequest, monitorSeasonHandler.Post)
 		}
 		// ADR-0015 Ф3 C1 — follow/watchlist. nil-OK: routes omitted when the
 		// handler is absent (minimal/test wirings).
@@ -382,9 +392,9 @@ func NewServer(
 		// on the instance path). nil-OK: the routes are omitted when the
 		// handler is absent (minimal/test wirings).
 		if torrentActionHandler != nil {
-			guarded.POST("/instances/:name/torrents/:hash/pause", torrentActionHandler.Pause)
-			guarded.POST("/instances/:name/torrents/:hash/resume", torrentActionHandler.Resume)
-			guarded.POST("/instances/:name/torrents/:hash/recheck", torrentActionHandler.Recheck)
+			guarded.POST("/instances/:name/torrents/:hash/pause", permAdmin, torrentActionHandler.Pause)
+			guarded.POST("/instances/:name/torrents/:hash/resume", permAdmin, torrentActionHandler.Resume)
+			guarded.POST("/instances/:name/torrents/:hash/recheck", permAdmin, torrentActionHandler.Recheck)
 		}
 		// Story 582 / E-1 B3c — canon list-of-seasons (posters + counts).
 		if seasonsHandler != nil {
@@ -419,7 +429,7 @@ func NewServer(
 		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)
 		webhookInstallHandler := catalogrest.NewWebhookInstallHandler(webhookReconciler, webhookStatusCache, logger)
-		guarded.POST("/instances/:name/webhook/install", reconcileContextMiddleware(), webhookInstallHandler.Install)
+		guarded.POST("/instances/:name/webhook/install", permAdmin, reconcileContextMiddleware(), webhookInstallHandler.Install)
 		webhookStatusHandler := catalogrest.NewWebhookStatusHandler(webhookReconciler, logger)
 		guarded.GET("/instances/:name/webhook/status", reconcileContextMiddleware(), webhookStatusHandler.Status)
 		// Story 492 / N-1b — admin instance management moves under
@@ -427,10 +437,11 @@ func NewServer(
 		// FE story 493 swaps every call site in the same PR.
 		guarded.GET("/admin/instances", instancesHandler.List)
 		guarded.GET("/admin/instances/:name", instanceCRUD.Get)
-		guarded.POST("/admin/instances", reconcileContextMiddleware(), instanceCRUD.Create)
-		guarded.PUT("/admin/instances/:name", reconcileContextMiddleware(), instanceCRUD.Update)
-		guarded.DELETE("/admin/instances/:name", reconcileContextMiddleware(), instanceCRUD.Delete)
+		guarded.POST("/admin/instances", permAdmin, reconcileContextMiddleware(), instanceCRUD.Create)
+		guarded.PUT("/admin/instances/:name", permAdmin, reconcileContextMiddleware(), instanceCRUD.Update)
+		guarded.DELETE("/admin/instances/:name", permAdmin, reconcileContextMiddleware(), instanceCRUD.Delete)
 		guarded.POST("/admin/instances/test",
+			permAdmin,
 			probeRateLimit(loginLimiter),
 			instanceProbe.Test,
 		)
@@ -438,6 +449,7 @@ func NewServer(
 		// guarded/admin group + rate limit as /test; builds a transient Sonarr
 		// client from the posted url+api_key (no instance row required).
 		guarded.POST("/admin/instances/metadata",
+			permAdmin,
 			probeRateLimit(loginLimiter),
 			instanceProbe.Metadata,
 		)
@@ -446,10 +458,10 @@ func NewServer(
 		if notificationAgentsHandler != nil {
 			guarded.GET("/admin/notification-agents", notificationAgentsHandler.List)
 			guarded.GET("/admin/notification-agents/:id", notificationAgentsHandler.Get)
-			guarded.POST("/admin/notification-agents", notificationAgentsHandler.Create)
-			guarded.PUT("/admin/notification-agents/:id", notificationAgentsHandler.Update)
-			guarded.DELETE("/admin/notification-agents/:id", notificationAgentsHandler.Delete)
-			guarded.POST("/admin/notification-agents/:id/test", notificationAgentsHandler.Test)
+			guarded.POST("/admin/notification-agents", permManageUsers, notificationAgentsHandler.Create)
+			guarded.PUT("/admin/notification-agents/:id", permManageUsers, notificationAgentsHandler.Update)
+			guarded.DELETE("/admin/notification-agents/:id", permManageUsers, notificationAgentsHandler.Delete)
+			guarded.POST("/admin/notification-agents/:id/test", permManageUsers, notificationAgentsHandler.Test)
 		}
 		// Story 507 (N-2f) — curated discovery read endpoints.
 		// Nil-OK pattern: when wiring did not construct the handler
@@ -481,8 +493,8 @@ func NewServer(
 		// ADR-0017 Ф5 D-1/S2 — customisable rail config (read + write).
 		if rowConfigHandler != nil {
 			guarded.GET("/discovery/rows", rowConfigHandler.Handle)
-			guarded.PUT("/discovery/rows", rowConfigHandler.Save)     // S2 D-3
-			guarded.DELETE("/discovery/rows", rowConfigHandler.Reset) // S2 D-3
+			guarded.PUT("/discovery/rows", permAdmin, rowConfigHandler.Save)     // S2 D-3
+			guarded.DELETE("/discovery/rows", permAdmin, rowConfigHandler.Reset) // S2 D-3
 		}
 		// ADR-0017 Ф5 S3 — discovery blocklist (global hide-list) +
 		// keyword-search proxy. Distinct first path segment after
@@ -498,11 +510,11 @@ func NewServer(
 		// wiring did not construct the handler (test bootstrap) the
 		// route is omitted rather than 5xx-stubbed.
 		if addToSonarrHandler != nil {
-			guarded.POST("/discovery/add-to-sonarr", addToSonarrHandler.Handle)
+			guarded.POST("/discovery/add-to-sonarr", permRequest, addToSonarrHandler.Handle)
 		}
 		// Ф6-R-6a — movie vertical: add-to-radarr (nil-OK, matches add-to-sonarr).
 		if addToRadarrHandler != nil {
-			guarded.POST("/discovery/add-to-radarr", addToRadarrHandler.Handle)
+			guarded.POST("/discovery/add-to-radarr", permRequest, addToRadarrHandler.Handle)
 		}
 		// Ф6-R-6b — global movie library list. Distinct path segment from the
 		// /movies/:tmdb_id wildcard so ordering is irrelevant; grouped with the
@@ -524,13 +536,13 @@ func NewServer(
 		// Ф6-R-6a — TMDB franchise collections.
 		if movieCollectionsHandler != nil {
 			guarded.GET("/collections/:tmdb_collection_id", movieCollectionsHandler.Get)
-			guarded.POST("/collections/:tmdb_collection_id/add-all-missing", movieCollectionsHandler.AddAllMissing)
-			guarded.PUT("/collections/:tmdb_collection_id/monitor", movieCollectionsHandler.Monitor)
+			guarded.POST("/collections/:tmdb_collection_id/add-all-missing", permRequest, movieCollectionsHandler.AddAllMissing)
+			guarded.PUT("/collections/:tmdb_collection_id/monitor", permRequest, movieCollectionsHandler.Monitor)
 		}
 		if qbitSettings != nil {
 			guarded.GET("/instances/:name/qbit/settings", qbitSettings.Get)
-			guarded.PUT("/instances/:name/qbit/settings", qbitSettings.Upsert)
-			guarded.DELETE("/instances/:name/qbit/settings", qbitSettings.Delete)
+			guarded.PUT("/instances/:name/qbit/settings", permAdmin, qbitSettings.Upsert)
+			guarded.DELETE("/instances/:name/qbit/settings", permAdmin, qbitSettings.Delete)
 		}
 		// Story 519 (N-4b) — per-instance metadata cache surface for the
 		// AddToSonarrModal pickers (quality profiles + root folders) +
@@ -539,19 +551,19 @@ func NewServer(
 		if instanceMetadataHandler != nil {
 			guarded.GET("/instances/:name/quality-profiles", instanceMetadataHandler.GetQualityProfiles)
 			guarded.GET("/instances/:name/root-folders", instanceMetadataHandler.GetRootFolders)
-			guarded.POST("/instances/:name/refresh-metadata", instanceMetadataHandler.RefreshMetadata)
+			guarded.POST("/instances/:name/refresh-metadata", permAdmin, instanceMetadataHandler.RefreshMetadata)
 			// Story 524 N-4 per-season picker — uncached lookup proxy.
 			guarded.GET("/instances/:name/sonarr-lookup", instanceMetadataHandler.SonarrLookup)
 		}
 		if externalServices != nil {
 			guarded.GET("/external-services", externalServices.List)
-			guarded.PUT("/external-services/:service", externalServices.Upsert)
-			guarded.POST("/external-services/:service/test", externalServices.Test)
+			guarded.PUT("/external-services/:service", permAdmin, externalServices.Upsert)
+			guarded.POST("/external-services/:service/test", permAdmin, externalServices.Test)
 		}
 		guarded.GET("/instances/:name/watchdog/rollups", watchdogRollupHandler.One)
 		guarded.GET("/watchdog/rollups", watchdogRollupHandler.All)
 		guarded.GET("/instances/:name/watchdog/blacklist", watchdogBlacklistHandler.List)
-		guarded.DELETE("/instances/:name/watchdog/blacklist/:series/:season", watchdogBlacklistHandler.Delete)
+		guarded.DELETE("/instances/:name/watchdog/blacklist/:series/:season", permAdmin, watchdogBlacklistHandler.Delete)
 		if watchdogSeasonsHandler != nil {
 			guarded.GET("/watchdog/seasons", watchdogSeasonsHandler.List)
 			guarded.GET("/watchdog/series/:instance/:id", watchdogSeasonsHandler.Series)
@@ -597,15 +609,15 @@ func NewServer(
 		// handler struct stays in `internal/grab/rest/grab_episode_files.go`
 		// for its own test coverage but is no longer reached via any
 		// HTTP route.
-		guarded.POST("/decisions/:id/grab", grabHandler.ByDecision)
+		guarded.POST("/decisions/:id/grab", permAdmin, grabHandler.ByDecision)
 		rescanHandler := watchdogrest.NewRescanHandler(rescanUC, logger)
-		guarded.POST("/decisions/:id/rescan", rescanHandler.ByDecision)
-		guarded.POST("/scans/:id/cancel", scanHandler.Cancel)
+		guarded.POST("/decisions/:id/rescan", permAdmin, rescanHandler.ByDecision)
+		guarded.POST("/scans/:id/cancel", permAdmin, scanHandler.Cancel)
 		guarded.GET("/config/runtime", runtimeConfigHandler.Get)
-		guarded.PUT("/config/runtime", runtimeConfigHandler.Update)
+		guarded.PUT("/config/runtime", permAdmin, runtimeConfigHandler.Update)
 		if timezoneHandler != nil {
 			guarded.GET("/settings/timezone", timezoneHandler.Get)
-			guarded.PATCH("/settings/timezone", timezoneHandler.Patch)
+			guarded.PATCH("/settings/timezone", permAdmin, timezoneHandler.Patch)
 		}
 
 		// Story 485 (N-7a) — current-user profile + settings patch +
@@ -626,7 +638,7 @@ func NewServer(
 		}
 
 		oidcTestHandler := adminrest.NewOIDCTestHandler(authHandler.AuthRuntime(), logger)
-		guarded.POST("/auth/oidc/test", oidcTestHandler.Test)
+		guarded.POST("/auth/oidc/test", permAdmin, oidcTestHandler.Test)
 
 		// Webhook on the shared auth surface + per-instance rate limit.
 		wh := api.Group("/webhook/sonarr/:instance_name")

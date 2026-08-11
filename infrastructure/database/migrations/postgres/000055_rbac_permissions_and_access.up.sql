@@ -1,0 +1,10 @@
+-- modify "users" table
+ALTER TABLE "users" ADD COLUMN "auto_approve" boolean NOT NULL DEFAULT false, ADD COLUMN "request" boolean NOT NULL DEFAULT false, ADD COLUMN "manage_requests" boolean NOT NULL DEFAULT false, ADD COLUMN "manage_users" boolean NOT NULL DEFAULT false, ADD COLUMN "request_4k" boolean NOT NULL DEFAULT false;
+-- create "user_instance_access" table
+CREATE TABLE "user_instance_access" (
+  "user_id" bigint NOT NULL,
+  "instance_name" text NOT NULL,
+  "can_request" boolean NOT NULL DEFAULT true,
+  PRIMARY KEY ("user_id", "instance_name"),
+  CONSTRAINT "user_instance_access_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
+);

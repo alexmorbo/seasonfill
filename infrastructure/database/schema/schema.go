@@ -2661,9 +2661,17 @@ func addAuth(s *atlasschema.Schema, d Dialect) {
 	sonarrInstance := mustTable(s, "arr_instance")
 	userInstanceTags := buildUserInstanceTagsTable(d, users, sonarrInstance)
 	s.AddTables(userInstanceTags)
+
+	// Ф8-U-1 — per-(user, instance) request-ACL. Single FK → users
+	// CASCADE; instance_name is a plain TEXT logical name (NOT an FK to
+	// arr_instance — access rows may name instances that are not live
+	// rows). Gated by the same ATLAS_SCHEMA_SKIP_AUTH flag as its
+	// siblings (whole addAuth is skipped when set).
+	userInstanceAccess := buildUserInstanceAccessTable(d, users)
+	s.AddTables(userInstanceAccess)
 }
 
-// buildUsersTable returns users — 11 cols, single PK on BIGSERIAL id.
+// buildUsersTable returns users — 16 cols, single PK on BIGSERIAL id.
 // Embeds preferred_language + avatar_mode columns (user_settings
 // collapsed for 1:1 cardinality — see addAuth doc).
 //
@@ -2712,6 +2720,20 @@ func buildUsersTable(d Dialect) *atlasschema.Table {
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 	lastLoginAt := timestampColumn(d, "last_login_at", false, false)
 
+	// Ф8-U-1 RBAC permission flags. NOT NULL DEFAULT false. Appended
+	// AFTER last_login_at so atlas diff emits them as trailing ADD COLUMN
+	// statements in this declaration order.
+	autoApprove := atlasschema.NewBoolColumn("auto_approve", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	requestPerm := atlasschema.NewBoolColumn("request", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	manageRequests := atlasschema.NewBoolColumn("manage_requests", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	manageUsers := atlasschema.NewBoolColumn("manage_users", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+	request4K := atlasschema.NewBoolColumn("request_4k", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
+
 	roleCheck := atlasschema.NewCheck().
 		SetName("users_role_check").
 		SetExpr("role IN ('admin', 'user')")
@@ -2722,7 +2744,8 @@ func buildUsersTable(d Dialect) *atlasschema.Table {
 	return atlasschema.NewTable("users").
 		AddColumns(id, username, email, passwordHash, oidcSubject,
 			role, avatarMode, preferredLanguage,
-			createdAt, updatedAt, lastLoginAt).
+			createdAt, updatedAt, lastLoginAt,
+			autoApprove, requestPerm, manageRequests, manageUsers, request4K).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
 		AddIndexes(
 			atlasschema.NewUniqueIndex("users_username_uniq").
@@ -2782,6 +2805,30 @@ func buildUserInstanceTagsTable(d Dialect, usersTable, sonarrInstanceTable *atla
 				AddColumns(instanceName).
 				SetRefTable(sonarrInstanceTable).
 				AddRefColumns(parentRefCol(sonarrInstanceTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildUserInstanceAccessTable returns user_instance_access — 3 cols,
+// composite PK (user_id, instance_name), single FK → users CASCADE.
+// Ф8-U-1 request-ACL. instance_name is a plain TEXT logical name, NOT an
+// FK to arr_instance (access rows may reference instances that are not
+// live arr_instance rows). can_request defaults true.
+func buildUserInstanceAccessTable(d Dialect, usersTable *atlasschema.Table) *atlasschema.Table {
+	userID := fkColumn(d, "user_id", false /* not nullable */)
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	canRequest := atlasschema.NewBoolColumn("can_request", "boolean").
+		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
+
+	return atlasschema.NewTable("user_instance_access").
+		AddColumns(userID, instanceName, canRequest).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(userID, instanceName)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("user_instance_access_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(parentRefCol(usersTable)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)

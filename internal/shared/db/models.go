@@ -227,6 +227,15 @@ type UserModel struct {
 	CreatedAt         time.Time  `gorm:"column:created_at"`
 	UpdatedAt         time.Time  `gorm:"column:updated_at"`
 	LastLoginAt       *time.Time `gorm:"column:last_login_at"`
+	// Ф8-U-1 RBAC permission flags (migration 000055). NOT NULL at DB;
+	// DB DEFAULT false. GORM writes the Go value on Create (seed admin =
+	// all true). No `default` gorm tag so false is written explicitly
+	// rather than treated as "use DB default" on future user creates.
+	AutoApprove    bool `gorm:"column:auto_approve;not null"`
+	Request        bool `gorm:"column:request;not null"`
+	ManageRequests bool `gorm:"column:manage_requests;not null"`
+	ManageUsers    bool `gorm:"column:manage_users;not null"`
+	Request4K      bool `gorm:"column:request_4k;not null"`
 }
 
 func (UserModel) TableName() string { return "users" }
@@ -249,6 +258,19 @@ type UserInstanceTagModel struct {
 }
 
 func (UserInstanceTagModel) TableName() string { return "user_instance_tags" }
+
+// UserInstanceAccessModel — Ф8-U-1 per-(user, instance) request-ACL row.
+// Composite PK (user_id, instance_name). Single FK → users(id) CASCADE;
+// instance_name is a plain TEXT logical name, NOT an FK to arr_instance
+// (see admin.UserInstanceAccess doc / story DEVIATION D-1). can_request
+// defaults true at the DB.
+type UserInstanceAccessModel struct {
+	UserID       uint                `gorm:"primaryKey;column:user_id"`
+	InstanceName domain.InstanceName `gorm:"primaryKey;column:instance_name;type:text"`
+	CanRequest   bool                `gorm:"column:can_request;not null"`
+}
+
+func (UserInstanceAccessModel) TableName() string { return "user_instance_access" }
 
 // AppConfigModel — D-5 successor to the legacy RuntimeConfigModel.
 // Singleton row (id=1, CHECK id=1) holding ALL DB-stored runtime
