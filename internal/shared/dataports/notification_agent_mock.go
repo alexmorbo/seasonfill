@@ -18,7 +18,7 @@ var _ NotificationAgentRepository = &NotificationAgentRepositoryMock{}
 //
 //		// make and configure a mocked NotificationAgentRepository
 //		mockedNotificationAgentRepository := &NotificationAgentRepositoryMock{
-//			CreateFunc: func(ctx context.Context, a NotificationAgent) (int64, error) {
+//			CreateFunc: func(ctx context.Context, ownerID int64, a NotificationAgent) (int64, error) {
 //				panic("mock out the Create method")
 //			},
 //			DeleteFunc: func(ctx context.Context, id int64) error {
@@ -44,7 +44,7 @@ var _ NotificationAgentRepository = &NotificationAgentRepositoryMock{}
 //	}
 type NotificationAgentRepositoryMock struct {
 	// CreateFunc mocks the Create method.
-	CreateFunc func(ctx context.Context, a NotificationAgent) (int64, error)
+	CreateFunc func(ctx context.Context, ownerID int64, a NotificationAgent) (int64, error)
 
 	// DeleteFunc mocks the Delete method.
 	DeleteFunc func(ctx context.Context, id int64) error
@@ -67,6 +67,8 @@ type NotificationAgentRepositoryMock struct {
 		Create []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// OwnerID is the ownerID argument value.
+			OwnerID int64
 			// A is the a argument value.
 			A NotificationAgent
 		}
@@ -121,21 +123,23 @@ type NotificationAgentRepositoryMock struct {
 }
 
 // Create calls CreateFunc.
-func (mock *NotificationAgentRepositoryMock) Create(ctx context.Context, a NotificationAgent) (int64, error) {
+func (mock *NotificationAgentRepositoryMock) Create(ctx context.Context, ownerID int64, a NotificationAgent) (int64, error) {
 	if mock.CreateFunc == nil {
 		panic("NotificationAgentRepositoryMock.CreateFunc: method is nil but NotificationAgentRepository.Create was just called")
 	}
 	callInfo := struct {
-		Ctx context.Context
-		A   NotificationAgent
+		Ctx     context.Context
+		OwnerID int64
+		A       NotificationAgent
 	}{
-		Ctx: ctx,
-		A:   a,
+		Ctx:     ctx,
+		OwnerID: ownerID,
+		A:       a,
 	}
 	mock.lockCreate.Lock()
 	mock.calls.Create = append(mock.calls.Create, callInfo)
 	mock.lockCreate.Unlock()
-	return mock.CreateFunc(ctx, a)
+	return mock.CreateFunc(ctx, ownerID, a)
 }
 
 // CreateCalls gets all the calls that were made to Create.
@@ -143,12 +147,14 @@ func (mock *NotificationAgentRepositoryMock) Create(ctx context.Context, a Notif
 //
 //	len(mockedNotificationAgentRepository.CreateCalls())
 func (mock *NotificationAgentRepositoryMock) CreateCalls() []struct {
-	Ctx context.Context
-	A   NotificationAgent
+	Ctx     context.Context
+	OwnerID int64
+	A       NotificationAgent
 } {
 	var calls []struct {
-		Ctx context.Context
-		A   NotificationAgent
+		Ctx     context.Context
+		OwnerID int64
+		A       NotificationAgent
 	}
 	mock.lockCreate.RLock()
 	calls = mock.calls.Create

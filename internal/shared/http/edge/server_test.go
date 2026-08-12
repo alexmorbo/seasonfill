@@ -276,6 +276,14 @@ func (r *stubAdminRepo) GetByUsername(_ context.Context, name string) (admin.Use
 	}
 	return admin.User{}, ports.ErrNotFound
 }
+func (r *stubAdminRepo) FirstAdminID(_ context.Context) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.user != nil {
+		return int64(r.user.ID), nil
+	}
+	return 0, ports.ErrNotFound
+}
 func (r *stubAdminRepo) UpdateSettings(_ context.Context, _ uint, patch ports.UserSettingsPatch) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

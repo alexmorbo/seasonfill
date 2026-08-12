@@ -24,16 +24,6 @@ import (
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// blockingLoader seeds a BlocklistCache with a fixed tmdb ref_id set.
-type blockingLoader struct {
-	tmdb    []int64
-	keyword []int64
-}
-
-func (b blockingLoader) LoadBlockSets(context.Context) ([]int64, []int64, error) {
-	return b.tmdb, b.keyword, nil
-}
-
 func tmdbItem(seriesID int, tmdbID int) disco.Item {
 	id := shareddomain.TMDBID(tmdbID)
 	return disco.Item{SeriesID: shareddomain.SeriesID(seriesID), TMDBID: &id, Title: "S"}
@@ -42,6 +32,7 @@ func tmdbItem(seriesID int, tmdbID int) disco.Item {
 // TestDiscovery_Popular_FilterBlocked proves the curated reader subtracts a
 // blocked tmdb_id via the shared FilterBlocked chokepoint in readAndProject.
 func TestDiscovery_Popular_FilterBlocked(t *testing.T) {
+	t.Skip("Ф8-U-5a: blocklist read-path is a pass-through; per-user blocking restored in Ф8-U-5b")
 	repo := newFakeRepo()
 	blocked := shareddomain.TMDBID(777)
 	kept := shareddomain.TMDBID(111)
@@ -54,7 +45,7 @@ func TestDiscovery_Popular_FilterBlocked(t *testing.T) {
 	repo.setPage(disco.KindPopular, "", "en-US",
 		disco.Page{Items: items, Total: 3, RefreshedAt: now}, false, now)
 
-	cache := discoapp.NewBlocklistCache(blockingLoader{tmdb: []int64{777}})
+	cache := discoapp.NewBlocklistCache()
 	require.NoError(t, cache.Refresh(context.Background()))
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -160,8 +151,9 @@ func (p *filterCapturePass) lastFilter() tmdb.DiscoverFilter {
 // passthrough folds the blocked keyword ids into the outgoing DiscoverFilter's
 // WithoutKeywords (union + dedupe with the caller-supplied ?without_keywords).
 func TestDiscover_Passthrough_InjectsBlockedKeywords(t *testing.T) {
+	t.Skip("Ф8-U-5a: blocklist read-path is a pass-through; per-user blocking restored in Ф8-U-5b")
 	pass := &filterCapturePass{}
-	cache := discoapp.NewBlocklistCache(blockingLoader{keyword: []int64{210024, 55}})
+	cache := discoapp.NewBlocklistCache()
 	require.NoError(t, cache.Refresh(context.Background()))
 
 	r := newBlocklistDiscoverHarness(t, pass, cache)
@@ -181,6 +173,7 @@ func TestDiscover_Passthrough_InjectsBlockedKeywords(t *testing.T) {
 // TestDiscover_Backfill_TopsUpTo20 proves the passthrough reader tops a
 // filtered short page back to PAGE_SIZE by fetching the next TMDB page.
 func TestDiscover_Backfill_TopsUpTo20(t *testing.T) {
+	t.Skip("Ф8-U-5a: blocklist read-path is a pass-through; per-user blocking restored in Ф8-U-5b")
 	page1 := make([]disco.Item, 0, 20)
 	for i := 1; i <= 20; i++ {
 		page1 = append(page1, tmdbItem(i, i)) // tmdb ids 1..20
@@ -191,7 +184,7 @@ func TestDiscover_Backfill_TopsUpTo20(t *testing.T) {
 	}
 	pass := &pageAwarePass{byPage: map[int][]disco.Item{1: page1, 2: page2}}
 
-	cache := discoapp.NewBlocklistCache(blockingLoader{tmdb: []int64{1, 2, 3, 4, 5}})
+	cache := discoapp.NewBlocklistCache()
 	require.NoError(t, cache.Refresh(context.Background()))
 
 	r := newBlocklistDiscoverHarness(t, pass, cache)
@@ -206,6 +199,7 @@ func TestDiscover_Backfill_TopsUpTo20(t *testing.T) {
 // TestDiscover_Backfill_ShortFillWhenExhausted proves the reader returns
 // fewer than 20 without error when TMDB runs out during backfill.
 func TestDiscover_Backfill_ShortFillWhenExhausted(t *testing.T) {
+	t.Skip("Ф8-U-5a: blocklist read-path is a pass-through; per-user blocking restored in Ф8-U-5b")
 	page1 := make([]disco.Item, 0, 20)
 	for i := 1; i <= 20; i++ {
 		page1 = append(page1, tmdbItem(i, i)) // 1..20, block 1..5 → 15 remain
@@ -213,7 +207,7 @@ func TestDiscover_Backfill_ShortFillWhenExhausted(t *testing.T) {
 	page2 := []disco.Item{tmdbItem(101, 101), tmdbItem(102, 102), tmdbItem(103, 103)} // +3 → 18
 	pass := &pageAwarePass{byPage: map[int][]disco.Item{1: page1, 2: page2, 3: {}}}
 
-	cache := discoapp.NewBlocklistCache(blockingLoader{tmdb: []int64{1, 2, 3, 4, 5}})
+	cache := discoapp.NewBlocklistCache()
 	require.NoError(t, cache.Refresh(context.Background()))
 
 	r := newBlocklistDiscoverHarness(t, pass, cache)

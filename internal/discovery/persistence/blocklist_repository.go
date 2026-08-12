@@ -16,6 +16,7 @@ import (
 // discoveryBlocklistModel is the GORM row for discovery_blocklist.
 type discoveryBlocklistModel struct {
 	ID        int64   `gorm:"column:id;primaryKey;autoIncrement"`
+	UserID    int64   `gorm:"column:user_id"`
 	Kind      string  `gorm:"column:kind"`
 	RefID     int64   `gorm:"column:ref_id"`
 	Label     *string `gorm:"column:label"`
@@ -42,18 +43,19 @@ func NewBlocklistRepository(db *gorm.DB) *BlocklistRepository {
 // gets back the pre-existing row. created_at is left to the DB default
 // (now()/CURRENT_TIMESTAMP). A follow-up SELECT resolves the surrogate id
 // on both dialects regardless of whether the write inserted or conflicted.
-func (r *BlocklistRepository) Insert(ctx context.Context, kind disco.BlocklistKind, refID int64, label *string) (disco.BlocklistEntry, error) {
+func (r *BlocklistRepository) Insert(ctx context.Context, userID int64, kind disco.BlocklistKind, refID int64, label *string) (disco.BlocklistEntry, error) {
 	m := discoveryBlocklistModel{
-		Kind:  string(kind),
-		RefID: refID,
-		Label: label,
+		UserID: userID,
+		Kind:   string(kind),
+		RefID:  refID,
+		Label:  label,
 	}
 	// Omit id + created_at so the DB assigns them; DoNothing on the unique
-	// (kind, ref_id) index makes the insert idempotent.
+	// (user_id, kind, ref_id) index makes the insert idempotent per-user.
 	err := r.db.WithContext(ctx).
 		Omit("id", "created_at").
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "kind"}, {Name: "ref_id"}},
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "kind"}, {Name: "ref_id"}},
 			DoNothing: true,
 		}).
 		Create(&m).Error
@@ -63,7 +65,7 @@ func (r *BlocklistRepository) Insert(ctx context.Context, kind disco.BlocklistKi
 	var stored discoveryBlocklistModel
 	if err := r.db.WithContext(ctx).
 		Select("id", "kind", "ref_id", "label").
-		Where("kind = ? AND ref_id = ?", string(kind), refID).
+		Where("user_id = ? AND kind = ? AND ref_id = ?", userID, string(kind), refID).
 		First(&stored).Error; err != nil {
 		return disco.BlocklistEntry{}, fmt.Errorf("discovery blocklist insert readback: %w", err)
 	}
@@ -75,26 +77,27 @@ func (r *BlocklistRepository) Insert(ctx context.Context, kind disco.BlocklistKi
 	}, nil
 }
 
-// DeleteByID removes one row. Deleting a non-existent id is a no-op
-// success (idempotent DELETE) — the handler returns 204 regardless.
-func (r *BlocklistRepository) DeleteByID(ctx context.Context, id int64) error {
+// DeleteByID removes one row scoped to its owner (prevents cross-user
+// delete). Deleting a non-existent / not-owned id is a no-op success
+// (idempotent DELETE) — the handler returns 204 regardless.
+func (r *BlocklistRepository) DeleteByID(ctx context.Context, userID, id int64) error {
 	if err := r.db.WithContext(ctx).
-		Where("id = ?", id).
+		Where("id = ? AND user_id = ?", id, userID).
 		Delete(&discoveryBlocklistModel{}).Error; err != nil {
-		return fmt.Errorf("discovery blocklist delete %d: %w", id, err)
+		return fmt.Errorf("discovery blocklist delete u=%d id=%d: %w", userID, id, err)
 	}
 	return nil
 }
 
-// LoadBlockSets returns the tmdb + keyword ref_id sets for the in-memory
-// cache. Two slices (not maps) — the cache builds the sets. Satisfies
-// app.BlocklistLoader structurally.
-func (r *BlocklistRepository) LoadBlockSets(ctx context.Context) (tmdbIDs []int64, keywordIDs []int64, err error) {
+// LoadBlockSets returns the tmdb + keyword ref_id sets FOR ONE USER. Two
+// slices (not maps) — the caller builds the sets.
+func (r *BlocklistRepository) LoadBlockSets(ctx context.Context, userID int64) (tmdbIDs []int64, keywordIDs []int64, err error) {
 	var rows []discoveryBlocklistModel
 	if err := r.db.WithContext(ctx).
 		Select("kind", "ref_id").
+		Where("user_id = ?", userID).
 		Find(&rows).Error; err != nil {
-		return nil, nil, fmt.Errorf("discovery blocklist load sets: %w", err)
+		return nil, nil, fmt.Errorf("discovery blocklist load sets u=%d: %w", userID, err)
 	}
 	for _, m := range rows {
 		switch disco.BlocklistKind(m.Kind) {
@@ -127,7 +130,7 @@ type ResolvedBlocklistRow struct {
 // series_texts with the requested language → en-US fallback, and
 // series_media_texts.poster_asset likewise. Keyword rows never match the
 // join → Title/PosterAsset stay NULL.
-func (r *BlocklistRepository) ListResolved(ctx context.Context, language string) ([]ResolvedBlocklistRow, error) {
+func (r *BlocklistRepository) ListResolved(ctx context.Context, userID int64, language string) ([]ResolvedBlocklistRow, error) {
 	const q = `
 		SELECT b.id, b.kind, b.ref_id, b.label,
 		       CASE WHEN b.kind = 'tmdb' THEN
@@ -146,12 +149,13 @@ func (r *BlocklistRepository) ListResolved(ctx context.Context, language string)
 		       END AS poster_asset
 		  FROM discovery_blocklist b
 		  LEFT JOIN series s ON b.kind = 'tmdb' AND s.tmdb_id = b.ref_id
+		 WHERE b.user_id = ?
 		 ORDER BY b.id DESC`
 	var rows []ResolvedBlocklistRow
 	if err := r.db.WithContext(ctx).
-		Raw(q, language, language, language).
+		Raw(q, language, language, language, userID).
 		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("discovery blocklist list resolved: %w", err)
+		return nil, fmt.Errorf("discovery blocklist list resolved u=%d: %w", userID, err)
 	}
 	return rows, nil
 }

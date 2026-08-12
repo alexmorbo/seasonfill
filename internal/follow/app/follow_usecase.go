@@ -21,6 +21,9 @@ import (
 // ErrInvalidSeriesID — series_id was not a positive integer. Handler → 400.
 var ErrInvalidSeriesID = errors.New("follow: series_id must be a positive integer")
 
+// ErrInvalidUser — no authenticated user on the request. Handler → 401.
+var ErrInvalidUser = errors.New("follow: authenticated user required")
+
 // ErrSeriesNotFound — no canon series row for the posted series_id. Handler →
 // 404. A follow request on a TMDB-only card must first resolve tmdb → canon
 // via GET /series/resolve (which creates the stub + enrolls enrichment); the
@@ -43,11 +46,11 @@ type SeriesReader interface {
 	Get(ctx context.Context, id domain.SeriesID) (series.Canon, error)
 }
 
-// FollowStore is the followed_series persistence port.
+// FollowStore is the followed_series persistence port (Ф8-U-5 per-user).
 type FollowStore interface {
-	Follow(ctx context.Context, seriesID domain.SeriesID) error
-	Unfollow(ctx context.Context, seriesID domain.SeriesID) error
-	ListFollowed(ctx context.Context, lang string) ([]FollowedItem, error)
+	Follow(ctx context.Context, userID int64, seriesID domain.SeriesID) error
+	Unfollow(ctx context.Context, userID int64, seriesID domain.SeriesID) error
+	ListFollowed(ctx context.Context, userID int64, lang string) ([]FollowedItem, error)
 }
 
 // Enricher is the narrow enrollment port. Satisfied by
@@ -82,7 +85,10 @@ func NewFollowUseCase(series SeriesReader, store FollowStore, enricher Enricher,
 
 // Follow marks seriesID as followed (idempotent) and enrolls it into
 // enrichment (D1 hydration). 404 if the canon series does not exist.
-func (u *FollowUseCase) Follow(ctx context.Context, seriesID domain.SeriesID) error {
+func (u *FollowUseCase) Follow(ctx context.Context, userID int64, seriesID domain.SeriesID) error {
+	if userID <= 0 {
+		return ErrInvalidUser
+	}
 	if seriesID <= 0 {
 		return ErrInvalidSeriesID
 	}
@@ -93,8 +99,8 @@ func (u *FollowUseCase) Follow(ctx context.Context, seriesID domain.SeriesID) er
 		}
 		return fmt.Errorf("follow: load series %d: %w", int64(seriesID), err)
 	}
-	if err := u.store.Follow(ctx, seriesID); err != nil {
-		return fmt.Errorf("follow: persist %d: %w", int64(seriesID), err)
+	if err := u.store.Follow(ctx, userID, seriesID); err != nil {
+		return fmt.Errorf("follow: persist u=%d s=%d: %w", userID, int64(seriesID), err)
 	}
 	// F-04 — followed series MUST refresh on the Followed tier (10d), not decay
 	// to Cold. Kicking enrichment here lifts a stub to full immediately; the
@@ -102,28 +108,33 @@ func (u *FollowUseCase) Follow(ctx context.Context, seriesID domain.SeriesID) er
 	if u.enricher != nil {
 		u.enricher.EnqueueIfStale(seriesID, canon.Hydration)
 	}
-	u.log.InfoContext(ctx, "series_followed", slog.Int64("series_id", int64(seriesID)))
+	u.log.InfoContext(ctx, "series_followed",
+		slog.Int64("user_id", userID), slog.Int64("series_id", int64(seriesID)))
 	return nil
 }
 
 // Unfollow clears the followed flag (idempotent). The now-orphan canon (if
 // also not in library and not recommended) is reclaimed by weekly OrphanSeries-GC.
-func (u *FollowUseCase) Unfollow(ctx context.Context, seriesID domain.SeriesID) error {
+func (u *FollowUseCase) Unfollow(ctx context.Context, userID int64, seriesID domain.SeriesID) error {
+	if userID <= 0 {
+		return ErrInvalidUser
+	}
 	if seriesID <= 0 {
 		return ErrInvalidSeriesID
 	}
-	if err := u.store.Unfollow(ctx, seriesID); err != nil {
-		return fmt.Errorf("unfollow: %d: %w", int64(seriesID), err)
+	if err := u.store.Unfollow(ctx, userID, seriesID); err != nil {
+		return fmt.Errorf("unfollow: u=%d s=%d: %w", userID, int64(seriesID), err)
 	}
-	u.log.InfoContext(ctx, "series_unfollowed", slog.Int64("series_id", int64(seriesID)))
+	u.log.InfoContext(ctx, "series_unfollowed",
+		slog.Int64("user_id", userID), slog.Int64("series_id", int64(seriesID)))
 	return nil
 }
 
 // ListFollowed returns the watchlist cards, newest first.
-func (u *FollowUseCase) ListFollowed(ctx context.Context, lang string) ([]FollowedItem, error) {
-	items, err := u.store.ListFollowed(ctx, lang)
+func (u *FollowUseCase) ListFollowed(ctx context.Context, userID int64, lang string) ([]FollowedItem, error) {
+	items, err := u.store.ListFollowed(ctx, userID, lang)
 	if err != nil {
-		return nil, fmt.Errorf("follow: list: %w", err)
+		return nil, fmt.Errorf("follow: list u=%d: %w", userID, err)
 	}
 	return items, nil
 }

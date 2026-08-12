@@ -66,8 +66,9 @@ func (u *AgentsUseCase) Get(ctx context.Context, id int64) (AgentView, error) {
 	return u.toView(a), nil
 }
 
-// Create encrypts the shoutrrr URL and persists. Empty URL is rejected.
-func (u *AgentsUseCase) Create(ctx context.Context, name, url string, enabled bool, eventTypes []string) (int64, error) {
+// Create encrypts the shoutrrr URL and persists, stamping ownerID (Ф8-U-5).
+// Empty URL is rejected.
+func (u *AgentsUseCase) Create(ctx context.Context, ownerID int64, name, url string, enabled bool, eventTypes []string) (int64, error) {
 	name = strings.TrimSpace(name)
 	url = strings.TrimSpace(url)
 	if name == "" {
@@ -84,7 +85,7 @@ func (u *AgentsUseCase) Create(ctx context.Context, name, url string, enabled bo
 	if err != nil {
 		return 0, fmt.Errorf("encrypt agent config: %w", err)
 	}
-	return u.repo.Create(ctx, ports.NotificationAgent{
+	return u.repo.Create(ctx, ownerID, ports.NotificationAgent{
 		Name: name, Enabled: enabled, ConfigEncrypted: enc, EventTypes: et,
 	})
 }

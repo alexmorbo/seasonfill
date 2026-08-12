@@ -8,6 +8,7 @@ import (
 	followapp "github.com/alexmorbo/seasonfill/internal/follow/app"
 	followpersistence "github.com/alexmorbo/seasonfill/internal/follow/persistence"
 	followrest "github.com/alexmorbo/seasonfill/internal/follow/rest"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 )
 
 // FollowBundle carries the follow feature's wired handler.
@@ -22,6 +23,7 @@ func NewFollowBundle(
 	db *gorm.DB,
 	seriesReader followapp.SeriesReader,
 	enricher followapp.Enricher,
+	users ports.UserRepository,
 	log *slog.Logger,
 ) (FollowBundle, error) {
 	repo := followpersistence.NewFollowedSeriesRepository(db)
@@ -29,5 +31,5 @@ func NewFollowBundle(
 	if err != nil {
 		return FollowBundle{}, err
 	}
-	return FollowBundle{Handler: followrest.NewFollowHandler(uc, log)}, nil
+	return FollowBundle{Handler: followrest.NewFollowHandler(uc, users, log)}, nil
 }

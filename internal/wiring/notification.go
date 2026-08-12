@@ -24,7 +24,7 @@ type NotificationBundle struct {
 // (keyed by the notification-agent-config AES-GCM domain), the dispatcher, and
 // the agents REST handler. masterKey is the same runtime master key used for
 // qbit/oidc secrets (PersistenceBundle.MasterKey).
-func BuildNotification(db *gorm.DB, masterKey string, logger *slog.Logger) (*NotificationBundle, error) {
+func BuildNotification(db *gorm.DB, masterKey string, users ports.UserRepository, logger *slog.Logger) (*NotificationBundle, error) {
 	cipher, err := crypto.NewNotificationAgentCipher(masterKey)
 	if err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func BuildNotification(db *gorm.DB, masterKey string, logger *slog.Logger) (*Not
 		Outbox: outboxRepo, Agents: agentRepo, Notifier: notifier, Logger: logger,
 	})
 	agentsUC := notifapp.NewAgentsUseCase(agentRepo, cipher, notifier)
-	handler := notifrest.NewAgentsHandler(agentsUC, logger)
+	handler := notifrest.NewAgentsHandler(agentsUC, users, logger)
 	return &NotificationBundle{
 		OutboxRepo: outboxRepo, AgentRepo: agentRepo,
 		Dispatcher: dispatcher, AgentsHandler: handler,

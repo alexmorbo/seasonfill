@@ -1,4 +1,4 @@
-h1:zJpDOcaQUtlnzKW3zc1aw1U3o/aIECUVp51dTCWjV0g=
+h1:QtxT98gf7kn2I1tDLvy6p9j3MP58ybX4//572Q1t3/A=
 000001_core_series.down.sql h1:g/jAztVO3BHc0O0tkKdmg68Q0lZZlgzecVvBegBQlBE=
 000001_core_series.up.sql h1:MmXX1qaneSHNwJbnxUh0lI51h1t2Ijg2A5r4P8hMxQ8=
 000002_i18n_texts.down.sql h1:XeUg6hO9QcWnT/EE/pvGZKTYq2uESNtlTw5o8c3zPwA=
@@ -113,3 +113,5 @@ h1:zJpDOcaQUtlnzKW3zc1aw1U3o/aIECUVp51dTCWjV0g=
 000056_requests.up.sql h1:Fzob0R58pTFp3YWpQ46xHX/Z62f70/qeZw/L5x+lL6o=
 000057_jellyfin_user_id.down.sql h1:VbK3f43lwpdUjiz4/TLwJlkZPXuNvd1OglghkXmEt+Y=
 000057_jellyfin_user_id.up.sql h1:otDmmeXTJcrnHtWDLR7mFkppdHDJ/h7u+FUSA17J+TM=
+000058_per_user_retrofit.down.sql h1:aMBSEF5CcNjNwwYtOrLwUVFFaCBR1BiJgbuObX/qXQI=
+000058_per_user_retrofit.up.sql h1:6FSqvqNJ7rg6A6peJZqUDh1eWaXQo+QHCUFmop8F+0I=

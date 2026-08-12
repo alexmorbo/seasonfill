@@ -19,7 +19,7 @@ type AgentRepository struct{ db *gorm.DB }
 
 func NewAgentRepository(db *gorm.DB) *AgentRepository { return &AgentRepository{db: db} }
 
-func (r *AgentRepository) Create(ctx context.Context, a ports.NotificationAgent) (int64, error) {
+func (r *AgentRepository) Create(ctx context.Context, ownerID int64, a ports.NotificationAgent) (int64, error) {
 	if len(a.ConfigEncrypted) == 0 {
 		return 0, fmt.Errorf("create notification agent: config_encrypted required")
 	}
@@ -28,7 +28,8 @@ func (r *AgentRepository) Create(ctx context.Context, a ports.NotificationAgent)
 		return 0, err
 	}
 	m := database.NotificationAgentModel{
-		Name: a.Name, Enabled: a.Enabled, ConfigEncrypted: a.ConfigEncrypted, EventTypes: et,
+		UserID: ownerID, Name: a.Name, Enabled: a.Enabled,
+		ConfigEncrypted: a.ConfigEncrypted, EventTypes: et,
 	}
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&m).Error; err != nil {
 		return 0, fmt.Errorf("create notification agent: %w", err)

@@ -9,12 +9,30 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/series"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
+
+// testUserID is the seed-admin owner used by the per-user followed_series
+// tests (Ф8-U-5). seedUser inserts the matching users row so the FK holds.
+const testUserID int64 = 1
+
+func seedUser(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&database.UserModel{
+		ID:         uint(testUserID),
+		Username:   "admin",
+		Role:       admin.RoleAdmin,
+		AvatarMode: admin.AvatarModeAuto,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error)
+}
 
 func ptrTMDB(i int) *domain.TMDBID { v := domain.TMDBID(i); return &v }
 
@@ -62,14 +80,15 @@ func TestFollowedSeriesRepository_Follow_Idempotent(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewFollowedSeriesRepository(db)
+			seedUser(t, db)
 			ctx := context.Background()
 
 			id := seedCanon(t, db, "Foundation", 5001)
-			require.NoError(t, repo.Follow(ctx, id))
-			require.NoError(t, repo.Follow(ctx, id), "second follow is ON CONFLICT DO NOTHING")
+			require.NoError(t, repo.Follow(ctx, testUserID, id))
+			require.NoError(t, repo.Follow(ctx, testUserID, id), "second follow is ON CONFLICT DO NOTHING")
 
 			assert.Equal(t, int64(1), countFollowed(t, db), "exactly one followed_series row")
-			items, err := repo.ListFollowed(ctx, "en-US")
+			items, err := repo.ListFollowed(ctx, testUserID, "en-US")
 			require.NoError(t, err)
 			require.Len(t, items, 1)
 			assert.Equal(t, id, items[0].SeriesID)
@@ -84,17 +103,18 @@ func TestFollowedSeriesRepository_Unfollow_DeletesRow(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewFollowedSeriesRepository(db)
+			seedUser(t, db)
 			ctx := context.Background()
 
 			id := seedCanon(t, db, "Severance", 5002)
-			require.NoError(t, repo.Follow(ctx, id))
-			require.NoError(t, repo.Unfollow(ctx, id))
+			require.NoError(t, repo.Follow(ctx, testUserID, id))
+			require.NoError(t, repo.Unfollow(ctx, testUserID, id))
 
-			items, err := repo.ListFollowed(ctx, "en-US")
+			items, err := repo.ListFollowed(ctx, testUserID, "en-US")
 			require.NoError(t, err)
 			assert.Empty(t, items)
 			// Second unfollow is an idempotent no-op.
-			require.NoError(t, repo.Unfollow(ctx, id))
+			require.NoError(t, repo.Unfollow(ctx, testUserID, id))
 			assert.Equal(t, int64(0), countFollowed(t, db))
 		})
 	}
@@ -107,19 +127,20 @@ func TestFollowedSeriesRepository_ListFollowed_TitlePosterFallback(t *testing.T)
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewFollowedSeriesRepository(db)
+			seedUser(t, db)
 			ctx := context.Background()
 
 			// Series with ru title + en poster.
 			idA := seedCanon(t, db, "A", 5101)
 			seedSeriesText(t, db, idA, "ru-RU", "Игра престолов")
 			seedMediaText(t, db, idA, "en-US", "/posters/a-en.jpg")
-			require.NoError(t, repo.Follow(ctx, idA))
+			require.NoError(t, repo.Follow(ctx, testUserID, idA))
 
 			// Series with NO i18n rows → falls back to original_title + nil poster.
 			idB := seedCanon(t, db, "B", 5102)
-			require.NoError(t, repo.Follow(ctx, idB))
+			require.NoError(t, repo.Follow(ctx, testUserID, idB))
 
-			items, err := repo.ListFollowed(ctx, "ru-RU")
+			items, err := repo.ListFollowed(ctx, testUserID, "ru-RU")
 			require.NoError(t, err)
 			require.Len(t, items, 2)
 
@@ -151,6 +172,7 @@ func TestFollowedSeriesRepository_ListFollowed_OrderNewestFirst(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			repo := NewFollowedSeriesRepository(db)
+			seedUser(t, db)
 			ctx := context.Background()
 
 			idOld := seedCanon(t, db, "old", 5201)
@@ -158,13 +180,13 @@ func TestFollowedSeriesRepository_ListFollowed_OrderNewestFirst(t *testing.T) {
 
 			// Insert explicit created_at so ordering is deterministic.
 			require.NoError(t, db.Create(&database.FollowedSeriesModel{
-				SeriesID: int64(idOld), CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+				UserID: testUserID, SeriesID: int64(idOld), CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 			}).Error)
 			require.NoError(t, db.Create(&database.FollowedSeriesModel{
-				SeriesID: int64(idNew), CreatedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+				UserID: testUserID, SeriesID: int64(idNew), CreatedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
 			}).Error)
 
-			items, err := repo.ListFollowed(ctx, "en-US")
+			items, err := repo.ListFollowed(ctx, testUserID, "en-US")
 			require.NoError(t, err)
 			require.Len(t, items, 2)
 			assert.Equal(t, idNew, items[0].SeriesID, "newest followed first")
@@ -186,7 +208,8 @@ func TestFollowedSeriesRepository_Follow_FKRequiresSeries(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			db := backend.NewDB(t)
 			repo := NewFollowedSeriesRepository(db)
-			err := repo.Follow(context.Background(), domain.SeriesID(9_999_999))
+			seedUser(t, db)
+			err := repo.Follow(context.Background(), testUserID, domain.SeriesID(9_999_999))
 			require.Error(t, err, "FK violation must surface for a follow of a missing series")
 		})
 	}

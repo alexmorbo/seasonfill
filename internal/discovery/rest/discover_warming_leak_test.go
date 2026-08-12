@@ -50,6 +50,7 @@ func (p *deadlineAwareWarmingPass) LastWaitSeconds() float64 { return 0 }
 // guard for the leak: sync-timeout → 202 → bg caches raw → every later request
 // is an LRU hit that would otherwise serve the hidden id forever.
 func TestDiscover_WarmingPath_BgCache_SubtractsBlocked(t *testing.T) {
+	t.Skip("Ф8-U-5a: blocklist read-path is a pass-through; per-user blocking restored in Ф8-U-5b")
 	gin.SetMode(gin.TestMode)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
@@ -70,7 +71,7 @@ func TestDiscover_WarmingPath_BgCache_SubtractsBlocked(t *testing.T) {
 	t.Cleanup(cancel)
 	go func() { _ = bg.RunWorker(ctx) }()
 
-	cache := discoapp.NewBlocklistCache(blockingLoader{tmdb: []int64{777}})
+	cache := discoapp.NewBlocklistCache()
 	require.NoError(t, cache.Refresh(context.Background()))
 
 	h := discoveryrest.NewDiscoverHandler(lru, pass, bg, &discoverFakeWarming{}, nil, nil, log)

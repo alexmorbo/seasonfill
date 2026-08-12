@@ -432,23 +432,20 @@ func TestTick_TopKindsPopulated_TriggersDiscoverTV(t *testing.T) {
 	require.Equal(t, "ru-RU", client.lastDiscoverLang())
 }
 
-// keywordBlockLoader seeds an app.BlocklistCache with a fixed keyword set.
-type keywordBlockLoader struct{ kw []int64 }
-
-func (l keywordBlockLoader) LoadBlockSets(context.Context) ([]int64, []int64, error) {
-	return nil, l.kw, nil
-}
-
 // TestTick_FetchPage_InjectsBlockedKeywords proves the worker's discover-backed
 // fetchPage folds the keyword blocklist into WithoutKeywords (ADR-0017 Ф5 S3).
 func TestTick_FetchPage_InjectsBlockedKeywords(t *testing.T) {
+	// Ф8-U-5a: the blocklist is now per-user and the boot cache is a
+	// pass-through (empty snapshot). The per-user keyword folding at read time
+	// is restored on the discover handlers in Ф8-U-5b.
+	t.Skip("Ф8-U-5a: blocklist read-path is a pass-through; per-user blocking restored in Ф8-U-5b")
 	repo := newFakeRepo()
 	langs := &fakeLangs{langs: []string{"en-US"}}
 	client := &fakeTMDB{resp: makeResp(0)}
 	stubs := newFakeStubs()
 	tops := &fakeTopKinds{genres: []int{18}}
 
-	cache := app.NewBlocklistCache(keywordBlockLoader{kw: []int64{210024}})
+	cache := app.NewBlocklistCache()
 	require.NoError(t, cache.Refresh(context.Background()))
 
 	w := newTestWorker(t, repo, langs, stubs, client, tops)

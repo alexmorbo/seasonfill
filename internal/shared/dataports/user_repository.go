@@ -13,6 +13,9 @@ import (
 type UserRepository interface {
 	Get(ctx context.Context) (admin.User, error)
 	GetByUsername(ctx context.Context, username string) (admin.User, error)
+	// FirstAdminID returns the seed-admin id: the lowest-id role='admin' row.
+	// Matches the mig-058 backfill target. ports.ErrNotFound if no admin exists.
+	FirstAdminID(ctx context.Context) (int64, error)
 	GetByOIDCSubject(ctx context.Context, subject string) (admin.User, error)
 	GetByJellyfinUserID(ctx context.Context, jellyfinUserID string) (admin.User, error)
 	Create(ctx context.Context, u admin.User) error

@@ -36,7 +36,7 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore { return &fakeStore{followed: map[domain.SeriesID]bool{}} }
 
-func (f *fakeStore) Follow(_ context.Context, id domain.SeriesID) error {
+func (f *fakeStore) Follow(_ context.Context, _ int64, id domain.SeriesID) error {
 	f.followN++
 	if f.followErr != nil {
 		return f.followErr
@@ -45,13 +45,13 @@ func (f *fakeStore) Follow(_ context.Context, id domain.SeriesID) error {
 	return nil
 }
 
-func (f *fakeStore) Unfollow(_ context.Context, id domain.SeriesID) error {
+func (f *fakeStore) Unfollow(_ context.Context, _ int64, id domain.SeriesID) error {
 	f.unfollowN++
 	delete(f.followed, id)
 	return nil
 }
 
-func (f *fakeStore) ListFollowed(_ context.Context, lang string) ([]FollowedItem, error) {
+func (f *fakeStore) ListFollowed(_ context.Context, _ int64, lang string) ([]FollowedItem, error) {
 	f.lastLang = lang
 	return f.listItems, f.listErr
 }
@@ -77,7 +77,7 @@ func TestFollowUseCase_Follow_PromoteEnrolls(t *testing.T) {
 	uc, err := NewFollowUseCase(reader, store, enr, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, uc.Follow(context.Background(), domain.SeriesID(140)))
+	require.NoError(t, uc.Follow(context.Background(), 1, domain.SeriesID(140)))
 	assert.Equal(t, 1, store.followN, "store.Follow called once")
 	assert.True(t, store.followed[140])
 	require.Len(t, enr.calls, 1, "enricher enqueued once")
@@ -93,7 +93,7 @@ func TestFollowUseCase_Follow_NotFound(t *testing.T) {
 	uc, err := NewFollowUseCase(reader, store, enr, nil)
 	require.NoError(t, err)
 
-	err = uc.Follow(context.Background(), domain.SeriesID(999))
+	err = uc.Follow(context.Background(), 1, domain.SeriesID(999))
 	require.ErrorIs(t, err, ErrSeriesNotFound)
 	assert.Equal(t, 0, store.followN, "store.Follow NOT called on missing canon")
 	assert.Empty(t, enr.calls, "enricher NOT called on missing canon")
@@ -107,11 +107,24 @@ func TestFollowUseCase_Follow_InvalidID(t *testing.T) {
 	uc, err := NewFollowUseCase(reader, store, enr, nil)
 	require.NoError(t, err)
 
-	err = uc.Follow(context.Background(), domain.SeriesID(0))
+	err = uc.Follow(context.Background(), 1, domain.SeriesID(0))
 	require.ErrorIs(t, err, ErrInvalidSeriesID)
 	assert.Equal(t, 0, reader.calls)
 	assert.Equal(t, 0, store.followN)
 	assert.Empty(t, enr.calls)
+}
+
+func TestFollowUseCase_Follow_InvalidUser(t *testing.T) {
+	t.Parallel()
+	reader := &fakeSeriesReader{canon: series.Canon{Hydration: series.HydrationStub}}
+	store := newFakeStore()
+	uc, err := NewFollowUseCase(reader, store, nil, nil)
+	require.NoError(t, err)
+
+	require.ErrorIs(t, uc.Follow(context.Background(), 0, domain.SeriesID(140)), ErrInvalidUser)
+	require.ErrorIs(t, uc.Unfollow(context.Background(), 0, domain.SeriesID(140)), ErrInvalidUser)
+	assert.Equal(t, 0, reader.calls)
+	assert.Equal(t, 0, store.followN)
 }
 
 func TestFollowUseCase_Follow_NilEnricher(t *testing.T) {
@@ -121,7 +134,7 @@ func TestFollowUseCase_Follow_NilEnricher(t *testing.T) {
 	uc, err := NewFollowUseCase(reader, store, nil, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, uc.Follow(context.Background(), domain.SeriesID(7)))
+	require.NoError(t, uc.Follow(context.Background(), 1, domain.SeriesID(7)))
 	assert.Equal(t, 1, store.followN, "store.Follow still called with nil enricher")
 }
 
@@ -132,8 +145,8 @@ func TestFollowUseCase_Unfollow_Idempotent(t *testing.T) {
 	uc, err := NewFollowUseCase(reader, store, nil, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, uc.Unfollow(context.Background(), domain.SeriesID(5)))
-	require.NoError(t, uc.Unfollow(context.Background(), domain.SeriesID(5)))
+	require.NoError(t, uc.Unfollow(context.Background(), 1, domain.SeriesID(5)))
+	require.NoError(t, uc.Unfollow(context.Background(), 1, domain.SeriesID(5)))
 	assert.Equal(t, 2, store.unfollowN)
 }
 
@@ -142,7 +155,7 @@ func TestFollowUseCase_Unfollow_InvalidID(t *testing.T) {
 	store := newFakeStore()
 	uc, err := NewFollowUseCase(&fakeSeriesReader{}, store, nil, nil)
 	require.NoError(t, err)
-	require.ErrorIs(t, uc.Unfollow(context.Background(), domain.SeriesID(-1)), ErrInvalidSeriesID)
+	require.ErrorIs(t, uc.Unfollow(context.Background(), 1, domain.SeriesID(-1)), ErrInvalidSeriesID)
 	assert.Equal(t, 0, store.unfollowN)
 }
 
@@ -154,7 +167,7 @@ func TestFollowUseCase_ListFollowed_PassThrough(t *testing.T) {
 	uc, err := NewFollowUseCase(&fakeSeriesReader{}, store, nil, nil)
 	require.NoError(t, err)
 
-	got, err := uc.ListFollowed(context.Background(), "ru-RU")
+	got, err := uc.ListFollowed(context.Background(), 1, "ru-RU")
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 	assert.Equal(t, "ru-RU", store.lastLang)
@@ -166,7 +179,7 @@ func TestFollowUseCase_ListFollowed_Error(t *testing.T) {
 	store.listErr = errors.New("boom")
 	uc, err := NewFollowUseCase(&fakeSeriesReader{}, store, nil, nil)
 	require.NoError(t, err)
-	_, err = uc.ListFollowed(context.Background(), "en-US")
+	_, err = uc.ListFollowed(context.Background(), 1, "en-US")
 	require.Error(t, err)
 }
 

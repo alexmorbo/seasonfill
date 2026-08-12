@@ -27,11 +27,11 @@ func TestAgentsUseCase_Create_SealsURL(t *testing.T) {
 	const url = "telegram://SECRET-TOKEN@telegram?chats=1"
 	var stored ports.NotificationAgent
 	repo := &ports.NotificationAgentRepositoryMock{
-		CreateFunc: func(_ context.Context, a ports.NotificationAgent) (int64, error) { stored = a; return 1, nil },
+		CreateFunc: func(_ context.Context, _ int64, a ports.NotificationAgent) (int64, error) { stored = a; return 1, nil },
 	}
 	uc, cipher := newUC(t, repo, &stubNotifier{})
 
-	id, err := uc.Create(context.Background(), "tg", url, true, nil)
+	id, err := uc.Create(context.Background(), 1, "tg", url, true, nil)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, id)
 	require.NotEmpty(t, stored.ConfigEncrypted)
@@ -48,16 +48,16 @@ func TestAgentsUseCase_Create_SealsURL(t *testing.T) {
 func TestAgentsUseCase_Create_Validation(t *testing.T) {
 	t.Parallel()
 	repo := &ports.NotificationAgentRepositoryMock{
-		CreateFunc: func(context.Context, ports.NotificationAgent) (int64, error) { return 1, nil },
+		CreateFunc: func(context.Context, int64, ports.NotificationAgent) (int64, error) { return 1, nil },
 	}
 	uc, _ := newUC(t, repo, &stubNotifier{})
 	ctx := context.Background()
 
-	_, err := uc.Create(ctx, "", "telegram://t@x", true, nil)
+	_, err := uc.Create(ctx, 1, "", "telegram://t@x", true, nil)
 	assert.ErrorIs(t, err, ErrInvalidAgent) // empty name
-	_, err = uc.Create(ctx, "n", "", true, nil)
+	_, err = uc.Create(ctx, 1, "n", "", true, nil)
 	assert.ErrorIs(t, err, ErrInvalidAgent) // empty url
-	_, err = uc.Create(ctx, "n", "telegram://t@x", true, []string{"bogus.event"})
+	_, err = uc.Create(ctx, 1, "n", "telegram://t@x", true, []string{"bogus.event"})
 	assert.ErrorIs(t, err, ErrInvalidAgent) // unknown event_type
 }
 
@@ -65,7 +65,7 @@ func TestAgentsUseCase_Create_AcceptsCalendarEventTypes(t *testing.T) {
 	t.Parallel()
 	var stored ports.NotificationAgent
 	repo := &ports.NotificationAgentRepositoryMock{
-		CreateFunc: func(_ context.Context, a ports.NotificationAgent) (int64, error) { stored = a; return 1, nil },
+		CreateFunc: func(_ context.Context, _ int64, a ports.NotificationAgent) (int64, error) { stored = a; return 1, nil },
 	}
 	uc, _ := newUC(t, repo, &stubNotifier{})
 	ctx := context.Background()
@@ -73,13 +73,13 @@ func TestAgentsUseCase_Create_AcceptsCalendarEventTypes(t *testing.T) {
 	// The N3 calendar/digest event types must be subscribable (regression: the
 	// producers emitted these but the allow-list rejected them with 400).
 	for _, et := range []string{"season.premiere", "air_date.announced", "digest.weekly"} {
-		_, err := uc.Create(ctx, "n", "telegram://t@x", true, []string{et})
+		_, err := uc.Create(ctx, 1, "n", "telegram://t@x", true, []string{et})
 		require.NoErrorf(t, err, "event_type %q must be accepted", et)
 		assert.Equal(t, []string{et}, stored.EventTypes)
 	}
 
 	// Defaults (nil input) subscribe to every known type except grab.ok.
-	_, err := uc.Create(ctx, "n", "telegram://t@x", true, nil)
+	_, err := uc.Create(ctx, 1, "n", "telegram://t@x", true, nil)
 	require.NoError(t, err)
 	assert.Contains(t, stored.EventTypes, "season.premiere")
 	assert.Contains(t, stored.EventTypes, "air_date.announced")

@@ -74,6 +74,17 @@ func (r *fakeMeRepo) GetByUsername(_ context.Context, name string) (admin.User, 
 	return admin.User{}, ports.ErrNotFound
 }
 
+func (r *fakeMeRepo) FirstAdminID(_ context.Context) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, u := range r.byName {
+		if u.Role == admin.RoleAdmin {
+			return int64(u.ID), nil
+		}
+	}
+	return 0, ports.ErrNotFound
+}
+
 func (r *fakeMeRepo) GetByOIDCSubject(_ context.Context, _ string) (admin.User, error) {
 	return admin.User{}, ports.ErrNotFound
 }

@@ -18,6 +18,7 @@ import (
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/cachewatch"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
+	dataports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
@@ -407,17 +408,18 @@ func BuildDiscoveryBlocklist(
 	db *gorm.DB,
 	keywords KeywordSearchClient,
 	resolver *media.Resolver,
+	users dataports.UserRepository,
 	base *slog.Logger,
 ) (*discoveryrest.BlocklistHandler, *discoapp.BlocklistCache) {
 	log := sharedports.DomainLogger(base, "discovery")
 	repo := discopersistence.NewBlocklistRepository(db)
-	cache := discoapp.NewBlocklistCache(repo)
+	cache := discoapp.NewBlocklistCache()
 
 	var searcher discoveryrest.KeywordSearcher
 	if keywords != nil {
 		searcher = &keywordSearchAdapter{inner: keywords}
 	}
-	handler := discoveryrest.NewBlocklistHandler(repo, cache, searcher, resolver, log)
+	handler := discoveryrest.NewBlocklistHandler(repo, cache, searcher, resolver, users, log)
 	return handler, cache
 }
 

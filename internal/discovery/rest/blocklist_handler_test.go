@@ -8,14 +8,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	"github.com/alexmorbo/seasonfill/internal/discovery/persistence"
+	dataports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 type fakeStore struct {
@@ -28,7 +32,7 @@ type fakeStore struct {
 	deleteErr error
 }
 
-func (f *fakeStore) Insert(_ context.Context, k disco.BlocklistKind, refID int64, label *string) (disco.BlocklistEntry, error) {
+func (f *fakeStore) Insert(_ context.Context, _ int64, k disco.BlocklistKind, refID int64, label *string) (disco.BlocklistEntry, error) {
 	f.inserted = append(f.inserted, k)
 	if f.insertErr != nil {
 		return disco.BlocklistEntry{}, f.insertErr
@@ -37,20 +41,44 @@ func (f *fakeStore) Insert(_ context.Context, k disco.BlocklistKind, refID int64
 	return disco.BlocklistEntry{ID: f.nextID, Kind: k, RefID: refID, Label: label}, nil
 }
 
-func (f *fakeStore) DeleteByID(_ context.Context, id int64) error {
+func (f *fakeStore) DeleteByID(_ context.Context, _, id int64) error {
 	f.deleted = append(f.deleted, id)
 	return f.deleteErr
 }
 
-func (f *fakeStore) ListResolved(_ context.Context, _ string) ([]persistence.ResolvedBlocklistRow, error) {
+func (f *fakeStore) ListResolved(_ context.Context, _ int64, _ string) ([]persistence.ResolvedBlocklistRow, error) {
 	return f.rows, f.listErr
 }
 
-// fakeLoader drives a real app.BlocklistCache (Refresh must not panic in
-// Create/Delete). Empty sets are fine for handler tests.
-type fakeLoader struct{}
+// stubUsers resolves the per-user owner for the handler (Ф8-U-5). GetByUsername
+// returns a fixed admin (id 1); the rest satisfy dataports.UserRepository.
+type stubUsers struct{}
 
-func (fakeLoader) LoadBlockSets(context.Context) ([]int64, []int64, error) { return nil, nil, nil }
+func (stubUsers) Get(context.Context) (admin.User, error) {
+	return admin.User{ID: 1, Username: "admin", Role: admin.RoleAdmin}, nil
+}
+func (stubUsers) GetByUsername(_ context.Context, name string) (admin.User, error) {
+	return admin.User{ID: 1, Username: name, Role: admin.RoleAdmin}, nil
+}
+func (stubUsers) FirstAdminID(context.Context) (int64, error) { return 1, nil }
+func (stubUsers) GetByOIDCSubject(context.Context, string) (admin.User, error) {
+	return admin.User{}, nil
+}
+func (stubUsers) GetByJellyfinUserID(context.Context, string) (admin.User, error) {
+	return admin.User{}, nil
+}
+func (stubUsers) Create(context.Context, admin.User) error { return nil }
+func (stubUsers) CreateFromOIDC(context.Context, string, string, string) (admin.User, error) {
+	return admin.User{}, nil
+}
+func (stubUsers) CreateFromJellyfin(context.Context, string, string, string) (admin.User, error) {
+	return admin.User{}, nil
+}
+func (stubUsers) UpdatePassword(context.Context, uint, string) error { return nil }
+func (stubUsers) UpdateSettings(context.Context, uint, dataports.UserSettingsPatch) error {
+	return nil
+}
+func (stubUsers) UpdateLastLoginAt(context.Context, uint, time.Time) error { return nil }
 
 // fakeKeywords is a scripted rest.KeywordSearcher for the keyword-search
 // handler tests.
@@ -70,14 +98,15 @@ func newTestHandler(t *testing.T, store BlocklistStore) *BlocklistHandler {
 
 func newTestHandlerKW(t *testing.T, store BlocklistStore, kw KeywordSearcher) *BlocklistHandler {
 	t.Helper()
-	cache := app.NewBlocklistCache(fakeLoader{})
-	return NewBlocklistHandler(store, cache, kw, nil /*resolver*/, slog.Default())
+	cache := app.NewBlocklistCache()
+	return NewBlocklistHandler(store, cache, kw, nil /*resolver*/, stubUsers{}, slog.Default())
 }
 
 func doReq(t *testing.T, h *BlocklistHandler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set(middleware.UsernameContextKey, "admin") })
 	r.POST("/api/v1/discovery/blocklist", h.Create)
 	r.GET("/api/v1/discovery/blocklist", h.List)
 	r.DELETE("/api/v1/discovery/blocklist/:id", h.Delete)

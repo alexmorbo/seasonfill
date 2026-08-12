@@ -185,7 +185,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// The dispatcher drains the outbox on the lifecycle group like the
 	// webhook-inbox drainer. BuildNotification only errors on an empty master
 	// key (config error), which never happens after ResolveAPIKey.
-	notificationBundle, err := wiring.BuildNotification(persistence.DB, persistence.MasterKey, log)
+	notificationBundle, err := wiring.BuildNotification(persistence.DB, persistence.MasterKey, auth.AdminRepo, log)
 	if err != nil {
 		return nil, fmt.Errorf("build notification bundle: %w", err)
 	}

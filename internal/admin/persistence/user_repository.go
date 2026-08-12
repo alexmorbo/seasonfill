@@ -42,6 +42,23 @@ func (r *UserRepository) Get(ctx context.Context) (admin.User, error) {
 	return modelToUser(m), nil
 }
 
+// FirstAdminID returns the lowest-id role='admin' user id (the seed admin —
+// the same row mig-058 backfills user_id to). The api-key principal and other
+// no-user-row callers resolve their owner id through this. ports.ErrNotFound
+// when the users table has no admin (fresh DB before seed).
+func (r *UserRepository) FirstAdminID(ctx context.Context) (int64, error) {
+	var m database.UserModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("role = ?", "admin").Order("id ASC").First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, errors.Join(&sharedErrors.UserNotFoundError{}, ports.ErrNotFound)
+		}
+		return 0, fmt.Errorf("first admin id: %w", err)
+	}
+	return int64(m.ID), nil
+}
+
 // GetByOIDCSubject looks up a user row by OIDC subject claim. Returns
 // ports.ErrNotFound (joined with UserNotFoundError) when no row
 // matches — the OIDC callback handler falls through to CreateFromOIDC.

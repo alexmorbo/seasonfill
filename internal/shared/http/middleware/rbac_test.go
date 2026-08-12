@@ -52,6 +52,14 @@ func (s *stubUserRepo) UpdateSettings(context.Context, uint, ports.UserSettingsP
 	return nil
 }
 func (s *stubUserRepo) UpdateLastLoginAt(context.Context, uint, time.Time) error { return nil }
+func (s *stubUserRepo) FirstAdminID(context.Context) (int64, error) {
+	for _, u := range s.byName {
+		if u.Role == admin.RoleAdmin {
+			return int64(u.ID), nil
+		}
+	}
+	return 0, errors.Join(&sharedErrors.UserNotFoundError{}, ports.ErrNotFound)
+}
 
 func runGuard(t *testing.T, repo ports.UserRepository, principal string, perms []string) int {
 	t.Helper()

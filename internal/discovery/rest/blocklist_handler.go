@@ -22,15 +22,17 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	"github.com/alexmorbo/seasonfill/internal/discovery/persistence"
+	dataports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
-// BlocklistStore is the narrow persistence port the handler needs.
-// Satisfied by *persistence.BlocklistRepository.
+// BlocklistStore is the narrow persistence port the handler needs (Ф8-U-5
+// per-user). Satisfied by *persistence.BlocklistRepository.
 type BlocklistStore interface {
-	Insert(ctx context.Context, kind disco.BlocklistKind, refID int64, label *string) (disco.BlocklistEntry, error)
-	DeleteByID(ctx context.Context, id int64) error
-	ListResolved(ctx context.Context, language string) ([]persistence.ResolvedBlocklistRow, error)
+	Insert(ctx context.Context, userID int64, kind disco.BlocklistKind, refID int64, label *string) (disco.BlocklistEntry, error)
+	DeleteByID(ctx context.Context, userID, id int64) error
+	ListResolved(ctx context.Context, userID int64, language string) ([]persistence.ResolvedBlocklistRow, error)
 }
 
 // KeywordSearcher proxies TMDB /search/keyword. Satisfied by a wiring
@@ -51,18 +53,20 @@ type KeywordHit struct {
 type BlocklistHandler struct {
 	store    BlocklistStore
 	cache    *app.BlocklistCache
-	keywords KeywordSearcher // nil-OK → keyword-search returns 503
-	resolver *media.Resolver // nil-OK → poster_hash falls back to raw asset path
+	keywords KeywordSearcher          // nil-OK → keyword-search returns 503
+	resolver *media.Resolver          // nil-OK → poster_hash falls back to raw asset path
+	users    dataports.UserRepository // Ф8-U-5 — resolves the per-user owner
 	log      *slog.Logger
 }
 
-// NewBlocklistHandler wires the handler. store/cache/log required;
+// NewBlocklistHandler wires the handler. store/cache/users/log required;
 // keywords + resolver are nil-OK.
 func NewBlocklistHandler(
 	store BlocklistStore,
 	cache *app.BlocklistCache,
 	keywords KeywordSearcher,
 	resolver *media.Resolver,
+	users dataports.UserRepository,
 	log *slog.Logger,
 ) *BlocklistHandler {
 	switch {
@@ -70,10 +74,37 @@ func NewBlocklistHandler(
 		panic("blocklist handler: store required")
 	case cache == nil:
 		panic("blocklist handler: cache required")
+	case users == nil:
+		panic("blocklist handler: users required")
 	case log == nil:
 		panic("blocklist handler: log required")
 	}
-	return &BlocklistHandler{store: store, cache: cache, keywords: keywords, resolver: resolver, log: log}
+	return &BlocklistHandler{store: store, cache: cache, keywords: keywords, resolver: resolver, users: users, log: log}
+}
+
+// callerID resolves the authenticated user id from context; 401 on miss. The
+// api-key automation principal has no user row — it resolves to the seed-admin
+// id (the SAME row mig-058 backfills to), mirroring request_handler.
+func (h *BlocklistHandler) callerID(c *gin.Context) (int64, bool) {
+	username := c.GetString(middleware.UsernameContextKey)
+	if username == "" {
+		respondError(c, http.StatusUnauthorized, "unauthorized", "authenticated user required")
+		return 0, false
+	}
+	if username == "api-key" {
+		id, err := h.users.FirstAdminID(c.Request.Context())
+		if err != nil {
+			respondError(c, http.StatusUnauthorized, "unauthorized", "authenticated user required")
+			return 0, false
+		}
+		return id, true
+	}
+	u, err := h.users.GetByUsername(c.Request.Context(), username)
+	if err != nil {
+		respondError(c, http.StatusUnauthorized, "unauthorized", "authenticated user required")
+		return 0, false
+	}
+	return int64(u.ID), true
 }
 
 // blocklistCreateRequest is the POST body.
@@ -128,8 +159,12 @@ func (h *BlocklistHandler) Create(c *gin.Context) {
 			label = &trimmed
 		}
 	}
+	uid, ok := h.callerID(c)
+	if !ok {
+		return
+	}
 	ctx := c.Request.Context()
-	entry, err := h.store.Insert(ctx, kind, req.RefID, label)
+	entry, err := h.store.Insert(ctx, uid, kind, req.RefID, label)
 	if err != nil {
 		h.log.WarnContext(ctx, "discovery.blocklist.insert_failed",
 			slog.String("kind", string(kind)),
@@ -163,8 +198,12 @@ func (h *BlocklistHandler) List(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "invalid_language", "lang must be a BCP-47 tag")
 		return
 	}
+	uid, ok := h.callerID(c)
+	if !ok {
+		return
+	}
 	ctx := c.Request.Context()
-	rows, err := h.store.ListResolved(ctx, lang)
+	rows, err := h.store.ListResolved(ctx, uid, lang)
 	if err != nil {
 		h.log.WarnContext(ctx, "discovery.blocklist.list_failed",
 			slog.String("error", err.Error()))
@@ -204,8 +243,12 @@ func (h *BlocklistHandler) Delete(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "invalid_id", "id must be a positive integer")
 		return
 	}
+	uid, ok := h.callerID(c)
+	if !ok {
+		return
+	}
 	ctx := c.Request.Context()
-	if err := h.store.DeleteByID(ctx, id); err != nil {
+	if err := h.store.DeleteByID(ctx, uid, id); err != nil {
 		h.log.WarnContext(ctx, "discovery.blocklist.delete_failed",
 			slog.Int64("id", id),
 			slog.String("error", err.Error()))

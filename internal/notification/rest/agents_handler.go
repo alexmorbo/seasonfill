@@ -17,14 +17,40 @@ import (
 
 type AgentsHandler struct {
 	uc     *notifapp.AgentsUseCase
+	users  ports.UserRepository
 	logger *slog.Logger
 }
 
-func NewAgentsHandler(uc *notifapp.AgentsUseCase, logger *slog.Logger) *AgentsHandler {
+func NewAgentsHandler(uc *notifapp.AgentsUseCase, users ports.UserRepository, logger *slog.Logger) *AgentsHandler {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "http")
 	}
-	return &AgentsHandler{uc: uc, logger: logger}
+	return &AgentsHandler{uc: uc, users: users, logger: logger}
+}
+
+// callerID resolves the authenticated admin id from context; 401 on miss. The
+// api-key automation principal has no user row — it resolves to the seed-admin
+// id (the SAME row mig-058 backfills to). Owns any agent it creates (Ф8-U-5).
+func (h *AgentsHandler) callerID(c *gin.Context) (int64, bool) {
+	username := c.GetString(middleware.UsernameContextKey)
+	if username == "" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{Error: "unauthorized", Code: "UNAUTHORIZED"})
+		return 0, false
+	}
+	if username == "api-key" {
+		id, err := h.users.FirstAdminID(c.Request.Context())
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{Error: "unauthorized", Code: "UNAUTHORIZED"})
+			return 0, false
+		}
+		return id, true
+	}
+	u, err := h.users.GetByUsername(c.Request.Context(), username)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{Error: "unauthorized", Code: "UNAUTHORIZED"})
+		return 0, false
+	}
+	return int64(u.ID), true
 }
 
 // List returns all agents (masked).
@@ -88,7 +114,11 @@ func (h *AgentsHandler) Create(c *gin.Context) {
 	if !middleware.BindAndValidateJSON(c, &req) {
 		return
 	}
-	id, err := h.uc.Create(c.Request.Context(), req.Name, req.URL, req.Enabled, req.EventTypes)
+	ownerID, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	id, err := h.uc.Create(c.Request.Context(), ownerID, req.Name, req.URL, req.Enabled, req.EventTypes)
 	if err != nil {
 		h.writeError(c, err)
 		return

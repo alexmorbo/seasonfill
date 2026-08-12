@@ -88,7 +88,8 @@ type NotificationAgent struct {
 // NotificationAgentRepository persists notification_agents (admin CRUD + the
 // dispatcher's enabled-agents load).
 type NotificationAgentRepository interface {
-	Create(ctx context.Context, a NotificationAgent) (int64, error)
+	// Create stamps ownerID (Ф8-U-5 notification_agents.user_id) and persists.
+	Create(ctx context.Context, ownerID int64, a NotificationAgent) (int64, error)
 	List(ctx context.Context) ([]NotificationAgent, error)
 	Get(ctx context.Context, id int64) (NotificationAgent, error) // ErrNotFound if absent
 	// Update replaces name/enabled/event_types always; config_encrypted only when

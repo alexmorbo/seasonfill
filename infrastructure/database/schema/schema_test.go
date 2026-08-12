@@ -254,8 +254,8 @@ func TestSchemaCoverage_AdminSkipFlag(t *testing.T) {
 	// - 3 grab_audit = 30. addAppConfig + addGrabAudit depend on
 	// sonarr_instance (FK target) so ATLAS_SCHEMA_SKIP_ADMIN implies
 	// they must also be skipped.
-	if len(s.Tables) != 48 {
-		t.Fatalf("Schema(postgres) with skip admin+auth+app_config+grab+watchdog+grab_audit tables = %d, want 48 (70 - 5 admin - 2 auth - 3 app_config - 3 grab - 2 watchdog - 3 grab_audit - 4 qbit_runtime)", len(s.Tables))
+	if len(s.Tables) != 45 {
+		t.Fatalf("Schema(postgres) with skip admin+auth+app_config+grab+watchdog+grab_audit tables = %d, want 45 (73 - 4 auth incl. requests - 5 admin - 3 app_config - 3 grab - 2 watchdog - 3 grab_audit - 4 qbit_runtime - 3 followed_series/notification_agents/discovery_blocklist Ф8-U-5)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -273,8 +273,8 @@ func TestSchemaCoverage_AdminSkipFlag(t *testing.T) {
 func TestSchemaCoverage_AuthSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_AUTH", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 69 {
-		t.Fatalf("Schema(postgres) with skip auth tables = %d, want 69 (73 - 4 auth incl. requests)", len(s.Tables))
+	if len(s.Tables) != 66 {
+		t.Fatalf("Schema(postgres) with skip auth tables = %d, want 66 (73 - 4 auth incl. requests - 3 followed_series/notification_agents/discovery_blocklist Ф8-U-5)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -688,10 +688,10 @@ func TestSchema_NotificationTables_Shape(t *testing.T) {
 			}
 
 			agents := mustTable(s, "notification_agents")
-			if got, want := len(agents.Columns), 6; got != want {
+			if got, want := len(agents.Columns), 7; got != want {
 				t.Fatalf("notification_agents columns = %d, want %d", got, want)
 			}
-			wantAgents := []string{"id", "name", "enabled", "config_encrypted", "event_types", "created_at"}
+			wantAgents := []string{"id", "user_id", "name", "enabled", "config_encrypted", "event_types", "created_at"}
 			gotAgents := make(map[string]bool, len(agents.Columns))
 			for _, c := range agents.Columns {
 				gotAgents[c.Name] = true
@@ -705,8 +705,11 @@ func TestSchema_NotificationTables_Shape(t *testing.T) {
 				agents.PrimaryKey.Parts[0].C.Name != "id" {
 				t.Errorf("notification_agents PK = %+v, want single col id", agents.PrimaryKey)
 			}
-			if len(agents.ForeignKeys) != 0 {
-				t.Errorf("notification_agents has %d FKs, want 0", len(agents.ForeignKeys))
+			// Ф8-U-5: user_id FK → users CASCADE (owner).
+			if len(agents.ForeignKeys) != 1 {
+				t.Errorf("notification_agents has %d FKs, want 1", len(agents.ForeignKeys))
+			} else if agents.ForeignKeys[0].Symbol != "notification_agents_user_id_fkey" {
+				t.Errorf("notification_agents FK = %q, want notification_agents_user_id_fkey", agents.ForeignKeys[0].Symbol)
 			}
 		})
 	}
@@ -755,9 +758,52 @@ func TestSchema_DiscoveryRows_Shape(t *testing.T) {
 	}
 }
 
+// TestSchema_FollowedSeries_Shape verifies followed_series on both dialects:
+// 3 cols, composite PK (user_id, series_id), two CASCADE FKs (series, users).
+// ADR-0015 Ф3 C1 + Ф8-U-5 per-user.
+func TestSchema_FollowedSeries_Shape(t *testing.T) {
+	t.Parallel()
+	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
+		t.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+			s := Schema(d)
+			tbl := mustTable(s, "followed_series")
+			if got, want := len(tbl.Columns), 3; got != want {
+				t.Fatalf("followed_series columns = %d, want %d", got, want)
+			}
+			want := []string{"user_id", "series_id", "created_at"}
+			got := make(map[string]bool, len(tbl.Columns))
+			for _, c := range tbl.Columns {
+				got[c.Name] = true
+			}
+			for _, w := range want {
+				if !got[w] {
+					t.Errorf("missing column %q", w)
+				}
+			}
+			if tbl.PrimaryKey == nil || len(tbl.PrimaryKey.Parts) != 2 ||
+				tbl.PrimaryKey.Parts[0].C.Name != "user_id" || tbl.PrimaryKey.Parts[1].C.Name != "series_id" {
+				t.Errorf("followed_series PK = %+v, want composite (user_id, series_id)", tbl.PrimaryKey)
+			}
+			if len(tbl.ForeignKeys) != 2 {
+				t.Errorf("followed_series has %d FKs, want 2 (series + users)", len(tbl.ForeignKeys))
+			}
+			names := map[string]bool{}
+			for _, fk := range tbl.ForeignKeys {
+				names[fk.Symbol] = true
+			}
+			for _, want := range []string{"followed_series_series_id_fkey", "followed_series_user_id_fkey"} {
+				if !names[want] {
+					t.Errorf("missing FK %q on followed_series", want)
+				}
+			}
+		})
+	}
+}
+
 // TestSchema_DiscoveryBlocklist_Shape verifies discovery_blocklist on both
-// dialects: 5 cols, surrogate PK id, one UNIQUE index on (kind, ref_id),
-// no FK. ADR-0017 Ф5 S3.
+// dialects: 6 cols, surrogate PK id, one UNIQUE index on (user_id, kind,
+// ref_id), user_id FK → users. ADR-0017 Ф5 S3 + Ф8-U-5 per-user.
 func TestSchema_DiscoveryBlocklist_Shape(t *testing.T) {
 	t.Parallel()
 	for _, d := range []Dialect{DialectPostgres, DialectSQLite} {
@@ -765,10 +811,10 @@ func TestSchema_DiscoveryBlocklist_Shape(t *testing.T) {
 			t.Parallel()
 			s := Schema(d)
 			tbl := mustTable(s, "discovery_blocklist")
-			if got, want := len(tbl.Columns), 5; got != want {
+			if got, want := len(tbl.Columns), 6; got != want {
 				t.Fatalf("discovery_blocklist columns = %d, want %d", got, want)
 			}
-			want := []string{"id", "kind", "ref_id", "label", "created_at"}
+			want := []string{"id", "user_id", "kind", "ref_id", "label", "created_at"}
 			got := make(map[string]bool, len(tbl.Columns))
 			for _, c := range tbl.Columns {
 				got[c.Name] = true
@@ -782,16 +828,19 @@ func TestSchema_DiscoveryBlocklist_Shape(t *testing.T) {
 				tbl.PrimaryKey.Parts[0].C.Name != "id" {
 				t.Errorf("discovery_blocklist PK = %+v, want single col id", tbl.PrimaryKey)
 			}
-			if len(tbl.ForeignKeys) != 0 {
-				t.Errorf("discovery_blocklist has %d FKs, want 0", len(tbl.ForeignKeys))
+			// Ф8-U-5: user_id FK → users CASCADE (owner).
+			if len(tbl.ForeignKeys) != 1 {
+				t.Errorf("discovery_blocklist has %d FKs, want 1", len(tbl.ForeignKeys))
+			} else if tbl.ForeignKeys[0].Symbol != "discovery_blocklist_user_id_fkey" {
+				t.Errorf("discovery_blocklist FK = %q, want discovery_blocklist_user_id_fkey", tbl.ForeignKeys[0].Symbol)
 			}
 			var uniq bool
 			for _, ix := range tbl.Indexes {
 				if ix.Name == "discovery_blocklist_kind_ref" {
 					uniq = ix.Unique
-					if len(ix.Parts) != 2 ||
-						ix.Parts[0].C.Name != "kind" || ix.Parts[1].C.Name != "ref_id" {
-						t.Errorf("discovery_blocklist_kind_ref parts = %v, want [kind ref_id]", ix.Parts)
+					if len(ix.Parts) != 3 ||
+						ix.Parts[0].C.Name != "user_id" || ix.Parts[1].C.Name != "kind" || ix.Parts[2].C.Name != "ref_id" {
+						t.Errorf("discovery_blocklist_kind_ref parts = %v, want [user_id kind ref_id]", ix.Parts)
 					}
 				}
 			}

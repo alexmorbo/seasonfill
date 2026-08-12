@@ -85,6 +85,9 @@ func (r *fakeJFRepo) Get(context.Context) (admin.User, error) {
 func (r *fakeJFRepo) GetByUsername(context.Context, string) (admin.User, error) {
 	return admin.User{}, ports.ErrNotFound
 }
+func (r *fakeJFRepo) FirstAdminID(context.Context) (int64, error) {
+	return 0, ports.ErrNotFound
+}
 func (r *fakeJFRepo) GetByOIDCSubject(context.Context, string) (admin.User, error) {
 	return admin.User{}, ports.ErrNotFound
 }

@@ -12,19 +12,21 @@ import (
 	"github.com/gin-gonic/gin"
 
 	followapp "github.com/alexmorbo/seasonfill/internal/follow/app"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 const followBodyLimit = 1 << 10
 
-// FollowService is the narrow use-case surface the handler needs.
-// *followapp.FollowUseCase satisfies it; tests inject a fake.
+// FollowService is the narrow use-case surface the handler needs (Ф8-U-5
+// per-user). *followapp.FollowUseCase satisfies it; tests inject a fake.
 type FollowService interface {
-	Follow(ctx context.Context, seriesID domain.SeriesID) error
-	Unfollow(ctx context.Context, seriesID domain.SeriesID) error
-	ListFollowed(ctx context.Context, lang string) ([]followapp.FollowedItem, error)
+	Follow(ctx context.Context, userID int64, seriesID domain.SeriesID) error
+	Unfollow(ctx context.Context, userID int64, seriesID domain.SeriesID) error
+	ListFollowed(ctx context.Context, userID int64, lang string) ([]followapp.FollowedItem, error)
 }
 
 type followRequest struct {
@@ -47,15 +49,42 @@ type followListResponse struct {
 // FollowHandler exposes POST/DELETE/GET /api/v1/follow.
 type FollowHandler struct {
 	svc    FollowService
+	users  ports.UserRepository
 	logger *slog.Logger
 }
 
-// NewFollowHandler constructs the handler. logger nil-OK.
-func NewFollowHandler(svc FollowService, logger *slog.Logger) *FollowHandler {
+// NewFollowHandler constructs the handler. users resolves the authenticated
+// caller (Ф8-U-5 per-user). logger nil-OK.
+func NewFollowHandler(svc FollowService, users ports.UserRepository, logger *slog.Logger) *FollowHandler {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "http")
 	}
-	return &FollowHandler{svc: svc, logger: logger}
+	return &FollowHandler{svc: svc, users: users, logger: logger}
+}
+
+// callerID resolves the authenticated user id from context; 401 on miss. The
+// api-key automation principal has no user row — it resolves to the seed-admin
+// id (the SAME row mig-058 backfills to), mirroring request_handler.
+func (h *FollowHandler) callerID(c *gin.Context) (int64, bool) {
+	username := c.GetString(middleware.UsernameContextKey)
+	if username == "" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{Error: "unauthorized"})
+		return 0, false
+	}
+	if username == "api-key" {
+		id, err := h.users.FirstAdminID(c.Request.Context())
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{Error: "unauthorized"})
+			return 0, false
+		}
+		return id, true
+	}
+	u, err := h.users.GetByUsername(c.Request.Context(), username)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{Error: "unauthorized"})
+		return 0, false
+	}
+	return int64(u.ID), true
 }
 
 // Post handles POST /api/v1/follow.
@@ -91,10 +120,16 @@ func (h *FollowHandler) Post(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "series_id must be a positive integer"})
 		return
 	}
-	err := h.svc.Follow(c.Request.Context(), domain.SeriesID(body.SeriesID))
+	uid, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	err := h.svc.Follow(c.Request.Context(), uid, domain.SeriesID(body.SeriesID))
 	switch {
 	case err == nil:
 		c.JSON(http.StatusOK, dto.OKResponse{OK: true})
+	case errors.Is(err, followapp.ErrInvalidUser):
+		c.JSON(http.StatusUnauthorized, dto.ErrorResponse{Error: "unauthorized"})
 	case errors.Is(err, followapp.ErrInvalidSeriesID):
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
 	case errors.Is(err, followapp.ErrSeriesNotFound):
@@ -129,7 +164,11 @@ func (h *FollowHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "invalid series id"})
 		return
 	}
-	if uerr := h.svc.Unfollow(c.Request.Context(), domain.SeriesID(id)); uerr != nil {
+	uid, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	if uerr := h.svc.Unfollow(c.Request.Context(), uid, domain.SeriesID(id)); uerr != nil {
 		_ = c.Error(uerr)
 		c.Abort()
 		return
@@ -159,7 +198,11 @@ func (h *FollowHandler) List(c *gin.Context) {
 	if lang == "" {
 		lang = "en-US"
 	}
-	items, err := h.svc.ListFollowed(c.Request.Context(), lang)
+	uid, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	items, err := h.svc.ListFollowed(c.Request.Context(), uid, lang)
 	if err != nil {
 		_ = c.Error(err)
 		c.Abort()

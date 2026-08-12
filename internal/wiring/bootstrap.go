@@ -994,6 +994,7 @@ func BuildHTTPServer(
 		persistence.DB,
 		keywordSearchClient,              // nil-OK → keyword-search returns 503
 		seriesDetailBundle.MediaResolver, // nil-OK
+		auth.AdminRepo,
 		log,
 	)
 	if discoveryHandler != nil {
@@ -1041,6 +1042,7 @@ func BuildHTTPServer(
 		persistence.DB,
 		followSeriesReader,
 		seriesDetailBundle.OnDemandEnricherHolder,
+		auth.AdminRepo,
 		log,
 	)
 	if err != nil {

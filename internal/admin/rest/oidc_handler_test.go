@@ -43,6 +43,9 @@ func (stubAdminRepo) UpdateLastLoginAt(context.Context, uint, time.Time) error {
 func (stubAdminRepo) GetByUsername(context.Context, string) (admin.User, error) {
 	return admin.User{}, ports.ErrNotFound
 }
+func (stubAdminRepo) FirstAdminID(context.Context) (int64, error) {
+	return 0, ports.ErrNotFound
+}
 func (stubAdminRepo) UpdateSettings(context.Context, uint, ports.UserSettingsPatch) error {
 	return nil
 }

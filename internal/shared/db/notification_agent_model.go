@@ -12,6 +12,7 @@ import (
 // EventTypes is a JSON array of subscribed event_type strings.
 type NotificationAgentModel struct {
 	ID              int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	UserID          int64          `gorm:"column:user_id;not null"`
 	Name            string         `gorm:"column:name;type:text;not null"`
 	Enabled         bool           `gorm:"column:enabled;not null"`
 	ConfigEncrypted []byte         `gorm:"column:config_encrypted;not null"`

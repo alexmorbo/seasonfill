@@ -18,10 +18,12 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 )
 
-// BlocklistLoader is the narrow read port the cache refreshes from.
-// Satisfied structurally by *persistence.BlocklistRepository.
+// BlocklistLoader is the narrow per-user read port (Ф8-U-5). Satisfied
+// structurally by *persistence.BlocklistRepository. The per-user read-time
+// load+filter is reintroduced on the discover handlers in U-5b — the boot
+// cache no longer holds a loader (it has no user context).
 type BlocklistLoader interface {
-	LoadBlockSets(ctx context.Context) (tmdbIDs []int64, keywordIDs []int64, err error)
+	LoadBlockSets(ctx context.Context, userID int64) (tmdbIDs []int64, keywordIDs []int64, err error)
 }
 
 // blocklistSnapshot is one immutable view of the blocklist. Never mutated
@@ -37,18 +39,13 @@ type blocklistSnapshot struct {
 // returns items unchanged), so readers can hold a nil cache in minimal
 // wirings.
 type BlocklistCache struct {
-	loader BlocklistLoader
-	snap   atomic.Pointer[blocklistSnapshot]
-	epoch  atomic.Uint64
+	snap  atomic.Pointer[blocklistSnapshot]
+	epoch atomic.Uint64
 }
 
-// NewBlocklistCache builds a cache seeded with an empty snapshot. Call
-// Refresh(ctx) at boot to load the persisted sets.
-func NewBlocklistCache(loader BlocklistLoader) *BlocklistCache {
-	if loader == nil {
-		panic("blocklist cache: loader required")
-	}
-	c := &BlocklistCache{loader: loader}
+// NewBlocklistCache builds a cache seeded with an empty snapshot.
+func NewBlocklistCache() *BlocklistCache {
+	c := &BlocklistCache{}
 	c.snap.Store(&blocklistSnapshot{
 		tmdb:    map[int64]struct{}{},
 		keyword: map[int64]struct{}{},
@@ -56,25 +53,16 @@ func NewBlocklistCache(loader BlocklistLoader) *BlocklistCache {
 	return c
 }
 
-// Refresh reloads both sets from the loader and publishes a new snapshot,
-// bumping the epoch. On loader error the previous snapshot is retained and
-// the error is returned (readers keep working with stale-but-valid data).
-func (c *BlocklistCache) Refresh(ctx context.Context) error {
-	tmdbIDs, keywordIDs, err := c.loader.LoadBlockSets(ctx)
-	if err != nil {
-		return err
-	}
-	next := &blocklistSnapshot{
-		tmdb:    make(map[int64]struct{}, len(tmdbIDs)),
-		keyword: make(map[int64]struct{}, len(keywordIDs)),
-	}
-	for _, id := range tmdbIDs {
-		next.tmdb[id] = struct{}{}
-	}
-	for _, id := range keywordIDs {
-		next.keyword[id] = struct{}{}
-	}
-	c.snap.Store(next)
+// Refresh is a boot-time NO-OP since Ф8-U-5 (blocklist is per-user; the cache
+// holds no user context). It publishes an empty snapshot and bumps the epoch
+// once so the discover LRU key stays well-formed. The real per-user block set
+// is loaded read-time in the discover handlers (Ф8-U-5b). Kept so existing
+// call sites (boot wiring, mutation refresh) compile unchanged.
+func (c *BlocklistCache) Refresh(_ context.Context) error {
+	c.snap.Store(&blocklistSnapshot{
+		tmdb:    map[int64]struct{}{},
+		keyword: map[int64]struct{}{},
+	})
 	c.epoch.Add(1)
 	return nil
 }

@@ -357,18 +357,23 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// (migration 000044), no FK, appended last like webhook_inbox.
 	addTorrentActionAudit(s, d)
 
-	// ADR-0015 Ф3 C1 — followed_series watchlist. Standalone single table
-	// (migration 000046), FK series_id → series(id) CASCADE. FK target
-	// `series` is present (addCoreSeries ran first). No dev-time skip flag —
-	// it is the newest migration and nothing splits a later migration off it.
-	addFollowedSeries(s, d)
+	// ADR-0015 Ф3 C1 — followed_series watchlist (migration 000046), FK
+	// series_id → series(id) CASCADE. Ф8-U-5 (000058): +user_id FK → users
+	// CASCADE, composite PK (user_id, series_id). users is a hard dependency
+	// now — skip alongside auth (mirrors qbit_runtime's SKIP_ADMIN guard).
+	if os.Getenv("ATLAS_SCHEMA_SKIP_AUTH") == "" {
+		addFollowedSeries(s, d)
+	}
 
-	// ADR-0016 Ф4 N1 — notifications outbox + agents. Two standalone
-	// single-table shapes (migration 000048), no FK to domain tables
-	// (the outbox/agents outlive any series/instance row). Appended last
-	// like webhook_inbox/torrent_action_audit — no dev-time skip flag.
+	// ADR-0016 Ф4 N1 — notifications outbox + agents (migration 000048).
+	// notification_outbox has no FK and stays UNGUARDED. Ф8-U-5 (000058):
+	// notification_agents gains user_id FK → users CASCADE (owner) — its
+	// caller is skipped alongside auth (mirrors qbit_runtime's SKIP_ADMIN
+	// guard).
 	addNotificationOutbox(s, d)
-	addNotificationAgents(s, d)
+	if os.Getenv("ATLAS_SCHEMA_SKIP_AUTH") == "" {
+		addNotificationAgents(s, d)
+	}
 
 	// ADR-0016 Ф4 N3 — notified_events cross-time dedup ledger for the
 	// calendar-event producers (season.premiere / air_date.announced /
@@ -383,12 +388,14 @@ func Schema(d Dialect) *atlasschema.Schema {
 	// skip flag (nothing splits a later migration off it).
 	addDiscoveryRows(s, d)
 
-	// ADR-0017 Ф5 S3 — discovery_blocklist. Global (pre-RBAC) hide-list for
-	// the discovery surface: kind∈{tmdb,keyword}, ref_id = tmdb_id or TMDB
-	// keyword_id, UNIQUE(kind, ref_id). Standalone single-table (migration
-	// 000051), no FK (a blocked tmdb_id need not exist in the local catalog),
-	// appended last like discovery_rows — no dev-time skip flag.
-	addDiscoveryBlocklist(s, d)
+	// ADR-0017 Ф5 S3 — discovery_blocklist hide-list for the discovery
+	// surface: kind∈{tmdb,keyword}, ref_id = tmdb_id or TMDB keyword_id
+	// (migration 000051). Ф8-U-5 (000058): +user_id FK → users CASCADE,
+	// UNIQUE(user_id, kind, ref_id). users is a hard dependency now — skip
+	// alongside auth (mirrors qbit_runtime's SKIP_ADMIN guard).
+	if os.Getenv("ATLAS_SCHEMA_SKIP_AUTH") == "" {
+		addDiscoveryBlocklist(s, d)
+	}
 
 	return s
 }
@@ -469,33 +476,41 @@ func discoveryRowsParamsColumn(d Dialect) *atlasschema.Column {
 	return c
 }
 
-// addDiscoveryBlocklist appends discovery_blocklist to s. Standalone
-// single-table migration (000051, ADR-0017 Ф5 S3) — no FK (a blocked
-// tmdb_id / keyword_id need not exist in any local table), global config.
+// addDiscoveryBlocklist appends discovery_blocklist to s. Ф8-U-5: user_id
+// FK → users CASCADE (owner). users is a hard dependency now — caller
+// guarded by ATLAS_SCHEMA_SKIP_AUTH in Schema(d).
 func addDiscoveryBlocklist(s *atlasschema.Schema, d Dialect) {
-	s.AddTables(buildDiscoveryBlocklistTable(d))
+	users := mustTable(s, "users")
+	s.AddTables(buildDiscoveryBlocklistTable(d, users))
 }
 
-// buildDiscoveryBlocklistTable returns discovery_blocklist — 5 cols,
-// surrogate PK id, UNIQUE(kind, ref_id). No DB CHECK on kind (app-owned
-// enum {tmdb,keyword}, mirrors discovery_rows.row_type). ref_id is bigint
-// (holds a tmdb_id OR a TMDB keyword_id — keyword ids exceed int32 range).
-// label is NULL for tmdb rows (title resolves from series_texts on read)
-// and the keyword name for keyword rows. No FK — the list outlives any
-// series/keyword catalog row.
-func buildDiscoveryBlocklistTable(d Dialect) *atlasschema.Table {
+// buildDiscoveryBlocklistTable returns discovery_blocklist — 6 cols,
+// surrogate PK id, UNIQUE(user_id, kind, ref_id) (Ф8-U-5 per-user). user_id
+// FK→users CASCADE: a blocklist row is meaningless once its owner is deleted.
+// No DB CHECK on kind (app-owned enum {tmdb,keyword}). ref_id is bigint
+// (a tmdb_id OR a TMDB keyword_id — keyword ids exceed int32 range).
+func buildDiscoveryBlocklistTable(d Dialect, usersTable *atlasschema.Table) *atlasschema.Table {
 	id := pkColumn(d)
+	userID := fkColumn(d, "user_id", false /* not null */)
 	kind := atlasschema.NewStringColumn("kind", "text").SetNull(false)
 	refID := atlasschema.NewIntColumn("ref_id", "bigint").SetNull(false)
 	label := atlasschema.NewNullStringColumn("label", "text")
 	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
 
 	return atlasschema.NewTable("discovery_blocklist").
-		AddColumns(id, kind, refID, label, createdAt).
+		AddColumns(id, userID, kind, refID, label, createdAt).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
 		AddIndexes(
 			atlasschema.NewUniqueIndex("discovery_blocklist_kind_ref").
-				AddColumns(kind, refID),
+				AddColumns(userID, kind, refID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("discovery_blocklist_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(parentRefCol(usersTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
 		)
 }
 
@@ -538,34 +553,39 @@ func buildTorrentActionAuditTable(d Dialect) *atlasschema.Table {
 		)
 }
 
-// addFollowedSeries appends followed_series to s. Standalone single-table
-// migration (000046, ADR-0015 Ф3 C1). FK series_id → series(id) CASCADE:
-// a followed row is meaningless once its canon series is hard-dropped by
-// OrphanSeries-GC, so it cascades (same "dead-without-parent" family as
-// discovery_lists / series_recommendations).
+// addFollowedSeries appends followed_series to s. FK series_id → series
+// CASCADE and (Ф8-U-5) user_id → users CASCADE; composite PK (user_id,
+// series_id). users is a hard dependency now, so the caller is guarded by
+// ATLAS_SCHEMA_SKIP_AUTH in Schema(d).
 func addFollowedSeries(s *atlasschema.Schema, d Dialect) {
 	series := mustTable(s, "series")
-	s.AddTables(buildFollowedSeriesTable(d, series))
+	users := mustTable(s, "users")
+	s.AddTables(buildFollowedSeriesTable(d, series, users))
 }
 
-// buildFollowedSeriesTable returns followed_series — 2 cols. series_id is
-// BOTH the primary key and the FK to series(id) (one watchlist row per
-// canon series; global pre-RBAC — a user_id column arrives in Фаза 8).
-// created_at defaults to now() (pg) / CURRENT_TIMESTAMP (sqlite). No
-// secondary index: the PK covers the point read (follow-state) and the
-// ListFollowed sweep is a full bounded scan ordered by created_at.
-func buildFollowedSeriesTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
+// buildFollowedSeriesTable returns followed_series — 3 cols. Composite PK
+// (user_id, series_id): one watchlist row per (user, canon series) (Ф8-U-5
+// per-user). Two CASCADE FKs: series_id → series(id) (dead once canon GC'd),
+// user_id → users(id) (dead once owner deleted).
+func buildFollowedSeriesTable(d Dialect, seriesTable, usersTable *atlasschema.Table) *atlasschema.Table {
+	userID := fkColumn(d, "user_id", false /* not null */)
 	seriesID := fkColumn(d, "series_id", false /* not null */)
 	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
 
 	return atlasschema.NewTable("followed_series").
-		AddColumns(seriesID, createdAt).
-		SetPrimaryKey(atlasschema.NewPrimaryKey(seriesID)).
+		AddColumns(userID, seriesID, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(userID, seriesID)).
 		AddForeignKeys(
 			atlasschema.NewForeignKey("followed_series_series_id_fkey").
 				AddColumns(seriesID).
 				SetRefTable(seriesTable).
 				AddRefColumns(parentRefCol(seriesTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("followed_series_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(parentRefCol(usersTable)).
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)
@@ -4487,15 +4507,18 @@ func notificationPayloadColumn(d Dialect) *atlasschema.Column {
 // shoutrrr URL (BYTEA pg / bytea-affinity sqlite, same as app_secret).
 // event_types is a JSON array of subscribed event_type strings.
 func addNotificationAgents(s *atlasschema.Schema, d Dialect) {
-	s.AddTables(buildNotificationAgentsTable(d))
+	users := mustTable(s, "users")
+	s.AddTables(buildNotificationAgentsTable(d, users))
 }
 
-// buildNotificationAgentsTable returns notification_agents — 6 cols,
-// surrogate PK id. enabled defaults false. No FK. No secondary index
-// (the dispatcher loads all enabled agents once per due-batch; table is
-// tiny). config_encrypted is NOT NULL — an agent with no URL is useless.
-func buildNotificationAgentsTable(d Dialect) *atlasschema.Table {
+// buildNotificationAgentsTable returns notification_agents — 7 cols,
+// surrogate PK id, user_id FK→users CASCADE (owner). enabled defaults false.
+// No secondary index (the dispatcher loads all enabled agents once per
+// due-batch; table is tiny). config_encrypted is NOT NULL — an agent with no
+// URL is useless.
+func buildNotificationAgentsTable(d Dialect, usersTable *atlasschema.Table) *atlasschema.Table {
 	id := pkColumn(d)
+	userID := fkColumn(d, "user_id", false /* not null */)
 	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
 	enabled := atlasschema.NewBoolColumn("enabled", "boolean").
 		SetNull(false).
@@ -4505,8 +4528,16 @@ func buildNotificationAgentsTable(d Dialect) *atlasschema.Table {
 	createdAt := timestampColumn(d, "created_at", true, true)
 
 	return atlasschema.NewTable("notification_agents").
-		AddColumns(id, name, enabled, configEncrypted, eventTypes, createdAt).
-		SetPrimaryKey(atlasschema.NewPrimaryKey(id))
+		AddColumns(id, userID, name, enabled, configEncrypted, eventTypes, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("notification_agents_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(parentRefCol(usersTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
 }
 
 // notificationEventTypesColumn — jsonb(pg)/text(sqlite) NOT NULL, JSON array.

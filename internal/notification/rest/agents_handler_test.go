@@ -8,19 +8,51 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	notifapp "github.com/alexmorbo/seasonfill/internal/notification/app"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 type stubNotifier struct{ err error }
 
 func (s stubNotifier) Send(context.Context, []byte, notifapp.Message) error { return s.err }
+
+// stubAgentUsers resolves the per-user owner for the agents handler (Ф8-U-5).
+type stubAgentUsers struct{}
+
+func (stubAgentUsers) Get(context.Context) (admin.User, error) {
+	return admin.User{ID: 1, Username: "admin", Role: admin.RoleAdmin}, nil
+}
+func (stubAgentUsers) GetByUsername(_ context.Context, name string) (admin.User, error) {
+	return admin.User{ID: 1, Username: name, Role: admin.RoleAdmin}, nil
+}
+func (stubAgentUsers) FirstAdminID(context.Context) (int64, error) { return 1, nil }
+func (stubAgentUsers) GetByOIDCSubject(context.Context, string) (admin.User, error) {
+	return admin.User{}, nil
+}
+func (stubAgentUsers) GetByJellyfinUserID(context.Context, string) (admin.User, error) {
+	return admin.User{}, nil
+}
+func (stubAgentUsers) Create(context.Context, admin.User) error { return nil }
+func (stubAgentUsers) CreateFromOIDC(context.Context, string, string, string) (admin.User, error) {
+	return admin.User{}, nil
+}
+func (stubAgentUsers) CreateFromJellyfin(context.Context, string, string, string) (admin.User, error) {
+	return admin.User{}, nil
+}
+func (stubAgentUsers) UpdatePassword(context.Context, uint, string) error { return nil }
+func (stubAgentUsers) UpdateSettings(context.Context, uint, ports.UserSettingsPatch) error {
+	return nil
+}
+func (stubAgentUsers) UpdateLastLoginAt(context.Context, uint, time.Time) error { return nil }
 
 func newRouter(t *testing.T, repo ports.NotificationAgentRepository, n notifapp.Notifier) *gin.Engine {
 	t.Helper()
@@ -28,8 +60,9 @@ func newRouter(t *testing.T, repo ports.NotificationAgentRepository, n notifapp.
 	cipher, err := crypto.NewNotificationAgentCipher("rest-handler-test-key")
 	require.NoError(t, err)
 	uc := notifapp.NewAgentsUseCase(repo, cipher, n)
-	h := NewAgentsHandler(uc, nil)
+	h := NewAgentsHandler(uc, stubAgentUsers{}, nil)
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set(middleware.UsernameContextKey, "admin") })
 	r.GET("/admin/notification-agents", h.List)
 	r.GET("/admin/notification-agents/:id", h.Get)
 	r.POST("/admin/notification-agents", h.Create)
@@ -56,7 +89,7 @@ func TestHandler_Create_MaskedNoToken(t *testing.T) {
 	t.Parallel()
 	var stored ports.NotificationAgent
 	repo := &ports.NotificationAgentRepositoryMock{
-		CreateFunc: func(_ context.Context, a ports.NotificationAgent) (int64, error) {
+		CreateFunc: func(_ context.Context, _ int64, a ports.NotificationAgent) (int64, error) {
 			stored = a
 			stored.ID = 1
 			return 1, nil
