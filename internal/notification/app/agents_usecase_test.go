@@ -92,7 +92,7 @@ func TestAgentsUseCase_Update_URLSemantics(t *testing.T) {
 	var lastNewConfig []byte
 	var configSet bool
 	repo := &ports.NotificationAgentRepositoryMock{
-		UpdateFunc: func(_ context.Context, _ int64, _ string, _ bool, _ []string, newConfig []byte) error {
+		UpdateFunc: func(_ context.Context, _, _ int64, _ string, _ bool, _ []string, newConfig []byte) error {
 			lastNewConfig = newConfig
 			configSet = true
 			return nil
@@ -102,12 +102,12 @@ func TestAgentsUseCase_Update_URLSemantics(t *testing.T) {
 	ctx := context.Background()
 
 	// empty url → newConfig nil (keep).
-	require.NoError(t, uc.Update(ctx, 1, "n", "", true, []string{"grab.failed"}))
+	require.NoError(t, uc.Update(ctx, 1, 1, "n", "", true, []string{"grab.failed"}))
 	require.True(t, configSet)
 	assert.Nil(t, lastNewConfig)
 
 	// non-empty url → newConfig non-nil (replace).
-	require.NoError(t, uc.Update(ctx, 1, "n", "discord://x@y", true, []string{"grab.failed"}))
+	require.NoError(t, uc.Update(ctx, 1, 1, "n", "discord://x@y", true, []string{"grab.failed"}))
 	assert.NotNil(t, lastNewConfig)
 }
 
@@ -118,13 +118,13 @@ func TestAgentsUseCase_ListView_Masked(t *testing.T) {
 	enc, err := c.Seal([]byte("telegram://TOKEN@telegram?chats=9"))
 	require.NoError(t, err)
 	repo := &ports.NotificationAgentRepositoryMock{
-		ListFunc: func(context.Context) ([]ports.NotificationAgent, error) {
+		ListByOwnerFunc: func(context.Context, int64) ([]ports.NotificationAgent, error) {
 			return []ports.NotificationAgent{{ID: 1, Name: "tg", Enabled: true, ConfigEncrypted: enc, EventTypes: []string{"grab.failed"}}}, nil
 		},
 	}
 	uc := NewAgentsUseCase(repo, c, &stubNotifier{})
 
-	views, err := uc.List(context.Background())
+	views, err := uc.ListByOwner(context.Background(), 1)
 	require.NoError(t, err)
 	require.Len(t, views, 1)
 	assert.True(t, views[0].Configured)
@@ -138,19 +138,19 @@ func TestAgentsUseCase_Test_CallsNotifier(t *testing.T) {
 	enc, err := c.Seal([]byte("telegram://t@x"))
 	require.NoError(t, err)
 	repo := &ports.NotificationAgentRepositoryMock{
-		GetFunc: func(context.Context, int64) (ports.NotificationAgent, error) {
+		GetFunc: func(context.Context, int64, int64) (ports.NotificationAgent, error) {
 			return ports.NotificationAgent{ID: 1, ConfigEncrypted: enc}, nil
 		},
 	}
 	n := &stubNotifier{}
 	uc := NewAgentsUseCase(repo, c, n)
 
-	require.NoError(t, uc.Test(context.Background(), 1))
+	require.NoError(t, uc.Test(context.Background(), 1, 1))
 	assert.Equal(t, 1, n.calls)
 
 	// Not found propagates.
-	repo.GetFunc = func(context.Context, int64) (ports.NotificationAgent, error) {
+	repo.GetFunc = func(context.Context, int64, int64) (ports.NotificationAgent, error) {
 		return ports.NotificationAgent{}, ports.ErrNotFound
 	}
-	assert.True(t, errors.Is(uc.Test(context.Background(), 2), ports.ErrNotFound))
+	assert.True(t, errors.Is(uc.Test(context.Background(), 2, 1), ports.ErrNotFound))
 }

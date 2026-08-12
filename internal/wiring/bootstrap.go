@@ -919,7 +919,7 @@ func BuildHTTPServer(
 	// nil-OK: the keyword-search route returns 503 when TMDB is unwired.
 	keywordSearchClient KeywordSearchClient,
 	// ADR-0016 Ф4 N1 — notification agents CRUD/test handler. nil-OK: the
-	// /admin/notification-agents routes are omitted when absent.
+	// /notification-agents routes are omitted when absent.
 	notificationAgentsHandler *notifrest.AgentsHandler,
 	log *slog.Logger,
 ) (*httpserver.Server, *InstanceMetadataBundle) {

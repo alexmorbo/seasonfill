@@ -136,4 +136,10 @@ describe("<AppSidebar /> queue nav entry", () => {
     const link = screen.getByRole("link", { name: /queue/i })
     expect(link).toHaveAttribute("href", "/instances")
   })
+
+  it("renders a Notification agents link under Setup", () => {
+    renderWithProviders(wrapWithFilter(<AppSidebar />, null))
+    const link = screen.getByRole("link", { name: /notification agents/i })
+    expect(link).toHaveAttribute("href", "/settings/agents")
+  })
 })

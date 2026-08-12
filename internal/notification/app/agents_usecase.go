@@ -46,8 +46,8 @@ func NewAgentsUseCase(repo ports.NotificationAgentRepository, cipher *crypto.Cip
 	return &AgentsUseCase{repo: repo, cipher: cipher, notifier: notifier}
 }
 
-func (u *AgentsUseCase) List(ctx context.Context) ([]AgentView, error) {
-	agents, err := u.repo.List(ctx)
+func (u *AgentsUseCase) ListByOwner(ctx context.Context, ownerID int64) ([]AgentView, error) {
+	agents, err := u.repo.ListByOwner(ctx, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -58,8 +58,8 @@ func (u *AgentsUseCase) List(ctx context.Context) ([]AgentView, error) {
 	return out, nil
 }
 
-func (u *AgentsUseCase) Get(ctx context.Context, id int64) (AgentView, error) {
-	a, err := u.repo.Get(ctx, id)
+func (u *AgentsUseCase) Get(ctx context.Context, id, ownerID int64) (AgentView, error) {
+	a, err := u.repo.Get(ctx, id, ownerID)
 	if err != nil {
 		return AgentView{}, err
 	}
@@ -91,7 +91,7 @@ func (u *AgentsUseCase) Create(ctx context.Context, ownerID int64, name, url str
 }
 
 // Update re-encrypts the URL only when non-empty (empty = keep existing).
-func (u *AgentsUseCase) Update(ctx context.Context, id int64, name, url string, enabled bool, eventTypes []string) error {
+func (u *AgentsUseCase) Update(ctx context.Context, id, ownerID int64, name, url string, enabled bool, eventTypes []string) error {
 	name = strings.TrimSpace(name)
 	url = strings.TrimSpace(url)
 	if name == "" {
@@ -109,14 +109,18 @@ func (u *AgentsUseCase) Update(ctx context.Context, id int64, name, url string, 
 		}
 		newConfig = enc
 	}
-	return u.repo.Update(ctx, id, name, enabled, et, newConfig)
+	return u.repo.Update(ctx, id, ownerID, name, enabled, et, newConfig)
 }
 
-func (u *AgentsUseCase) Delete(ctx context.Context, id int64) error { return u.repo.Delete(ctx, id) }
+func (u *AgentsUseCase) Delete(ctx context.Context, id, ownerID int64) error {
+	return u.repo.Delete(ctx, id, ownerID)
+}
 
 // Test sends a fixed title+body via the agent's stored config synchronously.
-func (u *AgentsUseCase) Test(ctx context.Context, id int64) error {
-	a, err := u.repo.Get(ctx, id)
+// The Get is owner-scoped: a cross-user id resolves to ErrNotFound (→ 404)
+// before any network send happens.
+func (u *AgentsUseCase) Test(ctx context.Context, id, ownerID int64) error {
+	a, err := u.repo.Get(ctx, id, ownerID)
 	if err != nil {
 		return err
 	}

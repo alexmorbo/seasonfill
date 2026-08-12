@@ -24,6 +24,7 @@ import {
   Layers,
   CalendarDays,
   Inbox,
+  Bell,
   UsersRound,
 } from "lucide-react"
 import type { ComponentType } from "react"
@@ -58,6 +59,7 @@ const SETUP: Item[] = [
   { to: "/instances", icon: Server, key: "instances" },
   { to: "/settings", end: true, icon: SettingsIcon, key: "settings" },
   { to: "/settings/profile", icon: User, key: "profile" },
+  { to: "/settings/agents", icon: Bell, key: "agents" },
   { to: "/settings/external-services", icon: Globe, key: "externalServices" },
 ]
 

@@ -45,7 +45,7 @@ export const DEFAULT_EVENT_TYPES: readonly string[] = [
   'request.denied',
 ];
 
-const BASE_PATH = '/admin/notification-agents';
+const BASE_PATH = '/notification-agents';
 
 export async function listAgents(): Promise<NotificationAgentView[]> {
   const res = await api<NotificationAgentListResponse>(BASE_PATH);

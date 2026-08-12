@@ -403,6 +403,7 @@ export const ru: Translations = {
     collections: 'Коллекции',
     settings: 'Настройки',
     profile: 'Профиль',
+    agents: 'Агенты уведомлений',
     externalServices: 'Внешние сервисы',
     requests: 'Запросы',
     users: 'Пользователи',

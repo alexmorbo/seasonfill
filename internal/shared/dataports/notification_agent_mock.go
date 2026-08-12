@@ -21,19 +21,19 @@ var _ NotificationAgentRepository = &NotificationAgentRepositoryMock{}
 //			CreateFunc: func(ctx context.Context, ownerID int64, a NotificationAgent) (int64, error) {
 //				panic("mock out the Create method")
 //			},
-//			DeleteFunc: func(ctx context.Context, id int64) error {
+//			DeleteFunc: func(ctx context.Context, id int64, ownerID int64) error {
 //				panic("mock out the Delete method")
 //			},
-//			GetFunc: func(ctx context.Context, id int64) (NotificationAgent, error) {
+//			GetFunc: func(ctx context.Context, id int64, ownerID int64) (NotificationAgent, error) {
 //				panic("mock out the Get method")
 //			},
-//			ListFunc: func(ctx context.Context) ([]NotificationAgent, error) {
-//				panic("mock out the List method")
+//			ListByOwnerFunc: func(ctx context.Context, ownerID int64) ([]NotificationAgent, error) {
+//				panic("mock out the ListByOwner method")
 //			},
 //			ListEnabledForEventAndUserFunc: func(ctx context.Context, eventType string, userID int64) ([]NotificationAgent, error) {
 //				panic("mock out the ListEnabledForEventAndUser method")
 //			},
-//			UpdateFunc: func(ctx context.Context, id int64, name string, enabled bool, eventTypes []string, newConfig []byte) error {
+//			UpdateFunc: func(ctx context.Context, id int64, ownerID int64, name string, enabled bool, eventTypes []string, newConfig []byte) error {
 //				panic("mock out the Update method")
 //			},
 //		}
@@ -47,19 +47,19 @@ type NotificationAgentRepositoryMock struct {
 	CreateFunc func(ctx context.Context, ownerID int64, a NotificationAgent) (int64, error)
 
 	// DeleteFunc mocks the Delete method.
-	DeleteFunc func(ctx context.Context, id int64) error
+	DeleteFunc func(ctx context.Context, id int64, ownerID int64) error
 
 	// GetFunc mocks the Get method.
-	GetFunc func(ctx context.Context, id int64) (NotificationAgent, error)
+	GetFunc func(ctx context.Context, id int64, ownerID int64) (NotificationAgent, error)
 
-	// ListFunc mocks the List method.
-	ListFunc func(ctx context.Context) ([]NotificationAgent, error)
+	// ListByOwnerFunc mocks the ListByOwner method.
+	ListByOwnerFunc func(ctx context.Context, ownerID int64) ([]NotificationAgent, error)
 
 	// ListEnabledForEventAndUserFunc mocks the ListEnabledForEventAndUser method.
 	ListEnabledForEventAndUserFunc func(ctx context.Context, eventType string, userID int64) ([]NotificationAgent, error)
 
 	// UpdateFunc mocks the Update method.
-	UpdateFunc func(ctx context.Context, id int64, name string, enabled bool, eventTypes []string, newConfig []byte) error
+	UpdateFunc func(ctx context.Context, id int64, ownerID int64, name string, enabled bool, eventTypes []string, newConfig []byte) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -78,6 +78,8 @@ type NotificationAgentRepositoryMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID int64
+			// OwnerID is the ownerID argument value.
+			OwnerID int64
 		}
 		// Get holds details about calls to the Get method.
 		Get []struct {
@@ -85,11 +87,15 @@ type NotificationAgentRepositoryMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID int64
+			// OwnerID is the ownerID argument value.
+			OwnerID int64
 		}
-		// List holds details about calls to the List method.
-		List []struct {
+		// ListByOwner holds details about calls to the ListByOwner method.
+		ListByOwner []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// OwnerID is the ownerID argument value.
+			OwnerID int64
 		}
 		// ListEnabledForEventAndUser holds details about calls to the ListEnabledForEventAndUser method.
 		ListEnabledForEventAndUser []struct {
@@ -106,6 +112,8 @@ type NotificationAgentRepositoryMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID int64
+			// OwnerID is the ownerID argument value.
+			OwnerID int64
 			// Name is the name argument value.
 			Name string
 			// Enabled is the enabled argument value.
@@ -119,7 +127,7 @@ type NotificationAgentRepositoryMock struct {
 	lockCreate                     sync.RWMutex
 	lockDelete                     sync.RWMutex
 	lockGet                        sync.RWMutex
-	lockList                       sync.RWMutex
+	lockListByOwner                sync.RWMutex
 	lockListEnabledForEventAndUser sync.RWMutex
 	lockUpdate                     sync.RWMutex
 }
@@ -165,21 +173,23 @@ func (mock *NotificationAgentRepositoryMock) CreateCalls() []struct {
 }
 
 // Delete calls DeleteFunc.
-func (mock *NotificationAgentRepositoryMock) Delete(ctx context.Context, id int64) error {
+func (mock *NotificationAgentRepositoryMock) Delete(ctx context.Context, id int64, ownerID int64) error {
 	if mock.DeleteFunc == nil {
 		panic("NotificationAgentRepositoryMock.DeleteFunc: method is nil but NotificationAgentRepository.Delete was just called")
 	}
 	callInfo := struct {
-		Ctx context.Context
-		ID  int64
+		Ctx     context.Context
+		ID      int64
+		OwnerID int64
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:     ctx,
+		ID:      id,
+		OwnerID: ownerID,
 	}
 	mock.lockDelete.Lock()
 	mock.calls.Delete = append(mock.calls.Delete, callInfo)
 	mock.lockDelete.Unlock()
-	return mock.DeleteFunc(ctx, id)
+	return mock.DeleteFunc(ctx, id, ownerID)
 }
 
 // DeleteCalls gets all the calls that were made to Delete.
@@ -187,12 +197,14 @@ func (mock *NotificationAgentRepositoryMock) Delete(ctx context.Context, id int6
 //
 //	len(mockedNotificationAgentRepository.DeleteCalls())
 func (mock *NotificationAgentRepositoryMock) DeleteCalls() []struct {
-	Ctx context.Context
-	ID  int64
+	Ctx     context.Context
+	ID      int64
+	OwnerID int64
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  int64
+		Ctx     context.Context
+		ID      int64
+		OwnerID int64
 	}
 	mock.lockDelete.RLock()
 	calls = mock.calls.Delete
@@ -201,21 +213,23 @@ func (mock *NotificationAgentRepositoryMock) DeleteCalls() []struct {
 }
 
 // Get calls GetFunc.
-func (mock *NotificationAgentRepositoryMock) Get(ctx context.Context, id int64) (NotificationAgent, error) {
+func (mock *NotificationAgentRepositoryMock) Get(ctx context.Context, id int64, ownerID int64) (NotificationAgent, error) {
 	if mock.GetFunc == nil {
 		panic("NotificationAgentRepositoryMock.GetFunc: method is nil but NotificationAgentRepository.Get was just called")
 	}
 	callInfo := struct {
-		Ctx context.Context
-		ID  int64
+		Ctx     context.Context
+		ID      int64
+		OwnerID int64
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:     ctx,
+		ID:      id,
+		OwnerID: ownerID,
 	}
 	mock.lockGet.Lock()
 	mock.calls.Get = append(mock.calls.Get, callInfo)
 	mock.lockGet.Unlock()
-	return mock.GetFunc(ctx, id)
+	return mock.GetFunc(ctx, id, ownerID)
 }
 
 // GetCalls gets all the calls that were made to Get.
@@ -223,12 +237,14 @@ func (mock *NotificationAgentRepositoryMock) Get(ctx context.Context, id int64) 
 //
 //	len(mockedNotificationAgentRepository.GetCalls())
 func (mock *NotificationAgentRepositoryMock) GetCalls() []struct {
-	Ctx context.Context
-	ID  int64
+	Ctx     context.Context
+	ID      int64
+	OwnerID int64
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  int64
+		Ctx     context.Context
+		ID      int64
+		OwnerID int64
 	}
 	mock.lockGet.RLock()
 	calls = mock.calls.Get
@@ -236,35 +252,39 @@ func (mock *NotificationAgentRepositoryMock) GetCalls() []struct {
 	return calls
 }
 
-// List calls ListFunc.
-func (mock *NotificationAgentRepositoryMock) List(ctx context.Context) ([]NotificationAgent, error) {
-	if mock.ListFunc == nil {
-		panic("NotificationAgentRepositoryMock.ListFunc: method is nil but NotificationAgentRepository.List was just called")
+// ListByOwner calls ListByOwnerFunc.
+func (mock *NotificationAgentRepositoryMock) ListByOwner(ctx context.Context, ownerID int64) ([]NotificationAgent, error) {
+	if mock.ListByOwnerFunc == nil {
+		panic("NotificationAgentRepositoryMock.ListByOwnerFunc: method is nil but NotificationAgentRepository.ListByOwner was just called")
 	}
 	callInfo := struct {
-		Ctx context.Context
+		Ctx     context.Context
+		OwnerID int64
 	}{
-		Ctx: ctx,
+		Ctx:     ctx,
+		OwnerID: ownerID,
 	}
-	mock.lockList.Lock()
-	mock.calls.List = append(mock.calls.List, callInfo)
-	mock.lockList.Unlock()
-	return mock.ListFunc(ctx)
+	mock.lockListByOwner.Lock()
+	mock.calls.ListByOwner = append(mock.calls.ListByOwner, callInfo)
+	mock.lockListByOwner.Unlock()
+	return mock.ListByOwnerFunc(ctx, ownerID)
 }
 
-// ListCalls gets all the calls that were made to List.
+// ListByOwnerCalls gets all the calls that were made to ListByOwner.
 // Check the length with:
 //
-//	len(mockedNotificationAgentRepository.ListCalls())
-func (mock *NotificationAgentRepositoryMock) ListCalls() []struct {
-	Ctx context.Context
+//	len(mockedNotificationAgentRepository.ListByOwnerCalls())
+func (mock *NotificationAgentRepositoryMock) ListByOwnerCalls() []struct {
+	Ctx     context.Context
+	OwnerID int64
 } {
 	var calls []struct {
-		Ctx context.Context
+		Ctx     context.Context
+		OwnerID int64
 	}
-	mock.lockList.RLock()
-	calls = mock.calls.List
-	mock.lockList.RUnlock()
+	mock.lockListByOwner.RLock()
+	calls = mock.calls.ListByOwner
+	mock.lockListByOwner.RUnlock()
 	return calls
 }
 
@@ -309,13 +329,14 @@ func (mock *NotificationAgentRepositoryMock) ListEnabledForEventAndUserCalls() [
 }
 
 // Update calls UpdateFunc.
-func (mock *NotificationAgentRepositoryMock) Update(ctx context.Context, id int64, name string, enabled bool, eventTypes []string, newConfig []byte) error {
+func (mock *NotificationAgentRepositoryMock) Update(ctx context.Context, id int64, ownerID int64, name string, enabled bool, eventTypes []string, newConfig []byte) error {
 	if mock.UpdateFunc == nil {
 		panic("NotificationAgentRepositoryMock.UpdateFunc: method is nil but NotificationAgentRepository.Update was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
 		ID         int64
+		OwnerID    int64
 		Name       string
 		Enabled    bool
 		EventTypes []string
@@ -323,6 +344,7 @@ func (mock *NotificationAgentRepositoryMock) Update(ctx context.Context, id int6
 	}{
 		Ctx:        ctx,
 		ID:         id,
+		OwnerID:    ownerID,
 		Name:       name,
 		Enabled:    enabled,
 		EventTypes: eventTypes,
@@ -331,7 +353,7 @@ func (mock *NotificationAgentRepositoryMock) Update(ctx context.Context, id int6
 	mock.lockUpdate.Lock()
 	mock.calls.Update = append(mock.calls.Update, callInfo)
 	mock.lockUpdate.Unlock()
-	return mock.UpdateFunc(ctx, id, name, enabled, eventTypes, newConfig)
+	return mock.UpdateFunc(ctx, id, ownerID, name, enabled, eventTypes, newConfig)
 }
 
 // UpdateCalls gets all the calls that were made to Update.
@@ -341,6 +363,7 @@ func (mock *NotificationAgentRepositoryMock) Update(ctx context.Context, id int6
 func (mock *NotificationAgentRepositoryMock) UpdateCalls() []struct {
 	Ctx        context.Context
 	ID         int64
+	OwnerID    int64
 	Name       string
 	Enabled    bool
 	EventTypes []string
@@ -349,6 +372,7 @@ func (mock *NotificationAgentRepositoryMock) UpdateCalls() []struct {
 	var calls []struct {
 		Ctx        context.Context
 		ID         int64
+		OwnerID    int64
 		Name       string
 		Enabled    bool
 		EventTypes []string

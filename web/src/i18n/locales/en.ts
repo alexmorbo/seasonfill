@@ -401,6 +401,7 @@ export const en = {
     collections: 'Collections',
     settings: 'Settings',
     profile: 'Profile',
+    agents: 'Notification agents',
     externalServices: 'External services',
     requests: 'Requests',
     users: 'Users',

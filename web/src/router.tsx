@@ -85,6 +85,9 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <SettingsRedirect /> },
           { path: 'profile', element: <ProfileTab /> },
+          // Ф8-U-6c — notification agents are per-user; the page lives OUTSIDE
+          // the admin-only SystemTabGuard subtree, as a sibling of profile.
+          { path: 'agents', element: <AgentsTab /> },
           {
             path: 'system',
             element: <SystemTabGuard><SystemLayout /></SystemTabGuard>,
@@ -93,7 +96,6 @@ export const router = createBrowserRouter([
               { path: 'general',      element: <GeneralTab /> },
               { path: 'security',     element: <SecurityTab /> },
               { path: 'integrations', element: <IntegrationsTab /> },
-              { path: 'agents', element: <AgentsTab /> },
               { path: 'blocklist', element: <BlocklistTab /> },
             ],
           },

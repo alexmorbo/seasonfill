@@ -68,7 +68,7 @@ func TestAgentRepository_CreateGet_RoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			require.NotZero(t, id)
 
-			got, err := repo.Get(ctx, id)
+			got, err := repo.Get(ctx, id, agentOwnerID)
 			require.NoError(t, err)
 			assert.Equal(t, "tg", got.Name)
 			assert.True(t, got.Enabled)
@@ -107,8 +107,8 @@ func TestAgentRepository_Update_KeepOrReplaceConfig(t *testing.T) {
 			require.NoError(t, err)
 
 			// newConfig=nil → keep ciphertext; name/enabled/event_types replaced.
-			require.NoError(t, repo.Update(ctx, id, "a2", true, []string{"grab.failed"}, nil))
-			got, err := repo.Get(ctx, id)
+			require.NoError(t, repo.Update(ctx, id, agentOwnerID, "a2", true, []string{"grab.failed"}, nil))
+			got, err := repo.Get(ctx, id, agentOwnerID)
 			require.NoError(t, err)
 			assert.Equal(t, "a2", got.Name)
 			assert.True(t, got.Enabled)
@@ -117,8 +117,8 @@ func TestAgentRepository_Update_KeepOrReplaceConfig(t *testing.T) {
 
 			// newConfig non-nil → replace ciphertext.
 			repl := []byte{0xCC}
-			require.NoError(t, repo.Update(ctx, id, "a2", true, []string{"grab.failed"}, repl))
-			got, err = repo.Get(ctx, id)
+			require.NoError(t, repo.Update(ctx, id, agentOwnerID, "a2", true, []string{"grab.failed"}, repl))
+			got, err = repo.Get(ctx, id, agentOwnerID)
 			require.NoError(t, err)
 			assert.Equal(t, repl, got.ConfigEncrypted)
 		})
@@ -173,16 +173,75 @@ func TestAgentRepository_NotFound(t *testing.T) {
 			seedAgentUser(t, db)
 			ctx := context.Background()
 
-			_, err := repo.Get(ctx, 999)
+			_, err := repo.Get(ctx, 999, agentOwnerID)
 			assert.True(t, errors.Is(err, ports.ErrNotFound))
-			assert.True(t, errors.Is(repo.Delete(ctx, 999), ports.ErrNotFound))
-			assert.True(t, errors.Is(repo.Update(ctx, 999, "x", true, nil, nil), ports.ErrNotFound))
+			assert.True(t, errors.Is(repo.Delete(ctx, 999, agentOwnerID), ports.ErrNotFound))
+			assert.True(t, errors.Is(repo.Update(ctx, 999, agentOwnerID, "x", true, nil, nil), ports.ErrNotFound))
 
 			// Delete existing → ok.
 			id, err := repo.Create(ctx, agentOwnerID, ports.NotificationAgent{Name: "d", ConfigEncrypted: []byte{9}, EventTypes: []string{"grab.ok"}})
 			require.NoError(t, err)
-			require.NoError(t, repo.Delete(ctx, id))
-			_, err = repo.Get(ctx, id)
+			require.NoError(t, repo.Delete(ctx, id, agentOwnerID))
+			_, err = repo.Get(ctx, id, agentOwnerID)
+			assert.True(t, errors.Is(err, ports.ErrNotFound))
+		})
+	}
+}
+
+func TestAgentRepository_OwnerScoping(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewAgentRepository(db)
+			seedAgentUser(t, db)  // id=1, owner A (admin)
+			seedSecondUser(t, db) // id=2, owner B (bob, non-admin)
+			ctx := context.Background()
+
+			idA, err := repo.Create(ctx, agentOwnerID, ports.NotificationAgent{
+				Name: "a-agent", Enabled: true, ConfigEncrypted: []byte{0x01},
+				EventTypes: []string{"grab.failed"},
+			})
+			require.NoError(t, err)
+			idB, err := repo.Create(ctx, secondUserID, ports.NotificationAgent{
+				Name: "b-agent", Enabled: true, ConfigEncrypted: []byte{0x02},
+				EventTypes: []string{"grab.failed"},
+			})
+			require.NoError(t, err)
+
+			// B cannot Get A's agent → ErrNotFound (existence hidden).
+			_, err = repo.Get(ctx, idA, secondUserID)
+			assert.True(t, errors.Is(err, ports.ErrNotFound))
+
+			// B cannot Update A's agent; A's row is untouched.
+			err = repo.Update(ctx, idA, secondUserID, "hacked", false, []string{"grab.ok"}, []byte{0xFF})
+			assert.True(t, errors.Is(err, ports.ErrNotFound))
+			stillA, err := repo.Get(ctx, idA, agentOwnerID)
+			require.NoError(t, err)
+			assert.Equal(t, "a-agent", stillA.Name)
+			assert.True(t, stillA.Enabled)
+
+			// B cannot Delete A's agent; A's row survives.
+			err = repo.Delete(ctx, idA, secondUserID)
+			assert.True(t, errors.Is(err, ports.ErrNotFound))
+			_, err = repo.Get(ctx, idA, agentOwnerID)
+			require.NoError(t, err)
+
+			// ListByOwner is strictly per-owner.
+			listA, err := repo.ListByOwner(ctx, agentOwnerID)
+			require.NoError(t, err)
+			require.Len(t, listA, 1)
+			assert.Equal(t, idA, listA[0].ID)
+			listB, err := repo.ListByOwner(ctx, secondUserID)
+			require.NoError(t, err)
+			require.Len(t, listB, 1)
+			assert.Equal(t, idB, listB[0].ID)
+
+			// Owner A operates on their own agent successfully.
+			require.NoError(t, repo.Update(ctx, idA, agentOwnerID, "a2", false, []string{"grab.ok"}, nil))
+			require.NoError(t, repo.Delete(ctx, idA, agentOwnerID))
+			_, err = repo.Get(ctx, idA, agentOwnerID)
 			assert.True(t, errors.Is(err, ports.ErrNotFound))
 		})
 	}

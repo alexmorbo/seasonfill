@@ -53,7 +53,7 @@ func (h *AgentsHandler) callerID(c *gin.Context) (int64, bool) {
 	return int64(u.ID), true
 }
 
-// List returns all agents (masked).
+// List returns the caller's agents (masked).
 // @Summary     List notification agents (masked)
 // @Tags        notifications
 // @Produce     json
@@ -61,9 +61,13 @@ func (h *AgentsHandler) callerID(c *gin.Context) (int64, bool) {
 // @Failure     401 {object} dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /admin/notification-agents [get]
+// @Router      /notification-agents [get]
 func (h *AgentsHandler) List(c *gin.Context) {
-	views, err := h.uc.List(c.Request.Context())
+	ownerID, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	views, err := h.uc.ListByOwner(c.Request.Context(), ownerID)
 	if err != nil {
 		h.writeError(c, err)
 		return
@@ -75,7 +79,7 @@ func (h *AgentsHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// Get returns one agent (masked).
+// Get returns one of the caller's agents (masked).
 // @Summary     Get one notification agent (masked)
 // @Tags        notifications
 // @Produce     json
@@ -84,13 +88,17 @@ func (h *AgentsHandler) List(c *gin.Context) {
 // @Failure     404 {object} dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /admin/notification-agents/{id} [get]
+// @Router      /notification-agents/{id} [get]
 func (h *AgentsHandler) Get(c *gin.Context) {
 	id, ok := h.parseID(c)
 	if !ok {
 		return
 	}
-	v, err := h.uc.Get(c.Request.Context(), id)
+	ownerID, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	v, err := h.uc.Get(c.Request.Context(), id, ownerID)
 	if err != nil {
 		h.writeError(c, err)
 		return
@@ -108,7 +116,7 @@ func (h *AgentsHandler) Get(c *gin.Context) {
 // @Failure     400 {object} dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /admin/notification-agents [post]
+// @Router      /notification-agents [post]
 func (h *AgentsHandler) Create(c *gin.Context) {
 	var req dto.NotificationAgentCreateRequest
 	if !middleware.BindAndValidateJSON(c, &req) {
@@ -123,7 +131,7 @@ func (h *AgentsHandler) Create(c *gin.Context) {
 		h.writeError(c, err)
 		return
 	}
-	v, err := h.uc.Get(c.Request.Context(), id)
+	v, err := h.uc.Get(c.Request.Context(), id, ownerID)
 	if err != nil {
 		h.writeError(c, err)
 		return
@@ -143,7 +151,7 @@ func (h *AgentsHandler) Create(c *gin.Context) {
 // @Failure     404 {object} dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /admin/notification-agents/{id} [put]
+// @Router      /notification-agents/{id} [put]
 func (h *AgentsHandler) Update(c *gin.Context) {
 	id, ok := h.parseID(c)
 	if !ok {
@@ -153,11 +161,15 @@ func (h *AgentsHandler) Update(c *gin.Context) {
 	if !middleware.BindAndValidateJSON(c, &req) {
 		return
 	}
-	if err := h.uc.Update(c.Request.Context(), id, req.Name, req.URL, req.Enabled, req.EventTypes); err != nil {
+	ownerID, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	if err := h.uc.Update(c.Request.Context(), id, ownerID, req.Name, req.URL, req.Enabled, req.EventTypes); err != nil {
 		h.writeError(c, err)
 		return
 	}
-	v, err := h.uc.Get(c.Request.Context(), id)
+	v, err := h.uc.Get(c.Request.Context(), id, ownerID)
 	if err != nil {
 		h.writeError(c, err)
 		return
@@ -173,13 +185,17 @@ func (h *AgentsHandler) Update(c *gin.Context) {
 // @Failure     404 {object} dto.ErrorResponse
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /admin/notification-agents/{id} [delete]
+// @Router      /notification-agents/{id} [delete]
 func (h *AgentsHandler) Delete(c *gin.Context) {
 	id, ok := h.parseID(c)
 	if !ok {
 		return
 	}
-	if err := h.uc.Delete(c.Request.Context(), id); err != nil {
+	ownerID, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	if err := h.uc.Delete(c.Request.Context(), id, ownerID); err != nil {
 		h.writeError(c, err)
 		return
 	}
@@ -196,13 +212,17 @@ func (h *AgentsHandler) Delete(c *gin.Context) {
 // @Failure     502 {object} dto.ErrorResponse "SEND_FAILED"
 // @Security    CookieAuth
 // @Security    ApiKeyAuth
-// @Router      /admin/notification-agents/{id}/test [post]
+// @Router      /notification-agents/{id}/test [post]
 func (h *AgentsHandler) Test(c *gin.Context) {
 	id, ok := h.parseID(c)
 	if !ok {
 		return
 	}
-	if err := h.uc.Test(c.Request.Context(), id); err != nil {
+	ownerID, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+	if err := h.uc.Test(c.Request.Context(), id, ownerID); err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.AbortWithStatusJSON(http.StatusNotFound, dto.ErrorResponse{Error: "agent not found", Code: "NOT_FOUND"})
 			return

@@ -37,9 +37,10 @@ func (r *AgentRepository) Create(ctx context.Context, ownerID int64, a ports.Not
 	return m.ID, nil
 }
 
-func (r *AgentRepository) List(ctx context.Context) ([]ports.NotificationAgent, error) {
+func (r *AgentRepository) ListByOwner(ctx context.Context, ownerID int64) ([]ports.NotificationAgent, error) {
 	var ms []database.NotificationAgentModel
-	if err := dbFromContext(ctx, r.db).WithContext(ctx).Order("id ASC").Find(&ms).Error; err != nil {
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("user_id = ?", ownerID).Order("id ASC").Find(&ms).Error; err != nil {
 		return nil, fmt.Errorf("list notification agents: %w", err)
 	}
 	out := make([]ports.NotificationAgent, 0, len(ms))
@@ -53,9 +54,9 @@ func (r *AgentRepository) List(ctx context.Context) ([]ports.NotificationAgent, 
 	return out, nil
 }
 
-func (r *AgentRepository) Get(ctx context.Context, id int64) (ports.NotificationAgent, error) {
+func (r *AgentRepository) Get(ctx context.Context, id, ownerID int64) (ports.NotificationAgent, error) {
 	var m database.NotificationAgentModel
-	err := dbFromContext(ctx, r.db).WithContext(ctx).First(&m, "id = ?", id).Error
+	err := dbFromContext(ctx, r.db).WithContext(ctx).First(&m, "id = ? AND user_id = ?", id, ownerID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ports.NotificationAgent{}, ports.ErrNotFound
 	}
@@ -65,7 +66,7 @@ func (r *AgentRepository) Get(ctx context.Context, id int64) (ports.Notification
 	return toAgent(m)
 }
 
-func (r *AgentRepository) Update(ctx context.Context, id int64, name string, enabled bool, eventTypes []string, newConfig []byte) error {
+func (r *AgentRepository) Update(ctx context.Context, id, ownerID int64, name string, enabled bool, eventTypes []string, newConfig []byte) error {
 	et, err := marshalEventTypes(eventTypes)
 	if err != nil {
 		return err
@@ -75,7 +76,7 @@ func (r *AgentRepository) Update(ctx context.Context, id int64, name string, ena
 		upd["config_encrypted"] = newConfig
 	}
 	res := dbFromContext(ctx, r.db).WithContext(ctx).
-		Model(&database.NotificationAgentModel{}).Where("id = ?", id).Updates(upd)
+		Model(&database.NotificationAgentModel{}).Where("id = ? AND user_id = ?", id, ownerID).Updates(upd)
 	if res.Error != nil {
 		return fmt.Errorf("update notification agent: %w", res.Error)
 	}
@@ -85,8 +86,8 @@ func (r *AgentRepository) Update(ctx context.Context, id int64, name string, ena
 	return nil
 }
 
-func (r *AgentRepository) Delete(ctx context.Context, id int64) error {
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Where("id = ?", id).Delete(&database.NotificationAgentModel{})
+func (r *AgentRepository) Delete(ctx context.Context, id, ownerID int64) error {
+	res := dbFromContext(ctx, r.db).WithContext(ctx).Where("id = ? AND user_id = ?", id, ownerID).Delete(&database.NotificationAgentModel{})
 	if res.Error != nil {
 		return fmt.Errorf("delete notification agent: %w", res.Error)
 	}

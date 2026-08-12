@@ -95,17 +95,23 @@ type NotificationAgent struct {
 
 //go:generate moq -out notification_agent_mock.go . NotificationAgentRepository
 
-// NotificationAgentRepository persists notification_agents (admin CRUD + the
-// dispatcher's enabled-agents load).
+// NotificationAgentRepository persists notification_agents. Every CRUD op is
+// scoped to the owning user (Ф8-U-6c per-user agents): reads and writes filter
+// on user_id so a caller can never see or mutate another user's agent — a
+// cross-owner id resolves to ErrNotFound (no existence leak → 404, not 403).
 type NotificationAgentRepository interface {
-	// Create stamps ownerID (Ф8-U-5 notification_agents.user_id) and persists.
+	// Create stamps ownerID (notification_agents.user_id) and persists.
 	Create(ctx context.Context, ownerID int64, a NotificationAgent) (int64, error)
-	List(ctx context.Context) ([]NotificationAgent, error)
-	Get(ctx context.Context, id int64) (NotificationAgent, error) // ErrNotFound if absent
+	// ListByOwner returns ownerID's agents only (id ASC).
+	ListByOwner(ctx context.Context, ownerID int64) ([]NotificationAgent, error)
+	// Get returns the agent iff it belongs to ownerID, else ErrNotFound.
+	Get(ctx context.Context, id, ownerID int64) (NotificationAgent, error)
 	// Update replaces name/enabled/event_types always; config_encrypted only when
 	// newConfig != nil (nil = keep existing ciphertext — "empty URL on edit").
-	Update(ctx context.Context, id int64, name string, enabled bool, eventTypes []string, newConfig []byte) error
-	Delete(ctx context.Context, id int64) error // ErrNotFound if absent
+	// Scoped to ownerID: a non-owned id is ErrNotFound.
+	Update(ctx context.Context, id, ownerID int64, name string, enabled bool, eventTypes []string, newConfig []byte) error
+	// Delete removes the agent iff it belongs to ownerID, else ErrNotFound.
+	Delete(ctx context.Context, id, ownerID int64) error
 	// ListEnabledForEventAndUser returns userID's enabled agents whose
 	// event_types contains eventType. Ф8-U-5c per-user dispatch — no cross-user
 	// leak (the dispatcher selects by the outbox row's target user_id).

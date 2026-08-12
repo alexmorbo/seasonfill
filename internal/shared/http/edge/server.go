@@ -138,7 +138,7 @@ func NewServer(
 	// omitted when either is absent (minimal/test wirings).
 	icsEpochRepo ports.ICSEpochRepository,
 	// ADR-0016 Ф4 N1 — notification agents CRUD/test handler. nil-OK: the
-	// /admin/notification-agents routes are omitted when the handler is absent
+	// /notification-agents routes are omitted when the handler is absent
 	// (minimal/test wirings).
 	notificationAgentsHandler *notificationrest.AgentsHandler,
 	// Ф6-R-6b Gap 2a — reload-aware radarr instance map so GET
@@ -484,15 +484,17 @@ func NewServer(
 			probeRateLimit(loginLimiter),
 			instanceProbe.Metadata,
 		)
-		// ADR-0016 Ф4 N1 — notification agents CRUD + Test. nil-OK: routes
-		// omitted when the handler is absent (minimal/test wirings).
+		// Ф8-U-6c — per-user notification agents CRUD + Test. Auth-only (any
+		// authenticated user); owner-scoping in the repo is the security
+		// boundary. nil-OK: routes omitted when the handler is absent
+		// (minimal/test wirings).
 		if notificationAgentsHandler != nil {
-			guarded.GET("/admin/notification-agents", notificationAgentsHandler.List)
-			guarded.GET("/admin/notification-agents/:id", notificationAgentsHandler.Get)
-			guarded.POST("/admin/notification-agents", permManageUsers, notificationAgentsHandler.Create)
-			guarded.PUT("/admin/notification-agents/:id", permManageUsers, notificationAgentsHandler.Update)
-			guarded.DELETE("/admin/notification-agents/:id", permManageUsers, notificationAgentsHandler.Delete)
-			guarded.POST("/admin/notification-agents/:id/test", permManageUsers, notificationAgentsHandler.Test)
+			guarded.GET("/notification-agents", notificationAgentsHandler.List)
+			guarded.GET("/notification-agents/:id", notificationAgentsHandler.Get)
+			guarded.POST("/notification-agents", notificationAgentsHandler.Create)
+			guarded.PUT("/notification-agents/:id", notificationAgentsHandler.Update)
+			guarded.DELETE("/notification-agents/:id", notificationAgentsHandler.Delete)
+			guarded.POST("/notification-agents/:id/test", notificationAgentsHandler.Test)
 		}
 		// Ф8-U-6b — admin user-management. All routes behind the manage_users
 		// guard (role='admin' + api-key short-circuit). nil-OK: omitted when
