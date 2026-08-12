@@ -39,6 +39,12 @@ type meUserResolver struct {
 	me *authapp.MeUseCase
 }
 
+// newMeUserResolver builds the CurrentUserResolver seam over AdminRepo. Shared
+// by the Sonarr + Radarr add wiring (Ф8-U-2).
+func newMeUserResolver(auth *AuthBundle) discoapp.CurrentUserResolver {
+	return meUserResolver{me: authapp.NewMeUseCase(auth.AdminRepo)}
+}
+
 func (r meUserResolver) GetCurrent(ctx context.Context, username string) (*admin.User, error) {
 	u, err := r.me.GetByUsername(ctx, username)
 	if err != nil {
@@ -58,17 +64,20 @@ func (r meUserResolver) GetCurrent(ctx context.Context, username string) (*admin
 // log MUST already carry the parent context tag — callers pass the
 // process logger and this function attaches "discovery" via
 // sharedports.DomainLogger.
+// Ф8-U-2: returns the *use case* alongside the handler so bootstrap can attach
+// the request queue (.WithRequestQueue) to the SAME pointer that backs the
+// handler, resolving the queue↔use-case construction cycle.
 func BuildDiscoveryAddToSonarr(
 	auth *AuthBundle,
 	sonarrBundle *SonarrBundle,
 	persistence *PersistenceBundle,
 	log *slog.Logger,
-) *discoveryrest.AddToSonarrHandler {
+) (*discoveryrest.AddToSonarrHandler, *discoapp.AddToSonarrUseCase) {
 	domainLog := sharedports.DomainLogger(log, "discovery")
 	tagRepo := adminpersistence.NewUserInstanceTagRepository(persistence.DB)
 	resolver := discoapp.NewTagResolver(tagRepo, domainLog)
 	users := meUserResolver{me: authapp.NewMeUseCase(auth.AdminRepo)}
 	lookup := addRegistryLookup{reg: sonarrBundle.InstanceReg}
 	uc := discoapp.NewAddToSonarrUseCase(lookup, users, resolver, domainLog)
-	return discoveryrest.NewAddToSonarrHandler(uc, domainLog)
+	return discoveryrest.NewAddToSonarrHandler(uc, domainLog), uc
 }

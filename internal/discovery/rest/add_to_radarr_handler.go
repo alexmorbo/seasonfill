@@ -17,6 +17,7 @@ import (
 
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
 const addToRadarrBodyLimit = 4 << 10 // 4 KiB
@@ -96,6 +97,11 @@ func (h *AddToRadarrHandler) Handle(c *gin.Context) {
 	if body.Monitored != nil {
 		monitored = *body.Monitored
 	}
+	username := c.GetString(middleware.UsernameContextKey)
+	switch username {
+	case "api-key", "local", "anonymous":
+		username = ""
+	}
 	res, err := h.uc.Add(c.Request.Context(), discoapp.AddMovieRequest{
 		InstanceName:        domain.InstanceName(strings.TrimSpace(body.InstanceName)),
 		TMDBID:              body.TMDBID,
@@ -104,10 +110,15 @@ func (h *AddToRadarrHandler) Handle(c *gin.Context) {
 		Monitored:           monitored,
 		MinimumAvailability: strings.TrimSpace(body.MinimumAvailability),
 		SearchOnAdd:         body.SearchOnAdd,
+		Username:            username,
 	})
 	if err != nil {
 		_ = c.Error(err)
 		c.Abort()
+		return
+	}
+	if res.Requested {
+		c.JSON(http.StatusAccepted, gin.H{"status": "requested", "request_id": res.RequestID})
 		return
 	}
 	c.JSON(http.StatusOK, addToRadarrResponse{

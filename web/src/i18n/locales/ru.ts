@@ -1906,6 +1906,8 @@ export const ru: Translations = {
         seasonPremiere: 'Премьера сезона',
         airDateAnnounced: 'Дата выхода назначена',
         digestWeekly: 'Дайджест недели',
+        requestApproved: 'Запрос одобрен',
+        requestDenied: 'Запрос отклонён',
       },
       test: 'Тест',
       testNeedsSave: 'Сохраните агента, чтобы включить тест',

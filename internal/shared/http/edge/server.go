@@ -33,6 +33,7 @@ import (
 	mediaproxyrest "github.com/alexmorbo/seasonfill/internal/mediaproxy/rest"
 	moviedetailrest "github.com/alexmorbo/seasonfill/internal/moviedetail/rest"
 	notificationrest "github.com/alexmorbo/seasonfill/internal/notification/rest"
+	requestrest "github.com/alexmorbo/seasonfill/internal/request/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
@@ -147,6 +148,9 @@ func NewServer(
 	// Ф6-R-6b — global movie library list (GET /api/v1/movies). nil-OK: the
 	// route is omitted when the handler is absent (minimal/test wirings).
 	movieLibraryHandler *catalogrest.MovieLibraryHandler,
+	// Ф8-U-2 — request-workflow handler. nil-OK: the /requests routes are
+	// omitted when the handler is absent (minimal/test wirings).
+	requestHandler *requestrest.RequestHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -280,6 +284,9 @@ func NewServer(
 			middleware.PermManageUsers, middleware.PermManageRequests)
 		permRequest := middleware.RequirePermission(adminRepo, middleware.PermRequest)
 		permManageUsers := middleware.RequirePermission(adminRepo, middleware.PermManageUsers)
+		// Ф8-U-2 — dedicated manage_requests bucket (permAdmin bundles
+		// ManageUsers|ManageRequests; approve/deny want the SPECIFIC perm).
+		permManageRequests := middleware.RequirePermission(adminRepo, middleware.PermManageRequests)
 		guarded.GET("/auth/session", authHandler.Session)
 		guarded.DELETE("/auth/session", authHandler.Logout)
 		guarded.POST("/auth/password", authHandler.PasswordChange)
@@ -387,6 +394,15 @@ func NewServer(
 			guarded.POST("/follow", followHandler.Post)
 			guarded.DELETE("/follow/:series_id", followHandler.Delete)
 			guarded.GET("/follow", followHandler.List)
+		}
+		// Ф8-U-2 — request-workflow. GET is authenticated (own vs all scoping is
+		// handler-side, driven by the caller's manage_requests/admin). approve/deny
+		// are gated by manage_requests via permManageRequests. nil-OK: routes
+		// omitted for minimal/test wirings.
+		if requestHandler != nil {
+			guarded.GET("/requests", requestHandler.List)
+			guarded.POST("/requests/:id/approve", permManageRequests, requestHandler.Approve)
+			guarded.POST("/requests/:id/deny", permManageRequests, requestHandler.Deny)
 		}
 		// ADR-0013 Q2 — instance-scoped torrent actions (F-16: actions ONLY
 		// on the instance path). nil-OK: the routes are omitted when the

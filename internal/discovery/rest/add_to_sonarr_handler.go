@@ -127,6 +127,10 @@ func (h *AddToSonarrHandler) Handle(c *gin.Context) {
 		c.Abort()
 		return
 	}
+	if res.Requested {
+		c.JSON(http.StatusAccepted, gin.H{"status": "requested", "request_id": res.RequestID})
+		return
+	}
 	c.JSON(http.StatusOK, addToSonarrResponse{
 		SonarrSeriesID: res.SonarrSeriesID,
 		InstanceName:   string(res.InstanceName),

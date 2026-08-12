@@ -61,5 +61,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // notificationAgentsHandler (ADR-0016 Ф4 N1) — nil-OK, routes omitted
 		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
+		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
 		logger)
 }

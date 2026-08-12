@@ -31,6 +31,8 @@ var AllowedDomains = map[string]struct{}{
 
 	"notification": {}, // ADR-0016 N1 — notification outbox/dispatch bounded context.
 
+	"request": {}, // ADR-0020 Ф8-U-2 — request-workflow bounded context.
+
 	"catalog_counts":          {},
 	"library_poster_coverage": {},
 	"enrichment_coverage":     {},

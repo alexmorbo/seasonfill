@@ -2669,6 +2669,12 @@ func addAuth(s *atlasschema.Schema, d Dialect) {
 	// siblings (whole addAuth is skipped when set).
 	userInstanceAccess := buildUserInstanceAccessTable(d, users)
 	s.AddTables(userInstanceAccess)
+
+	// Ф8-U-2 — request-workflow queue. FK user_id → users CASCADE,
+	// approver_id → users SET NULL. Built here (inside addAuth, gated by the
+	// same ATLAS_SCHEMA_SKIP_AUTH flag) because it FKs users.
+	requests := buildRequestsTable(d, users)
+	s.AddTables(requests)
 }
 
 // buildUsersTable returns users — 16 cols, single PK on BIGSERIAL id.
@@ -2832,6 +2838,82 @@ func buildUserInstanceAccessTable(d Dialect, usersTable *atlasschema.Table) *atl
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)
+}
+
+// buildRequestsTable returns requests — 10 cols, surrogate PK id, two FKs to
+// users (user_id CASCADE, approver_id SET NULL). Ф8-U-2 request-workflow.
+// tmdb_id is the add-flow content id (TMDB for movie, TVDB for tv). payload is
+// jsonb(pg)/text(sqlite) NOT NULL (serialized AddSpec); seasons is
+// jsonb(pg)/text(sqlite) NULL (tv per-season selection). Indexes: status,
+// user_id, and a partial-unique (user_id, media_type, tmdb_id) WHERE
+// status='pending' for pending-dedup.
+func buildRequestsTable(d Dialect, usersTable *atlasschema.Table) *atlasschema.Table {
+	id := pkColumn(d)
+	userID := fkColumn(d, "user_id", false /* not nullable */)
+	mediaType := atlasschema.NewStringColumn("media_type", "text").SetNull(false)
+	tmdbID := atlasschema.NewIntColumn("tmdb_id", "bigint").SetNull(false)
+	seasons := requestsSeasonsColumn(d) // jsonb(pg)/text(sqlite) NULL
+	payload := requestsPayloadColumn(d) // jsonb(pg)/text(sqlite) NOT NULL
+	status := atlasschema.NewStringColumn("status", "text").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "'pending'"})
+	approverID := fkColumn(d, "approver_id", true /* nullable */)
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+	updatedAt := timestampColumn(d, "updated_at", true /*withDefault*/, true /*notNull*/)
+
+	refCol := parentRefCol(usersTable)
+	return atlasschema.NewTable("requests").
+		AddColumns(id, userID, mediaType, tmdbID, seasons, payload, status, approverID, createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			atlasschema.NewIndex("requests_status_idx").AddColumns(status),
+			atlasschema.NewIndex("requests_user_id_idx").AddColumns(userID),
+			partialUniqueIndex(d, "requests_pending_uniq",
+				[]*atlasschema.Column{userID, mediaType, tmdbID},
+				"status = 'pending'"),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("requests_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("requests_approver_id_fkey").
+				AddColumns(approverID).
+				SetRefTable(usersTable).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.SetNull).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// requestsPayloadColumn — jsonb(pg)/text(sqlite) NOT NULL, serialized AddSpec.
+func requestsPayloadColumn(d Dialect) *atlasschema.Column {
+	if d == DialectSQLite {
+		return atlasschema.NewStringColumn("payload", "text").SetNull(false)
+	}
+	c := &atlasschema.Column{Name: "payload"}
+	c.Type = &atlasschema.ColumnType{
+		Type: &atlasschema.JSONType{T: postgres.TypeJSONB},
+		Raw:  postgres.TypeJSONB,
+		Null: false,
+	}
+	return c
+}
+
+// requestsSeasonsColumn — jsonb(pg)/text(sqlite) NULLABLE, tv per-season JSON array.
+func requestsSeasonsColumn(d Dialect) *atlasschema.Column {
+	if d == DialectSQLite {
+		return atlasschema.NewNullStringColumn("seasons", "text")
+	}
+	c := &atlasschema.Column{Name: "seasons"}
+	c.Type = &atlasschema.ColumnType{
+		Type: &atlasschema.JSONType{T: postgres.TypeJSONB},
+		Raw:  postgres.TypeJSONB,
+		Null: true,
+	}
+	return c
 }
 
 // ----------------------------------------------------------------------

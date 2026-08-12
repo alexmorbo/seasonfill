@@ -4080,6 +4080,38 @@ components:
         series_id:
           type: integer
       type: object
+    rest.requestItem:
+      properties:
+        approver_id:
+          example: 1
+          type: integer
+        created_at:
+          example: "2026-08-12T12:00:00Z"
+          type: string
+        id:
+          example: 7
+          type: integer
+        media_type:
+          example: tv
+          type: string
+        status:
+          example: pending
+          type: string
+        tmdb_id:
+          example: 1399
+          type: integer
+        user_id:
+          example: 2
+          type: integer
+      type: object
+    rest.requestListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/rest.requestItem'
+          type: array
+          uniqueItems: false
+      type: object
     seriesdetail.CompanyRef:
       properties:
         logo_asset:
@@ -7182,6 +7214,114 @@ paths:
       summary: Readiness probe
       tags:
       - health
+  /requests:
+    get:
+      description: |-
+        Returns request-workflow rows. A manager (manage_requests) or
+        admin sees every request; a plain user sees only their own.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rest.requestListResponse'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: List requests
+      tags:
+      - requests
+  /requests/{id}/approve:
+    post:
+      description: |-
+        Replays the stored add via the discovery add use case, sets
+        status=approved, and emits request.approved. Idempotent.
+      parameters:
+      - description: Request id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rest.requestItem'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Approve a request
+      tags:
+      - requests
+  /requests/{id}/deny:
+    post:
+      description: Sets status=denied and emits request.denied. Idempotent.
+      parameters:
+      - description: Request id
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rest.requestItem'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Deny a request
+      tags:
+      - requests
   /scan:
     post:
       description: |-

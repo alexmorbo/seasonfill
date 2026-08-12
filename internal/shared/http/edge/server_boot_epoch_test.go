@@ -106,6 +106,7 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // notificationAgentsHandler (ADR-0016 Ф4 N1)
 		nil,                            // radarrConfigLookup (Ф6-R-6b Gap 2a)
 		nil,                            // movieLibraryHandler (Ф6-R-6b)
+		nil,                            // requestHandler (Ф8-U-2)
 		logger,
 	)
 }

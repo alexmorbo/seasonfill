@@ -1898,6 +1898,8 @@ export const en = {
         seasonPremiere: 'Season premiere',
         airDateAnnounced: 'Air date announced',
         digestWeekly: 'Weekly digest',
+        requestApproved: 'Request approved',
+        requestDenied: 'Request denied',
       },
       test: 'Test',
       testNeedsSave: 'Save the agent to enable Test',

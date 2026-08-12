@@ -32,6 +32,8 @@ const EVENT_TYPE_LABEL_KEY: Record<string, string> = {
   'season.premiere': 'settings.agents.eventTypes.seasonPremiere',
   'air_date.announced': 'settings.agents.eventTypes.airDateAnnounced',
   'digest.weekly': 'settings.agents.eventTypes.digestWeekly',
+  'request.approved': 'settings.agents.eventTypes.requestApproved',
+  'request.denied': 'settings.agents.eventTypes.requestDenied',
 };
 
 const nameRule = z.string().trim().min(1, 'settings.agents.errors.nameRequired').max(128);

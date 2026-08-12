@@ -29,6 +29,8 @@ export const EVENT_TYPES = [
   'season.premiere',
   'air_date.announced',
   'digest.weekly',
+  'request.approved',
+  'request.denied',
 ] as const;
 
 export const DEFAULT_EVENT_TYPES: readonly string[] = [
@@ -39,6 +41,8 @@ export const DEFAULT_EVENT_TYPES: readonly string[] = [
   'season.premiere',
   'air_date.announced',
   'digest.weekly',
+  'request.approved',
+  'request.denied',
 ];
 
 const BASE_PATH = '/admin/notification-agents';

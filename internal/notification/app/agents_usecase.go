@@ -25,6 +25,7 @@ type AgentView struct {
 var DefaultEventTypes = []string{
 	"grab.failed", "import.failed", "watchdog.regrab", "inbox.dead_letter",
 	"season.premiere", "air_date.announced", "digest.weekly",
+	"request.approved", "request.denied",
 }
 
 // KnownEventTypes gates client input (unknown types rejected 400).
@@ -32,6 +33,7 @@ var KnownEventTypes = map[string]struct{}{
 	"grab.failed": {}, "import.failed": {}, "grab.ok": {},
 	"watchdog.regrab": {}, "inbox.dead_letter": {},
 	"season.premiere": {}, "air_date.announced": {}, "digest.weekly": {},
+	"request.approved": {}, "request.denied": {},
 }
 
 type AgentsUseCase struct {

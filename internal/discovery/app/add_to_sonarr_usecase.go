@@ -54,12 +54,15 @@ type AddResult struct {
 	InstanceName   domain.InstanceName
 	UserTagLabel   string // "sf-alex" or "" when tag resolve failed
 	UserTagID      int    // 0 = no tag (resolve failed or skipped)
+	Requested      bool   // Ф8-U-2: true = queued as pending request, not added
+	RequestID      int64  // Ф8-U-2: request id when Requested
 }
 
 // AddToSonarrUseCase orchestrates the discovery "Add to Sonarr" flow.
 type AddToSonarrUseCase struct {
 	lookup   AddInstanceLookup
 	users    CurrentUserResolver
+	requests RequestQueue // nil-OK — set via WithRequestQueue
 	resolver *TagResolver
 	log      *slog.Logger
 }
@@ -79,6 +82,13 @@ func NewAddToSonarrUseCase(lookup AddInstanceLookup, users CurrentUserResolver, 
 		panic("NewAddToSonarrUseCase: log required")
 	}
 	return &AddToSonarrUseCase{lookup: lookup, users: users, resolver: resolver, log: log}
+}
+
+// WithRequestQueue wires the Ф8-U-2 permission-gated request queue. nil-OK:
+// absent queue disables gating (every add is direct).
+func (uc *AddToSonarrUseCase) WithRequestQueue(q RequestQueue) *AddToSonarrUseCase {
+	uc.requests = q
+	return uc
 }
 
 // Add executes the add-to-sonarr flow per PRD lines 5127-5163.
@@ -108,6 +118,17 @@ func (uc *AddToSonarrUseCase) Add(ctx context.Context, req AddRequest) (AddResul
 				slog.String("username", req.Username),
 				slog.String("error", err.Error()))
 		}
+	}
+
+	// Ф8-U-2 permission gate. A resolved non-admin without auto_approve is
+	// queued as a pending request instead of a direct add. Bypass / api-key /
+	// system callers (user == nil) always add directly.
+	if uc.requests != nil && user != nil && !autoApproves(user) {
+		id, qerr := uc.requests.Queue(ctx, user.ID, tvAddSpec(req))
+		if qerr != nil {
+			return AddResult{}, fmt.Errorf("queue tv request: %w", qerr)
+		}
+		return AddResult{Requested: true, RequestID: id}, nil
 	}
 
 	tagID, tagLabel, tagErr := uc.resolver.Resolve(ctx, client, user, req.InstanceName)

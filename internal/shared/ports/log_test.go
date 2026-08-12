@@ -94,7 +94,7 @@ func TestAllowedDomains_MatchesPRD(t *testing.T) {
 		"enrichment", "watchdog", "discovery", "auth", "admin",
 		"boot", "gc", "shutdown", "catalog_counts",
 		"library_poster_coverage", "enrichment_coverage",
-		"follow", "notification",
+		"follow", "notification", "request",
 	}
 	assert.Len(t, ports.AllowedDomains, len(want), "AllowedDomains count drifted from PRD §6.5")
 

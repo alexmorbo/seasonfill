@@ -60,6 +60,16 @@ func Render(eventType string, payload []byte) Message {
 			Body: fmt.Sprintf("Неделя %s — %s: премьер — %s, финалов — %s",
 				s("from"), s("to"), s("premiere_count"), s("finale_count")),
 		}
+	case "request.approved":
+		return Message{
+			Title: "Seasonfill: запрос одобрен",
+			Body:  fmt.Sprintf("Запрос #%s (%s) одобрен", s("request_id"), s("media_type")),
+		}
+	case "request.denied":
+		return Message{
+			Title: "Seasonfill: запрос отклонён",
+			Body:  fmt.Sprintf("Запрос #%s (%s) отклонён", s("request_id"), s("media_type")),
+		}
 	default:
 		return Message{
 			Title: "Seasonfill: " + eventType,

@@ -43,6 +43,8 @@ type AddMovieResult struct {
 	AlreadyAdded  bool
 	UserTagLabel  string
 	UserTagID     int
+	Requested     bool  // Ф8-U-2: true = queued as pending request, not added
+	RequestID     int64 // Ф8-U-2: request id when Requested
 }
 
 // AddToRadarrUseCase orchestrates the discovery "Add to Radarr" flow. It is
@@ -50,8 +52,10 @@ type AddMovieResult struct {
 // tag-less — see §10a). No REST route is wired in R-3 (that is R-6); the use
 // case is exercised via unit tests only.
 type AddToRadarrUseCase struct {
-	lookup AddRadarrInstanceLookup
-	log    *slog.Logger
+	lookup   AddRadarrInstanceLookup
+	users    CurrentUserResolver // nil-OK — set via WithCurrentUserResolver
+	requests RequestQueue        // nil-OK — set via WithRequestQueue
+	log      *slog.Logger
 }
 
 // NewAddToRadarrUseCase panics on nil deps — init-time bug.
@@ -63,6 +67,20 @@ func NewAddToRadarrUseCase(lookup AddRadarrInstanceLookup, log *slog.Logger) *Ad
 		panic("NewAddToRadarrUseCase: log required")
 	}
 	return &AddToRadarrUseCase{lookup: lookup, log: log}
+}
+
+// WithCurrentUserResolver wires the Ф8-U-2 resolver seam (audit F-08 — Radarr
+// lacked it). nil-OK: absent resolver disables the request gate (direct add).
+func (uc *AddToRadarrUseCase) WithCurrentUserResolver(users CurrentUserResolver) *AddToRadarrUseCase {
+	uc.users = users
+	return uc
+}
+
+// WithRequestQueue wires the Ф8-U-2 permission-gated request queue. nil-OK:
+// absent queue disables gating (every add is direct).
+func (uc *AddToRadarrUseCase) WithRequestQueue(q RequestQueue) *AddToRadarrUseCase {
+	uc.requests = q
+	return uc
 }
 
 // Add executes the add-to-Radarr flow:
@@ -80,6 +98,22 @@ func (uc *AddToRadarrUseCase) Add(ctx context.Context, req AddMovieRequest) (Add
 			&sharedErrors.InstanceNotFoundError{Name: req.InstanceName},
 			ports.ErrNotFound,
 		)
+	}
+
+	// Ф8-U-2 permission gate. Resolve the caller; a non-admin without
+	// auto_approve is queued as a pending request instead of a direct add.
+	if uc.users != nil && uc.requests != nil && req.Username != "" {
+		u, uerr := uc.users.GetCurrent(ctx, req.Username)
+		if uerr != nil {
+			uc.log.WarnContext(ctx, "add_to_radarr_user_resolve_failed",
+				slog.String("username", req.Username), slog.String("error", uerr.Error()))
+		} else if u != nil && !autoApproves(u) {
+			id, qerr := uc.requests.Queue(ctx, u.ID, movieAddSpec(req))
+			if qerr != nil {
+				return AddMovieResult{}, fmt.Errorf("queue movie request: %w", qerr)
+			}
+			return AddMovieResult{Requested: true, RequestID: id}, nil
+		}
 	}
 
 	payload := ports.AddMoviePayload{

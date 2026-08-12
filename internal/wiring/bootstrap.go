@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	notifpersistence "github.com/alexmorbo/seasonfill/internal/notification/persistence"
 	notifrest "github.com/alexmorbo/seasonfill/internal/notification/rest"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
@@ -946,13 +947,32 @@ func BuildHTTPServer(
 	// Story 520 (N-4c) — discovery AddToSonarr handler (TagResolver +
 	// AddSeries dispatch). Inline for the same reason as N-4b: the
 	// bundle's only deps (auth+sonarr+persistence) are already wired.
-	addToSonarrHandler := BuildDiscoveryAddToSonarr(auth, sonarrBundle, persistence, log)
+	addToSonarrHandler, sonarrAddUC := BuildDiscoveryAddToSonarr(auth, sonarrBundle, persistence, log)
 	// Ф6-R-6a — read-only movie detail aggregate over local repos (canon +
 	// movie_i18n + collection + per-instance membership). No TMDB gate.
 	movieDetailBundle := BuildMovieDetail(persistence.DB, log)
 	// Ф6-R-6a — movie vertical write/read handlers over the radarr holder +
 	// local repos: add-to-radarr, franchise collections, movie release calendar.
-	addToRadarrHandler := BuildDiscoveryAddToRadarr(scanBundle.RadarrSync, log)
+	addToRadarrHandler, radarrAddUC := BuildDiscoveryAddToRadarr(scanBundle.RadarrSync, newMeUserResolver(auth), log)
+	// Ф8-U-2 — request-workflow. Built here (after the add use cases exist)
+	// so approve replays through the SAME add use cases the direct-add routes
+	// use. The queue↔use-case cycle is broken by attaching the queue to the
+	// already-constructed use-case pointers (WithRequestQueue mutates in place,
+	// so the handlers backed by those pointers pick it up). The outbox emitter
+	// is a fresh stateless GORM repo over the shared DB (identical behaviour,
+	// zero BuildHTTPServer signature churn); scanBundle.Txr makes the
+	// status-flip + emit atomic.
+	requestsBundle := BuildRequests(
+		persistence.DB,
+		sonarrAddUC,
+		radarrAddUC,
+		auth.AdminRepo,
+		notifpersistence.NewOutboxRepository(persistence.DB),
+		scanBundle.Txr,
+		log,
+	)
+	sonarrAddUC.WithRequestQueue(requestsBundle.Queue)
+	radarrAddUC.WithRequestQueue(requestsBundle.Queue)
 	movieCollectionsHandler := BuildMovieCollections(persistence.DB, scanBundle.RadarrSync, log)
 	movieCalendarHandler := BuildMovieCalendar(persistence.DB, log)
 	// ADR-0017 Ф5 D-1 — discovery row-config read API. Standalone: the
@@ -1096,6 +1116,7 @@ func BuildHTTPServer(
 		notificationAgentsHandler,          // ADR-0016 Ф4 N1
 		scanBundle.RadarrSync.RadarrHolder, // Ф6-R-6b Gap 2a
 		movieDetailBundle.LibraryHandler,   // Ф6-R-6b movie library list
+		requestsBundle.Handler,             // Ф8-U-2 request-workflow
 		log,
 	)
 	return srv, instanceMetadataBundle
