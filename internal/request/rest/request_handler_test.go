@@ -43,7 +43,7 @@ func TestToItemEnriched(t *testing.T) {
 				Seasons:   seasonsPtr(1, 2), // must be ignored for movie rows
 			},
 			wantUsername: "alice",
-			wantTitle:    strPtr("The Matrix"),
+			wantTitle:    new("The Matrix"),
 			wantSeasons:  nil,
 		},
 		{
@@ -56,7 +56,7 @@ func TestToItemEnriched(t *testing.T) {
 				Seasons:   seasonsPtr(1, 2, 3),
 			},
 			wantUsername: "bob",
-			wantTitle:    strPtr("Breaking Bad"),
+			wantTitle:    new("Breaking Bad"),
 			wantSeasons:  seasonsPtr(1, 2, 3),
 		},
 		{
@@ -68,7 +68,7 @@ func TestToItemEnriched(t *testing.T) {
 				TMDBID:    603,
 			},
 			wantUsername: "",
-			wantTitle:    strPtr("The Matrix"),
+			wantTitle:    new("The Matrix"),
 			wantSeasons:  nil,
 		},
 		{
@@ -182,5 +182,3 @@ func TestDistinctRequestIDs(t *testing.T) {
 		})
 	}
 }
-
-func strPtr(s string) *string { return &s }
