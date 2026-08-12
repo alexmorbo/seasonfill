@@ -402,6 +402,7 @@ export const en = {
     settings: 'Settings',
     profile: 'Profile',
     externalServices: 'External services',
+    requests: 'Requests',
     logout: 'Logout',
     changePassword: 'Change password',
     language: 'Language',
@@ -420,6 +421,52 @@ export const en = {
       setup: 'Setup',
     },
     watchdog: 'Watchdog',
+  },
+  requests: {
+    title: 'Requests',
+    subtitle: 'Media requests awaiting review. Approving adds the title to the library.',
+    empty: 'No requests yet.',
+    loadErr: 'Failed to load requests',
+    accessDenied: 'This page is available to administrators only.',
+    columns: {
+      requester: 'Requester',
+      type: 'Type',
+      title: 'Title',
+      seasons: 'Seasons',
+      status: 'Status',
+      created: 'Created',
+      actions: 'Actions',
+    },
+    mediaType: {
+      tv: 'TV',
+      movie: 'Movie',
+    },
+    status: {
+      pending: 'Pending',
+      approved: 'Approved',
+      denied: 'Denied',
+    },
+    actions: {
+      approve: 'Approve',
+      deny: 'Deny',
+    },
+    approveDialog: {
+      title: 'Approve request?',
+      body: 'Approving "{{title}}" will add it to the library.',
+      submit: 'Approve',
+      cancel: 'Cancel',
+    },
+    denyDialog: {
+      title: 'Deny request?',
+      body: 'Deny "{{title}}"? Nothing will be added to the library.',
+      submit: 'Deny',
+      cancel: 'Cancel',
+    },
+    toast: {
+      approved: 'Approved "{{title}}"',
+      denied: 'Denied "{{title}}"',
+      error: 'Action failed: {{error}}',
+    },
   },
   shell: {
     brand: {

@@ -345,6 +345,38 @@ func TestUserRepo_GetByUsername(t *testing.T) {
 	}
 }
 
+// TestUserRepo_UsernamesByIDs covers the Ф8-U-6a batch resolver used by the
+// request queue: multiple ids resolve in one query, an unknown id is absent,
+// and an empty input short-circuits to an empty map.
+func TestUserRepo_UsernamesByIDs(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewUserRepository(backend.NewDB(t))
+			ctx := context.Background()
+
+			require.NoError(t, repo.Create(ctx, admin.User{Username: "alice", PasswordHash: "a"}))
+			require.NoError(t, repo.Create(ctx, admin.User{Username: "bob", PasswordHash: "b"}))
+			alice, err := repo.GetByUsername(ctx, "alice")
+			require.NoError(t, err)
+			bob, err := repo.GetByUsername(ctx, "bob")
+			require.NoError(t, err)
+
+			got, err := repo.UsernamesByIDs(ctx, []uint{alice.ID, bob.ID, 99999})
+			require.NoError(t, err)
+			assert.Equal(t, "alice", got[alice.ID])
+			assert.Equal(t, "bob", got[bob.ID])
+			_, ok := got[99999]
+			assert.False(t, ok, "unknown id must be absent from the map")
+
+			empty, err := repo.UsernamesByIDs(ctx, nil)
+			require.NoError(t, err)
+			assert.Empty(t, empty)
+		})
+	}
+}
+
 // TestUserRepo_UpdateSettings covers the N-7a partial settings patch
 // (avatar_mode + preferred_language). The no-op short-circuit, the
 // success path on both columns, and the typed-NotFound miss are all

@@ -23,10 +23,12 @@ import {
   Sparkles,
   Layers,
   CalendarDays,
+  Inbox,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
 import { useSession } from "@/lib/auth"
+import { useMe } from "@/hooks/useMe"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useWebhookStatusAggregate } from "@/lib/api/webhookStatus"
@@ -57,6 +59,12 @@ const SETUP: Item[] = [
   { to: "/settings/profile", icon: User, key: "profile" },
   { to: "/settings/external-services", icon: Globe, key: "externalServices" },
 ]
+
+// The /requests entry is admin-only. Gated on role === 'admin' here AND the
+// page self-guards. U-6b will replace this role check with a bool-permission
+// once /me surfaces perms (a non-admin "request manager" should also see it);
+// DO NOT add perms to /me for U-6a.
+const REQUESTS_ITEM: Item = { to: "/requests", icon: Inbox, key: "requests" }
 
 function useActivityItems(): Item[] {
   const { filter } = useInstanceFilter()
@@ -153,9 +161,12 @@ function WebhookCountBadge() {
 export function AppSidebar() {
   const { t } = useTranslation()
   const { data: session } = useSession()
+  const me = useMe()
   const username = session?.username ?? "—"
   const initial = (username[0] ?? "?").toUpperCase()
   const activity = useActivityItems()
+  const isAdmin = me.data?.role === "admin"
+  const setupItems = isAdmin ? [...SETUP, REQUESTS_ITEM] : SETUP
 
   return (
     <aside className="bg-bg-base border-r border-border-faint flex flex-col min-h-0">
@@ -182,7 +193,7 @@ export function AppSidebar() {
       <nav className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
         <NavGroup label={t("nav.groups.overview")} items={OVERVIEW} />
         <NavGroup label={t("nav.groups.activity")} items={activity} />
-        <NavGroup label={t("nav.groups.setup")} items={SETUP} />
+        <NavGroup label={t("nav.groups.setup")} items={setupItems} />
       </nav>
 
       <div className="border-t border-border-faint p-3 flex flex-col gap-2">

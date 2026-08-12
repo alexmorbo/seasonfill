@@ -35,6 +35,7 @@ import { MovieDetail } from '@/pages/MovieDetail';
 import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
 import { DiscoveryPage } from '@/pages/DiscoveryPage';
+import { Requests } from '@/pages/Requests';
 import { NotFound } from '@/pages/NotFound';
 
 export const router = createBrowserRouter([
@@ -59,6 +60,11 @@ export const router = createBrowserRouter([
       { path: '/movies/:tmdbId',  element: <MovieDetail /> },
       { path: '/person/:tmdbId',            element: <Person /> },
       { path: '/discovery', element: <DiscoveryPage /> },
+      // /requests is admin-only. The <Requests /> page self-gates on
+      // role === 'admin' (renders a localized denied panel otherwise), so no
+      // route-level guard wrapper is needed. U-6b will broaden this to a
+      // bool-permission once /me surfaces perms.
+      { path: '/requests', element: <Requests /> },
       { path: '/calendar',  element: <Calendar /> },
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/health',    element: <Health /> },

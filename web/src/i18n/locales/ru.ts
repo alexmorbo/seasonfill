@@ -404,6 +404,7 @@ export const ru: Translations = {
     settings: 'Настройки',
     profile: 'Профиль',
     externalServices: 'Внешние сервисы',
+    requests: 'Запросы',
     logout: 'Выйти',
     changePassword: 'Сменить пароль',
     language: 'Язык',
@@ -422,6 +423,52 @@ export const ru: Translations = {
       setup: 'Настройка',
     },
     watchdog: 'Watchdog',
+  },
+  requests: {
+    title: 'Запросы',
+    subtitle: 'Запросы на медиа, ожидающие рассмотрения. Подтверждение добавит тайтл в библиотеку.',
+    empty: 'Пока нет запросов.',
+    loadErr: 'Не удалось загрузить запросы',
+    accessDenied: 'Эта страница доступна только администраторам.',
+    columns: {
+      requester: 'Запросил',
+      type: 'Тип',
+      title: 'Название',
+      seasons: 'Сезоны',
+      status: 'Статус',
+      created: 'Создан',
+      actions: 'Действия',
+    },
+    mediaType: {
+      tv: 'Сериал',
+      movie: 'Фильм',
+    },
+    status: {
+      pending: 'Ожидает',
+      approved: 'Одобрен',
+      denied: 'Отклонён',
+    },
+    actions: {
+      approve: 'Одобрить',
+      deny: 'Отклонить',
+    },
+    approveDialog: {
+      title: 'Одобрить запрос?',
+      body: 'Одобрение «{{title}}» добавит его в библиотеку.',
+      submit: 'Одобрить',
+      cancel: 'Отмена',
+    },
+    denyDialog: {
+      title: 'Отклонить запрос?',
+      body: 'Отклонить «{{title}}»? В библиотеку ничего не добавится.',
+      submit: 'Отклонить',
+      cancel: 'Отмена',
+    },
+    toast: {
+      approved: 'Одобрено: «{{title}}»',
+      denied: 'Отклонено: «{{title}}»',
+      error: 'Не удалось выполнить действие: {{error}}',
+    },
   },
   shell: {
     brand: {

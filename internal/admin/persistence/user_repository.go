@@ -298,6 +298,39 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, userID uint, patch 
 	return nil
 }
 
+// UsernamesByIDs batch-resolves display usernames for a set of user ids in a
+// single query (Ф8-U-6a — the admin request queue renders a human requester
+// name per row without an N+1 GetByUsername loop). Returns a map keyed by id;
+// ids with no matching row are simply absent (the caller falls back to an id
+// label). An empty/nil id slice short-circuits to an empty map with no query.
+//
+// Deliberately NOT part of ports.UserRepository: adding it to the shared port
+// would force a stub method onto the ~10 hand-written test fakes that satisfy
+// the full interface. The sole consumer (the request handler) takes a narrow
+// interface this concrete type satisfies structurally.
+func (r *UserRepository) UsernamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	out := make(map[uint]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID       uint   `gorm:"column:id"`
+		Username string `gorm:"column:username"`
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.UserModel{}).
+		Select("id", "username").
+		Where("id IN ?", ids).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("usernames by ids: %w", err)
+	}
+	for _, row := range rows {
+		out[row.ID] = row.Username
+	}
+	return out, nil
+}
+
 func userToModel(u admin.User) database.UserModel {
 	m := database.UserModel{
 		ID:                u.ID,

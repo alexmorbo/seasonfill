@@ -4108,8 +4108,16 @@ components:
         media_type:
           example: tv
           type: string
+        seasons:
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
         status:
           example: pending
+          type: string
+        title:
+          example: Breaking Bad
           type: string
         tmdb_id:
           example: 1399
@@ -4117,6 +4125,9 @@ components:
         user_id:
           example: 2
           type: integer
+        username:
+          example: alice
+          type: string
       type: object
     rest.requestListResponse:
       properties:

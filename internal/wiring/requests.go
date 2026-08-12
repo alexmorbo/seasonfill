@@ -66,12 +66,13 @@ func BuildRequests(
 	db *gorm.DB,
 	sonarrAdd *discoapp.AddToSonarrUseCase,
 	radarrAdd *discoapp.AddToRadarrUseCase,
-	userRepo ports.UserRepository,
+	userRepo reqrest.UserDirectory,
 	outbox ports.OutboxEmitter,
 	tx reqapp.Transactor,
 	log *slog.Logger,
 ) RequestsBundle {
 	repo := reqpersistence.NewRequestRepository(db)
+	titles := reqpersistence.NewTitleReader(db)
 	uc := reqapp.NewUseCase(
 		repo,
 		sonarrReplayAdapter{uc: sonarrAdd},
@@ -81,7 +82,7 @@ func BuildRequests(
 		log,
 	)
 	return RequestsBundle{
-		Handler: reqrest.NewRequestHandler(uc, userRepo, log),
+		Handler: reqrest.NewRequestHandler(uc, userRepo, titles, log),
 		Queue:   uc,
 		UseCase: uc,
 	}

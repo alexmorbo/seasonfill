@@ -9146,12 +9146,17 @@ export type components = {
             readonly id?: number;
             /** @example tv */
             readonly media_type?: string;
+            readonly seasons?: readonly number[];
             /** @example pending */
             readonly status?: string;
+            /** @example Breaking Bad */
+            readonly title?: string;
             /** @example 1399 */
             readonly tmdb_id?: number;
             /** @example 2 */
             readonly user_id?: number;
+            /** @example alice */
+            readonly username?: string;
         };
         readonly "rest.requestListResponse": {
             readonly items?: readonly components["schemas"]["rest.requestItem"][];
