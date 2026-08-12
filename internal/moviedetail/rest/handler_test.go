@@ -3,6 +3,8 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,11 +15,31 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	mdapp "github.com/alexmorbo/seasonfill/internal/moviedetail/app"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
+
+// mdMediaLookupStub is a deterministic media.HashLookupPort for the M-FIX-1
+// poster-resolution regression: maps source URL → stored hash; a miss raises
+// ports.ErrNotFound so the resolver's miss path engages.
+type mdMediaLookupStub struct {
+	byURL map[string]string
+}
+
+func (s mdMediaLookupStub) HashForSourceURL(_ context.Context, url string) (string, error) {
+	if h, ok := s.byURL[url]; ok {
+		return h, nil
+	}
+	return "", ports.ErrNotFound
+}
+
+func (s mdMediaLookupStub) EnsurePending(_ context.Context, _, _, _ string) error {
+	return nil
+}
 
 type stubCanon struct {
 	canon movie.Canon
@@ -53,7 +75,7 @@ func newTestHandler(canon movie.Canon, canonErr error, states []movie.StateEntry
 		stubCollection{},
 		stubMembership{states: states},
 	)
-	return NewHandler(uc, nil)
+	return NewHandler(uc, nil, nil)
 }
 
 func doGet(h *Handler, param string) *httptest.ResponseRecorder {
@@ -101,6 +123,56 @@ func TestHandler_Get_BadRequestNonNumeric(t *testing.T) {
 	var body dto.ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "BAD_REQUEST", body.Code)
+}
+
+// TestHandler_Get_ResolvesImages is the M-FIX-1 regression: the movie-detail
+// poster must be the resolved sha256 media hash, NOT the raw canon poster_asset
+// path the FE cannot hand to /api/v1/media/:hash.
+func TestHandler_Get_ResolvesImages(t *testing.T) {
+	t.Parallel()
+	const posterHash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	rawPoster := "/2cxhvw.jpg"
+	tid := domain.TMDBID(693134)
+
+	newHandler := func(resolver *media.Resolver) *Handler {
+		canon := movie.Canon{
+			ID: domain.MovieID(42), TMDBID: &tid, Title: "Dune: Part Two",
+			PosterAsset: &rawPoster,
+		}
+		uc := mdapp.New(
+			stubCanon{canon: canon},
+			stubI18n{},
+			stubCollection{},
+			stubMembership{},
+		)
+		return NewHandler(uc, resolver, nil)
+	}
+
+	t.Run("resolver hit replaces raw path with media hash", func(t *testing.T) {
+		lookup := mdMediaLookupStub{byURL: map[string]string{
+			appmedia.BuildTMDBImageURL("w342", rawPoster): posterHash,
+		}}
+		resolver := media.NewResolver(lookup, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+		w := doGet(newHandler(resolver), "693134")
+		require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+		var body dto.MovieDetailResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.NotNil(t, body.Poster)
+		assert.Equal(t, posterHash, *body.Poster, "stored hash must replace raw path")
+		assert.NotEqual(t, rawPoster, *body.Poster, "must NOT emit the raw /xxxx.jpg path")
+	})
+
+	t.Run("nil resolver preserves raw path (legacy)", func(t *testing.T) {
+		w := doGet(newHandler(nil), "693134")
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var body dto.MovieDetailResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.NotNil(t, body.Poster)
+		assert.Equal(t, rawPoster, *body.Poster)
+	})
 }
 
 func TestHandler_Get_NotFound(t *testing.T) {

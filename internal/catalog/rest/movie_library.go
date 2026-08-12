@@ -11,6 +11,7 @@ import (
 
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 const (
@@ -30,17 +31,20 @@ var (
 // MovieLibraryHandler serves GET /api/v1/movies — the global movie library
 // list (Ф6-R-6b), the movie analog of the series library list.
 type MovieLibraryHandler struct {
-	repo   ports.MovieLibraryRepository
-	logger *slog.Logger
+	repo     ports.MovieLibraryRepository
+	resolver *media.Resolver // nil-OK: raw TMDB paths flow through unchanged
+	logger   *slog.Logger
 }
 
 // NewMovieLibraryHandler constructs the handler. repo must be non-nil in
-// production; the route is omitted (nil-OK) when the wirer passes nil.
-func NewMovieLibraryHandler(repo ports.MovieLibraryRepository, logger *slog.Logger) *MovieLibraryHandler {
+// production; the route is omitted (nil-OK) when the wirer passes nil. resolver
+// rewrites raw canon poster_asset paths to sha256 media hashes (nil-OK → raw
+// paths flow through, pre-M-FIX-1 behavior).
+func NewMovieLibraryHandler(repo ports.MovieLibraryRepository, resolver *media.Resolver, logger *slog.Logger) *MovieLibraryHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &MovieLibraryHandler{repo: repo, logger: logger}
+	return &MovieLibraryHandler{repo: repo, resolver: resolver, logger: logger}
 }
 
 // List returns the deduplicated movie library page.
@@ -109,11 +113,17 @@ func (h *MovieLibraryHandler) List(c *gin.Context) {
 		if insts == nil {
 			insts = []string{}
 		}
+		poster := r.PosterAsset
+		if h.resolver != nil {
+			if hash := h.resolver.Resolve(ctx, r.PosterAsset, "w342", "poster_w342"); hash != nil {
+				poster = hash
+			}
+		}
 		items = append(items, dto.MovieLibraryItem{
 			TMDBID:      r.TMDBID,
 			Title:       r.Title,
 			Year:        r.Year,
-			Poster:      r.PosterAsset,
+			Poster:      poster,
 			Status:      r.Status,
 			ReleaseDate: r.ReleaseDate,
 			TMDBRating:  r.TMDBRating,

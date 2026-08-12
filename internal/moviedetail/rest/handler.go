@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -13,20 +14,24 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // Handler serves GET /api/v1/movies/:tmdb_id.
 type Handler struct {
-	uc  *mdapp.UseCase
-	log *slog.Logger
+	uc       *mdapp.UseCase
+	resolver *media.Resolver // nil-OK: raw TMDB paths flow through unchanged
+	log      *slog.Logger
 }
 
-// NewHandler constructs the movie-detail REST handler.
-func NewHandler(uc *mdapp.UseCase, log *slog.Logger) *Handler {
+// NewHandler constructs the movie-detail REST handler. resolver rewrites raw
+// poster/backdrop/collection-poster paths to sha256 media hashes (nil-OK → raw
+// paths flow through, pre-M-FIX-1 behavior).
+func NewHandler(uc *mdapp.UseCase, resolver *media.Resolver, log *slog.Logger) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{uc: uc, log: log}
+	return &Handler{uc: uc, resolver: resolver, log: log}
 }
 
 // Get handles GET /api/v1/movies/:tmdb_id.
@@ -65,10 +70,20 @@ func (h *Handler) Get(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "movie detail unavailable"})
 		return
 	}
-	c.JSON(http.StatusOK, toMovieDetailResponse(d))
+	c.JSON(http.StatusOK, h.toMovieDetailResponse(c.Request.Context(), d))
 }
 
-func toMovieDetailResponse(d mdapp.Detail) dto.MovieDetailResponse {
+func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto.MovieDetailResponse {
+	poster := d.Poster
+	backdrop := d.Backdrop
+	if h.resolver != nil {
+		if hash := h.resolver.Resolve(ctx, d.Poster, "w342", "poster_w342"); hash != nil {
+			poster = hash
+		}
+		if hash := h.resolver.Resolve(ctx, d.Backdrop, "w780", "backdrop_w780"); hash != nil {
+			backdrop = hash
+		}
+	}
 	out := dto.MovieDetailResponse{
 		Title:      d.Title,
 		Overview:   d.Overview,
@@ -76,8 +91,8 @@ func toMovieDetailResponse(d mdapp.Detail) dto.MovieDetailResponse {
 		Year:       d.Canon.Year,
 		Status:     d.Canon.Status,
 		Runtime:    d.Canon.RuntimeMinutes,
-		Poster:     d.Poster,
-		Backdrop:   d.Backdrop,
+		Poster:     poster,
+		Backdrop:   backdrop,
 		Released:   d.Canon.ReleaseDate,
 		Digital:    d.Canon.DigitalReleaseDate,
 		Physical:   d.Canon.PhysicalReleaseDate,
@@ -93,10 +108,16 @@ func toMovieDetailResponse(d mdapp.Detail) dto.MovieDetailResponse {
 		out.IMDBID = &s
 	}
 	if d.Collection != nil {
+		colPoster := d.Collection.PosterAsset
+		if h.resolver != nil {
+			if hash := h.resolver.Resolve(ctx, d.Collection.PosterAsset, "w342", "poster_w342"); hash != nil {
+				colPoster = hash
+			}
+		}
 		out.Collection = &dto.MovieDetailCollection{
 			TMDBCollectionID: d.Collection.TMDBCollectionID,
 			Name:             d.Collection.Name,
-			Poster:           d.Collection.PosterAsset,
+			Poster:           colPoster,
 			RadarrMonitored:  d.Collection.RadarrMonitored,
 		}
 	}

@@ -9,19 +9,21 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/moviecalendar"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // MovieCalendarHandler serves GET /api/v1/movies/calendar (Ф6-R-6a).
 type MovieCalendarHandler struct {
-	uc     *moviecalendar.UseCase
-	logger *slog.Logger
+	uc       *moviecalendar.UseCase
+	resolver *media.Resolver // nil-OK: raw TMDB paths flow through unchanged
+	logger   *slog.Logger
 }
 
-func NewMovieCalendarHandler(uc *moviecalendar.UseCase, logger *slog.Logger) *MovieCalendarHandler {
+func NewMovieCalendarHandler(uc *moviecalendar.UseCase, resolver *media.Resolver, logger *slog.Logger) *MovieCalendarHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &MovieCalendarHandler{uc: uc, logger: logger}
+	return &MovieCalendarHandler{uc: uc, resolver: resolver, logger: logger}
 }
 
 // Get handles GET /api/v1/movies/calendar.
@@ -59,9 +61,10 @@ func (h *MovieCalendarHandler) Get(c *gin.Context) {
 		}
 		q.To = t.UTC().Add(24*time.Hour - time.Nanosecond)
 	}
-	rep, err := h.uc.Build(c.Request.Context(), q)
+	ctx := c.Request.Context()
+	rep, err := h.uc.Build(ctx, q)
 	if err != nil {
-		h.logger.ErrorContext(c.Request.Context(), "movie_calendar_failed", slog.String("error", err.Error()))
+		h.logger.ErrorContext(ctx, "movie_calendar_failed", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "calendar unavailable"})
 		return
 	}
@@ -69,7 +72,13 @@ func (h *MovieCalendarHandler) Get(c *gin.Context) {
 	for _, d := range rep.Days {
 		day := dto.MovieCalendarDayDTO{Date: d.Date}
 		for _, e := range d.Events {
-			day.Events = append(day.Events, dto.MovieCalendarEventDTO{MovieID: e.MovieID, TMDBID: e.TMDBID, Title: e.Title, Poster: e.Poster, Milestone: e.Milestone, Date: e.Date})
+			poster := e.Poster
+			if h.resolver != nil {
+				if hash := h.resolver.Resolve(ctx, e.Poster, "w342", "poster_w342"); hash != nil {
+					poster = hash
+				}
+			}
+			day.Events = append(day.Events, dto.MovieCalendarEventDTO{MovieID: e.MovieID, TMDBID: e.TMDBID, Title: e.Title, Poster: poster, Milestone: e.Milestone, Date: e.Date})
 		}
 		out.Days = append(out.Days, day)
 	}

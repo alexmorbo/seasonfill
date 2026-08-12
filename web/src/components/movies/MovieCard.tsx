@@ -10,7 +10,7 @@ export interface MovieCardProps {
   readonly year?: number | undefined;
   /** ★ shown only when a positive number. Absent/0 → year alone, no star. */
   readonly rating?: number | undefined;
-  /** RAW canon poster_asset path → rendered via the /api/v1/media/{path}
+  /** Resolved poster media hash (sha256) → rendered via the /api/v1/media/{hash}
    *  handler (mediaUrl), identical to the movie detail poster. */
   readonly poster?: string | null | undefined;
   /** TMDB id → direct link to /movies/:tmdbId (movies are keyed by tmdb_id;
@@ -23,8 +23,8 @@ export interface MovieCardProps {
 
 // MovieCard — portrait tile for the movie library grid. Mirrors SeriesCard's
 // corner-overlay markup (year bottom-left, ★ rating bottom-right, in-library
-// badge top-left) but links straight to /movies/:tmdbId. The poster is a raw
-// asset path, so it's rendered through MediaImage (same /api/v1/media/{path}
+// badge top-left) but links straight to /movies/:tmdbId. The poster is a
+// resolved media hash, rendered through MediaImage (same /api/v1/media/{hash}
 // URL as the detail poster) with a monogram fallback.
 export function MovieCard({
   title,

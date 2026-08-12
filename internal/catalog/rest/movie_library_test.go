@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,9 +15,30 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
+
+// movieMediaLookupStub is a deterministic media.HashLookupPort for the M-FIX-1
+// poster-resolution regression: maps source URL → stored hash; a miss raises
+// ports.ErrNotFound so the resolver's miss path engages. Shared across the
+// catalog/rest movie tests (movie_library + movie_calendar, same package).
+type movieMediaLookupStub struct {
+	byURL map[string]string
+}
+
+func (s movieMediaLookupStub) HashForSourceURL(_ context.Context, url string) (string, error) {
+	if h, ok := s.byURL[url]; ok {
+		return h, nil
+	}
+	return "", ports.ErrNotFound
+}
+
+func (s movieMediaLookupStub) EnsurePending(_ context.Context, _, _, _ string) error {
+	return nil
+}
 
 // fakeMovieLibraryRepo is a focused ports.MovieLibraryRepository fake capturing
 // the resolved filter/sort/paging and returning canned rows.
@@ -41,7 +64,7 @@ func (f *fakeMovieLibraryRepo) List(_ context.Context, filter ports.MovieLibrary
 func doMovieList(t *testing.T, repo ports.MovieLibraryRepository, query string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := gin.New()
-	r.GET("/api/v1/movies", NewMovieLibraryHandler(repo, nil).List)
+	r.GET("/api/v1/movies", NewMovieLibraryHandler(repo, nil, nil).List)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/movies"+query, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -139,4 +162,58 @@ func TestMovieLibraryHandler_List_BadParams(t *testing.T) {
 func TestMovieLibraryHandler_List_RepoError500(t *testing.T) {
 	w := doMovieList(t, &fakeMovieLibraryRepo{err: errors.New("boom")}, "")
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestMovieLibraryHandler_List_ResolvesPoster is the M-FIX-1 regression: the
+// wire poster must be the resolved sha256 media hash, NOT the raw TMDB path the
+// FE cannot hand to /api/v1/media/:hash.
+func TestMovieLibraryHandler_List_ResolvesPoster(t *testing.T) {
+	const posterHash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	rawPoster := "/2cxhvw.jpg"
+
+	newRepo := func() *fakeMovieLibraryRepo {
+		return &fakeMovieLibraryRepo{
+			rows: []ports.MovieLibraryRow{{
+				TMDBID: 438631, Title: "Dune", PosterAsset: &rawPoster,
+				Monitored: true, HasFile: true, Instances: []string{"r1"},
+			}},
+			total: 1,
+		}
+	}
+
+	t.Run("resolver hit replaces raw path with media hash", func(t *testing.T) {
+		lookup := movieMediaLookupStub{byURL: map[string]string{
+			appmedia.BuildTMDBImageURL("w342", rawPoster): posterHash,
+		}}
+		resolver := media.NewResolver(lookup, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+		r := gin.New()
+		r.GET("/api/v1/movies", NewMovieLibraryHandler(newRepo(), resolver, nil).List)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/movies", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+		var body dto.MovieLibraryList
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.Len(t, body.Items, 1)
+		require.NotNil(t, body.Items[0].Poster)
+		assert.Equal(t, posterHash, *body.Items[0].Poster, "stored hash must replace raw TMDB path")
+		assert.NotEqual(t, rawPoster, *body.Items[0].Poster, "must NOT emit the raw /xxxx.jpg path")
+	})
+
+	t.Run("nil resolver preserves raw path (legacy)", func(t *testing.T) {
+		r := gin.New()
+		r.GET("/api/v1/movies", NewMovieLibraryHandler(newRepo(), nil, nil).List)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/movies", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var body dto.MovieLibraryList
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.Len(t, body.Items, 1)
+		require.NotNil(t, body.Items[0].Poster)
+		assert.Equal(t, rawPoster, *body.Items[0].Poster)
+	})
 }

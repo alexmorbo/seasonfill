@@ -12,6 +12,7 @@ import (
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -60,8 +61,8 @@ func BuildMovieCollections(db *gorm.DB, radarr *RadarrSyncBundle, log *slog.Logg
 
 // BuildMovieCalendar wires the read-only movie release calendar over the movies
 // release-date columns (Ф6-R-6a). Separate from the TV calendar (episode-shaped).
-func BuildMovieCalendar(db *gorm.DB, log *slog.Logger) *catalogrest.MovieCalendarHandler {
+func BuildMovieCalendar(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *catalogrest.MovieCalendarHandler {
 	domainLog := sharedports.DomainLogger(log, "http")
 	uc := moviecalendar.NewUseCase(catalogpersistence.NewMovieCalendarRepository(db))
-	return catalogrest.NewMovieCalendarHandler(uc, domainLog)
+	return catalogrest.NewMovieCalendarHandler(uc, resolver, domainLog)
 }

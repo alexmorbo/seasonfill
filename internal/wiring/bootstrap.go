@@ -954,7 +954,7 @@ func BuildHTTPServer(
 	addToSonarrHandler, sonarrAddUC := BuildDiscoveryAddToSonarr(auth, sonarrBundle, persistence, log)
 	// Ф6-R-6a — read-only movie detail aggregate over local repos (canon +
 	// movie_i18n + collection + per-instance membership). No TMDB gate.
-	movieDetailBundle := BuildMovieDetail(persistence.DB, log)
+	movieDetailBundle := BuildMovieDetail(persistence.DB, seriesDetailBundle.MediaResolver, log)
 	// Ф6-R-6a — movie vertical write/read handlers over the radarr holder +
 	// local repos: add-to-radarr, franchise collections, movie release calendar.
 	addToRadarrHandler, radarrAddUC := BuildDiscoveryAddToRadarr(scanBundle.RadarrSync, newMeUserResolver(auth), log)
@@ -978,7 +978,7 @@ func BuildHTTPServer(
 	sonarrAddUC.WithRequestQueue(requestsBundle.Queue)
 	radarrAddUC.WithRequestQueue(requestsBundle.Queue)
 	movieCollectionsHandler := BuildMovieCollections(persistence.DB, scanBundle.RadarrSync, log)
-	movieCalendarHandler := BuildMovieCalendar(persistence.DB, log)
+	movieCalendarHandler := BuildMovieCalendar(persistence.DB, seriesDetailBundle.MediaResolver, log)
 	// ADR-0017 Ф5 D-1 — discovery row-config read API. Standalone: the
 	// repo's only dependency is persistence.DB. Always wired (no TMDB
 	// gate) — the endpoint serves the code-default set even with an empty

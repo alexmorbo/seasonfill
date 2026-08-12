@@ -10,6 +10,7 @@ import (
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	mdapp "github.com/alexmorbo/seasonfill/internal/moviedetail/app"
 	mdrest "github.com/alexmorbo/seasonfill/internal/moviedetail/rest"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -22,7 +23,7 @@ type MovieDetailBundle struct {
 
 // BuildMovieDetail wires the read-only movie-detail aggregate + the movie
 // library list, both over local repos (movies canon + movie_states).
-func BuildMovieDetail(db *gorm.DB, log *slog.Logger) *MovieDetailBundle {
+func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *MovieDetailBundle {
 	domainLog := sharedports.DomainLogger(log, "http")
 	uc := mdapp.New(
 		enrichpersistence.NewMovieRepository(db),
@@ -32,9 +33,9 @@ func BuildMovieDetail(db *gorm.DB, log *slog.Logger) *MovieDetailBundle {
 	)
 	// Ф6-R-6b — global movie library list (GET /api/v1/movies).
 	libraryHandler := catalogrest.NewMovieLibraryHandler(
-		catalogpersistence.NewMovieLibraryRepository(db), domainLog)
+		catalogpersistence.NewMovieLibraryRepository(db), resolver, domainLog)
 	return &MovieDetailBundle{
-		Handler:        mdrest.NewHandler(uc, domainLog),
+		Handler:        mdrest.NewHandler(uc, resolver, domainLog),
 		LibraryHandler: libraryHandler,
 	}
 }

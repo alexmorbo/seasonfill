@@ -4,7 +4,7 @@ import type { components } from '@/api/schema';
 
 // Ф6-R-6b wire types — the movie vertical. Movies are keyed by tmdb_id (one
 // item per movie, deduped across N radarr instances); the poster fields are
-// RAW canon poster_asset paths, rendered via the same /api/v1/media/{path}
+// resolved media hashes, rendered via the same /api/v1/media/{hash}
 // handler the series posters use (mediaUrl in @/api/series).
 export type MovieDetail = components['schemas']['dto.MovieDetailResponse'];
 export type MovieDetailLibrary = components['schemas']['dto.MovieDetailLibrary'];
