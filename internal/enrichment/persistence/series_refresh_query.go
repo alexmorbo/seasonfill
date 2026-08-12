@@ -256,6 +256,10 @@ SELECT * FROM (
         OR (s.enrichment_tmdb_synced_at < ?
             AND s.tvdb_id IS NULL)
          )
+     -- Ф8-U-5 GLOBAL-UNION: followed_series is per-user since mig 058, but
+     -- TMDB metadata is shared — refresh once if ANY user follows. Do NOT add
+     -- fs.user_id here (would refresh N× per follower + drop non-admin-only
+     -- follows). See documentation/stories/F8-U-5b-per-user-producers.md.
      AND EXISTS (
        SELECT 1 FROM followed_series fs WHERE fs.series_id = s.id)
      AND NOT EXISTS (
@@ -300,6 +304,11 @@ SELECT * FROM (
         WHERE sc.series_id = s.id AND sc.deleted_at IS NULL)
      AND EXISTS (
        SELECT 1 FROM discovery_lists dl WHERE dl.series_id = s.id)
+     -- Ф8-U-5 GLOBAL-UNION: followed_series is per-user since mig 058, but
+     -- TMDB metadata is shared — this arm excludes any series ANY user follows
+     -- (they belong to the FOLLOWED tier). Do NOT add fs.user_id here (would
+     -- leak non-admin-only follows into the Normal tier + double-refresh).
+     -- See documentation/stories/F8-U-5b-per-user-producers.md.
      AND NOT EXISTS (
        SELECT 1 FROM followed_series fs WHERE fs.series_id = s.id)
      AND NOT EXISTS (
@@ -341,6 +350,11 @@ SELECT * FROM (
         WHERE sc.series_id = s.id AND sc.deleted_at IS NULL)
      AND NOT EXISTS (
        SELECT 1 FROM discovery_lists dl WHERE dl.series_id = s.id)
+     -- Ф8-U-5 GLOBAL-UNION: followed_series is per-user since mig 058, but
+     -- TMDB metadata is shared — this COLD arm excludes any series ANY user
+     -- follows (they belong to the FOLLOWED tier). Do NOT add fs.user_id here
+     -- (would leak non-admin-only follows into the Cold tier + double-refresh).
+     -- See documentation/stories/F8-U-5b-per-user-producers.md.
      AND NOT EXISTS (
        SELECT 1 FROM followed_series fs WHERE fs.series_id = s.id)
      AND NOT EXISTS (

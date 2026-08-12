@@ -990,18 +990,26 @@ func BuildHTTPServer(
 	// (SetBlocklist) so they subtract the same sets, then seeded from the
 	// persisted table before serving. A seed error is non-fatal (empty
 	// cache self-heals on the next mutation / boot).
-	blocklistHandler, blocklistCache := BuildDiscoveryBlocklist(
+	blocklistHandler, blocklistCache, blocklistRepo := BuildDiscoveryBlocklist(
 		persistence.DB,
 		keywordSearchClient,              // nil-OK → keyword-search returns 503
 		seriesDetailBundle.MediaResolver, // nil-OK
 		auth.AdminRepo,
 		log,
 	)
+	// Ф8-U-5b — per-user read-time discover blocklist (tmdb + keyword). ONE
+	// shared filter injected into both the curated + passthrough readers.
+	userBlockFilter := discoveryrest.NewUserBlockFilterForWiring(
+		auth.AdminRepo, // dataports.UserRepository
+		blocklistRepo,  // app.BlocklistLoader (LoadBlockSets)
+		&resultKeywordsAdapter{db: persistence.DB}, // rest.ResultKeywords
+		sharedports.DomainLogger(log, "discovery"),
+	)
 	if discoveryHandler != nil {
-		discoveryHandler.SetBlocklist(blocklistCache)
+		discoveryHandler.SetUserBlocks(userBlockFilter)
 	}
 	if discoverHandler != nil {
-		discoverHandler.SetBlocklist(blocklistCache)
+		discoverHandler.SetUserBlocks(userBlockFilter)
 	}
 	// ADR-0017 Ф5 S3 — the worker's by_genre/by_network/by_keyword fetches
 	// fold the same keyword blocklist into without_keywords.

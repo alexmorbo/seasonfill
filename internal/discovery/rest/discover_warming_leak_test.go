@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
@@ -33,24 +34,26 @@ type deadlineAwareWarmingPass struct {
 	items []disco.Item
 }
 
-func (p *deadlineAwareWarmingPass) Fetch(ctx context.Context, _ tmdb.DiscoverFilter, _ string, _ int) ([]disco.Item, error) {
+func (p *deadlineAwareWarmingPass) Fetch(ctx context.Context, _ tmdb.DiscoverFilter, _ string, page int) ([]disco.Item, error) {
 	p.calls.Add(1)
 	if _, ok := ctx.Deadline(); ok {
 		return nil, context.DeadlineExceeded // synchronous arm: force warming
 	}
-	return p.items, nil // bg worker arm: RAW page, no subtraction
+	if page != 1 {
+		return nil, nil // backfill pages are TMDB's tail — no more items
+	}
+	return p.items, nil // bg worker arm: RAW page-1, no subtraction
 }
 
 func (p *deadlineAwareWarmingPass) LastWaitSeconds() float64 { return 0 }
 
-// TestDiscover_WarmingPath_BgCache_SubtractsBlocked proves a hidden tmdb id
-// warmed into the LRU by the async-202 bg fetcher (which stores RAW items with
-// no tmdb subtraction) does NOT surface on the subsequent LRU hit — the read
-// chokepoint in Handle applies the shared FilterBlocked helper. Regression
-// guard for the leak: sync-timeout → 202 → bg caches raw → every later request
-// is an LRU hit that would otherwise serve the hidden id forever.
-func TestDiscover_WarmingPath_BgCache_SubtractsBlocked(t *testing.T) {
-	t.Skip("Ф8-U-5a: blocklist read-path is a pass-through; per-user blocking restored in Ф8-U-5b")
+// TestDiscover_WarmingPath_BgCache_SubtractsBlocked_PerUser proves a hidden
+// tmdb id warmed into the SHARED LRU by the async-202 bg fetcher (which stores
+// RAW items with NO subtraction) does NOT surface on the blocking user's LRU
+// hit — the read chokepoint applies the per-user filter — while the LRU still
+// holds the RAW page (a user WITHOUT the block sees the id on the same cache
+// entry). Ф8-U-5b regression guard for the warming leak restated per-user.
+func TestDiscover_WarmingPath_BgCache_SubtractsBlocked_PerUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
@@ -71,32 +74,34 @@ func TestDiscover_WarmingPath_BgCache_SubtractsBlocked(t *testing.T) {
 	t.Cleanup(cancel)
 	go func() { _ = bg.RunWorker(ctx) }()
 
-	cache := discoapp.NewBlocklistCache()
-	require.NoError(t, cache.Refresh(context.Background()))
+	users := rtUsers{byName: map[string]admin.User{"userA": {ID: 1}, "userB": {ID: 2}}, adminID: 1}
+	loader := rtLoader{tmdb: map[int64][]int64{1: {777}}} // only userA blocks 777
 
 	h := discoveryrest.NewDiscoverHandler(lru, pass, bg, &discoverFakeWarming{}, nil, nil, log)
-	h.SetBlocklist(cache)
+	h.SetUserBlocks(discoveryrest.NewUserBlockFilterForWiring(users, loader, &rtKeywords{}, log))
 	r := gin.New()
+	r.Use(testUserMiddleware())
 	r.GET("/discovery/discover", h.Handle)
 
-	do := func() *httptest.ResponseRecorder {
+	doUser := func(user string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequestWithContext(t.Context(), "GET",
 			"/discovery/discover?with_genres=18", nil)
+		req.Header.Set("X-Test-User", user)
 		r.ServeHTTP(rec, req)
 		return rec
 	}
 
-	// 1st request: synchronous arm deadlines out → 202 warming + bg enqueue.
-	rec1 := do()
+	// 1st request (userA): synchronous arm deadlines out → 202 warming + bg enqueue.
+	rec1 := doUser("userA")
 	require.Equal(t, http.StatusAccepted, rec1.Code)
 
-	// Poll until the bg worker has warmed the LRU (request now hits). The
-	// synchronous arm never caches (always DeadlineExceeded), so pre-warm
-	// misses stay 202 and cannot mask the leak with filtered sync data.
+	// Poll until the bg worker has warmed the shared LRU (userA now hits). The
+	// synchronous arm never caches (always DeadlineExceeded), so pre-warm misses
+	// stay 202 and cannot mask the leak with filtered sync data.
 	var hitBody []byte
 	require.Eventually(t, func() bool {
-		rec := do()
+		rec := doUser("userA")
 		if rec.Code != http.StatusOK {
 			return false
 		}
@@ -111,9 +116,17 @@ func TestDiscover_WarmingPath_BgCache_SubtractsBlocked(t *testing.T) {
 		return true
 	}, 2*time.Second, 10*time.Millisecond)
 
-	// The served hit came from the bg-written RAW page — the blocked id must
-	// have been subtracted at read time.
-	require.Equal(t, 1, discoverItemCount(t, hitBody), "blocked warmed id must be subtracted")
+	// userA's hit came from the bg-written RAW page — 777 subtracted per-user.
+	require.Equal(t, 1, discoverItemCount(t, hitBody), "blocked warmed id must be subtracted for userA")
 	require.NotContains(t, string(hitBody), "BlockedWarm")
 	require.Contains(t, string(hitBody), "KeptWarm")
+
+	// userB (no block) hits the SAME cache entry → sees 777 → the LRU is RAW.
+	recB := doUser("userB")
+	require.Equal(t, http.StatusOK, recB.Code)
+	var respB discoveryrest.DiscoverResponse
+	require.NoError(t, json.Unmarshal(recB.Body.Bytes(), &respB))
+	require.Equal(t, "hit", respB.CacheStatus)
+	require.Equal(t, 2, len(respB.Items), "shared LRU stores the RAW warmed page")
+	require.Contains(t, recB.Body.String(), "BlockedWarm")
 }

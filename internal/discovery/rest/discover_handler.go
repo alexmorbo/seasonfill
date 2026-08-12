@@ -94,14 +94,16 @@ type DiscoverHandler struct {
 	libraryInstances app.LibraryInstancesPort
 	log              *slog.Logger
 
-	// blocklist — ADR-0017 Ф5 S3. Nil-OK passthrough. Set post-construction.
-	blocklist *app.BlocklistCache
+	// ubf — Ф8-U-5b. Read-time per-user blocklist filter (nil-OK no-op). Set
+	// post-construction via SetUserBlocks. Replaces the ADR-0017 Ф5 S3 global
+	// BlocklistCache, which is now per-user read-time.
+	ubf *userBlockFilter
 }
 
-// SetBlocklist injects the discovery blocklist cache (nil-OK). Wiring sets
-// it after NewDiscoverHandler so the constructor signature stays stable.
-// ADR-0017 Ф5 S3.
-func (h *DiscoverHandler) SetBlocklist(bc *app.BlocklistCache) { h.blocklist = bc }
+// SetUserBlocks injects the per-user read-time blocklist filter (nil-OK).
+// Wiring sets it after NewDiscoverHandler so the constructor stays stable.
+// Ф8-U-5b.
+func (h *DiscoverHandler) SetUserBlocks(f *userBlockFilter) { h.ubf = f }
 
 // NewDiscoverHandler wires the handler. lru/pass/bg/warming/log are
 // required; resolver is nil-OK (legacy behavior — raw TMDB paths
@@ -144,28 +146,21 @@ func (h *DiscoverHandler) Handle(c *gin.Context) {
 	if !ok {
 		return
 	}
-	// ADR-0017 Ф5 S3 — fold the blocked keyword ids into WithoutKeywords so
-	// the upstream /discover/tv query excludes them AND the LRU key partitions
-	// distinctly per active keyword-blocklist. Nil-safe (nil cache → filter
-	// unchanged). The bg fetcher inherits this merged filter via EnqueueDedup.
-	filter = h.blocklist.ApplyKeywordBlocklist(filter)
-	// bl_epoch folds the blocklist mutation counter into the key so a hide
-	// (epoch++) invalidates every warmed passthrough page. Epoch() is nil-safe.
-	cacheKey := canonicalHash(filter, lang, page, h.blocklist.Epoch())
+	// Ф8-U-5b — the shared LRU is GLOBAL/anonymous/RAW-keyed; the per-user
+	// blocklist is a read-time post-filter. The bl_epoch key dimension
+	// collapses to a constant 0 so a blocklist mutation no longer partitions
+	// the LRU (RAW shared pages).
+	cacheKey := canonicalHash(filter, lang, page, 0)
 
 	ctx := c.Request.Context()
+	// Resolve the current user's block sets ONCE per request. No user on the
+	// context (warming/edge callers) → nil sets → filters nothing.
+	tmdbSet, kwSet := h.ubf.currentUserBlocks(c)
 
 	// 1. LRU hit.
-	if items, found := h.lru.Get(cacheKey); found {
+	if raw, found := h.lru.Get(cacheKey); found {
 		observability.IncDiscoverHandlerOutcome(OutcomeHit)
-		// ADR-0017 Ф5 S3 — subtract blocked tmdb ids at the read chokepoint.
-		// The bg fetcher (async-202 warming path) writes RAW passthrough
-		// items into the LRU with no tmdb subtraction, so a page warmed
-		// under this key may still carry a hidden id; filtering here closes
-		// that leak for ANY writer (bg or sync). Idempotent for sync-cached
-		// pages (already filtered) and nil-safe. FilterBlocked stays the
-		// single shared subtraction helper.
-		items = h.blocklist.FilterBlocked(items)
+		items := h.applyUserBlocksBackfill(ctx, filter, lang, page, raw, tmdbSet, kwSet)
 		c.JSON(http.StatusOK, h.envelope(ctx, items, page, "hit", 0))
 		return
 	}
@@ -176,10 +171,10 @@ func (h *DiscoverHandler) Handle(c *gin.Context) {
 	items, err := h.pass.Fetch(syncCtx, filter, lang, page)
 	switch {
 	case err == nil:
-		items = h.fetchWithBlocklist(syncCtx, filter, lang, page, items)
-		h.lru.Add(cacheKey, items)
+		h.lru.Add(cacheKey, items) // shared LRU = RAW (unfiltered)
 		observability.IncDiscoverHandlerOutcome(OutcomeMissSync)
-		c.JSON(http.StatusOK, h.envelope(ctx, items, page, "miss", 0))
+		resp := h.applyUserBlocksBackfill(syncCtx, filter, lang, page, items, tmdbSet, kwSet)
+		c.JSON(http.StatusOK, h.envelope(ctx, resp, page, "miss", 0))
 		return
 	case errors.Is(err, context.DeadlineExceeded) || errors.Is(syncCtx.Err(), context.DeadlineExceeded):
 		// 3. Sync timed out — kick the background fetcher + return 202.
@@ -389,41 +384,49 @@ func (h *DiscoverHandler) parse(c *gin.Context) (tmdb.DiscoverFilter, string, in
 	return filter, lang, page, true
 }
 
-// fetchWithBlocklist applies the blocklist subtraction to the first page
-// and, when the filtered page falls below discoverPerPage, fetches up to
-// discoverMaxExtraPages additional TMDB pages to top the result back up to
-// 20. Bounded by discoverMaxPage (TMDB's cap) and discoverMaxExtraPages.
-// On a top-up fetch error, or when the guard trips with the page still
-// short, it returns what it has and logs a short-fill line. A nil
-// blocklist is a no-op (returns first verbatim). ADR-0017 Ф5 S3.
-func (h *DiscoverHandler) fetchWithBlocklist(
+// applyUserBlocksBackfill subtracts the current user's tmdb+keyword blocks from
+// a RAW page and, when the filtered page falls below discoverPerPage *because
+// items were removed*, fetches up to discoverMaxExtraPages more RAW pages
+// (cached RAW under their own keys), filtering each per-user, to top back
+// toward 20. A short page with nothing removed is TMDB's own tail (no
+// backfill). Bounded by discoverMaxPage + discoverMaxExtraPages. nil ubf /
+// empty sets → first page unchanged. Reuses the ADR-0017 Ф5 S3 top-up shape,
+// now per-user (Ф8-U-5b).
+func (h *DiscoverHandler) applyUserBlocksBackfill(
 	ctx context.Context,
 	filter tmdb.DiscoverFilter,
 	lang string,
 	page int,
-	first []disco.Item,
+	raw []disco.Item,
+	tmdbSet, kwSet map[int64]struct{},
 ) []disco.Item {
-	out := h.blocklist.FilterBlocked(first)
-	if h.blocklist == nil || len(out) >= discoverPerPage {
+	out := h.ubf.applyUserBlocks(ctx, raw, tmdbSet, kwSet)
+	if len(out) >= discoverPerPage {
 		return out
 	}
-	removed := len(first) - len(out)
+	removed := len(raw) - len(out)
 	if removed == 0 {
-		return out // nothing blocked on this page; a short page is TMDB's own tail
+		return out // short page is TMDB's own tail, not a filter hole
 	}
 	for extra := 1; extra <= discoverMaxExtraPages && len(out) < discoverPerPage; extra++ {
 		next := page + extra
 		if next > discoverMaxPage {
 			break
 		}
-		more, err := h.pass.Fetch(ctx, filter, lang, next)
-		if err != nil {
-			h.log.WarnContext(ctx, "discovery.discover.backfill_fetch_failed",
-				slog.Int("page", next),
-				slog.String("error", err.Error()))
-			break
+		nextKey := canonicalHash(filter, lang, next, 0)
+		more, ok := h.lru.Get(nextKey)
+		if !ok {
+			m, err := h.pass.Fetch(ctx, filter, lang, next)
+			if err != nil {
+				h.log.WarnContext(ctx, "discovery.discover.backfill_fetch_failed",
+					slog.Int("page", next),
+					slog.String("error", err.Error()))
+				break
+			}
+			h.lru.Add(nextKey, m) // cache RAW so the next reader shares it
+			more = m
 		}
-		out = append(out, h.blocklist.FilterBlocked(more)...)
+		out = append(out, h.ubf.applyUserBlocks(ctx, more, tmdbSet, kwSet)...)
 	}
 	if len(out) > discoverPerPage {
 		out = out[:discoverPerPage]

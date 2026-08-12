@@ -44,6 +44,79 @@ func seedFollowedSeriesRow(t *testing.T, db *gorm.DB, seriesID domain.SeriesID) 
 	require.NoError(t, db.Create(&row).Error)
 }
 
+// seedEnrichUserID inserts an extra users row (the package's seedEnrichUser
+// only seeds id=1). Needed so the followed_series (user_id) FK holds for a
+// second follower in the global-union guard test.
+func seedEnrichUserID(t *testing.T, db *gorm.DB, id int64, username string) {
+	t.Helper()
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&database.UserModel{
+		ID:         uint(id),
+		Username:   username,
+		Role:       admin.RoleAdmin,
+		AvatarMode: admin.AvatarModeAuto,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error)
+}
+
+// seedFollowedSeriesRowForUser inserts one followed_series row for an arbitrary
+// owner (seedFollowedSeriesRow hardcodes enrichTestUserID=1).
+func seedFollowedSeriesRowForUser(t *testing.T, db *gorm.DB, userID int64, seriesID domain.SeriesID) {
+	t.Helper()
+	row := database.FollowedSeriesModel{UserID: userID, SeriesID: int64(seriesID), CreatedAt: time.Now().UTC()}
+	require.NoError(t, db.Create(&row).Error)
+}
+
+// TestSeriesRepository_PickRefreshCandidates_FollowedTier_GlobalUnion proves
+// that when TWO distinct users follow the SAME stale series, the FOLLOWED-tier
+// picker returns it EXACTLY ONCE (shared TMDB metadata refreshed once, not per
+// follower). Regression guard for Ф8-U-5: the followed_series EXISTS subqueries
+// must stay unscoped (no fs.user_id predicate).
+func TestSeriesRepository_PickRefreshCandidates_FollowedTier_GlobalUnion(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewSeriesRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+			d11 := now.Add(-11 * 24 * time.Hour) // > followed TTL (10d) → stale
+			seedEnrichUser(t, db)                // id=1 (admin)
+			seedEnrichUserID(t, db, 2, "user2")  // id=2 (non-admin follower)
+
+			c := sampleCanon("shared-followed")
+			c.TMDBID = ptrTMDBID(4201)
+			c.TVDBID = ptrTVDBID(104201)
+			c.IMDBID = nil
+			c.EnrichmentTMDBSyncedAt = &d11
+			sID, err := repo.Upsert(ctx, c)
+			require.NoError(t, err)
+
+			// BOTH users follow the same series.
+			seedFollowedSeriesRowForUser(t, db, 1, sID)
+			seedFollowedSeriesRowForUser(t, db, 2, sID)
+
+			rows, err := repo.PickRefreshCandidates(ctx, now, enrichment.DefaultRefreshTTL(), 50)
+			require.NoError(t, err)
+
+			occurrences := 0
+			var tier enrichment.RefreshTier
+			for _, r := range rows {
+				if r.SeriesID == sID {
+					occurrences++
+					tier = r.Tier
+				}
+			}
+			require.Equal(t, 1, occurrences,
+				"two users following the same series must yield exactly ONE FOLLOWED candidate (global union)")
+			assert.Equal(t, enrichment.RefreshTierFollowed, tier)
+		})
+	}
+}
+
 // TestSeriesRepository_PickRefreshCandidates_FollowedTier covers the
 // ADR-0015 Ф3 C1 FOLLOWED tier (2): a followed-not-in-library series lands
 // on the Followed tier (10d TTL), never decays to Cold (F-04); Hot wins for

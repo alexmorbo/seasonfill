@@ -95,11 +95,10 @@ type DiscoveryHandler struct {
 	libraryInstances app.LibraryInstancesPort
 	log              *slog.Logger
 
-	// blocklist — ADR-0017 Ф5 S3. Global discovery hide-list. Nil-OK: a nil
-	// cache is a no-op passthrough (FilterBlocked returns items unchanged).
-	// Set post-construction via WithBlocklist / SetBlocklist so existing
-	// call sites stay unchanged.
-	blocklist *app.BlocklistCache
+	// ubf — Ф8-U-5b. Read-time per-user blocklist filter (nil-OK no-op). Set
+	// post-construction via SetUserBlocks. Replaces the ADR-0017 Ф5 S3 global
+	// BlocklistCache, which is now per-user read-time.
+	ubf *userBlockFilter
 
 	// sfGroup collapses concurrent cold-cache on-demand refresh calls
 	// onto a single TMDB fetch. Key: kind|param|lang. The shared
@@ -197,7 +196,8 @@ func (h *DiscoveryHandler) serveLeaderboard(c *gin.Context, kind disco.Kind) {
 		return
 	}
 
-	resp, err := h.readAndProject(c.Request.Context(), kind, "", lang, page, perPage, nil)
+	tmdbSet, kwSet := h.ubf.currentUserBlocks(c)
+	resp, err := h.readAndProject(c.Request.Context(), kind, "", lang, page, perPage, nil, tmdbSet, kwSet)
 	if err != nil {
 		h.log.WarnContext(c.Request.Context(), "discovery leaderboard read failed",
 			slog.String("kind", string(kind)),
@@ -304,7 +304,8 @@ func (h *DiscoveryHandler) serveLongTail(c *gin.Context, kind disco.Kind) {
 	if refreshErr != nil {
 		extra = append(extra, "refresh_failed")
 	}
-	resp, err := h.readAndProject(ctx, kind, param, lang, page, perPage, extra)
+	tmdbSet, kwSet := h.ubf.currentUserBlocks(c)
+	resp, err := h.readAndProject(ctx, kind, param, lang, page, perPage, extra, tmdbSet, kwSet)
 	if err != nil {
 		h.log.WarnContext(ctx, "discovery long-tail read failed",
 			slog.String("kind", string(kind)),
@@ -407,6 +408,7 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	tmdbSet, kwSet := h.ubf.currentUserBlocks(c)
 
 	localItems, err := h.search.Local(ctx, q, lang, 20)
 	if err != nil {
@@ -419,7 +421,7 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 		return
 	}
 	if len(localItems) > 0 {
-		localItems = h.blocklist.FilterBlocked(localItems) // ADR-0017 Ф5 S3
+		localItems = h.ubf.applyUserBlocks(ctx, localItems, tmdbSet, kwSet) // Ф8-U-5b
 		inLib := h.resolveInLibrary(ctx, localItems)
 		c.JSON(http.StatusOK, gin.H{
 			"items":  projectSearchItems(ctx, localItems, h.resolver, inLib),
@@ -434,7 +436,7 @@ func (h *DiscoveryHandler) Search(c *gin.Context) {
 			"tmdb fallback failed")
 		return
 	}
-	tmdbItems = h.blocklist.FilterBlocked(tmdbItems) // ADR-0017 Ф5 S3
+	tmdbItems = h.ubf.applyUserBlocks(ctx, tmdbItems, tmdbSet, kwSet) // Ф8-U-5b
 	inLib := h.resolveInLibrary(ctx, tmdbItems)
 	c.JSON(http.StatusOK, gin.H{
 		"items":  projectSearchItems(ctx, tmdbItems, h.resolver, inLib),
@@ -512,13 +514,14 @@ func (h *DiscoveryHandler) readAndProject(
 	param, lang string,
 	page, perPage int,
 	extraDegraded []string,
+	tmdbSet, kwSet map[int64]struct{},
 ) (*DiscoveryListResponse, error) {
 	pg, err := h.repo.GetRanked(ctx, kind, param, lang, page, perPage)
 	if err != nil {
 		return nil, err
 	}
 
-	filtered := h.blocklist.FilterBlocked(pg.Items) // ADR-0017 Ф5 S3 — nil-OK passthrough
+	filtered := h.ubf.applyUserBlocks(ctx, pg.Items, tmdbSet, kwSet) // Ф8-U-5b — nil-OK passthrough
 	inLib := h.resolveInLibrary(ctx, filtered)
 	items := make([]DiscoverySeriesItem, 0, len(filtered))
 	for _, it := range filtered {

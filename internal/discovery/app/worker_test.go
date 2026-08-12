@@ -219,12 +219,6 @@ func (c *fakeTMDB) lastDiscoverLang() string {
 	return c.discoverLang
 }
 
-func (c *fakeTMDB) lastDiscoverFilter() tmdb.DiscoverFilter {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.discoverFilter
-}
-
 func (c *fakeTMDB) setErr(err error)               { c.mu.Lock(); c.err = err; c.mu.Unlock() }
 func (c *fakeTMDB) setResp(r *tmdb.TVListResponse) { c.mu.Lock(); c.resp = r; c.mu.Unlock() }
 
@@ -430,32 +424,6 @@ func TestTick_TopKindsPopulated_TriggersDiscoverTV(t *testing.T) {
 	require.Equal(t, 3, client.discoverCalls())
 	// by_genre / by_network fetchPage must pass the active language through.
 	require.Equal(t, "ru-RU", client.lastDiscoverLang())
-}
-
-// TestTick_FetchPage_InjectsBlockedKeywords proves the worker's discover-backed
-// fetchPage folds the keyword blocklist into WithoutKeywords (ADR-0017 Ф5 S3).
-func TestTick_FetchPage_InjectsBlockedKeywords(t *testing.T) {
-	// Ф8-U-5a: the blocklist is now per-user and the boot cache is a
-	// pass-through (empty snapshot). The per-user keyword folding at read time
-	// is restored on the discover handlers in Ф8-U-5b.
-	t.Skip("Ф8-U-5a: blocklist read-path is a pass-through; per-user blocking restored in Ф8-U-5b")
-	repo := newFakeRepo()
-	langs := &fakeLangs{langs: []string{"en-US"}}
-	client := &fakeTMDB{resp: makeResp(0)}
-	stubs := newFakeStubs()
-	tops := &fakeTopKinds{genres: []int{18}}
-
-	cache := app.NewBlocklistCache()
-	require.NoError(t, cache.Refresh(context.Background()))
-
-	w := newTestWorker(t, repo, langs, stubs, client, tops)
-	w.SetBlocklist(cache)
-	require.NoError(t, w.Tick(context.Background()))
-
-	require.Positive(t, client.discoverCalls(), "by_genre must hit DiscoverTV")
-	f := client.lastDiscoverFilter()
-	require.Equal(t, []int{18}, f.WithGenres, "genre param preserved")
-	require.Contains(t, f.WithoutKeywords, 210024, "blocked keyword must be folded into without_keywords")
 }
 
 func TestTick_ExceedsMaxLanguages_TruncatesAndWarns(t *testing.T) {

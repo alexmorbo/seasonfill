@@ -398,9 +398,10 @@ func BuildDiscoveryHTTP(
 // the repo, the process-local cache (seeded via Refresh at boot by the
 // caller), and the HTTP handler (POST/GET/DELETE /discovery/blocklist).
 // resolver is the shared *media.Resolver (nil-OK → poster_hash falls back
-// to the raw asset path); base is the root logger. The returned cache is
-// ALSO injected into the curated + discover handlers (SetBlocklist) by the
-// caller so their readers subtract the same sets. The
+// to the raw asset path); base is the root logger. The returned repo is used
+// by the caller to build the shared per-user userBlockFilter injected into the
+// curated + discover handlers so their readers subtract the same sets; the
+// Worker still receives the cache via SetBlocklist. The
 // /discovery/keyword-search route is owned by the BE-keyword sibling story
 // and wired separately over the same repo/cache. keywords is the runtime
 // TMDB client for /discovery/keyword-search (nil-OK → the route returns 503).
@@ -410,7 +411,7 @@ func BuildDiscoveryBlocklist(
 	resolver *media.Resolver,
 	users dataports.UserRepository,
 	base *slog.Logger,
-) (*discoveryrest.BlocklistHandler, *discoapp.BlocklistCache) {
+) (*discoveryrest.BlocklistHandler, *discoapp.BlocklistCache, *discopersistence.BlocklistRepository) {
 	log := sharedports.DomainLogger(base, "discovery")
 	repo := discopersistence.NewBlocklistRepository(db)
 	cache := discoapp.NewBlocklistCache()
@@ -420,7 +421,39 @@ func BuildDiscoveryBlocklist(
 		searcher = &keywordSearchAdapter{inner: keywords}
 	}
 	handler := discoveryrest.NewBlocklistHandler(repo, cache, searcher, resolver, users, log)
-	return handler, cache
+	return handler, cache, repo
+}
+
+// resultKeywordsAdapter implements discoveryrest.ResultKeywords: the batched
+// per-page keyword lookup for the Ф8-U-5b read-time keyword blocklist. The
+// join maps series → TMDB keyword ids (the blocklist ref_id space) through the
+// local keywords table — series_keywords.keyword_id is the LOCAL keywords.id
+// PK, so the JOIN resolves keywords.tmdb_id (mirrors collections_repository).
+type resultKeywordsAdapter struct{ db *gorm.DB }
+
+func (a *resultKeywordsAdapter) ResultKeywords(ctx context.Context, tmdbIDs []int64) (map[int64][]int64, error) {
+	if len(tmdbIDs) == 0 {
+		return nil, nil
+	}
+	const q = `
+SELECT s.tmdb_id AS tmdb_id, k.tmdb_id AS keyword_tmdb_id
+  FROM series s
+  JOIN series_keywords sk ON sk.series_id = s.id
+  JOIN keywords k         ON k.id = sk.keyword_id
+ WHERE s.tmdb_id IN ? AND k.tmdb_id IS NOT NULL`
+	type row struct {
+		TMDBID        int64 `gorm:"column:tmdb_id"`
+		KeywordTMDBID int64 `gorm:"column:keyword_tmdb_id"`
+	}
+	var rows []row
+	if err := a.db.WithContext(ctx).Raw(q, tmdbIDs).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("discover keyword lookup: %w", err)
+	}
+	out := make(map[int64][]int64, len(rows))
+	for _, r := range rows {
+		out[r.TMDBID] = append(out[r.TMDBID], r.KeywordTMDBID)
+	}
+	return out, nil
 }
 
 // KeywordSearchClient is the narrow runtime TMDB surface
