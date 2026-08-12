@@ -8,11 +8,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
+
+// newOutboxRepo seeds the seed-admin users row (so the UserID==0 seed-admin
+// default resolves via the tx-local users query + satisfies the FK on Postgres)
+// and returns the outbox repo.
+func newOutboxRepo(t *testing.T, db *gorm.DB) *OutboxRepository {
+	t.Helper()
+	seedAgentUser(t, db)
+	return NewOutboxRepository(db)
+}
 
 func TestOutboxRepository_InsertFetch_FIFO(t *testing.T) {
 	t.Parallel()
@@ -20,7 +30,7 @@ func TestOutboxRepository_InsertFetch_FIFO(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			repo := NewOutboxRepository(db)
+			repo := newOutboxRepo(t, db)
 			ctx := context.Background()
 
 			base := time.Now().UTC().Add(-time.Hour)
@@ -46,7 +56,7 @@ func TestOutboxRepository_FetchDue_NextAttemptWindow(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			repo := NewOutboxRepository(db)
+			repo := newOutboxRepo(t, db)
 			ctx := context.Background()
 			now := time.Now().UTC()
 
@@ -73,7 +83,7 @@ func TestOutboxRepository_Reschedule(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			repo := NewOutboxRepository(db)
+			repo := newOutboxRepo(t, db)
 			ctx := context.Background()
 
 			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{EventType: "grab.failed", Payload: []byte(`{}`)}))
@@ -109,7 +119,7 @@ func TestOutboxRepository_MarkSentAndDead(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			repo := NewOutboxRepository(db)
+			repo := newOutboxRepo(t, db)
 			ctx := context.Background()
 
 			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{EventType: "grab.failed", Payload: []byte(`{}`)}))
@@ -137,7 +147,7 @@ func TestOutboxRepository_NotFound(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			repo := NewOutboxRepository(db)
+			repo := newOutboxRepo(t, db)
 			ctx := context.Background()
 
 			err := repo.Reschedule(ctx, 999, time.Now().UTC())
@@ -154,7 +164,7 @@ func TestOutboxRepository_Dedup(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			repo := NewOutboxRepository(db)
+			repo := newOutboxRepo(t, db)
 			ctx := context.Background()
 
 			dk := "inbox_dead:7"
@@ -181,7 +191,7 @@ func TestOutboxRepository_Insert_Validation(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			repo := NewOutboxRepository(db)
+			repo := newOutboxRepo(t, db)
 			ctx := context.Background()
 
 			assert.Error(t, repo.Insert(ctx, ports.OutboxRow{Payload: []byte(`{}`)}))    // empty event_type
@@ -199,7 +209,7 @@ func TestOutboxRepository_TransactionalOutbox(t *testing.T) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
-			repo := NewOutboxRepository(db)
+			repo := newOutboxRepo(t, db)
 			txr := catalogpersistence.NewGormTransactor(db)
 			ctx := context.Background()
 
@@ -223,6 +233,38 @@ func TestOutboxRepository_TransactionalOutbox(t *testing.T) {
 			n, err = repo.CountPending(ctx)
 			require.NoError(t, err)
 			assert.EqualValues(t, 1, n)
+		})
+	}
+}
+
+// TestOutboxRepository_Insert_UserIDStamping proves the Ф8-U-5c targeting:
+// UserID==0 (system/broadcast) resolves to the seed admin; a concrete UserID is
+// preserved verbatim; and FetchDueBatch round-trips UserID back onto the row.
+func TestOutboxRepository_Insert_UserIDStamping(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := newOutboxRepo(t, db) // seeds admin id=1
+			seedSecondUser(t, db)        // id=2, so a concrete non-admin target FK holds
+			ctx := context.Background()
+			base := time.Now().UTC().Add(-time.Hour)
+
+			// UserID==0 → seed-admin default (id=1).
+			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{
+				EventType: "grab.failed", Payload: []byte(`{}`), CreatedAt: base,
+			}))
+			// UserID==2 → preserved verbatim.
+			require.NoError(t, repo.Insert(ctx, ports.OutboxRow{
+				UserID: secondUserID, EventType: "season.premiere", Payload: []byte(`{}`), CreatedAt: base.Add(time.Minute),
+			}))
+
+			rows, err := repo.FetchDueBatch(ctx, time.Now().UTC(), 10)
+			require.NoError(t, err)
+			require.Len(t, rows, 2)
+			assert.EqualValues(t, agentOwnerID, rows[0].UserID, "UserID==0 must stamp seed admin")
+			assert.EqualValues(t, secondUserID, rows[1].UserID, "concrete UserID must be preserved")
 		})
 	}
 }

@@ -254,8 +254,8 @@ func TestSchemaCoverage_AdminSkipFlag(t *testing.T) {
 	// - 3 grab_audit = 30. addAppConfig + addGrabAudit depend on
 	// sonarr_instance (FK target) so ATLAS_SCHEMA_SKIP_ADMIN implies
 	// they must also be skipped.
-	if len(s.Tables) != 45 {
-		t.Fatalf("Schema(postgres) with skip admin+auth+app_config+grab+watchdog+grab_audit tables = %d, want 45 (73 - 4 auth incl. requests - 5 admin - 3 app_config - 3 grab - 2 watchdog - 3 grab_audit - 4 qbit_runtime - 3 followed_series/notification_agents/discovery_blocklist Ф8-U-5)", len(s.Tables))
+	if len(s.Tables) != 43 {
+		t.Fatalf("Schema(postgres) with skip admin+auth+app_config+grab+watchdog+grab_audit tables = %d, want 43 (73 - 4 auth incl. requests - 5 admin - 3 app_config - 3 grab - 2 watchdog - 3 grab_audit - 4 qbit_runtime - 5 followed_series/notification_agents/discovery_blocklist/notification_outbox/notified_events Ф8-U-5+U-5c)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -273,8 +273,8 @@ func TestSchemaCoverage_AdminSkipFlag(t *testing.T) {
 func TestSchemaCoverage_AuthSkipFlag(t *testing.T) {
 	t.Setenv("ATLAS_SCHEMA_SKIP_AUTH", "1")
 	s := Schema(DialectPostgres)
-	if len(s.Tables) != 66 {
-		t.Fatalf("Schema(postgres) with skip auth tables = %d, want 66 (73 - 4 auth incl. requests - 3 followed_series/notification_agents/discovery_blocklist Ф8-U-5)", len(s.Tables))
+	if len(s.Tables) != 64 {
+		t.Fatalf("Schema(postgres) with skip auth tables = %d, want 64 (73 - 4 auth incl. requests - 5 followed_series/notification_agents/discovery_blocklist/notification_outbox/notified_events Ф8-U-5+U-5c)", len(s.Tables))
 	}
 	for _, tbl := range s.Tables {
 		switch tbl.Name {
@@ -646,11 +646,11 @@ func TestSchema_NotificationTables_Shape(t *testing.T) {
 			s := Schema(d)
 
 			outbox := mustTable(s, "notification_outbox")
-			if got, want := len(outbox.Columns), 8; got != want {
+			if got, want := len(outbox.Columns), 9; got != want {
 				t.Fatalf("notification_outbox columns = %d, want %d", got, want)
 			}
 			wantOutbox := []string{
-				"id", "event_type", "payload", "status",
+				"id", "user_id", "event_type", "payload", "status",
 				"attempts", "next_attempt_at", "dedup_key", "created_at",
 			}
 			gotOutbox := make(map[string]bool, len(outbox.Columns))
@@ -666,12 +666,13 @@ func TestSchema_NotificationTables_Shape(t *testing.T) {
 				outbox.PrimaryKey.Parts[0].C.Name != "id" {
 				t.Errorf("notification_outbox PK = %+v, want single col id", outbox.PrimaryKey)
 			}
-			if got, want := len(outbox.Indexes), 2; got != want {
+			if got, want := len(outbox.Indexes), 3; got != want {
 				t.Errorf("notification_outbox indexes = %d, want %d", got, want)
 			}
 			wantIdx := map[string]bool{
-				"notification_outbox_pending": false,
-				"notification_outbox_dedup":   false,
+				"notification_outbox_pending":      false,
+				"notification_outbox_dedup":        false,
+				"notification_outbox_user_pending": false,
 			}
 			for _, idx := range outbox.Indexes {
 				if _, ok := wantIdx[idx.Name]; ok {
@@ -683,8 +684,47 @@ func TestSchema_NotificationTables_Shape(t *testing.T) {
 					t.Errorf("missing index %q on notification_outbox", name)
 				}
 			}
-			if len(outbox.ForeignKeys) != 0 {
-				t.Errorf("notification_outbox has %d FKs, want 0", len(outbox.ForeignKeys))
+			// Ф8-U-5c: user_id FK → users CASCADE (target follower).
+			if len(outbox.ForeignKeys) != 1 {
+				t.Errorf("notification_outbox has %d FKs, want 1", len(outbox.ForeignKeys))
+			} else if outbox.ForeignKeys[0].Symbol != "notification_outbox_user_id_fkey" {
+				t.Errorf("notification_outbox FK = %q, want notification_outbox_user_id_fkey", outbox.ForeignKeys[0].Symbol)
+			}
+
+			// Ф8-U-5c: notified_events per-user dedup — 4 cols, PK
+			// (user_id, event_type, entity_key), one user_id FK → users.
+			ne := mustTable(s, "notified_events")
+			if got, want := len(ne.Columns), 4; got != want {
+				t.Fatalf("notified_events columns = %d, want %d", got, want)
+			}
+			wantNE := []string{"user_id", "event_type", "entity_key", "first_seen_at"}
+			gotNE := make(map[string]bool, len(ne.Columns))
+			for _, c := range ne.Columns {
+				gotNE[c.Name] = true
+			}
+			for _, want := range wantNE {
+				if !gotNE[want] {
+					t.Errorf("missing column %q on notified_events", want)
+				}
+			}
+			if ne.PrimaryKey == nil || len(ne.PrimaryKey.Parts) != 3 {
+				t.Fatalf("notified_events PK = %+v, want 3-col composite", ne.PrimaryKey)
+			}
+			wantPK := map[string]bool{"user_id": false, "event_type": false, "entity_key": false}
+			for _, p := range ne.PrimaryKey.Parts {
+				if _, ok := wantPK[p.C.Name]; ok {
+					wantPK[p.C.Name] = true
+				}
+			}
+			for name, seen := range wantPK {
+				if !seen {
+					t.Errorf("notified_events PK missing part %q", name)
+				}
+			}
+			if len(ne.ForeignKeys) != 1 {
+				t.Errorf("notified_events has %d FKs, want 1", len(ne.ForeignKeys))
+			} else if ne.ForeignKeys[0].Symbol != "notified_events_user_id_fkey" {
+				t.Errorf("notified_events FK = %q, want notified_events_user_id_fkey", ne.ForeignKeys[0].Symbol)
 			}
 
 			agents := mustTable(s, "notification_agents")

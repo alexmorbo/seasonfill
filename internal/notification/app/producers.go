@@ -50,20 +50,21 @@ func startOfUTCDay(t time.Time) time.Time {
 // notified_events marker (key "<series_id>:<season>") makes it fire exactly
 // once ever, across the overlapping daily windows.
 type PremiereProducer struct {
-	cal    CalendarPort
-	outbox ports.OutboxEmitter
-	marks  ports.NotifiedEventsRepository
-	tx     Transactor
-	clock  func() time.Time
-	logger *slog.Logger
+	cal       CalendarPort
+	outbox    ports.OutboxEmitter
+	marks     ports.NotifiedEventsRepository
+	followers ports.SeriesFollowerLister
+	tx        Transactor
+	clock     func() time.Time
+	logger    *slog.Logger
 }
 
-func NewPremiereProducer(cal CalendarPort, outbox ports.OutboxEmitter, marks ports.NotifiedEventsRepository, tx Transactor, logger *slog.Logger) *PremiereProducer {
+func NewPremiereProducer(cal CalendarPort, outbox ports.OutboxEmitter, marks ports.NotifiedEventsRepository, followers ports.SeriesFollowerLister, tx Transactor, logger *slog.Logger) *PremiereProducer {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "notification")
 	}
 	return &PremiereProducer{
-		cal: cal, outbox: outbox, marks: marks, tx: tx,
+		cal: cal, outbox: outbox, marks: marks, followers: followers, tx: tx,
 		clock:  func() time.Time { return time.Now().UTC() },
 		logger: logger,
 	}
@@ -104,37 +105,47 @@ func (p *PremiereProducer) Run(ctx context.Context) {
 }
 
 func (p *PremiereProducer) emit(ctx context.Context, key string, e CalendarEvent) (bool, error) {
+	followers, err := p.followers.FollowersOf(ctx, e.SeriesID)
+	if err != nil {
+		return false, fmt.Errorf("premiere: list followers of %d: %w", e.SeriesID, err)
+	}
+	if len(followers) == 0 {
+		return false, nil // nobody follows this series → nothing to enqueue
+	}
 	payload, _ := json.Marshal(map[string]any{
 		"series_id":    e.SeriesID,
 		"series_title": e.Title,
 		"season":       e.Season,
 		"air_date":     e.AirDate.UTC().Format("2006-01-02"),
 	})
-	fired := false
+	firedAny := false
 	work := func(txCtx context.Context) error {
-		created, err := p.marks.MarkIfNew(txCtx, "season.premiere", key, p.clock())
-		if err != nil {
-			return err
+		for _, uid := range followers {
+			created, err := p.marks.MarkIfNew(txCtx, uid, "season.premiere", key, p.clock())
+			if err != nil {
+				return err
+			}
+			if !created {
+				continue // this follower already notified on a prior scan
+			}
+			if err := p.outbox.Insert(txCtx, ports.OutboxRow{
+				UserID: uid, EventType: "season.premiere", Payload: payload,
+			}); err != nil {
+				return err
+			}
+			firedAny = true
 		}
-		if !created {
-			return nil // already announced on a prior scan
-		}
-		if err := p.outbox.Insert(txCtx, ports.OutboxRow{EventType: "season.premiere", Payload: payload}); err != nil {
-			return err
-		}
-		fired = true
 		return nil
 	}
-	var err error
 	if p.tx != nil {
 		err = p.tx.Transaction(ctx, work)
 	} else {
 		err = work(ctx)
 	}
 	if err != nil {
-		fired = false
+		return false, err
 	}
-	return fired, err
+	return firedAny, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -156,17 +167,18 @@ type DigestProducer struct {
 	cal    CalendarPort
 	outbox ports.OutboxEmitter
 	marks  ports.NotifiedEventsRepository
+	users  ports.UserRepository
 	tx     Transactor
 	clock  func() time.Time
 	logger *slog.Logger
 }
 
-func NewDigestProducer(cal CalendarPort, outbox ports.OutboxEmitter, marks ports.NotifiedEventsRepository, tx Transactor, logger *slog.Logger) *DigestProducer {
+func NewDigestProducer(cal CalendarPort, outbox ports.OutboxEmitter, marks ports.NotifiedEventsRepository, users ports.UserRepository, tx Transactor, logger *slog.Logger) *DigestProducer {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "notification")
 	}
 	return &DigestProducer{
-		cal: cal, outbox: outbox, marks: marks, tx: tx,
+		cal: cal, outbox: outbox, marks: marks, users: users, tx: tx,
 		clock:  func() time.Time { return time.Now().UTC() },
 		logger: logger,
 	}
@@ -215,8 +227,14 @@ func (d *DigestProducer) Run(ctx context.Context) {
 	year, week := now.ISOWeek()
 	key := fmt.Sprintf("%04d-W%02d", year, week)
 
+	adminID, err := d.users.FirstAdminID(ctx)
+	if err != nil {
+		d.logger.WarnContext(ctx, "notify.digest.resolve_admin_failed", slog.String("error", err.Error()))
+		return
+	}
+
 	work := func(txCtx context.Context) error {
-		created, err := d.marks.MarkIfNew(txCtx, "digest.weekly", key, d.clock())
+		created, err := d.marks.MarkIfNew(txCtx, adminID, "digest.weekly", key, d.clock())
 		if err != nil {
 			return err
 		}
@@ -224,7 +242,7 @@ func (d *DigestProducer) Run(ctx context.Context) {
 			d.logger.InfoContext(txCtx, "notify.digest.already_sent", slog.String("iso_week", key))
 			return nil
 		}
-		return d.outbox.Insert(txCtx, ports.OutboxRow{EventType: "digest.weekly", Payload: payload})
+		return d.outbox.Insert(txCtx, ports.OutboxRow{UserID: adminID, EventType: "digest.weekly", Payload: payload})
 	}
 	var werr error
 	if d.tx != nil {

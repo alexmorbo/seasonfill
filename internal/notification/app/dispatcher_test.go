@@ -49,7 +49,7 @@ func TestDispatcher_HappyPath_MarkSent(t *testing.T) {
 		MarkSentFunc: func(context.Context, int64) error { return nil },
 	}
 	agents := &ports.NotificationAgentRepositoryMock{
-		ListEnabledForEventFunc: func(context.Context, string) ([]ports.NotificationAgent, error) {
+		ListEnabledForEventAndUserFunc: func(context.Context, string, int64) ([]ports.NotificationAgent, error) {
 			return []ports.NotificationAgent{agent(1, "a")}, nil
 		},
 	}
@@ -72,7 +72,7 @@ func TestDispatcher_FanOut_TwoAgents(t *testing.T) {
 		MarkSentFunc: func(context.Context, int64) error { return nil },
 	}
 	agents := &ports.NotificationAgentRepositoryMock{
-		ListEnabledForEventFunc: func(context.Context, string) ([]ports.NotificationAgent, error) {
+		ListEnabledForEventAndUserFunc: func(context.Context, string, int64) ([]ports.NotificationAgent, error) {
 			return []ports.NotificationAgent{agent(1, "a"), agent(2, "b")}, nil
 		},
 	}
@@ -94,7 +94,7 @@ func TestDispatcher_Retry_Reschedule(t *testing.T) {
 		RescheduleFunc: func(context.Context, int64, time.Time) error { return nil },
 	}
 	agents := &ports.NotificationAgentRepositoryMock{
-		ListEnabledForEventFunc: func(context.Context, string) ([]ports.NotificationAgent, error) {
+		ListEnabledForEventAndUserFunc: func(context.Context, string, int64) ([]ports.NotificationAgent, error) {
 			return []ports.NotificationAgent{agent(1, "a")}, nil
 		},
 	}
@@ -118,7 +118,7 @@ func TestDispatcher_DLQ_MarkDead(t *testing.T) {
 		MarkDeadFunc: func(context.Context, int64) error { return nil },
 	}
 	agents := &ports.NotificationAgentRepositoryMock{
-		ListEnabledForEventFunc: func(context.Context, string) ([]ports.NotificationAgent, error) {
+		ListEnabledForEventAndUserFunc: func(context.Context, string, int64) ([]ports.NotificationAgent, error) {
 			return []ports.NotificationAgent{agent(1, "a")}, nil
 		},
 	}
@@ -139,7 +139,7 @@ func TestDispatcher_NoSubscribers_Drop(t *testing.T) {
 		MarkSentFunc: func(context.Context, int64) error { return nil },
 	}
 	agents := &ports.NotificationAgentRepositoryMock{
-		ListEnabledForEventFunc: func(context.Context, string) ([]ports.NotificationAgent, error) { return nil, nil },
+		ListEnabledForEventAndUserFunc: func(context.Context, string, int64) ([]ports.NotificationAgent, error) { return nil, nil },
 	}
 	n := &stubNotifier{}
 	d := newTestDispatcher(outbox, agents, n, clock.NewFake(time.Now()))
@@ -158,7 +158,7 @@ func TestDispatcher_PartialFailure_Reschedule(t *testing.T) {
 		RescheduleFunc: func(context.Context, int64, time.Time) error { return nil },
 	}
 	agents := &ports.NotificationAgentRepositoryMock{
-		ListEnabledForEventFunc: func(context.Context, string) ([]ports.NotificationAgent, error) {
+		ListEnabledForEventAndUserFunc: func(context.Context, string, int64) ([]ports.NotificationAgent, error) {
 			return []ports.NotificationAgent{agent(1, "a"), agent(2, "b")}, nil
 		},
 	}
@@ -187,7 +187,9 @@ func TestDispatcher_ListAgentsError_Reschedule(t *testing.T) {
 		RescheduleFunc: func(context.Context, int64, time.Time) error { return nil },
 	}
 	agents := &ports.NotificationAgentRepositoryMock{
-		ListEnabledForEventFunc: func(context.Context, string) ([]ports.NotificationAgent, error) { return nil, errors.New("db down") },
+		ListEnabledForEventAndUserFunc: func(context.Context, string, int64) ([]ports.NotificationAgent, error) {
+			return nil, errors.New("db down")
+		},
 	}
 	n := &stubNotifier{}
 	d := newTestDispatcher(outbox, agents, n, clock.NewFake(time.Now()))
@@ -195,6 +197,36 @@ func TestDispatcher_ListAgentsError_Reschedule(t *testing.T) {
 
 	assert.Equal(t, 0, n.calls)
 	assert.Len(t, outbox.RescheduleCalls(), 1)
+}
+
+// TestDispatcher_PerUser_NoCrossUserLeak proves the dispatcher selects agents
+// by the outbox row's target user_id (Ф8-U-5c): a row for user 7 must query
+// user 7 and deliver only to user 7's agents, never another user's.
+func TestDispatcher_PerUser_NoCrossUserLeak(t *testing.T) {
+	t.Parallel()
+	row := ports.OutboxRow{ID: 1, UserID: 7, EventType: "season.premiere", Payload: []byte(`{}`)}
+	outbox := &ports.OutboxRepositoryMock{
+		FetchDueBatchFunc: func(context.Context, time.Time, int) ([]ports.OutboxRow, error) {
+			return []ports.OutboxRow{row}, nil
+		},
+		MarkSentFunc: func(context.Context, int64) error { return nil },
+	}
+	agents := &ports.NotificationAgentRepositoryMock{
+		ListEnabledForEventAndUserFunc: func(_ context.Context, _ string, userID int64) ([]ports.NotificationAgent, error) {
+			if userID == 7 {
+				return []ports.NotificationAgent{agent(70, "u7")}, nil
+			}
+			return []ports.NotificationAgent{agent(90, "other")}, nil
+		},
+	}
+	n := &stubNotifier{}
+	d := newTestDispatcher(outbox, agents, n, clock.NewFake(time.Now()))
+	d.dispatchOnce(context.Background())
+
+	require.Len(t, agents.ListEnabledForEventAndUserCalls(), 1)
+	assert.EqualValues(t, 7, agents.ListEnabledForEventAndUserCalls()[0].UserID)
+	assert.Equal(t, 1, n.calls) // only user 7's single agent
+	assert.Len(t, outbox.MarkSentCalls(), 1)
 }
 
 type funcNotifier struct{ fn func() error }

@@ -49,7 +49,21 @@ func (r *OutboxRepository) Insert(ctx context.Context, row ports.OutboxRow) erro
 	if status == "" {
 		status = ports.NotificationOutboxStatusPending
 	}
+	uid := row.UserID
+	if uid == 0 { // system/broadcast emit → seed admin (D-1 option A)
+		// Resolved on the tx-scoped handle (db) so an Insert inside a
+		// caller-opened Transactor.Transaction stays on the SAME connection.
+		// The shared UserRepository deliberately never joins this tx (its own
+		// private txKey) — using it here would need a second connection and
+		// deadlock SQLite's single-conn pool. Same seed-admin idiom as mig-059.
+		var admin database.UserModel
+		if err := db.Where("role = ?", "admin").Order("id ASC").First(&admin).Error; err != nil {
+			return fmt.Errorf("insert notification outbox (resolve seed admin): %w", err)
+		}
+		uid = int64(admin.ID)
+	}
 	m := database.NotificationOutboxModel{
+		UserID:        uid,
 		EventType:     row.EventType,
 		Payload:       datatypes.JSON(row.Payload),
 		Status:        status,
@@ -137,7 +151,7 @@ func (r *OutboxRepository) CountPending(ctx context.Context) (int64, error) {
 
 func toOutboxRow(m database.NotificationOutboxModel) ports.OutboxRow {
 	return ports.OutboxRow{
-		ID: m.ID, EventType: m.EventType, Payload: []byte(m.Payload),
+		ID: m.ID, UserID: m.UserID, EventType: m.EventType, Payload: []byte(m.Payload),
 		Status: m.Status, Attempts: m.Attempts, NextAttemptAt: m.NextAttemptAt,
 		DedupKey: m.DedupKey, CreatedAt: m.CreatedAt,
 	}

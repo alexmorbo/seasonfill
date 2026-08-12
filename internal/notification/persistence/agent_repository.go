@@ -96,14 +96,16 @@ func (r *AgentRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ListEnabledForEvent loads all enabled agents and filters in Go by event_type
-// membership (portable across pg jsonb / sqlite text-json; table is tiny so a
-// full scan per due-batch is cheap and avoids dialect-specific JSON operators).
-func (r *AgentRepository) ListEnabledForEvent(ctx context.Context, eventType string) ([]ports.NotificationAgent, error) {
+// ListEnabledForEventAndUser loads userID's enabled agents and filters in Go by
+// event_type membership (portable across pg jsonb / sqlite text-json; table is
+// tiny so a full scan per due-batch is cheap and avoids dialect-specific JSON
+// operators). Ф8-U-5c per-user dispatch — the WHERE user_id predicate prevents
+// cross-user leak.
+func (r *AgentRepository) ListEnabledForEventAndUser(ctx context.Context, eventType string, userID int64) ([]ports.NotificationAgent, error) {
 	var ms []database.NotificationAgentModel
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Where("enabled = ?", true).Order("id ASC").Find(&ms).Error; err != nil {
-		return nil, fmt.Errorf("list enabled notification agents: %w", err)
+		Where("enabled = ? AND user_id = ?", true, userID).Order("id ASC").Find(&ms).Error; err != nil {
+		return nil, fmt.Errorf("list enabled notification agents for user: %w", err)
 	}
 	out := make([]ports.NotificationAgent, 0, len(ms))
 	for _, m := range ms {

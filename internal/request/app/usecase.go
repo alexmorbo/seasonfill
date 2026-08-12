@@ -174,7 +174,7 @@ func (u *UseCase) transition(ctx context.Context, id int64, status string, appro
 		}
 		if u.outbox != nil {
 			payload := requestEventPayload(r, status)
-			if err := u.outbox.Insert(txCtx, ports.OutboxRow{EventType: eventType, Payload: payload}); err != nil {
+			if err := u.outbox.Insert(txCtx, ports.OutboxRow{UserID: int64(r.UserID), EventType: eventType, Payload: payload}); err != nil {
 				return fmt.Errorf("emit %s: %w", eventType, err)
 			}
 		}

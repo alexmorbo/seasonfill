@@ -11,6 +11,7 @@ import "time"
 // (event_type, entity_key); no FK — the ledger outlives any series row and
 // is swept lazily by re-derivation, not by cascade.
 type NotifiedEventModel struct {
+	UserID      int64     `gorm:"primaryKey;column:user_id"` // Ф8-U-5c per-user dedup
 	EventType   string    `gorm:"primaryKey;column:event_type;type:text"`
 	EntityKey   string    `gorm:"primaryKey;column:entity_key;type:text"`
 	FirstSeenAt time.Time `gorm:"column:first_seen_at;not null"`

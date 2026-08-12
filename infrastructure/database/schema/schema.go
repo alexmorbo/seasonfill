@@ -366,21 +366,22 @@ func Schema(d Dialect) *atlasschema.Schema {
 	}
 
 	// ADR-0016 Ф4 N1 — notifications outbox + agents (migration 000048).
-	// notification_outbox has no FK and stays UNGUARDED. Ф8-U-5 (000058):
-	// notification_agents gains user_id FK → users CASCADE (owner) — its
-	// caller is skipped alongside auth (mirrors qbit_runtime's SKIP_ADMIN
-	// guard).
-	addNotificationOutbox(s, d)
+	// Ф8-U-5c (000059): notification_outbox gains user_id FK → users CASCADE
+	// (target follower). Ф8-U-5 (000058): notification_agents gains user_id FK
+	// → users CASCADE (owner). Both now hard-depend on users → skipped
+	// alongside auth (mirrors qbit_runtime's SKIP_ADMIN guard).
 	if os.Getenv("ATLAS_SCHEMA_SKIP_AUTH") == "" {
+		addNotificationOutbox(s, d)
 		addNotificationAgents(s, d)
 	}
 
 	// ADR-0016 Ф4 N3 — notified_events cross-time dedup ledger for the
 	// calendar-event producers (season.premiere / air_date.announced /
-	// digest.weekly). Standalone, composite PK (event_type, entity_key),
-	// no FK — appended last like webhook_inbox / torrent_action_audit /
-	// notification_* (migration 000049).
-	addNotifiedEvents(s, d)
+	// digest.weekly). Ф8-U-5c (000059): gains user_id FK → users CASCADE,
+	// per-user PK (user_id, event_type, entity_key) → skipped alongside auth.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_AUTH") == "" {
+		addNotifiedEvents(s, d)
+	}
 
 	// ADR-0017 Ф5 D-1 — discovery_rows customisable rail config. Standalone
 	// single-table (migration 000050), no FK (global, pre-RBAC — user_id
@@ -403,25 +404,37 @@ func Schema(d Dialect) *atlasschema.Schema {
 // addNotifiedEvents appends notified_events to s. Standalone single-table
 // migration (000049, ADR-0016 N3) — no FK, no dependency on any prior table.
 func addNotifiedEvents(s *atlasschema.Schema, d Dialect) {
-	s.AddTables(buildNotifiedEventsTable(d))
+	users := mustTable(s, "users")
+	s.AddTables(buildNotifiedEventsTable(d, users))
 }
 
-// buildNotifiedEventsTable returns notified_events — 3 cols, composite PK
-// (event_type, entity_key), first_seen_at NOT NULL DEFAULT now(). No DB CHECK
-// on event_type (app-owned enum, mirrors notification_outbox.status). No FK on
-// entity_key: the ledger outlives series/instance rows.
-func buildNotifiedEventsTable(d Dialect) *atlasschema.Table {
+// buildNotifiedEventsTable returns notified_events — 4 cols, per-user composite
+// PK (user_id, event_type, entity_key), first_seen_at NOT NULL DEFAULT now().
+// No DB CHECK on event_type (app-owned enum, mirrors notification_outbox.status).
+// Ф8-U-5c (000059): user_id FK → users CASCADE (per-user dedup); no FK on
+// entity_key (the ledger outlives series/instance rows).
+func buildNotifiedEventsTable(d Dialect, usersTable *atlasschema.Table) *atlasschema.Table {
+	userID := fkColumn(d, "user_id", false /* not null */)
 	eventType := atlasschema.NewStringColumn("event_type", "text").SetNull(false)
 	entityKey := atlasschema.NewStringColumn("entity_key", "text").SetNull(false)
 	firstSeenAt := timestampColumn(d, "first_seen_at", true /* withDefault */, true /* notNull */)
 
 	return atlasschema.NewTable("notified_events").
 		AddColumns(
+			userID,
 			eventType,
 			entityKey,
 			firstSeenAt,
 		).
-		SetPrimaryKey(atlasschema.NewPrimaryKey(eventType, entityKey))
+		SetPrimaryKey(atlasschema.NewPrimaryKey(userID, eventType, entityKey)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("notified_events_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(parentRefCol(usersTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
 }
 
 // addDiscoveryRows appends discovery_rows to s. Standalone single-table
@@ -4452,16 +4465,20 @@ func webhookPayloadColumn(d Dialect) *atlasschema.Column {
 // any prior table (rows outlive their source series/instance). Mirrors
 // webhook_inbox: durable outbox drained by the notification dispatcher.
 func addNotificationOutbox(s *atlasschema.Schema, d Dialect) {
-	s.AddTables(buildNotificationOutboxTable(d))
+	users := mustTable(s, "users")
+	s.AddTables(buildNotificationOutboxTable(d, users))
 }
 
-// buildNotificationOutboxTable returns notification_outbox — 8 cols,
+// buildNotificationOutboxTable returns notification_outbox — 9 cols,
 // surrogate PK id. status pending|sent|dead is app-owned (no DB CHECK,
-// mirrors webhook_inbox). Two indexes: a partial index on next_attempt_at
-// WHERE status='pending' (the dispatcher's due-batch scan) and a partial
-// index on dedup_key WHERE status='pending' (storm-collapse lookup).
-func buildNotificationOutboxTable(d Dialect) *atlasschema.Table {
+// mirrors webhook_inbox). Ф8-U-5c (000059): user_id FK → users CASCADE
+// (target follower) + a (user_id, status, next_attempt_at) scan index. Two
+// partial indexes remain: next_attempt_at WHERE status='pending' (the
+// dispatcher's due-batch scan) and dedup_key WHERE status='pending'
+// (storm-collapse lookup).
+func buildNotificationOutboxTable(d Dialect, usersTable *atlasschema.Table) *atlasschema.Table {
 	id := pkColumn(d)
+	userID := fkColumn(d, "user_id", false /* not null */)
 	eventType := atlasschema.NewStringColumn("event_type", "text").SetNull(false)
 	payload := notificationPayloadColumn(d) // jsonb(pg)/text(sqlite) NOT NULL
 	status := atlasschema.NewStringColumn("status", "text").
@@ -4475,8 +4492,16 @@ func buildNotificationOutboxTable(d Dialect) *atlasschema.Table {
 	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
 
 	return atlasschema.NewTable("notification_outbox").
-		AddColumns(id, eventType, payload, status, attempts, nextAttemptAt, dedupKey, createdAt).
+		AddColumns(id, userID, eventType, payload, status, attempts, nextAttemptAt, dedupKey, createdAt).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("notification_outbox_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(parentRefCol(usersTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		).
 		AddIndexes(
 			partialIndex(d, "notification_outbox_pending",
 				[]*atlasschema.Column{nextAttemptAt},
@@ -4484,6 +4509,8 @@ func buildNotificationOutboxTable(d Dialect) *atlasschema.Table {
 			partialIndex(d, "notification_outbox_dedup",
 				[]*atlasschema.Column{dedupKey},
 				"status = 'pending'"),
+			atlasschema.NewIndex("notification_outbox_user_pending").
+				AddColumns(userID, status, nextAttemptAt),
 		)
 }
 

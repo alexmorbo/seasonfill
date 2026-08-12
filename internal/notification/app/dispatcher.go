@@ -109,9 +109,10 @@ func (d *Dispatcher) dispatchOnce(ctx context.Context) {
 
 func (d *Dispatcher) dispatchRow(ctx context.Context, row ports.OutboxRow) {
 	log := d.logger.With(slog.Int64("outbox_id", row.ID),
-		slog.String("event_type", row.EventType), slog.Int("attempt", row.Attempts+1))
+		slog.String("event_type", row.EventType), slog.Int64("user_id", row.UserID),
+		slog.Int("attempt", row.Attempts+1))
 
-	subs, err := d.agents.ListEnabledForEvent(ctx, row.EventType)
+	subs, err := d.agents.ListEnabledForEventAndUser(ctx, row.EventType, row.UserID)
 	if err != nil {
 		d.reschedule(ctx, row, log, "list agents: "+err.Error())
 		return

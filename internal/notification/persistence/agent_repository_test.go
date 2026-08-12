@@ -20,6 +20,10 @@ import (
 // tests (Ф8-U-5). seedAgentUser inserts the matching users row so the FK holds.
 const agentOwnerID int64 = 1
 
+// secondUserID is a non-admin user used to prove per-user isolation in the
+// notification repos (Ф8-U-5c).
+const secondUserID int64 = 2
+
 func seedAgentUser(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	now := time.Now().UTC()
@@ -27,6 +31,19 @@ func seedAgentUser(t *testing.T, db *gorm.DB) {
 		ID:         uint(agentOwnerID),
 		Username:   "admin",
 		Role:       admin.RoleAdmin,
+		AvatarMode: admin.AvatarModeAuto,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error)
+}
+
+func seedSecondUser(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&database.UserModel{
+		ID:         uint(secondUserID),
+		Username:   "bob",
+		Role:       admin.RoleUser,
 		AvatarMode: admin.AvatarModeAuto,
 		CreatedAt:  now,
 		UpdatedAt:  now,
@@ -108,7 +125,7 @@ func TestAgentRepository_Update_KeepOrReplaceConfig(t *testing.T) {
 	}
 }
 
-func TestAgentRepository_ListEnabledForEvent(t *testing.T) {
+func TestAgentRepository_ListEnabledForEventAndUser(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
@@ -116,22 +133,32 @@ func TestAgentRepository_ListEnabledForEvent(t *testing.T) {
 			db := backend.NewDB(t)
 			repo := NewAgentRepository(db)
 			seedAgentUser(t, db)
+			seedSecondUser(t, db)
 			ctx := context.Background()
 
-			// enabled + subscribed
+			// user 1, enabled + subscribed
 			_, err := repo.Create(ctx, agentOwnerID, ports.NotificationAgent{Name: "yes", Enabled: true, ConfigEncrypted: []byte{1}, EventTypes: []string{"grab.failed", "import.failed"}})
 			require.NoError(t, err)
-			// disabled + subscribed
+			// user 1, disabled + subscribed
 			_, err = repo.Create(ctx, agentOwnerID, ports.NotificationAgent{Name: "disabled", Enabled: false, ConfigEncrypted: []byte{2}, EventTypes: []string{"grab.failed"}})
 			require.NoError(t, err)
-			// enabled + not subscribed
+			// user 1, enabled + not subscribed
 			_, err = repo.Create(ctx, agentOwnerID, ports.NotificationAgent{Name: "other", Enabled: true, ConfigEncrypted: []byte{3}, EventTypes: []string{"grab.ok"}})
 			require.NoError(t, err)
+			// user 2, enabled + subscribed → must NOT leak into user 1's result.
+			_, err = repo.Create(ctx, secondUserID, ports.NotificationAgent{Name: "u2", Enabled: true, ConfigEncrypted: []byte{4}, EventTypes: []string{"grab.failed"}})
+			require.NoError(t, err)
 
-			got, err := repo.ListEnabledForEvent(ctx, "grab.failed")
+			got, err := repo.ListEnabledForEventAndUser(ctx, "grab.failed", agentOwnerID)
 			require.NoError(t, err)
 			require.Len(t, got, 1)
 			assert.Equal(t, "yes", got[0].Name)
+
+			// user 2 sees only its own enabled+subscribed agent.
+			got2, err := repo.ListEnabledForEventAndUser(ctx, "grab.failed", secondUserID)
+			require.NoError(t, err)
+			require.Len(t, got2, 1)
+			assert.Equal(t, "u2", got2[0].Name)
 		})
 	}
 }

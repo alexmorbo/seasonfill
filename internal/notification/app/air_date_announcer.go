@@ -18,19 +18,20 @@ import (
 // collapses a Changes-storm; a shift to a genuinely new date mints a new marker
 // and re-fires.
 type AirDateAnnouncer struct {
-	outbox ports.OutboxEmitter
-	marks  ports.NotifiedEventsRepository
-	tx     Transactor
-	clock  func() time.Time
-	logger *slog.Logger
+	outbox    ports.OutboxEmitter
+	marks     ports.NotifiedEventsRepository
+	followers ports.SeriesFollowerLister
+	tx        Transactor
+	clock     func() time.Time
+	logger    *slog.Logger
 }
 
-func NewAirDateAnnouncer(outbox ports.OutboxEmitter, marks ports.NotifiedEventsRepository, tx Transactor, logger *slog.Logger) *AirDateAnnouncer {
+func NewAirDateAnnouncer(outbox ports.OutboxEmitter, marks ports.NotifiedEventsRepository, followers ports.SeriesFollowerLister, tx Transactor, logger *slog.Logger) *AirDateAnnouncer {
 	if logger == nil {
 		logger = sharedports.DomainLogger(slog.Default(), "notification")
 	}
 	return &AirDateAnnouncer{
-		outbox: outbox, marks: marks, tx: tx,
+		outbox: outbox, marks: marks, followers: followers, tx: tx,
 		clock:  func() time.Time { return time.Now().UTC() },
 		logger: logger,
 	}
@@ -55,23 +56,40 @@ func (a *AirDateAnnouncer) MaybeAnnounce(ctx context.Context, seriesID int64, ti
 	if oldNext != nil && oldNext.UTC().Truncate(24*time.Hour).Equal(nn.Truncate(24*time.Hour)) {
 		return // unchanged date — no delta
 	}
+	followers, err := a.followers.FollowersOf(ctx, seriesID)
+	if err != nil {
+		a.logger.WarnContext(ctx, "notify.air_date.list_followers_failed",
+			slog.Int64("series_id", seriesID), slog.String("error", err.Error()))
+		return
+	}
+	if len(followers) == 0 {
+		return // nobody follows this series
+	}
 	key := fmt.Sprintf("%d:%s", seriesID, nn.Format("2006-01-02"))
 	payload, _ := json.Marshal(map[string]any{
 		"series_id":    seriesID,
 		"series_title": title,
 		"air_date":     nn.Format("2006-01-02"),
 	})
+	fired := 0
 	work := func(txCtx context.Context) error {
-		created, err := a.marks.MarkIfNew(txCtx, "air_date.announced", key, a.clock())
-		if err != nil {
-			return err
+		for _, uid := range followers {
+			created, err := a.marks.MarkIfNew(txCtx, uid, "air_date.announced", key, a.clock())
+			if err != nil {
+				return err
+			}
+			if !created {
+				continue // this follower already notified for this date
+			}
+			if err := a.outbox.Insert(txCtx, ports.OutboxRow{
+				UserID: uid, EventType: "air_date.announced", Payload: payload,
+			}); err != nil {
+				return err
+			}
+			fired++
 		}
-		if !created {
-			return nil // already announced this date
-		}
-		return a.outbox.Insert(txCtx, ports.OutboxRow{EventType: "air_date.announced", Payload: payload})
+		return nil
 	}
-	var err error
 	if a.tx != nil {
 		err = a.tx.Transaction(ctx, work)
 	} else {
@@ -83,5 +101,6 @@ func (a *AirDateAnnouncer) MaybeAnnounce(ctx context.Context, seriesID int64, ti
 		return
 	}
 	a.logger.InfoContext(ctx, "notify.air_date.announced",
-		slog.Int64("series_id", seriesID), slog.String("air_date", nn.Format("2006-01-02")))
+		slog.Int64("series_id", seriesID), slog.String("air_date", nn.Format("2006-01-02")),
+		slog.Int("followers_notified", fired))
 }

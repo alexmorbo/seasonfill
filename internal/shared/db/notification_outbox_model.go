@@ -14,6 +14,7 @@ import (
 // Retention: delete-on-success (only pending/dead persist).
 type NotificationOutboxModel struct {
 	ID            int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	UserID        int64          `gorm:"column:user_id;not null"` // Ф8-U-5c target follower
 	EventType     string         `gorm:"column:event_type;type:text;not null"`
 	Payload       datatypes.JSON `gorm:"column:payload;not null"`
 	Status        string         `gorm:"column:status;type:text;not null"`

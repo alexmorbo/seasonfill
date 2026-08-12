@@ -207,7 +207,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	sweeper := scanBundle.Sweeper
 
 	// ADR-0016 Ф4 N3 — calendar-event producers + air_date announcer.
-	notifProducers := wiring.BuildNotificationProducers(persistence.DB, notificationBundle.OutboxRepo, scanBundle.Txr, log)
+	notifProducers := wiring.BuildNotificationProducers(persistence.DB, notificationBundle.OutboxRepo, auth.AdminRepo, scanBundle.Txr, log)
 
 	// seriesRepo / seriesCacheRepo / counterRepo are stateless GORM
 	// wrappers — each call site gets its own. seriesCacheRepo +

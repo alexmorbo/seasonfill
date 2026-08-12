@@ -30,8 +30,8 @@ var _ NotificationAgentRepository = &NotificationAgentRepositoryMock{}
 //			ListFunc: func(ctx context.Context) ([]NotificationAgent, error) {
 //				panic("mock out the List method")
 //			},
-//			ListEnabledForEventFunc: func(ctx context.Context, eventType string) ([]NotificationAgent, error) {
-//				panic("mock out the ListEnabledForEvent method")
+//			ListEnabledForEventAndUserFunc: func(ctx context.Context, eventType string, userID int64) ([]NotificationAgent, error) {
+//				panic("mock out the ListEnabledForEventAndUser method")
 //			},
 //			UpdateFunc: func(ctx context.Context, id int64, name string, enabled bool, eventTypes []string, newConfig []byte) error {
 //				panic("mock out the Update method")
@@ -55,8 +55,8 @@ type NotificationAgentRepositoryMock struct {
 	// ListFunc mocks the List method.
 	ListFunc func(ctx context.Context) ([]NotificationAgent, error)
 
-	// ListEnabledForEventFunc mocks the ListEnabledForEvent method.
-	ListEnabledForEventFunc func(ctx context.Context, eventType string) ([]NotificationAgent, error)
+	// ListEnabledForEventAndUserFunc mocks the ListEnabledForEventAndUser method.
+	ListEnabledForEventAndUserFunc func(ctx context.Context, eventType string, userID int64) ([]NotificationAgent, error)
 
 	// UpdateFunc mocks the Update method.
 	UpdateFunc func(ctx context.Context, id int64, name string, enabled bool, eventTypes []string, newConfig []byte) error
@@ -91,12 +91,14 @@ type NotificationAgentRepositoryMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// ListEnabledForEvent holds details about calls to the ListEnabledForEvent method.
-		ListEnabledForEvent []struct {
+		// ListEnabledForEventAndUser holds details about calls to the ListEnabledForEventAndUser method.
+		ListEnabledForEventAndUser []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// EventType is the eventType argument value.
 			EventType string
+			// UserID is the userID argument value.
+			UserID int64
 		}
 		// Update holds details about calls to the Update method.
 		Update []struct {
@@ -114,12 +116,12 @@ type NotificationAgentRepositoryMock struct {
 			NewConfig []byte
 		}
 	}
-	lockCreate              sync.RWMutex
-	lockDelete              sync.RWMutex
-	lockGet                 sync.RWMutex
-	lockList                sync.RWMutex
-	lockListEnabledForEvent sync.RWMutex
-	lockUpdate              sync.RWMutex
+	lockCreate                     sync.RWMutex
+	lockDelete                     sync.RWMutex
+	lockGet                        sync.RWMutex
+	lockList                       sync.RWMutex
+	lockListEnabledForEventAndUser sync.RWMutex
+	lockUpdate                     sync.RWMutex
 }
 
 // Create calls CreateFunc.
@@ -266,39 +268,43 @@ func (mock *NotificationAgentRepositoryMock) ListCalls() []struct {
 	return calls
 }
 
-// ListEnabledForEvent calls ListEnabledForEventFunc.
-func (mock *NotificationAgentRepositoryMock) ListEnabledForEvent(ctx context.Context, eventType string) ([]NotificationAgent, error) {
-	if mock.ListEnabledForEventFunc == nil {
-		panic("NotificationAgentRepositoryMock.ListEnabledForEventFunc: method is nil but NotificationAgentRepository.ListEnabledForEvent was just called")
+// ListEnabledForEventAndUser calls ListEnabledForEventAndUserFunc.
+func (mock *NotificationAgentRepositoryMock) ListEnabledForEventAndUser(ctx context.Context, eventType string, userID int64) ([]NotificationAgent, error) {
+	if mock.ListEnabledForEventAndUserFunc == nil {
+		panic("NotificationAgentRepositoryMock.ListEnabledForEventAndUserFunc: method is nil but NotificationAgentRepository.ListEnabledForEventAndUser was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
 		EventType string
+		UserID    int64
 	}{
 		Ctx:       ctx,
 		EventType: eventType,
+		UserID:    userID,
 	}
-	mock.lockListEnabledForEvent.Lock()
-	mock.calls.ListEnabledForEvent = append(mock.calls.ListEnabledForEvent, callInfo)
-	mock.lockListEnabledForEvent.Unlock()
-	return mock.ListEnabledForEventFunc(ctx, eventType)
+	mock.lockListEnabledForEventAndUser.Lock()
+	mock.calls.ListEnabledForEventAndUser = append(mock.calls.ListEnabledForEventAndUser, callInfo)
+	mock.lockListEnabledForEventAndUser.Unlock()
+	return mock.ListEnabledForEventAndUserFunc(ctx, eventType, userID)
 }
 
-// ListEnabledForEventCalls gets all the calls that were made to ListEnabledForEvent.
+// ListEnabledForEventAndUserCalls gets all the calls that were made to ListEnabledForEventAndUser.
 // Check the length with:
 //
-//	len(mockedNotificationAgentRepository.ListEnabledForEventCalls())
-func (mock *NotificationAgentRepositoryMock) ListEnabledForEventCalls() []struct {
+//	len(mockedNotificationAgentRepository.ListEnabledForEventAndUserCalls())
+func (mock *NotificationAgentRepositoryMock) ListEnabledForEventAndUserCalls() []struct {
 	Ctx       context.Context
 	EventType string
+	UserID    int64
 } {
 	var calls []struct {
 		Ctx       context.Context
 		EventType string
+		UserID    int64
 	}
-	mock.lockListEnabledForEvent.RLock()
-	calls = mock.calls.ListEnabledForEvent
-	mock.lockListEnabledForEvent.RUnlock()
+	mock.lockListEnabledForEventAndUser.RLock()
+	calls = mock.calls.ListEnabledForEventAndUser
+	mock.lockListEnabledForEventAndUser.RUnlock()
 	return calls
 }
 

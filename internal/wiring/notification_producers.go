@@ -9,6 +9,7 @@ import (
 
 	calendar "github.com/alexmorbo/seasonfill/internal/catalog/app/calendar"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
+	followpersistence "github.com/alexmorbo/seasonfill/internal/follow/persistence"
 	notifapp "github.com/alexmorbo/seasonfill/internal/notification/app"
 	notifpersistence "github.com/alexmorbo/seasonfill/internal/notification/persistence"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -59,13 +60,16 @@ type NotificationProducersBundle struct {
 
 // BuildNotificationProducers constructs the calendar-event producers + the
 // air_date announcer over the shared DB, outbox emitter, and Transactor.
-func BuildNotificationProducers(db *gorm.DB, outbox ports.OutboxEmitter, tx notifapp.Transactor, log *slog.Logger) *NotificationProducersBundle {
+// followers fans season.premiere / air_date.announced per-follower (Ф8-U-5c);
+// users resolves the seed admin for the global digest.weekly aggregate.
+func BuildNotificationProducers(db *gorm.DB, outbox ports.OutboxEmitter, users ports.UserRepository, tx notifapp.Transactor, log *slog.Logger) *NotificationProducersBundle {
 	logn := sharedports.DomainLogger(log, "notification")
 	adapter := calendarProducerAdapter{uc: calendar.NewUseCase(catalogpersistence.NewCalendarRepository(db))}
 	marks := notifpersistence.NewNotifiedEventsRepository(db)
+	followers := followpersistence.NewFollowedSeriesRepository(db)
 	return &NotificationProducersBundle{
-		Premiere: notifapp.NewPremiereProducer(adapter, outbox, marks, tx, logn),
-		Digest:   notifapp.NewDigestProducer(adapter, outbox, marks, tx, logn),
-		AirDate:  notifapp.NewAirDateAnnouncer(outbox, marks, tx, logn),
+		Premiere: notifapp.NewPremiereProducer(adapter, outbox, marks, followers, tx, logn),
+		Digest:   notifapp.NewDigestProducer(adapter, outbox, marks, users, tx, logn),
+		AirDate:  notifapp.NewAirDateAnnouncer(outbox, marks, followers, tx, logn),
 	}
 }

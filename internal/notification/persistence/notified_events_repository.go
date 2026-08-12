@@ -28,7 +28,7 @@ func NewNotifiedEventsRepository(db *gorm.DB) *NotifiedEventsRepository {
 // ==0 ⇒ the marker already existed (re-scan / Changes-storm). Works on both
 // dialects: Postgres ON CONFLICT DO NOTHING and SQLite INSERT OR IGNORE both
 // report 0 affected rows on conflict.
-func (r *NotifiedEventsRepository) MarkIfNew(ctx context.Context, eventType, entityKey string, now time.Time) (bool, error) {
+func (r *NotifiedEventsRepository) MarkIfNew(ctx context.Context, userID int64, eventType, entityKey string, now time.Time) (bool, error) {
 	if eventType == "" {
 		return false, fmt.Errorf("mark notified_event: event_type must be non-empty")
 	}
@@ -37,12 +37,13 @@ func (r *NotifiedEventsRepository) MarkIfNew(ctx context.Context, eventType, ent
 	}
 	db := dbFromContext(ctx, r.db).WithContext(ctx)
 	m := database.NotifiedEventModel{
+		UserID:      userID,
 		EventType:   eventType,
 		EntityKey:   entityKey,
 		FirstSeenAt: now.UTC(),
 	}
 	res := db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "event_type"}, {Name: "entity_key"}},
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "event_type"}, {Name: "entity_key"}},
 		DoNothing: true,
 	}).Create(&m)
 	if res.Error != nil {

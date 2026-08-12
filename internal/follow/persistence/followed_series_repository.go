@@ -60,6 +60,20 @@ func (r *FollowedSeriesRepository) Unfollow(ctx context.Context, userID int64, s
 	return nil
 }
 
+// FollowersOf lists the user_ids following seriesID. Ф8-U-5c per-follower
+// fan-out seam (ports.SeriesFollowerLister) for the season.premiere /
+// air_date.announced producers. Empty slice when nobody follows the series.
+func (r *FollowedSeriesRepository) FollowersOf(ctx context.Context, seriesID int64) ([]int64, error) {
+	var ids []int64
+	if err := dbtx.DBFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.FollowedSeriesModel{}).
+		Where("series_id = ?", seriesID).
+		Pluck("user_id", &ids).Error; err != nil {
+		return nil, fmt.Errorf("followers of series %d: %w", seriesID, err)
+	}
+	return ids, nil
+}
+
 // ListFollowed returns the followed series as minimal cards, newest first.
 // Reads canon series + the localized title (requested lang → en-US → canon
 // original_title) and poster (requested lang → en-US). Bounded scan — the

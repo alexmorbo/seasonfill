@@ -15,6 +15,7 @@ const (
 // OutboxRow is the app projection of a notification_outbox row.
 type OutboxRow struct {
 	ID            int64
+	UserID        int64 // Ф8-U-5c target follower; 0 = "system" → outbox stamps seed-admin
 	EventType     string
 	Payload       []byte
 	Status        string
@@ -64,11 +65,20 @@ type OutboxEmitter interface {
 // only on created==true, inside the SAME tx, so a marker without a delivered
 // signal (or vice-versa) is impossible.
 type NotifiedEventsRepository interface {
-	// MarkIfNew inserts (eventType, entityKey) if absent. Returns
+	// MarkIfNew inserts (userID, eventType, entityKey) if absent. Returns
 	// created==true when a NEW marker row was written (caller should enqueue),
 	// false when the marker already existed (storm/re-scan — skip). now stamps
-	// first_seen_at on insert.
-	MarkIfNew(ctx context.Context, eventType, entityKey string, now time.Time) (created bool, err error)
+	// first_seen_at on insert. Per-user since Ф8-U-5c so each follower fires
+	// exactly once.
+	MarkIfNew(ctx context.Context, userID int64, eventType, entityKey string, now time.Time) (created bool, err error)
+}
+
+// SeriesFollowerLister enumerates the user_ids following a series. Ф8-U-5c
+// per-follower fan-out seam for the season.premiere / air_date.announced
+// producers (no such query existed before U-5c).
+type SeriesFollowerLister interface {
+	// FollowersOf lists user_ids following seriesID (empty when nobody follows).
+	FollowersOf(ctx context.Context, seriesID int64) ([]int64, error)
 }
 
 // NotificationAgent is the app projection of a notification_agents row.
@@ -96,6 +106,8 @@ type NotificationAgentRepository interface {
 	// newConfig != nil (nil = keep existing ciphertext — "empty URL on edit").
 	Update(ctx context.Context, id int64, name string, enabled bool, eventTypes []string, newConfig []byte) error
 	Delete(ctx context.Context, id int64) error // ErrNotFound if absent
-	// ListEnabledForEvent returns enabled agents whose event_types contains eventType.
-	ListEnabledForEvent(ctx context.Context, eventType string) ([]NotificationAgent, error)
+	// ListEnabledForEventAndUser returns userID's enabled agents whose
+	// event_types contains eventType. Ф8-U-5c per-user dispatch — no cross-user
+	// leak (the dispatcher selects by the outbox row's target user_id).
+	ListEnabledForEventAndUser(ctx context.Context, eventType string, userID int64) ([]NotificationAgent, error)
 }
