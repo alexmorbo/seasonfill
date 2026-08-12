@@ -39,3 +39,18 @@ type UserSettingsPatch struct {
 	AvatarMode        *string
 	PreferredLanguage *string
 }
+
+// UserPermissionsPatch carries the optional RBAC permission flags for the
+// admin PATCH /api/v1/admin/users/:id route (Ф8-U-6b). Each pointer is nil
+// when the caller omitted the key; the repository writes only the columns
+// whose pointers are non-nil. Deliberately a shared value type (not a method
+// on UserRepository) so the concrete *persistence.UserRepository and the
+// admin app usecase agree on the shape without adding the admin-only write
+// surface to the shared port's many test fakes.
+type UserPermissionsPatch struct {
+	AutoApprove    *bool
+	Request        *bool
+	ManageRequests *bool
+	ManageUsers    *bool
+	Request4K      *bool
+}

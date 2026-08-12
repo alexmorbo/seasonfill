@@ -35,3 +35,14 @@ func dbFromContext(ctx context.Context, def *gorm.DB) *gorm.DB {
 	}
 	return def
 }
+
+// InTx runs fn inside a single gorm transaction, threading the tx-scoped DB
+// through the context so any repository method fn invokes joins the same
+// transaction. Ф8-U-6b uses it to make the "count admins → mutate role /
+// delete" last-admin guard atomic (no TOCTOU window between the count and the
+// write). Nested calls reuse the already-opened tx via dbFromContext.
+func (r *UserRepository) InTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return dbFromContext(ctx, r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(WithTx(ctx, tx))
+	})
+}

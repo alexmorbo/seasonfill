@@ -60,7 +60,10 @@ type AuthBundle struct {
 	LoginLimiter   *authapp.IPLimiter
 	WebhookLimiter *authapp.IPLimiter
 	MeHandler      *adminrest.MeHandler
-	AuthRuntime    *middleware.AuthRuntimePointer
+	// UsersHandler — Ф8-U-6b admin user-management routes (GET /admin/users,
+	// PATCH/DELETE /admin/users/:id). Behind the manage_users guard.
+	UsersHandler *adminrest.UsersHandler
+	AuthRuntime  *middleware.AuthRuntimePointer
 }
 
 // BuildAuth constructs the admin user repo, the OIDC provider cache,
@@ -122,6 +125,13 @@ func BuildAuth(
 	meUC := authapp.NewMeUseCase(adminRepo)
 	meHandler := adminrest.NewMeHandler(meUC, authRuntime, authLog)
 
+	// Ф8-U-6b — admin user-management usecase + handler. The concrete
+	// adminRepo satisfies both the usecase's narrow UsersRepository (List /
+	// GetByID / CountAdmins / UpdateRole / UpdatePermissions / Delete / InTx)
+	// and the handler's CallerDirectory (GetByUsername for self-lockout).
+	usersUC := authapp.NewUsersUseCase(adminRepo)
+	usersHandler := adminrest.NewUsersHandler(usersUC, adminRepo, authLog)
+
 	return &AuthBundle{
 		AdminRepo:      adminRepo,
 		OIDCCache:      oidcCache,
@@ -129,6 +139,7 @@ func BuildAuth(
 		LoginLimiter:   loginLimiter,
 		WebhookLimiter: webhookLimiter,
 		MeHandler:      meHandler,
+		UsersHandler:   usersHandler,
 		AuthRuntime:    authRuntime,
 	}, nil
 }

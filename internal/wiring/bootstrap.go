@@ -1131,6 +1131,7 @@ func BuildHTTPServer(
 		scanBundle.RadarrSync.RadarrHolder, // Ф6-R-6b Gap 2a
 		movieDetailBundle.LibraryHandler,   // Ф6-R-6b movie library list
 		requestsBundle.Handler,             // Ф8-U-2 request-workflow
+		auth.UsersHandler,                  // Ф8-U-6b admin user-management
 		log,
 	)
 	return srv, instanceMetadataBundle

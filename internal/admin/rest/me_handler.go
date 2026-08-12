@@ -295,6 +295,13 @@ func (h *MeHandler) buildResponse(user admin.User) dto.MeResponse {
 		PreferredLanguage:  user.PreferredLanguage,
 		OIDCSubject:        user.OIDCSubject,
 		LastLoginAt:        user.LastLoginAt,
+		Permissions: dto.MePermissions{
+			AutoApprove:    user.AutoApprove,
+			Request:        user.Request,
+			ManageRequests: user.ManageRequests,
+			ManageUsers:    user.ManageUsers,
+			Request4K:      user.Request4K,
+		},
 	}
 	if mode == "oidc" && user.OIDCSubject != nil && issuer != "" {
 		profile := issuer + "/account"

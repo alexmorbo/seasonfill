@@ -10,15 +10,26 @@
 //
 // Story 486 (N-7b). N-7c extends with avatar URL helpers + uses the
 // same type for the Profile sections.
+// MePermissions is the nested RBAC-flag object (Ф8-U-6b). Additive: existing
+// consumers that ignore `permissions` keep working. For an admin the flags
+// reflect the stored columns but role short-circuits enforcement server-side.
+export interface MePermissions {
+  readonly auto_approve: boolean;
+  readonly request: boolean;
+  readonly manage_requests: boolean;
+  readonly manage_users: boolean;
+  readonly request_4k: boolean;
+}
+
 export interface MeResponse {
   readonly id: number;
   readonly username: string;
   readonly email: string | null;
   readonly role: 'admin' | 'user';
-  // auth_mode is computed per-user by the server: 'oidc' when the account has
-  // an OIDC subject / no local password, otherwise 'forms'. It is NOT a
-  // server-wide setting.
-  readonly auth_mode: 'forms' | 'oidc';
+  // auth_mode is computed per-user by the server: 'jellyfin' for a
+  // Jellyfin-provisioned account, 'oidc' when the account has an OIDC subject /
+  // no local password, otherwise 'forms'. It is NOT a server-wide setting.
+  readonly auth_mode: 'forms' | 'oidc' | 'jellyfin';
   readonly avatar_mode: 'auto' | 'monogram' | 'gravatar';
   readonly avatar_resolved_mode: 'gravatar' | 'monogram';
   readonly avatar_hash: string;
@@ -26,4 +37,5 @@ export interface MeResponse {
   readonly idp_profile_url: string | null;
   readonly oidc_subject: string | null;
   readonly last_login_at: string | null;
+  readonly permissions?: MePermissions;
 }

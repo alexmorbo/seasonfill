@@ -369,6 +369,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
+		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
 		lg)
 }
 
@@ -455,6 +456,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
+		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
 		lg)
 }
 
@@ -548,6 +550,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
+		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
 		lg)
 }
 
@@ -788,6 +791,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // radarrConfigLookup (Ф6-R-6b Gap 2a) — nil-OK, sonarr-only list
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
+		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

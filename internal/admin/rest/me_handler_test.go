@@ -542,3 +542,37 @@ func TestMeUseCase_ChangePassword_SameAsCurrent(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, authapp.ErrNewPasswordSameAsCurrent))
 }
+
+// Ф8-U-6b — /me now embeds the nested RBAC permissions object.
+func TestMe_Get_PermissionsPopulated(t *testing.T) {
+	t.Parallel()
+	repo := newFakeMeRepo()
+	repo.seed(admin.User{
+		Username:       "bob",
+		Role:           admin.RoleUser,
+		AvatarMode:     admin.AvatarModeAuto,
+		PasswordHash:   "x",
+		Request:        true,
+		ManageRequests: true,
+		Request4K:      false,
+		AutoApprove:    false,
+		ManageUsers:    false,
+	})
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "bob")
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body dto.MeResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.True(t, body.Permissions.Request)
+	assert.True(t, body.Permissions.ManageRequests)
+	assert.False(t, body.Permissions.Request4K)
+	assert.False(t, body.Permissions.AutoApprove)
+	assert.False(t, body.Permissions.ManageUsers)
+
+	// The key must be present in the raw JSON (additive contract).
+	assert.Contains(t, w.Body.String(), `"permissions"`)
+}

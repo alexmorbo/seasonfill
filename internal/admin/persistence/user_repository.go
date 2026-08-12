@@ -331,6 +331,132 @@ func (r *UserRepository) UsernamesByIDs(ctx context.Context, ids []uint) (map[ui
 	return out, nil
 }
 
+// List returns every user row ordered by id ascending (Ф8-U-6b — the admin
+// user-management table). No pagination: the users table is operator-scale
+// (a handful of rows), so a full scan is cheaper than cursor plumbing.
+func (r *UserRepository) List(ctx context.Context) ([]admin.User, error) {
+	var models []database.UserModel
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Order("id ASC").Find(&models).Error; err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	out := make([]admin.User, 0, len(models))
+	for _, m := range models {
+		out = append(out, modelToUser(m))
+	}
+	return out, nil
+}
+
+// GetByID returns the user row with the given primary key. Returns
+// errors.Join(UserNotFoundError, ports.ErrNotFound) when no row matches
+// (Ф8-U-6b — target lookup for PATCH / DELETE /admin/users/:id).
+func (r *UserRepository) GetByID(ctx context.Context, id uint) (admin.User, error) {
+	var m database.UserModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("id = ?", id).First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return admin.User{}, errors.Join(
+				&sharedErrors.UserNotFoundError{},
+				ports.ErrNotFound,
+			)
+		}
+		return admin.User{}, fmt.Errorf("get user by id: %w", err)
+	}
+	return modelToUser(m), nil
+}
+
+// CountAdmins returns the number of role='admin' rows (Ф8-U-6b — the
+// last-admin invariant guard reads this inside the mutate transaction so the
+// count and the demote/delete are atomic).
+func (r *UserRepository) CountAdmins(ctx context.Context) (int64, error) {
+	var n int64
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.UserModel{}).
+		Where("role = ?", admin.RoleAdmin).
+		Count(&n).Error; err != nil {
+		return 0, fmt.Errorf("count admins: %w", err)
+	}
+	return n, nil
+}
+
+// UpdateRole sets the role column for userID (Ф8-U-6b). Returns
+// errors.Join(UserNotFoundError, ports.ErrNotFound) when no row matches.
+func (r *UserRepository) UpdateRole(ctx context.Context, userID uint, role string) error {
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.UserModel{}).
+		Where("id = ?", userID).
+		Updates(map[string]any{
+			"role":       role,
+			"updated_at": time.Now().UTC(),
+		})
+	if res.Error != nil {
+		return fmt.Errorf("update user role: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return errors.Join(&sharedErrors.UserNotFoundError{}, ports.ErrNotFound)
+	}
+	return nil
+}
+
+// UpdatePermissions applies a partial RBAC permission patch (Ф8-U-6b). Only
+// the columns whose corresponding pointer is non-nil are written; updated_at
+// is bumped whenever at least one flag is present. A no-field patch is a
+// no-op (nil) — the usecase already short-circuits empty patches, but the
+// repo stays tolerant. Returns errors.Join(UserNotFoundError,
+// ports.ErrNotFound) when userID matches no row.
+func (r *UserRepository) UpdatePermissions(ctx context.Context, userID uint, patch ports.UserPermissionsPatch) error {
+	updates := map[string]any{}
+	if patch.AutoApprove != nil {
+		updates["auto_approve"] = *patch.AutoApprove
+	}
+	if patch.Request != nil {
+		updates["request"] = *patch.Request
+	}
+	if patch.ManageRequests != nil {
+		updates["manage_requests"] = *patch.ManageRequests
+	}
+	if patch.ManageUsers != nil {
+		updates["manage_users"] = *patch.ManageUsers
+	}
+	if patch.Request4K != nil {
+		updates["request_4k"] = *patch.Request4K
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	updates["updated_at"] = time.Now().UTC()
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Model(&database.UserModel{}).
+		Where("id = ?", userID).
+		Updates(updates)
+	if res.Error != nil {
+		return fmt.Errorf("update user permissions: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return errors.Join(&sharedErrors.UserNotFoundError{}, ports.ErrNotFound)
+	}
+	return nil
+}
+
+// Delete removes the user row by id (Ф8-U-6b). The DB FK graph cascades all
+// child rows (user_instance_tags / user_instance_access / requests / follows
+// / blocklist / notification agents / dispatch) so a plain delete is safe.
+// Returns errors.Join(UserNotFoundError, ports.ErrNotFound) when no row
+// matches.
+func (r *UserRepository) Delete(ctx context.Context, userID uint) error {
+	res := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("id = ?", userID).
+		Delete(&database.UserModel{})
+	if res.Error != nil {
+		return fmt.Errorf("delete user: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return errors.Join(&sharedErrors.UserNotFoundError{}, ports.ErrNotFound)
+	}
+	return nil
+}
+
 func userToModel(u admin.User) database.UserModel {
 	m := database.UserModel{
 		ID:                u.ID,

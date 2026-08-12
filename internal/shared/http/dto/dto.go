@@ -1035,19 +1035,34 @@ type SeasonEpisodeList struct {
 // renders. `avatar_hash` is the md5 used by Gravatar; empty when email
 // is null (FE falls back to monogram).
 type MeResponse struct {
-	ID                 uint       `json:"id"                 example:"1"`
-	Username           string     `json:"username"           example:"admin"`
-	Email              *string    `json:"email"              example:"admin@example.com"`
-	Role               string     `json:"role"               example:"admin" enums:"admin,user"`
-	AuthMode           string     `json:"auth_mode"          example:"forms" enums:"forms,oidc,jellyfin"`
-	AuthSource         string     `json:"auth_source"        example:"forms" enums:"forms,oidc,jellyfin"`
-	AvatarMode         string     `json:"avatar_mode"        example:"auto" enums:"auto,monogram,gravatar"`
-	AvatarResolvedMode string     `json:"avatar_resolved_mode" example:"gravatar" enums:"gravatar,monogram"`
-	AvatarHash         string     `json:"avatar_hash"        example:"0bc83cb571cd1c50ba6f3e8a78ef1346"`
-	PreferredLanguage  *string    `json:"preferred_language" example:"ru"`
-	IDPProfileURL      *string    `json:"idp_profile_url"    example:"https://keycloak.example.com/realms/homelab/account"`
-	OIDCSubject        *string    `json:"oidc_subject"       example:"abc-123"`
-	LastLoginAt        *time.Time `json:"last_login_at"`
+	ID                 uint          `json:"id"                 example:"1"`
+	Username           string        `json:"username"           example:"admin"`
+	Email              *string       `json:"email"              example:"admin@example.com"`
+	Role               string        `json:"role"               example:"admin" enums:"admin,user"`
+	AuthMode           string        `json:"auth_mode"          example:"forms" enums:"forms,oidc,jellyfin"`
+	AuthSource         string        `json:"auth_source"        example:"forms" enums:"forms,oidc,jellyfin"`
+	AvatarMode         string        `json:"avatar_mode"        example:"auto" enums:"auto,monogram,gravatar"`
+	AvatarResolvedMode string        `json:"avatar_resolved_mode" example:"gravatar" enums:"gravatar,monogram"`
+	AvatarHash         string        `json:"avatar_hash"        example:"0bc83cb571cd1c50ba6f3e8a78ef1346"`
+	PreferredLanguage  *string       `json:"preferred_language" example:"ru"`
+	IDPProfileURL      *string       `json:"idp_profile_url"    example:"https://keycloak.example.com/realms/homelab/account"`
+	OIDCSubject        *string       `json:"oidc_subject"       example:"abc-123"`
+	LastLoginAt        *time.Time    `json:"last_login_at"`
+	Permissions        MePermissions `json:"permissions"`
+}
+
+// MePermissions is the Ф8-U-6b nested RBAC-flag object embedded in
+// MeResponse. Additive + back-compat — existing consumers that ignore the
+// `permissions` key keep working. For a role='admin' user every flag reflects
+// the stored column value (the seed admin has all true); role short-circuits
+// server-side RBAC regardless, so the object is advisory for admins and
+// authoritative for role='user' rows.
+type MePermissions struct {
+	AutoApprove    bool `json:"auto_approve"    example:"false"`
+	Request        bool `json:"request"         example:"true"`
+	ManageRequests bool `json:"manage_requests" example:"false"`
+	ManageUsers    bool `json:"manage_users"    example:"false"`
+	Request4K      bool `json:"request_4k"      example:"false"`
 }
 
 // MeSettingsPatchRequest is the body of PATCH /api/v1/me/settings.

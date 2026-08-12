@@ -2197,6 +2197,31 @@
                 },
                 "type": "object"
             },
+            "dto.MePermissions": {
+                "properties": {
+                    "auto_approve": {
+                        "example": false,
+                        "type": "boolean"
+                    },
+                    "manage_requests": {
+                        "example": false,
+                        "type": "boolean"
+                    },
+                    "manage_users": {
+                        "example": false,
+                        "type": "boolean"
+                    },
+                    "request": {
+                        "example": true,
+                        "type": "boolean"
+                    },
+                    "request_4k": {
+                        "example": false,
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "dto.MeResponse": {
                 "properties": {
                     "auth_mode": {
@@ -2256,6 +2281,9 @@
                     "oidc_subject": {
                         "example": "abc-123",
                         "type": "string"
+                    },
+                    "permissions": {
+                        "$ref": "#/components/schemas/dto.MePermissions"
                     },
                     "preferred_language": {
                         "example": "ru",
@@ -5236,6 +5264,89 @@
                 },
                 "type": "object"
             },
+            "rest.userItem": {
+                "properties": {
+                    "auth_source": {
+                        "enum": [
+                            "forms",
+                            "oidc",
+                            "jellyfin"
+                        ],
+                        "example": "forms",
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "example": "admin@example.com",
+                        "type": "string"
+                    },
+                    "id": {
+                        "example": 1,
+                        "type": "integer"
+                    },
+                    "last_login_at": {
+                        "type": "string"
+                    },
+                    "permissions": {
+                        "$ref": "#/components/schemas/dto.MePermissions"
+                    },
+                    "role": {
+                        "enum": [
+                            "admin",
+                            "user"
+                        ],
+                        "example": "admin",
+                        "type": "string"
+                    },
+                    "username": {
+                        "example": "admin",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "rest.userListResponse": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/rest.userItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "rest.userPatchRequest": {
+                "properties": {
+                    "auto_approve": {
+                        "type": "boolean"
+                    },
+                    "manage_requests": {
+                        "type": "boolean"
+                    },
+                    "manage_users": {
+                        "type": "boolean"
+                    },
+                    "request": {
+                        "type": "boolean"
+                    },
+                    "request_4k": {
+                        "type": "boolean"
+                    },
+                    "role": {
+                        "enum": [
+                            "admin",
+                            "user"
+                        ],
+                        "example": "user",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "seriesdetail.CompanyRef": {
                 "properties": {
                     "logo_asset": {
@@ -6333,6 +6444,233 @@
                 "summary": "Send a test notification via an agent",
                 "tags": [
                     "notifications"
+                ]
+            }
+        },
+        "/admin/users": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/rest.userListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "List all users (admin)",
+                "tags": [
+                    "admin-users"
+                ]
+            }
+        },
+        "/admin/users/{id}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Delete a user (admin)",
+                "tags": [
+                    "admin-users"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "User id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/rest.userPatchRequest",
+                                        "summary": "body",
+                                        "description": "Partial role/permission patch"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Partial role/permission patch",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/rest.userItem"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Patch a user's role and/or RBAC permissions (admin)",
+                "tags": [
+                    "admin-users"
                 ]
             }
         },

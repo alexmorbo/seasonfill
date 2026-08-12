@@ -674,6 +674,206 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/admin/users": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** List all users (admin) */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.userListResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                readonly 403: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/admin/users/{id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        /** Delete a user (admin) */
+        readonly delete: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description User id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description No Content */
+                readonly 204: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                readonly 403: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                readonly 409: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly options?: never;
+        readonly head?: never;
+        /** Patch a user's role and/or RBAC permissions (admin) */
+        readonly patch: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description User id */
+                    readonly id: number;
+                };
+                readonly cookie?: never;
+            };
+            /** @description Partial role/permission patch */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": Record<string, never> | components["schemas"]["rest.userPatchRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.userItem"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                readonly 403: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                readonly 409: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly trace?: never;
+    };
     readonly "/auth/config": {
         readonly parameters: {
             readonly query?: never;
@@ -7618,6 +7818,18 @@ export type components = {
              */
             readonly reason?: DtoMePasswordUnavailableResponseReason;
         };
+        readonly "dto.MePermissions": {
+            /** @example false */
+            readonly auto_approve?: boolean;
+            /** @example false */
+            readonly manage_requests?: boolean;
+            /** @example false */
+            readonly manage_users?: boolean;
+            /** @example true */
+            readonly request?: boolean;
+            /** @example false */
+            readonly request_4k?: boolean;
+        };
         readonly "dto.MeResponse": {
             /**
              * @example forms
@@ -7650,6 +7862,7 @@ export type components = {
             readonly last_login_at?: string;
             /** @example abc-123 */
             readonly oidc_subject?: string;
+            readonly permissions?: components["schemas"]["dto.MePermissions"];
             /** @example ru */
             readonly preferred_language?: string;
             /**
@@ -9161,6 +9374,42 @@ export type components = {
         readonly "rest.requestListResponse": {
             readonly items?: readonly components["schemas"]["rest.requestItem"][];
         };
+        readonly "rest.userItem": {
+            /**
+             * @example forms
+             * @enum {string}
+             */
+            readonly auth_source?: RestUserItemAuth_source;
+            readonly created_at?: string;
+            /** @example admin@example.com */
+            readonly email?: string;
+            /** @example 1 */
+            readonly id?: number;
+            readonly last_login_at?: string;
+            readonly permissions?: components["schemas"]["dto.MePermissions"];
+            /**
+             * @example admin
+             * @enum {string}
+             */
+            readonly role?: RestUserItemRole;
+            /** @example admin */
+            readonly username?: string;
+        };
+        readonly "rest.userListResponse": {
+            readonly items?: readonly components["schemas"]["rest.userItem"][];
+        };
+        readonly "rest.userPatchRequest": {
+            readonly auto_approve?: boolean;
+            readonly manage_requests?: boolean;
+            readonly manage_users?: boolean;
+            readonly request?: boolean;
+            readonly request_4k?: boolean;
+            /**
+             * @example user
+             * @enum {string}
+             */
+            readonly role?: RestUserPatchRequestRole;
+        };
         readonly "seriesdetail.CompanyRef": {
             readonly logo_asset?: string;
             readonly name?: string;
@@ -9461,5 +9710,18 @@ export enum DtoSeriesCacheItemStatus {
 export enum DtoWatchdogBlacklistItemSource {
     auto = "auto",
     manual = "manual"
+}
+export enum RestUserItemAuth_source {
+    forms = "forms",
+    oidc = "oidc",
+    jellyfin = "jellyfin"
+}
+export enum RestUserItemRole {
+    admin = "admin",
+    user = "user"
+}
+export enum RestUserPatchRequestRole {
+    admin = "admin",
+    user = "user"
 }
 export type operations = Record<string, never>;

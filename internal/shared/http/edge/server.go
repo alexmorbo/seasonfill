@@ -151,6 +151,9 @@ func NewServer(
 	// Ф8-U-2 — request-workflow handler. nil-OK: the /requests routes are
 	// omitted when the handler is absent (minimal/test wirings).
 	requestHandler *requestrest.RequestHandler,
+	// Ф8-U-6b — admin user-management handler. nil-OK: the /admin/users
+	// routes are omitted when the handler is absent (minimal/test wirings).
+	usersHandler *adminrest.UsersHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -490,6 +493,14 @@ func NewServer(
 			guarded.PUT("/admin/notification-agents/:id", permManageUsers, notificationAgentsHandler.Update)
 			guarded.DELETE("/admin/notification-agents/:id", permManageUsers, notificationAgentsHandler.Delete)
 			guarded.POST("/admin/notification-agents/:id/test", permManageUsers, notificationAgentsHandler.Test)
+		}
+		// Ф8-U-6b — admin user-management. All routes behind the manage_users
+		// guard (role='admin' + api-key short-circuit). nil-OK: omitted when
+		// the handler is absent (minimal/test wirings).
+		if usersHandler != nil {
+			guarded.GET("/admin/users", permManageUsers, usersHandler.List)
+			guarded.PATCH("/admin/users/:id", permManageUsers, usersHandler.Patch)
+			guarded.DELETE("/admin/users/:id", permManageUsers, usersHandler.Delete)
 		}
 		// Story 507 (N-2f) — curated discovery read endpoints.
 		// Nil-OK pattern: when wiring did not construct the handler
