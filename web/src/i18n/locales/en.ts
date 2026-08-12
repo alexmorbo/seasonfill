@@ -459,6 +459,9 @@ export const en = {
       intro: 'You will be redirected to your single sign-on provider.',
       button: 'Continue with SSO',
     },
+    jellyfin: {
+      button: 'Sign in with Jellyfin',
+    },
     or: 'or',
     enter: 'Enter the application',
     brand: {

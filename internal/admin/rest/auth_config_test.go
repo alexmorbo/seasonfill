@@ -51,8 +51,8 @@ func TestAuthConfig_NilRuntime(t *testing.T) {
 }
 
 // TestAuthConfig_NoSecretsLeaked confirms the wire shape carries ONLY
-// {oidc_ready}. Adding fields here is intentional churn — keep the
-// assertion list explicit.
+// {oidc_ready, jellyfin_ready}. Adding fields here is intentional churn —
+// keep the assertion list explicit.
 func TestAuthConfig_NoSecretsLeaked(t *testing.T) {
 	t.Parallel()
 	r := setupAuthConfig(t, &middleware.AuthRuntime{
@@ -65,10 +65,45 @@ func TestAuthConfig_NoSecretsLeaked(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, 1, len(body), "auth_config wire shape must be exactly {oidc_ready}")
+	assert.Equal(t, 2, len(body), "auth_config wire shape must be exactly {oidc_ready, jellyfin_ready}")
 	assert.Contains(t, body, "oidc_ready")
+	assert.Contains(t, body, "jellyfin_ready")
 	assert.NotContains(t, body, "mode")
 	assert.Equal(t, false, body["oidc_ready"])
+	assert.Equal(t, false, body["jellyfin_ready"])
+}
+
+// TestAuthConfig_JellyfinReadyTrue — runtime with Jellyfin.Enabled=true →
+// jellyfin_ready=true.
+func TestAuthConfig_JellyfinReadyTrue(t *testing.T) {
+	t.Parallel()
+	r := setupAuthConfig(t, &middleware.AuthRuntime{
+		Jellyfin: middleware.JellyfinRuntime{
+			BaseURL: "https://jf.example.com",
+			Enabled: true,
+		},
+	})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/config", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	var body dto.AuthConfigDTO
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.True(t, body.JellyfinReady)
+}
+
+// TestAuthConfig_JellyfinReadyFalse — Jellyfin left zero-value (Enabled
+// false) → jellyfin_ready=false.
+func TestAuthConfig_JellyfinReadyFalse(t *testing.T) {
+	t.Parallel()
+	r := setupAuthConfig(t, &middleware.AuthRuntime{})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/config", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	var body dto.AuthConfigDTO
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.False(t, body.JellyfinReady)
 }
 
 // TestAuthConfig_ReturnsModeOIDCWithLoginURL confirms that fully populated

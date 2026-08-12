@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api';
-import { loginWithPassword, sessionQueryKey, useSession } from '@/lib/auth';
+import { jellyfinLogin, loginWithPassword, sessionQueryKey, useSession } from '@/lib/auth';
 import { useAuthConfig } from '@/lib/auth-config';
 import logoUrl from '@/assets/logo.svg';
 
@@ -141,6 +141,29 @@ function SsoButton({ href }: { href: string }) {
   );
 }
 
+function JellyfinButton({
+  onClick,
+  disabled,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={onClick}
+      disabled={disabled}
+      data-testid="jellyfin-login-button"
+      className="h-10 font-semibold gap-2"
+    >
+      <LogIn className="w-4 h-4 text-tx-secondary" />
+      {t('login.jellyfin.button')}
+    </Button>
+  );
+}
+
 function Divider() {
   const { t } = useTranslation();
   return (
@@ -177,6 +200,19 @@ export function Login() {
     }
   }, [session.isSuccess, navigate, params]);
 
+  // Shared client→display mapping for both the forms and Jellyfin login paths:
+  // 401/429 collapse to the generic invalid-credentials wording (no user
+  // enumeration), 5xx to service-unavailable, everything else to the raw
+  // message with an invalid-credentials fallback.
+  const mapLoginError = (err: unknown): string => {
+    if (err instanceof ApiError) {
+      if (err.status === 401 || err.status === 429) return t('login.invalid');
+      if (err.status >= 500) return t('login.serviceUnavailable');
+      return err.message || t('login.invalid');
+    }
+    return err instanceof Error ? err.message : t('login.invalid');
+  };
+
   const onSubmit = handleSubmit(async ({ username, password }) => {
     setServerErr(null);
     try {
@@ -184,17 +220,21 @@ export function Login() {
       await qc.invalidateQueries({ queryKey: sessionQueryKey });
       navigate(safeNext(params.get('next')), { replace: true });
     } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 401 || err.status === 429) {
-          setServerErr(t('login.invalid'));
-        } else if (err.status >= 500) {
-          setServerErr(t('login.serviceUnavailable'));
-        } else {
-          setServerErr(err.message || t('login.invalid'));
-        }
-      } else {
-        setServerErr(err instanceof Error ? err.message : t('login.invalid'));
-      }
+      setServerErr(mapLoginError(err));
+    }
+  });
+
+  // Jellyfin login reuses the same two fields (so the same zod validation runs
+  // via handleSubmit) but POSTs to the Jellyfin endpoint. On success the cookie
+  // is set exactly like forms login, so we navigate identically.
+  const onJellyfin = handleSubmit(async ({ username, password }) => {
+    setServerErr(null);
+    try {
+      await jellyfinLogin({ username, password });
+      await qc.invalidateQueries({ queryKey: sessionQueryKey });
+      navigate(safeNext(params.get('next')), { replace: true });
+    } catch (err) {
+      setServerErr(mapLoginError(err));
     }
   });
 
@@ -215,6 +255,7 @@ export function Login() {
 
   const next = safeNext(params.get('next'));
   const oidcReady = cfg.data?.oidcReady ?? false;
+  const jellyfinReady = cfg.data?.jellyfinReady ?? false;
 
   // Forms login is always available; the SSO button is additive, shown only
   // when OIDC is ready.
@@ -284,10 +325,13 @@ export function Login() {
           </Button>
         </form>
 
-        {oidcReady && (
+        {(oidcReady || jellyfinReady) && (
           <>
             <Divider />
-            <SsoButton href={ssoHref(cfg.data?.loginUrl, next)} />
+            {oidcReady && <SsoButton href={ssoHref(cfg.data?.loginUrl, next)} />}
+            {jellyfinReady && (
+              <JellyfinButton onClick={onJellyfin} disabled={isSubmitting} />
+            )}
           </>
         )}
       </CardShell>

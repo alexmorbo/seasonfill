@@ -7,6 +7,7 @@ import type { components } from '@/api/schema';
 // surfaced when oidcReady is true (loginUrl is then also populated).
 export type AuthConfig = {
   oidcReady: boolean;
+  jellyfinReady: boolean;
   loginUrl?: string;
 };
 
@@ -18,6 +19,7 @@ export async function getAuthConfig(): Promise<AuthConfig> {
   const r = await api<Wire>('/auth/config');
   const cfg: AuthConfig = {
     oidcReady: Boolean(r.oidc_ready),
+    jellyfinReady: Boolean(r.jellyfin_ready),
   };
   if (r.login_url) cfg.loginUrl = r.login_url;
   return cfg;

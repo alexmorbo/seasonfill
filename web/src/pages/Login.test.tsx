@@ -62,7 +62,7 @@ describe('<Login />', () => {
   });
 
   it('always renders the password form (forms login always available)', () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     expect(screen.getByLabelText(/username/i)).toBeVisible();
   });
@@ -72,6 +72,7 @@ describe('<Login />', () => {
       isSuccess: true,
       data: {
         oidcReady: true,
+        jellyfinReady: false,
         loginUrl: '/api/v1/auth/oidc/start',
       },
     });
@@ -81,7 +82,7 @@ describe('<Login />', () => {
   });
 
   it('renders no SSO button when oidcReady=false', () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     expect(screen.queryByTestId('oidc-login-link')).toBeNull();
   });
@@ -97,7 +98,7 @@ describe('<Login />', () => {
   // ────────────────────────────────────────────────────────────────────
 
   it('shows validation errors when both fields are empty', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
     const alerts = await screen.findAllByRole('alert');
@@ -106,7 +107,7 @@ describe('<Login />', () => {
   });
 
   it('navigates to / on success when no next param', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     const spy = vi.spyOn(auth, 'loginWithPassword').mockResolvedValue(undefined);
     renderWithProviders(<Login />, { route: '/login' });
     await fillAndSubmit();
@@ -117,7 +118,7 @@ describe('<Login />', () => {
   });
 
   it('navigates to ?next= path on success', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockResolvedValue(undefined);
     renderWithProviders(<Login />, { route: '/login?next=%2Fscans%2Fabc' });
     await fillAndSubmit();
@@ -125,7 +126,7 @@ describe('<Login />', () => {
   });
 
   it('falls back to / when next is unsafe (//attacker)', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockResolvedValue(undefined);
     renderWithProviders(<Login />, { route: '/login?next=%2F%2Fattacker.example' });
     await fillAndSubmit();
@@ -133,7 +134,7 @@ describe('<Login />', () => {
   });
 
   it('renders generic error on 401 (no enumeration)', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockRejectedValue(new ApiError(401, 'unauthorized'));
     renderWithProviders(<Login />, { route: '/login' });
     await fillAndSubmit('admin', 'wrong');
@@ -141,7 +142,7 @@ describe('<Login />', () => {
   });
 
   it('renders generic error on 429 (rate limit) — same wording as 401', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockRejectedValue(new ApiError(429, 'rate limit'));
     renderWithProviders(<Login />, { route: '/login' });
     await fillAndSubmit('admin', 'wrong');
@@ -149,7 +150,7 @@ describe('<Login />', () => {
   });
 
   it('renders service-unavailable on 5xx', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     vi.spyOn(auth, 'loginWithPassword').mockRejectedValue(new ApiError(503, 'down'));
     renderWithProviders(<Login />, { route: '/login' });
     await fillAndSubmit();
@@ -161,6 +162,7 @@ describe('<Login />', () => {
       isSuccess: true,
       data: {
         oidcReady: true,
+        jellyfinReady: false,
         loginUrl: '/api/v1/auth/oidc/start',
       },
     });
@@ -174,6 +176,7 @@ describe('<Login />', () => {
       isSuccess: true,
       data: {
         oidcReady: true,
+        jellyfinReady: false,
         loginUrl: '/api/v1/auth/oidc/start',
       },
     });
@@ -185,7 +188,7 @@ describe('<Login />', () => {
   it('does NOT redirect an unauthenticated visitor even when oidcReady', async () => {
     mockCfg({
       isSuccess: true,
-      data: { oidcReady: true },
+      data: { oidcReady: true, jellyfinReady: false },
     });
     renderWithProviders(<Login />, { route: '/login' });
     await waitFor(() => expect(screen.queryByTestId('oidc-login-link')).toBeInTheDocument());
@@ -197,7 +200,7 @@ describe('<Login />', () => {
   // ────────────────────────────────────────────────────────────────────
 
   it('redirects to / when session is already authenticated (B-48)', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     vi.spyOn(auth, 'useSession').mockReturnValue({
       isPending: false,
       isError: false,
@@ -212,7 +215,7 @@ describe('<Login />', () => {
   });
 
   it('honors ?next= when redirecting an already-authenticated user (B-48)', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     vi.spyOn(auth, 'useSession').mockReturnValue({
       isPending: false,
       isError: false,
@@ -227,7 +230,7 @@ describe('<Login />', () => {
   });
 
   it('does NOT redirect when session is unauthenticated (B-48 negative)', async () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     vi.spyOn(auth, 'useSession').mockReturnValue({
       isPending: false,
       isError: true,
@@ -245,7 +248,7 @@ describe('<Login />', () => {
   // ────────────────────────────────────────────────────────────────────
 
   it('renders the redesigned card chrome — stage, glow, card, brand tile, foot', () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     expect(screen.getByTestId('login-stage')).toBeInTheDocument();
     expect(screen.getByTestId('login-glow')).toBeInTheDocument();
@@ -257,7 +260,7 @@ describe('<Login />', () => {
   });
 
   it('foot shows the minimal wordmark (no auth-mode label)', () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     const foot = screen.getByTestId('login-foot');
     expect(foot.textContent).toMatch(/seasonfill/i);
@@ -265,7 +268,7 @@ describe('<Login />', () => {
   });
 
   it('forms pane uses icon-prefixed input pills with placeholders', () => {
-    mockCfg({ isSuccess: true, data: { oidcReady: false } });
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
     renderWithProviders(<Login />, { route: '/login' });
     const u = screen.getByLabelText(/username/i);
     const p = screen.getByLabelText(/password/i);
@@ -280,6 +283,7 @@ describe('<Login />', () => {
       isSuccess: true,
       data: {
         oidcReady: true,
+        jellyfinReady: false,
         loginUrl: '/api/v1/auth/oidc/start',
       },
     });
@@ -287,5 +291,73 @@ describe('<Login />', () => {
     expect(screen.getByLabelText(/password/i)).toBeVisible();
     expect(screen.getAllByText(/single sign-on|sso/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTestId('oidc-login-link')).toBeInTheDocument();
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // NEW — Jellyfin login affordance (additive, gated on jellyfinReady).
+  // ────────────────────────────────────────────────────────────────────
+
+  it('renders the Jellyfin button when jellyfinReady=true', async () => {
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: true } });
+    renderWithProviders(<Login />, { route: '/login' });
+    expect(screen.getByLabelText(/username/i)).toBeVisible();
+    expect(await screen.findByTestId('jellyfin-login-button')).toBeInTheDocument();
+  });
+
+  it('renders no Jellyfin button when jellyfinReady=false', () => {
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: false } });
+    renderWithProviders(<Login />, { route: '/login' });
+    expect(screen.queryByTestId('jellyfin-login-button')).toBeNull();
+  });
+
+  it('shows both the SSO and Jellyfin buttons when both are ready', () => {
+    mockCfg({
+      isSuccess: true,
+      data: {
+        oidcReady: true,
+        jellyfinReady: true,
+        loginUrl: '/api/v1/auth/oidc/start',
+      },
+    });
+    renderWithProviders(<Login />, { route: '/login' });
+    expect(screen.getByTestId('oidc-login-link')).toBeInTheDocument();
+    expect(screen.getByTestId('jellyfin-login-button')).toBeInTheDocument();
+  });
+
+  it('clicking Jellyfin logs in with the field values then navigates', async () => {
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: true } });
+    const spy = vi.spyOn(auth, 'jellyfinLogin').mockResolvedValue(undefined);
+    renderWithProviders(<Login />, { route: '/login?next=%2Finstances' });
+    await userEvent.type(screen.getByLabelText(/username/i), 'jelly');
+    await userEvent.type(screen.getByLabelText(/password/i), 'secret99');
+    await userEvent.click(screen.getByTestId('jellyfin-login-button'));
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith({ username: 'jelly', password: 'secret99' }),
+    );
+    await waitFor(() =>
+      expect(navigateSpy).toHaveBeenCalledWith('/instances', { replace: true }),
+    );
+  });
+
+  it('surfaces invalid-credentials error on Jellyfin 401', async () => {
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: true } });
+    vi.spyOn(auth, 'jellyfinLogin').mockRejectedValue(new ApiError(401, 'unauthorized'));
+    renderWithProviders(<Login />, { route: '/login' });
+    await userEvent.type(screen.getByLabelText(/username/i), 'jelly');
+    await userEvent.type(screen.getByLabelText(/password/i), 'wrong');
+    await userEvent.click(screen.getByTestId('jellyfin-login-button'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/invalid credentials/i);
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not call jellyfinLogin when fields are empty (zod validation blocks)', async () => {
+    mockCfg({ isSuccess: true, data: { oidcReady: false, jellyfinReady: true } });
+    const spy = vi.spyOn(auth, 'jellyfinLogin').mockResolvedValue(undefined);
+    renderWithProviders(<Login />, { route: '/login' });
+    await userEvent.click(screen.getByTestId('jellyfin-login-button'));
+    const alerts = await screen.findAllByRole('alert');
+    expect(alerts.map((a) => a.textContent).join(' ')).toMatch(/required/i);
+    expect(spy).not.toHaveBeenCalled();
+    expect(navigateSpy).not.toHaveBeenCalled();
   });
 });

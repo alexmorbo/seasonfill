@@ -660,8 +660,11 @@ type RuntimeOIDCDTO struct {
 type AuthConfigDTO struct {
 	// OIDCReady mirrors middleware.OIDCRuntime.IsReady(). When true,
 	// LoginURL is also populated — SPA renders the SSO button.
-	OIDCReady bool   `json:"oidc_ready" example:"false"`
-	LoginURL  string `json:"login_url,omitempty" example:"/api/v1/auth/oidc/start"`
+	OIDCReady bool `json:"oidc_ready" example:"false"`
+	// JellyfinReady mirrors middleware.JellyfinRuntime.Enabled. When true,
+	// the SPA renders the Jellyfin login option.
+	JellyfinReady bool   `json:"jellyfin_ready" example:"false"`
+	LoginURL      string `json:"login_url,omitempty" example:"/api/v1/auth/oidc/start"`
 }
 
 // QbitDiscoverDTO is the response shape for

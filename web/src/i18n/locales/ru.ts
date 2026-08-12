@@ -461,6 +461,9 @@ export const ru: Translations = {
       intro: 'Вы будете перенаправлены к провайдеру единого входа.',
       button: 'Продолжить через SSO',
     },
+    jellyfin: {
+      button: 'Войти через Jellyfin',
+    },
     or: 'или',
     enter: 'Войти в систему',
     brand: {

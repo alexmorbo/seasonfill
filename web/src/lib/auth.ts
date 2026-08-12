@@ -40,6 +40,17 @@ export async function loginWithPassword(input: {
   await api<unknown>('/auth/login', { method: 'POST', body: input });
 }
 
+// Jellyfin login reuses the same username/password fields as forms login but
+// POSTs to a distinct endpoint that validates against the configured Jellyfin
+// server. On 200 the backend sets the same session cookie as forms login, so
+// the caller can navigate exactly as the forms path does.
+export async function jellyfinLogin(input: {
+  username: string;
+  password: string;
+}): Promise<void> {
+  await api<unknown>('/auth/jellyfin/login', { method: 'POST', body: input });
+}
+
 export async function logout(): Promise<void> {
   await api<void>('/auth/session', { method: 'DELETE' });
 }

@@ -45,7 +45,9 @@ describe('getAuthConfig()', () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResp({ oidc_ready: false }),
     ) as typeof fetch;
-    await expect(getAuthConfig()).resolves.toEqual({ oidcReady: false });
+    await expect(getAuthConfig()).resolves.toEqual({
+      oidcReady: false, jellyfinReady: false,
+    });
   });
 
   it('includes loginUrl when present', async () => {
@@ -53,8 +55,31 @@ describe('getAuthConfig()', () => {
       jsonResp({ oidc_ready: true, login_url: '/api/v1/auth/oidc/start' }),
     ) as typeof fetch;
     await expect(getAuthConfig()).resolves.toEqual({
-      oidcReady: true, loginUrl: '/api/v1/auth/oidc/start',
+      oidcReady: true, jellyfinReady: false, loginUrl: '/api/v1/auth/oidc/start',
     });
+  });
+
+  it('maps jellyfin_ready from wire when true', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ oidc_ready: false, jellyfin_ready: true }),
+    ) as typeof fetch;
+    await expect(getAuthConfig()).resolves.toEqual({
+      oidcReady: false, jellyfinReady: true,
+    });
+  });
+
+  it('defaults jellyfinReady to false when absent', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ oidc_ready: false }),
+    ) as typeof fetch;
+    await expect(getAuthConfig()).resolves.toMatchObject({ jellyfinReady: false });
+  });
+
+  it('maps jellyfinReady to false when wire is explicitly false', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResp({ oidc_ready: true, jellyfin_ready: false }),
+    ) as typeof fetch;
+    await expect(getAuthConfig()).resolves.toMatchObject({ jellyfinReady: false });
   });
 
   it('decodes oidc_ready from wire', async () => {
@@ -70,7 +95,9 @@ describe('getAuthConfig()', () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResp({}),
     ) as typeof fetch;
-    await expect(getAuthConfig()).resolves.toEqual({ oidcReady: false });
+    await expect(getAuthConfig()).resolves.toEqual({
+      oidcReady: false, jellyfinReady: false,
+    });
   });
 });
 
@@ -82,7 +109,7 @@ describe('useAuthConfig()', () => {
     const qc = makeQC();
     const { result } = renderHook(() => useAuthConfig(), { wrapper: wrap(qc) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual({ oidcReady: false });
+    expect(result.current.data).toEqual({ oidcReady: false, jellyfinReady: false });
   });
 
   it('exposes error state on 5xx', async () => {

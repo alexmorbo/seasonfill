@@ -6463,6 +6463,12 @@ export type components = {
             readonly token_endpoint?: components["schemas"]["auth.CheckTokenEndpoint"];
         };
         readonly "dto.AuthConfigDTO": {
+            /**
+             * @description JellyfinReady mirrors middleware.JellyfinRuntime.Enabled. When true,
+             *     the SPA renders the Jellyfin login option.
+             * @example false
+             */
+            readonly jellyfin_ready?: boolean;
             /** @example /api/v1/auth/oidc/start */
             readonly login_url?: string;
             /**

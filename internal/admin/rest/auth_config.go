@@ -19,7 +19,7 @@ func NewAuthConfigHandler(ptr *middleware.AuthRuntimePointer) *AuthConfigHandler
 	return &AuthConfigHandler{runtime: ptr}
 }
 
-// Get returns {oidc_ready, login_url?}. Public — never gated.
+// Get returns {oidc_ready, jellyfin_ready, login_url?}. Public — never gated.
 // login_url is set whenever oidc_ready=true (the SPA reads it to render the
 // "Login with SSO" button); otherwise only oidc_ready is emitted.
 //
@@ -30,16 +30,18 @@ func NewAuthConfigHandler(ptr *middleware.AuthRuntimePointer) *AuthConfigHandler
 // @Router      /auth/config [get]
 func (h *AuthConfigHandler) Get(c *gin.Context) {
 	oidcReady := false
+	jellyfinReady := false
 	loginURL := ""
 	if h.runtime != nil {
 		if v := h.runtime.Load(); v != nil {
 			oidcReady = v.OIDC.IsReady()
+			jellyfinReady = v.Jellyfin.Enabled
 			if oidcReady {
 				loginURL = oidcLoginPath
 			}
 		}
 	}
 	c.JSON(http.StatusOK, dto.AuthConfigDTO{
-		OIDCReady: oidcReady, LoginURL: loginURL,
+		OIDCReady: oidcReady, LoginURL: loginURL, JellyfinReady: jellyfinReady,
 	})
 }
