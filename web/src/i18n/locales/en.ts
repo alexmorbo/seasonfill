@@ -403,6 +403,7 @@ export const en = {
     profile: 'Profile',
     externalServices: 'External services',
     requests: 'Requests',
+    users: 'Users',
     logout: 'Logout',
     changePassword: 'Change password',
     language: 'Language',
@@ -467,6 +468,55 @@ export const en = {
       denied: 'Denied "{{title}}"',
       error: 'Action failed: {{error}}',
     },
+  },
+  users: {
+    title: 'Users',
+    subtitle: 'Manage accounts, roles, and per-user permissions.',
+    empty: 'No users yet.',
+    loadErr: 'Failed to load users',
+    accessDenied: 'This page is available to administrators only.',
+    columns: {
+      username: 'Username',
+      email: 'Email',
+      role: 'Role',
+      authSource: 'Auth source',
+      permissions: {
+        autoApprove: 'Auto-approve',
+        request: 'Request',
+        manageRequests: 'Manage requests',
+        manageUsers: 'Manage users',
+        request4k: 'Request 4K',
+      },
+      lastLogin: 'Last login',
+      actions: 'Actions',
+    },
+    role: {
+      admin: 'Admin',
+      user: 'User',
+    },
+    authSource: {
+      forms: 'Forms',
+      oidc: 'OIDC',
+      jellyfin: 'Jellyfin',
+    },
+    actions: {
+      delete: 'Delete',
+    },
+    deleteDialog: {
+      title: 'Delete user?',
+      body: 'Delete "{{username}}"? This cannot be undone.',
+      submit: 'Delete',
+      cancel: 'Cancel',
+    },
+    toast: {
+      updated: 'User updated',
+      deleted: 'Deleted "{{username}}"',
+      error: 'Action failed: {{error}}',
+      lastAdmin: 'Cannot remove the last administrator.',
+      selfLockout: 'You cannot revoke your own admin access.',
+      invalidRole: 'Invalid role.',
+    },
+    selfRowHint: 'You cannot change this for your own account.',
   },
   shell: {
     brand: {

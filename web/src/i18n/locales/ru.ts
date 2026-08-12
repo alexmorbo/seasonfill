@@ -405,6 +405,7 @@ export const ru: Translations = {
     profile: 'Профиль',
     externalServices: 'Внешние сервисы',
     requests: 'Запросы',
+    users: 'Пользователи',
     logout: 'Выйти',
     changePassword: 'Сменить пароль',
     language: 'Язык',
@@ -469,6 +470,55 @@ export const ru: Translations = {
       denied: 'Отклонено: «{{title}}»',
       error: 'Не удалось выполнить действие: {{error}}',
     },
+  },
+  users: {
+    title: 'Пользователи',
+    subtitle: 'Управление аккаунтами, ролями и правами доступа.',
+    empty: 'Пока нет пользователей.',
+    loadErr: 'Не удалось загрузить пользователей',
+    accessDenied: 'Эта страница доступна только администраторам.',
+    columns: {
+      username: 'Имя пользователя',
+      email: 'Email',
+      role: 'Роль',
+      authSource: 'Источник входа',
+      permissions: {
+        autoApprove: 'Автоодобрение',
+        request: 'Запросы',
+        manageRequests: 'Модерация запросов',
+        manageUsers: 'Управление пользователями',
+        request4k: 'Запрос 4K',
+      },
+      lastLogin: 'Последний вход',
+      actions: 'Действия',
+    },
+    role: {
+      admin: 'Админ',
+      user: 'Пользователь',
+    },
+    authSource: {
+      forms: 'Формы',
+      oidc: 'OIDC',
+      jellyfin: 'Jellyfin',
+    },
+    actions: {
+      delete: 'Удалить',
+    },
+    deleteDialog: {
+      title: 'Удалить пользователя?',
+      body: 'Удалить «{{username}}»? Это действие необратимо.',
+      submit: 'Удалить',
+      cancel: 'Отмена',
+    },
+    toast: {
+      updated: 'Пользователь обновлён',
+      deleted: 'Удалён: «{{username}}»',
+      error: 'Не удалось выполнить действие: {{error}}',
+      lastAdmin: 'Нельзя удалить последнего администратора.',
+      selfLockout: 'Нельзя отозвать собственный доступ администратора.',
+      invalidRole: 'Недопустимая роль.',
+    },
+    selfRowHint: 'Нельзя изменить это для своего аккаунта.',
   },
   shell: {
     brand: {

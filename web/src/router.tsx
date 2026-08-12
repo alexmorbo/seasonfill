@@ -36,6 +36,7 @@ import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
 import { DiscoveryPage } from '@/pages/DiscoveryPage';
 import { Requests } from '@/pages/Requests';
+import { Users } from '@/pages/Users';
 import { NotFound } from '@/pages/NotFound';
 
 export const router = createBrowserRouter([
@@ -65,6 +66,10 @@ export const router = createBrowserRouter([
       // route-level guard wrapper is needed. U-6b will broaden this to a
       // bool-permission once /me surfaces perms.
       { path: '/requests', element: <Requests /> },
+      // /users is gated on the manage_users permission (or role === 'admin').
+      // The <Users /> page self-gates and renders a localized denied panel
+      // otherwise, so no route-level guard wrapper is needed.
+      { path: '/users', element: <Users /> },
       { path: '/calendar',  element: <Calendar /> },
       { path: '/watchdog',  element: <Watchdog /> },
       { path: '/health',    element: <Health /> },

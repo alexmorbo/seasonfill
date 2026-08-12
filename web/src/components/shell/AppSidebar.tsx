@@ -24,6 +24,7 @@ import {
   Layers,
   CalendarDays,
   Inbox,
+  UsersRound,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -65,6 +66,11 @@ const SETUP: Item[] = [
 // once /me surfaces perms (a non-admin "request manager" should also see it);
 // DO NOT add perms to /me for U-6a.
 const REQUESTS_ITEM: Item = { to: "/requests", icon: Inbox, key: "requests" }
+
+// The /users admin page. Gated on manage_users permission OR role === 'admin'
+// here AND the page self-guards. Defensive optional read (permissions may be
+// absent on the /me envelope).
+const USERS_ITEM: Item = { to: "/users", icon: UsersRound, key: "users" }
 
 function useActivityItems(): Item[] {
   const { filter } = useInstanceFilter()
@@ -166,7 +172,12 @@ export function AppSidebar() {
   const initial = (username[0] ?? "?").toUpperCase()
   const activity = useActivityItems()
   const isAdmin = me.data?.role === "admin"
-  const setupItems = isAdmin ? [...SETUP, REQUESTS_ITEM] : SETUP
+  const canManageUsers = me.data?.permissions?.manage_users === true || isAdmin
+  const setupItems = [
+    ...SETUP,
+    ...(isAdmin ? [REQUESTS_ITEM] : []),
+    ...(canManageUsers ? [USERS_ITEM] : []),
+  ]
 
   return (
     <aside className="bg-bg-base border-r border-border-faint flex flex-col min-h-0">
