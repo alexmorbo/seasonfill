@@ -9,17 +9,38 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
+// enrichTestUserID owns the followed_series rows (Ф8-U-5 per-user FK).
+// seedEnrichUser inserts the matching users row so the FK holds. followed_series
+// is global-union here (the refresh/orphan queries never filter by user_id), so
+// a single owner is sufficient.
+const enrichTestUserID int64 = 1
+
+func seedEnrichUser(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&database.UserModel{
+		ID:         uint(enrichTestUserID),
+		Username:   "admin",
+		Role:       admin.RoleAdmin,
+		AvatarMode: admin.AvatarModeAuto,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error)
+}
+
 // seedFollowedSeriesRow inserts one followed_series row (ADR-0015 Ф3 C1).
-// The series(id) FK must already exist (upsert canon first).
+// The series(id) FK must already exist (upsert canon first) and the owner user
+// must already be seeded (seedEnrichUser).
 func seedFollowedSeriesRow(t *testing.T, db *gorm.DB, seriesID domain.SeriesID) {
 	t.Helper()
-	row := database.FollowedSeriesModel{SeriesID: int64(seriesID), CreatedAt: time.Now().UTC()}
+	row := database.FollowedSeriesModel{UserID: enrichTestUserID, SeriesID: int64(seriesID), CreatedAt: time.Now().UTC()}
 	require.NoError(t, db.Create(&row).Error)
 }
 
@@ -39,6 +60,7 @@ func TestSeriesRepository_PickRefreshCandidates_FollowedTier(t *testing.T) {
 
 			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 			d11 := now.Add(-11 * 24 * time.Hour) // > followed TTL (10d), < normal (14d)
+			seedEnrichUser(t, db)
 
 			seedAndUpsert := func(title string, tmdbID int64, syncedAt *time.Time) domain.SeriesID {
 				t.Helper()
@@ -110,6 +132,7 @@ func TestSeriesRepository_PickRefreshCandidates_FollowedTTLBoundary(t *testing.T
 			now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 			d9 := now.Add(-9 * 24 * time.Hour)   // < followed TTL (10d) → fresh
 			d11 := now.Add(-11 * 24 * time.Hour) // > followed TTL (10d) → stale
+			seedEnrichUser(t, db)
 
 			seedAndUpsert := func(title string, tmdbID int64, syncedAt *time.Time) domain.SeriesID {
 				t.Helper()

@@ -31,6 +31,8 @@ func TestSeriesRepository_ListOrphanCandidates_ExcludesFollowed(t *testing.T) {
 			cutoff := now.Add(-90 * 24 * time.Hour)
 			old := now.Add(-120 * 24 * time.Hour) // older than the 90d cutoff
 
+			seedEnrichUser(t, db)
+
 			id, err := repo.Upsert(ctx, sampleCanon("orphan-followed"))
 			require.NoError(t, err)
 			// Force created_at older than the cutoff (Upsert stamps now()).
@@ -45,7 +47,7 @@ func TestSeriesRepository_ListOrphanCandidates_ExcludesFollowed(t *testing.T) {
 
 			// Follow it → excluded from candidates.
 			require.NoError(t, db.Create(&database.FollowedSeriesModel{
-				SeriesID: int64(id), CreatedAt: now,
+				UserID: enrichTestUserID, SeriesID: int64(id), CreatedAt: now,
 			}).Error)
 			ids, err = repo.ListOrphanCandidates(ctx, cutoff, 100)
 			require.NoError(t, err)

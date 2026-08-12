@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -17,6 +18,22 @@ import (
 
 // calNow — deterministic clock anchor; aired = calNow-1d, future = calNow+30d.
 var calNow = time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+
+// calTestUserID owns the followed_series rows (Ф8-U-5 per-user FK). calSeedUser
+// inserts the matching users row so followed_series_user_id_fkey holds.
+const calTestUserID int64 = 1
+
+func calSeedUser(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Create(&database.UserModel{
+		ID:         uint(calTestUserID),
+		Username:   "admin",
+		Role:       admin.RoleAdmin,
+		AvatarMode: admin.AvatarModeAuto,
+		CreatedAt:  calNow,
+		UpdatedAt:  calNow,
+	}).Error)
+}
 
 func calWindow() (time.Time, time.Time) {
 	return calNow.AddDate(0, -3, 0), calNow.AddDate(0, 3, 0)
@@ -38,7 +55,7 @@ func calSeedCache(t *testing.T, db *gorm.DB, instance string, sonarrID int, seri
 func calSeedFollowed(t *testing.T, db *gorm.DB, seriesID domain.SeriesID) {
 	t.Helper()
 	require.NoError(t, db.Create(&database.FollowedSeriesModel{
-		SeriesID: int64(seriesID), CreatedAt: calNow,
+		UserID: calTestUserID, SeriesID: int64(seriesID), CreatedAt: calNow,
 	}).Error)
 }
 
@@ -80,6 +97,7 @@ func TestCalendarRepository_ScopeMilestoneStateMatrix(t *testing.T) {
 			db := backend.NewDB(t)
 			repo := NewCalendarRepository(db)
 			ctx := context.Background()
+			calSeedUser(t, db)
 
 			aired := calNow.Add(-24 * time.Hour)
 			future := calNow.Add(30 * 24 * time.Hour)
@@ -174,6 +192,7 @@ func TestCalendarRepository_WindowBounds(t *testing.T) {
 			db := backend.NewDB(t)
 			repo := NewCalendarRepository(db)
 			ctx := context.Background()
+			calSeedUser(t, db)
 
 			from, to := calWindow()
 			before := from.Add(-24 * time.Hour)
