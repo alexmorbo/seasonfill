@@ -258,10 +258,15 @@ func (h *MeHandler) resolveUser(c *gin.Context) (admin.User, bool) {
 	return user, true
 }
 
-// userAuthMode derives the per-user auth mode from the stored row. An
-// OIDC-provisioned user (has an oidc_subject, or carries no local password
-// hash) is "oidc"; everyone else is "forms".
+// userAuthMode derives the per-user auth mode from the stored row. A
+// Jellyfin-provisioned user (has a jellyfin_user_id) is "jellyfin" — checked
+// FIRST because such a row also has PasswordHash=="" and would otherwise be
+// misclassified as "oidc" by the password branch. An OIDC user (oidc_subject,
+// or no local password) is "oidc"; everyone else is "forms".
 func userAuthMode(u admin.User) string {
+	if u.JellyfinUserID != nil {
+		return "jellyfin"
+	}
 	if u.OIDCSubject != nil || u.PasswordHash == "" {
 		return "oidc"
 	}
@@ -283,6 +288,7 @@ func (h *MeHandler) buildResponse(user admin.User) dto.MeResponse {
 		Email:              user.Email,
 		Role:               user.Role,
 		AuthMode:           mode,
+		AuthSource:         mode,
 		AvatarMode:         user.AvatarMode,
 		AvatarResolvedMode: resolveAvatarMode(user),
 		AvatarHash:         deriveAvatarHash(user),

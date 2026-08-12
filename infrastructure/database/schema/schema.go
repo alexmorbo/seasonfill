@@ -2700,6 +2700,7 @@ func addAuth(s *atlasschema.Schema, d Dialect) {
 //	users_username_uniq          UNIQUE on (username) — login lookup
 //	users_oidc_subject_uniq      UNIQUE on (oidc_subject) PARTIAL WHERE oidc_subject IS NOT NULL
 //	                              (matches legacy 000003 pattern; lets many NULL rows coexist)
+//	users_jellyfin_user_id_uniq  UNIQUE on (jellyfin_user_id) PARTIAL WHERE jellyfin_user_id IS NOT NULL
 //
 // CHECK constraints:
 //
@@ -2740,6 +2741,11 @@ func buildUsersTable(d Dialect) *atlasschema.Table {
 	request4K := atlasschema.NewBoolColumn("request_4k", "boolean").
 		SetNull(false).SetDefault(&atlasschema.Literal{V: "false"})
 
+	// Ф8-U-3 Jellyfin auth source (migration 000057). Appended LAST so
+	// atlas diff emits a trailing ADD COLUMN + CREATE INDEX (mirrors the
+	// U-1 RBAC bool columns' trailing-append discipline).
+	jellyfinUserID := atlasschema.NewNullStringColumn("jellyfin_user_id", "text")
+
 	roleCheck := atlasschema.NewCheck().
 		SetName("users_role_check").
 		SetExpr("role IN ('admin', 'user')")
@@ -2751,7 +2757,8 @@ func buildUsersTable(d Dialect) *atlasschema.Table {
 		AddColumns(id, username, email, passwordHash, oidcSubject,
 			role, avatarMode, preferredLanguage,
 			createdAt, updatedAt, lastLoginAt,
-			autoApprove, requestPerm, manageRequests, manageUsers, request4K).
+			autoApprove, requestPerm, manageRequests, manageUsers, request4K,
+			jellyfinUserID).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
 		AddIndexes(
 			atlasschema.NewUniqueIndex("users_username_uniq").
@@ -2759,6 +2766,9 @@ func buildUsersTable(d Dialect) *atlasschema.Table {
 			partialUniqueIndex(d, "users_oidc_subject_uniq",
 				[]*atlasschema.Column{oidcSubject},
 				"oidc_subject IS NOT NULL"),
+			partialUniqueIndex(d, "users_jellyfin_user_id_uniq",
+				[]*atlasschema.Column{jellyfinUserID},
+				"jellyfin_user_id IS NOT NULL"),
 		).
 		AddChecks(roleCheck, avatarModeCheck)
 }

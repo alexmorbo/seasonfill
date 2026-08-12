@@ -22,6 +22,7 @@ import (
 	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
 )
 
@@ -76,6 +77,25 @@ func (r *fakeAdminRepo) GetByOIDCSubject(_ context.Context, _ string) (admin.Use
 func (r *fakeAdminRepo) CreateFromOIDC(_ context.Context, subject, username, email string) (admin.User, error) {
 	sub := subject
 	u := admin.User{Username: username, OIDCSubject: &sub}
+	if email != "" {
+		e := email
+		u.Email = &e
+	}
+	r.mu.Lock()
+	r.user = &u
+	r.mu.Unlock()
+	return u, nil
+}
+func (r *fakeAdminRepo) GetByJellyfinUserID(_ context.Context, _ string) (admin.User, error) {
+	// Mirror the real UserRepository: return the joined typed error so the
+	// JellyfinLoginUseCase's errors.As(&UserNotFoundError) branch fires and
+	// lazy-creates the user (a plain ports.ErrNotFound sentinel would fail
+	// errors.As and surface as a 500 lookup error).
+	return admin.User{}, errors.Join(&sharedErrors.UserNotFoundError{}, ports.ErrNotFound)
+}
+func (r *fakeAdminRepo) CreateFromJellyfin(_ context.Context, jellyfinUserID, username, email string) (admin.User, error) {
+	jid := jellyfinUserID
+	u := admin.User{Username: username, JellyfinUserID: &jid, Role: admin.RoleUser, Request: true}
 	if email != "" {
 		e := email
 		u.Email = &e

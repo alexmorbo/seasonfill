@@ -1,4 +1,4 @@
-h1:18J0ZqEpKPeKqK62KWLpQTpgEOIatWMVEwYypHjhUCM=
+h1:X3M1Mt9+9aJzr0VzhdaliI3nTkX8bVlF4fWGMcsSqBg=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -111,3 +111,5 @@ h1:18J0ZqEpKPeKqK62KWLpQTpgEOIatWMVEwYypHjhUCM=
 000055_rbac_permissions_and_access.up.sql h1:N6RwZPsZdfklge8v4TIJ2qyMb3zMOeO98ngovtJCXU0=
 000056_requests.down.sql h1:5iCq/852zM28A10BmSlnaI9KuryDy38ziwWZKM5H6NA=
 000056_requests.up.sql h1:rHuoJoYOC1p2pun6+r7cwtgBrtGy2I4cnkv/5oa15AA=
+000057_jellyfin_user_id.down.sql h1:9megLxBN++P4wstqcoWI9OfgeVbG0wC0/h8/qfzj8OU=
+000057_jellyfin_user_id.up.sql h1:/t9qkKN4YpEoVjOHBaicQv1kAw4OXivFjRPBI36FMvI=

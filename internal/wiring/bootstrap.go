@@ -705,6 +705,10 @@ type SubscriberDeps struct {
 	// ClientSecretEnv is the OIDC client_secret env override forwarded to
 	// the AuthMiddlewareSubscriber. From bootCfg.Auth.OIDCClientSecret.
 	ClientSecretEnv string
+	// JellyfinBaseURLEnv is the Jellyfin auth-source base URL forwarded to
+	// the AuthMiddlewareSubscriber. From bootCfg.Auth.JellyfinBaseURL
+	// (env SEASONFILL_JELLYFIN_BASE_URL). Empty => Jellyfin login disabled.
+	JellyfinBaseURLEnv string
 	// MediaDirectApply is the media handler's SetMediaDirect method value,
 	// injected so the MediaDirectSubscriber can push the app_config
 	// media_direct flag on every publish without this package importing the
@@ -785,7 +789,7 @@ func StartSubscribers(
 	subRate := reload.NewGlobalRateLimiterSubscriber(sonarr.GlobalLimiterPtr,
 		reload.DefaultGlobalLimiterFactory, deps.Snap.GlobalRateLimit, log)
 	subAuth := reload.NewAuthMiddlewareSubscriber(deps.AuthRuntimePtr, deps.Engine, log,
-		persistence.RuntimeRepo, deps.ClientSecretEnv)
+		persistence.RuntimeRepo, deps.ClientSecretEnv, deps.JellyfinBaseURLEnv)
 	// Note: NewAuthMiddlewareSubscriber positional order is
 	// (ptr, engine, logger, runtimeRepo, clientSecretEnv) per
 	// infrastructure/reload/auth_middleware_subscriber.go — preserved

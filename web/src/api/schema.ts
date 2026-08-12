@@ -710,6 +710,89 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/auth/jellyfin/login": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Authenticate against Jellyfin and issue a session cookie
+         * @description Validates username + password against the configured Jellyfin
+         *     server. Lazily provisions a role=user requester on first login.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description Jellyfin username and password */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": Record<string, never> | components["schemas"]["dto.LoginRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        /** @description HttpOnly session cookie */
+                        readonly "Set-Cookie"?: string;
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.OKResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Service Unavailable */
+                readonly 503: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/auth/login": {
         readonly parameters: {
             readonly query?: never;
@@ -7535,6 +7618,11 @@ export type components = {
              * @enum {string}
              */
             readonly auth_mode?: DtoMeResponseAuth_mode;
+            /**
+             * @example forms
+             * @enum {string}
+             */
+            readonly auth_source?: DtoMeResponseAuth_source;
             /** @example 0bc83cb571cd1c50ba6f3e8a78ef1346 */
             readonly avatar_hash?: string;
             /**
@@ -9310,7 +9398,13 @@ export enum DtoMePasswordUnavailableResponseReason {
 }
 export enum DtoMeResponseAuth_mode {
     forms = "forms",
-    oidc = "oidc"
+    oidc = "oidc",
+    jellyfin = "jellyfin"
+}
+export enum DtoMeResponseAuth_source {
+    forms = "forms",
+    oidc = "oidc",
+    jellyfin = "jellyfin"
 }
 export enum DtoMeResponseAvatar_mode {
     auto = "auto",

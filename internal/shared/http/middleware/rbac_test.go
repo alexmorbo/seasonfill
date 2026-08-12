@@ -41,6 +41,12 @@ func (s *stubUserRepo) Create(context.Context, admin.User) error { return nil }
 func (s *stubUserRepo) CreateFromOIDC(context.Context, string, string, string) (admin.User, error) {
 	return admin.User{}, nil
 }
+func (s *stubUserRepo) GetByJellyfinUserID(context.Context, string) (admin.User, error) {
+	return admin.User{}, errors.Join(&sharedErrors.UserNotFoundError{}, ports.ErrNotFound)
+}
+func (s *stubUserRepo) CreateFromJellyfin(context.Context, string, string, string) (admin.User, error) {
+	return admin.User{}, nil
+}
 func (s *stubUserRepo) UpdatePassword(context.Context, uint, string) error { return nil }
 func (s *stubUserRepo) UpdateSettings(context.Context, uint, ports.UserSettingsPatch) error {
 	return nil

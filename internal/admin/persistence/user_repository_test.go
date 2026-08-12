@@ -423,3 +423,79 @@ func TestUserRepo_OIDCSubject_PartialUnique(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminUserRepo_GetByJellyfinUserID_Found(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewUserRepository(backend.NewDB(t))
+			ctx := context.Background()
+
+			created, err := repo.CreateFromJellyfin(ctx, "jf-1", "alice", "")
+			require.NoError(t, err)
+
+			got, err := repo.GetByJellyfinUserID(ctx, "jf-1")
+			require.NoError(t, err)
+			assert.Equal(t, created.ID, got.ID)
+			require.NotNil(t, got.JellyfinUserID)
+			assert.Equal(t, "jf-1", *got.JellyfinUserID)
+		})
+	}
+}
+
+func TestAdminUserRepo_GetByJellyfinUserID_NotFound(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewUserRepository(backend.NewDB(t))
+			_, err := repo.GetByJellyfinUserID(context.Background(), "missing-jf")
+			require.Error(t, err)
+			var typedErr *sharedErrors.UserNotFoundError
+			require.True(t, errors.As(err, &typedErr))
+			require.True(t, errors.Is(err, ports.ErrNotFound))
+		})
+	}
+}
+
+func TestAdminUserRepo_CreateFromJellyfin_Defaults(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewUserRepository(backend.NewDB(t))
+			ctx := context.Background()
+
+			created, err := repo.CreateFromJellyfin(ctx, "jf-7", "bob", "")
+			require.NoError(t, err)
+			assert.Equal(t, admin.RoleUser, created.Role)
+			assert.True(t, created.Request, "jellyfin user gets the request permission")
+			assert.False(t, created.AutoApprove)
+			assert.False(t, created.ManageRequests)
+			assert.False(t, created.ManageUsers)
+			assert.False(t, created.Request4K)
+			require.NotNil(t, created.JellyfinUserID)
+			assert.Equal(t, "jf-7", *created.JellyfinUserID)
+			assert.Empty(t, created.PasswordHash, "jellyfin user has no local password hash")
+			assert.Equal(t, admin.AvatarModeAuto, created.AvatarMode)
+			assert.Nil(t, created.Email, "blank email arg leaves email NULL")
+		})
+	}
+}
+
+func TestAdminUserRepo_CreateFromJellyfin_ReservedUsernameFallsBackToID(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewUserRepository(backend.NewDB(t))
+			ctx := context.Background()
+
+			created, err := repo.CreateFromJellyfin(ctx, "jf-9", "api-key", "")
+			require.NoError(t, err)
+			assert.Equal(t, "jf-9", created.Username,
+				"reserved username must fall back to the Jellyfin id")
+		})
+	}
+}

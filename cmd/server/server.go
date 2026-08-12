@@ -841,11 +841,12 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		torrentsyncBundle,
 		schedulerBundle,
 		wiring.SubscriberDeps{
-			Snap:             snap,
-			Engine:           httpServer.Engine(),
-			AuthRuntimePtr:   authRuntimePtr,
-			ClientSecretEnv:  bootCfg.Auth.OIDCClientSecret,
-			MediaDirectApply: mediaHandler.SetMediaDirect,
+			Snap:               snap,
+			Engine:             httpServer.Engine(),
+			AuthRuntimePtr:     authRuntimePtr,
+			ClientSecretEnv:    bootCfg.Auth.OIDCClientSecret,
+			JellyfinBaseURLEnv: bootCfg.Auth.JellyfinBaseURL,
+			MediaDirectApply:   mediaHandler.SetMediaDirect,
 		},
 		log,
 	)

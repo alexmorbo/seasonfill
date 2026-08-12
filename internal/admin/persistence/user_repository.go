@@ -61,6 +61,25 @@ func (r *UserRepository) GetByOIDCSubject(ctx context.Context, subject string) (
 	return modelToUser(m), nil
 }
 
+// GetByJellyfinUserID looks up a user row by immutable Jellyfin User.Id.
+// Returns ports.ErrNotFound (joined with UserNotFoundError) when no row
+// matches — the Jellyfin login usecase falls through to CreateFromJellyfin.
+func (r *UserRepository) GetByJellyfinUserID(ctx context.Context, jellyfinUserID string) (admin.User, error) {
+	var m database.UserModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("jellyfin_user_id = ?", jellyfinUserID).First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return admin.User{}, errors.Join(
+				&sharedErrors.UserNotFoundError{},
+				ports.ErrNotFound,
+			)
+		}
+		return admin.User{}, fmt.Errorf("get user by jellyfin user id: %w", err)
+	}
+	return modelToUser(m), nil
+}
+
 // Create inserts a new user. Populates Role / AvatarMode defaults when
 // the caller leaves them zero; CreatedAt / UpdatedAt are stamped if not
 // pre-populated.
@@ -116,6 +135,46 @@ func (r *UserRepository) CreateFromOIDC(ctx context.Context, subject, username, 
 	m := userToModel(u)
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&m).Error; err != nil {
 		return admin.User{}, fmt.Errorf("create oidc user: %w", err)
+	}
+	return modelToUser(m), nil
+}
+
+// CreateFromJellyfin inserts a new user row keyed on the immutable Jellyfin
+// User.Id. Password hash stays NULL (Jellyfin users authenticate against
+// Jellyfin on every login, never against a local hash). Unlike CreateFromOIDC
+// (admin), a first-seen Jellyfin user is a plain requester: role=user with
+// ONLY the `request` permission (grill-Q4 defaults) — auto_approve /
+// manage_requests / manage_users / request_4k all false. AvatarMode defaults
+// to auto.
+func (r *UserRepository) CreateFromJellyfin(ctx context.Context, jellyfinUserID, username, email string) (admin.User, error) {
+	now := time.Now().UTC()
+	jid := jellyfinUserID
+	// Same reserved-sentinel guard as CreateFromOIDC: a Jellyfin display name
+	// of "api-key" would collide with the automation principal and 401 on /me
+	// forever. Fall back to the opaque, unique Jellyfin id.
+	if username == "api-key" {
+		username = jellyfinUserID
+	}
+	u := admin.User{
+		Username:       username,
+		JellyfinUserID: &jid,
+		Role:           admin.RoleUser,
+		AvatarMode:     admin.AvatarModeAuto,
+		Request:        true,
+		AutoApprove:    false,
+		ManageRequests: false,
+		ManageUsers:    false,
+		Request4K:      false,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if email != "" {
+		e := email
+		u.Email = &e
+	}
+	m := userToModel(u)
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).Create(&m).Error; err != nil {
+		return admin.User{}, fmt.Errorf("create jellyfin user: %w", err)
 	}
 	return modelToUser(m), nil
 }
@@ -228,6 +287,7 @@ func userToModel(u admin.User) database.UserModel {
 		Username:          u.Username,
 		Email:             u.Email,
 		OIDCSubject:       u.OIDCSubject,
+		JellyfinUserID:    u.JellyfinUserID,
 		Role:              u.Role,
 		AvatarMode:        u.AvatarMode,
 		PreferredLanguage: u.PreferredLanguage,
@@ -253,6 +313,7 @@ func modelToUser(m database.UserModel) admin.User {
 		Username:          m.Username,
 		Email:             m.Email,
 		OIDCSubject:       m.OIDCSubject,
+		JellyfinUserID:    m.JellyfinUserID,
 		Role:              m.Role,
 		AvatarMode:        m.AvatarMode,
 		PreferredLanguage: m.PreferredLanguage,

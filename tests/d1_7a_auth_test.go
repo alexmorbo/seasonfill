@@ -48,14 +48,14 @@ func TestD17a_SchemaHasThirtySixTables(t *testing.T) {
 	}
 }
 
-// TestD17a_UsersTableShape — users has 16 cols + single PK on id.
+// TestD17a_UsersTableShape — users has 17 cols + single PK on id.
 func TestD17a_UsersTableShape(t *testing.T) {
 	t.Parallel()
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 			tbl := mustTable(t, schema.Schema(d), "users")
-			if got, want := len(tbl.Columns), 16; got != want {
+			if got, want := len(tbl.Columns), 17; got != want {
 				t.Errorf("users column count = %d, want %d", got, want)
 			}
 			pk := tbl.PrimaryKey

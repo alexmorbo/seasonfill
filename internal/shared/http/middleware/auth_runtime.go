@@ -21,6 +21,7 @@ type AuthRuntime struct {
 	SecureCookie   bool
 	SessionEpoch   int64
 	OIDC           OIDCRuntime
+	Jellyfin       JellyfinRuntime
 }
 
 type OIDCRuntime struct {
@@ -37,6 +38,13 @@ type OIDCRuntime struct {
 // IsReady mirrors runtime.OIDCSnapshot.IsReady on the middleware-side type.
 func (o OIDCRuntime) IsReady() bool {
 	return o.Issuer != "" && o.ClientID != "" && o.ClientSecret != ""
+}
+
+// JellyfinRuntime carries the Jellyfin auth-source config. BaseURL non-empty
+// (Enabled) is the toggle: the login handler 503s when BaseURL == "". Ф8-U-3.
+type JellyfinRuntime struct {
+	BaseURL string
+	Enabled bool
 }
 
 // AuthRuntimePointer is the atomic published by cmd/server to:

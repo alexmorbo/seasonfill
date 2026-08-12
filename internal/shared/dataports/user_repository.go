@@ -14,8 +14,10 @@ type UserRepository interface {
 	Get(ctx context.Context) (admin.User, error)
 	GetByUsername(ctx context.Context, username string) (admin.User, error)
 	GetByOIDCSubject(ctx context.Context, subject string) (admin.User, error)
+	GetByJellyfinUserID(ctx context.Context, jellyfinUserID string) (admin.User, error)
 	Create(ctx context.Context, u admin.User) error
 	CreateFromOIDC(ctx context.Context, subject, username, email string) (admin.User, error)
+	CreateFromJellyfin(ctx context.Context, jellyfinUserID, username, email string) (admin.User, error)
 	UpdatePassword(ctx context.Context, userID uint, hash string) error
 	UpdateSettings(ctx context.Context, userID uint, settings UserSettingsPatch) error
 	UpdateLastLoginAt(ctx context.Context, userID uint, when time.Time) error

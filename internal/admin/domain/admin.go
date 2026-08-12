@@ -22,6 +22,7 @@ type User struct {
 	Email             *string
 	PasswordHash      string
 	OIDCSubject       *string
+	JellyfinUserID    *string
 	Role              string
 	AvatarMode        string
 	PreferredLanguage *string

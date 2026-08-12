@@ -253,6 +253,21 @@ func (r *stubAdminRepo) CreateFromOIDC(_ context.Context, subject, username, ema
 	r.mu.Unlock()
 	return u, nil
 }
+func (r *stubAdminRepo) GetByJellyfinUserID(_ context.Context, _ string) (admin.User, error) {
+	return admin.User{}, ports.ErrNotFound
+}
+func (r *stubAdminRepo) CreateFromJellyfin(_ context.Context, jellyfinUserID, username, email string) (admin.User, error) {
+	jid := jellyfinUserID
+	u := admin.User{Username: username, JellyfinUserID: &jid, Role: admin.RoleUser, Request: true}
+	if email != "" {
+		e := email
+		u.Email = &e
+	}
+	r.mu.Lock()
+	r.user = &u
+	r.mu.Unlock()
+	return u, nil
+}
 func (r *stubAdminRepo) GetByUsername(_ context.Context, name string) (admin.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

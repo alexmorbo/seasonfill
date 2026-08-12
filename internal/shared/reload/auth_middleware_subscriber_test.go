@@ -21,7 +21,7 @@ func TestAuthMiddleware_SessionTTLUpdated(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "", "")
 
 	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
@@ -56,7 +56,7 @@ func TestAuthMiddleware_TrustedProxiesUpdated(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "", "")
 
 	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
@@ -95,7 +95,7 @@ func TestAuthMiddleware_InvalidProxy_FailOpen(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "", "")
 
 	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
@@ -131,7 +131,7 @@ func TestAuthMiddleware_SecureCookieFlipped(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "", "")
 
 	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
@@ -167,7 +167,7 @@ func TestAuthMiddleware_EpochPropagates(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	eng := gin.New()
-	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "")
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "", "")
 
 	ctx := t.Context()
 	bus := runtime.NewBus(slog.Default())
@@ -192,4 +192,38 @@ func TestAuthMiddleware_EpochPropagates(t *testing.T) {
 	v := ptr.Load()
 	require.NotNil(t, v)
 	assert.Equal(t, int64(42), v.SessionEpoch)
+}
+
+// TestAuthMiddleware_JellyfinBaseURLStamped confirms the env-seeded Jellyfin
+// base URL is re-stamped on every apply (BaseURL set, Enabled derived true).
+func TestAuthMiddleware_JellyfinBaseURLStamped(t *testing.T) {
+	t.Parallel()
+	ptr := &middleware.AuthRuntimePointer{}
+	ptr.Store(&middleware.AuthRuntime{SessionTTL: time.Hour})
+
+	gin.SetMode(gin.TestMode)
+	eng := gin.New()
+	sub := NewAuthMiddlewareSubscriber(ptr, eng, slog.Default(), nil, "", "https://jf.example.com/")
+
+	ctx := t.Context()
+	bus := runtime.NewBus(slog.Default())
+	defer bus.Close()
+	ready := make(chan struct{})
+	go sub.Run(ctx, bus, func() { close(ready) })
+	<-ready
+
+	bus.Publish(ctx, runtime.Snapshot{
+		Auth: runtime.AuthSnapshot{SessionTTL: 2 * time.Hour},
+	})
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if v := ptr.Load(); v != nil && v.Jellyfin.BaseURL == "https://jf.example.com" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	v := ptr.Load()
+	require.NotNil(t, v)
+	assert.Equal(t, "https://jf.example.com", v.Jellyfin.BaseURL)
+	assert.True(t, v.Jellyfin.Enabled)
 }

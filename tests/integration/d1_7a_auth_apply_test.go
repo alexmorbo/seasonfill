@@ -79,6 +79,25 @@ func TestD17a_UsersMigrationRoundTrip(t *testing.T) {
 			require.Truef(t, isUniqueViolation(b.name, err),
 				"expected UNIQUE violation on oidc_subject, got %T: %v", err, err)
 
+			// Ф8-U-3 partial UNIQUE: two NULL jellyfin_user_id rows succeed.
+			_, err = db.ExecContext(ctx, insertUserDefaultSQL(b.name),
+				"null-jf-1-"+uuid.NewString()[:8])
+			require.NoError(t, err, "NULL jellyfin_user_id #1 must succeed (partial UNIQUE)")
+			_, err = db.ExecContext(ctx, insertUserDefaultSQL(b.name),
+				"null-jf-2-"+uuid.NewString()[:8])
+			require.NoError(t, err, "NULL jellyfin_user_id #2 must succeed (partial UNIQUE)")
+
+			// Two same non-NULL jellyfin_user_id: second fails.
+			jfID := "jf-" + uuid.NewString()[:8]
+			_, err = db.ExecContext(ctx, insertUserJellyfinUserIDSQL(b.name),
+				"jf-"+uuid.NewString()[:8], jfID)
+			require.NoError(t, err, "first non-NULL jellyfin_user_id must succeed")
+			_, err = db.ExecContext(ctx, insertUserJellyfinUserIDSQL(b.name),
+				"jf-dup-"+uuid.NewString()[:8], jfID)
+			require.Error(t, err, "duplicate non-NULL jellyfin_user_id must fail")
+			require.Truef(t, isUniqueViolation(b.name, err),
+				"expected UNIQUE violation on jellyfin_user_id, got %T: %v", err, err)
+
 			// DOWN — drops 000011, both tables gone.
 			require.NoError(t, m.Down())
 			for _, table := range []string{"users", "user_instance_tags"} {
@@ -191,6 +210,18 @@ func insertUserOIDCSubjectSQL(driver string) string {
 		        VALUES ($1, $2, now())`
 	case "sqlite":
 		return `INSERT INTO users (username, oidc_subject, updated_at)
+		        VALUES (?, ?, CURRENT_TIMESTAMP)`
+	}
+	panic("unknown driver " + driver)
+}
+
+func insertUserJellyfinUserIDSQL(driver string) string {
+	switch driver {
+	case "postgres":
+		return `INSERT INTO users (username, jellyfin_user_id, updated_at)
+		        VALUES ($1, $2, now())`
+	case "sqlite":
+		return `INSERT INTO users (username, jellyfin_user_id, updated_at)
 		        VALUES (?, ?, CURRENT_TIMESTAMP)`
 	}
 	panic("unknown driver " + driver)

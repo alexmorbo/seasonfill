@@ -2197,7 +2197,17 @@
                     "auth_mode": {
                         "enum": [
                             "forms",
-                            "oidc"
+                            "oidc",
+                            "jellyfin"
+                        ],
+                        "example": "forms",
+                        "type": "string"
+                    },
+                    "auth_source": {
+                        "enum": [
+                            "forms",
+                            "oidc",
+                            "jellyfin"
                         ],
                         "example": "forms",
                         "type": "string"
@@ -6321,6 +6331,95 @@
                     }
                 },
                 "summary": "Public auth-config bootstrap",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
+        "/auth/jellyfin/login": {
+            "post": {
+                "description": "Validates username + password against the configured Jellyfin\nserver. Lazily provisions a role=user requester on first login.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/dto.LoginRequest",
+                                        "summary": "body",
+                                        "description": "Jellyfin username and password"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Jellyfin username and password",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.OKResponse"
+                                }
+                            }
+                        },
+                        "description": "OK",
+                        "headers": {
+                            "Set-Cookie": {
+                                "description": "HttpOnly session cookie",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "summary": "Authenticate against Jellyfin and issue a session cookie",
                 "tags": [
                     "auth"
                 ]

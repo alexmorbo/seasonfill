@@ -135,7 +135,7 @@ func TestD8_Closure_NoLegacyTables(t *testing.T) {
 // lower version pinned), plus the "previous run crashed mid-Up"
 // failure mode (dirty=true, blocks subsequent migrations).
 func TestD8_Closure_SchemaMigrationsHeadVersion(t *testing.T) {
-	const wantHead = 56
+	const wantHead = 57
 
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {

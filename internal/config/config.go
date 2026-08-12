@@ -368,6 +368,7 @@ type AuthBootstrap struct {
 	WebPasswordHash  string
 	WebEmail         string
 	OIDCClientSecret string
+	JellyfinBaseURL  string
 }
 
 // MediaStoreConfig is the bootstrap-only block for the local media
@@ -437,6 +438,7 @@ func FromEnv() (*Bootstrap, error) {
 			WebPasswordHash:  os.Getenv("SEASONFILL_WEB_PASSWORD_HASH"),
 			WebEmail:         os.Getenv("SEASONFILL_WEB_EMAIL"),
 			OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
+			JellyfinBaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("SEASONFILL_JELLYFIN_BASE_URL")), "/"),
 		},
 		MediaStore: MediaStoreConfig{
 			Mode: getenv("SEASONFILL_MEDIA_STORE_MODE", "off"),

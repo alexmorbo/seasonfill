@@ -236,6 +236,11 @@ type UserModel struct {
 	ManageRequests bool `gorm:"column:manage_requests;not null"`
 	ManageUsers    bool `gorm:"column:manage_users;not null"`
 	Request4K      bool `gorm:"column:request_4k;not null"`
+	// Ф8-U-3 Jellyfin auth source (migration 000057). Immutable Jellyfin
+	// User.Id; partial-unique so many NULL rows (forms/oidc users) coexist.
+	// Mirrors OIDCSubject exactly. Appended LAST so atlas diff emits one
+	// trailing ADD COLUMN + CREATE INDEX.
+	JellyfinUserID *string `gorm:"column:jellyfin_user_id;type:text;uniqueIndex:users_jellyfin_user_id_uniq,where:jellyfin_user_id IS NOT NULL"`
 }
 
 func (UserModel) TableName() string { return "users" }

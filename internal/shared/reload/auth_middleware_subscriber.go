@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -14,11 +15,12 @@ import (
 )
 
 type AuthMiddlewareSubscriber struct {
-	ptr             *middleware.AuthRuntimePointer
-	engine          *gin.Engine
-	logger          *slog.Logger
-	runtimeRepo     ports.RuntimeConfigRepository
-	clientSecretEnv string
+	ptr                *middleware.AuthRuntimePointer
+	engine             *gin.Engine
+	logger             *slog.Logger
+	runtimeRepo        ports.RuntimeConfigRepository
+	clientSecretEnv    string
+	jellyfinBaseURLEnv string
 }
 
 func NewAuthMiddlewareSubscriber(
@@ -27,6 +29,7 @@ func NewAuthMiddlewareSubscriber(
 	logger *slog.Logger,
 	runtimeRepo ports.RuntimeConfigRepository,
 	clientSecretEnv string,
+	jellyfinBaseURLEnv string,
 ) *AuthMiddlewareSubscriber {
 	if logger == nil {
 		logger = slog.Default()
@@ -34,6 +37,7 @@ func NewAuthMiddlewareSubscriber(
 	return &AuthMiddlewareSubscriber{
 		ptr: ptr, engine: engine, logger: logger,
 		runtimeRepo: runtimeRepo, clientSecretEnv: clientSecretEnv,
+		jellyfinBaseURLEnv: strings.TrimRight(strings.TrimSpace(jellyfinBaseURLEnv), "/"),
 	}
 }
 
@@ -58,6 +62,10 @@ func (s *AuthMiddlewareSubscriber) apply(ctx context.Context, snap runtime.Snaps
 			AllowedGroups: append([]string(nil), snap.Auth.OIDC.AllowedGroups...),
 			GroupsClaim:   snap.Auth.OIDC.GroupsClaim,
 		},
+	}
+	want.Jellyfin = middleware.JellyfinRuntime{
+		BaseURL: s.jellyfinBaseURLEnv,
+		Enabled: s.jellyfinBaseURLEnv != "",
 	}
 	prev := s.ptr.Load()
 	if prev != nil && authRuntimeEqual(prev, &want) {
@@ -115,6 +123,9 @@ func authRuntimeEqual(a, b *middleware.AuthRuntime) bool {
 		return false
 	}
 	if !reflect.DeepEqual(a.OIDC.AllowedGroups, b.OIDC.AllowedGroups) {
+		return false
+	}
+	if a.Jellyfin != b.Jellyfin {
 		return false
 	}
 	return true

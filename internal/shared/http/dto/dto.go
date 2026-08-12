@@ -1036,7 +1036,8 @@ type MeResponse struct {
 	Username           string     `json:"username"           example:"admin"`
 	Email              *string    `json:"email"              example:"admin@example.com"`
 	Role               string     `json:"role"               example:"admin" enums:"admin,user"`
-	AuthMode           string     `json:"auth_mode"          example:"forms" enums:"forms,oidc"`
+	AuthMode           string     `json:"auth_mode"          example:"forms" enums:"forms,oidc,jellyfin"`
+	AuthSource         string     `json:"auth_source"        example:"forms" enums:"forms,oidc,jellyfin"`
 	AvatarMode         string     `json:"avatar_mode"        example:"auto" enums:"auto,monogram,gravatar"`
 	AvatarResolvedMode string     `json:"avatar_resolved_mode" example:"gravatar" enums:"gravatar,monogram"`
 	AvatarHash         string     `json:"avatar_hash"        example:"0bc83cb571cd1c50ba6f3e8a78ef1346"`

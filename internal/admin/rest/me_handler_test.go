@@ -93,6 +93,20 @@ func (r *fakeMeRepo) CreateFromOIDC(_ context.Context, subject, username, email 
 	return r.seed(u), nil
 }
 
+func (r *fakeMeRepo) GetByJellyfinUserID(_ context.Context, _ string) (admin.User, error) {
+	return admin.User{}, ports.ErrNotFound
+}
+
+func (r *fakeMeRepo) CreateFromJellyfin(_ context.Context, jellyfinUserID, username, email string) (admin.User, error) {
+	jid := jellyfinUserID
+	u := admin.User{Username: username, JellyfinUserID: &jid, Role: admin.RoleUser, Request: true}
+	if email != "" {
+		e := email
+		u.Email = &e
+	}
+	return r.seed(u), nil
+}
+
 func (r *fakeMeRepo) UpdatePassword(_ context.Context, userID uint, hash string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -209,6 +223,32 @@ func TestMe_Get_OIDCModeWithSubject(t *testing.T) {
 	assert.Equal(t, "https://kc.example.com/realms/lab/account", *body.IDPProfileURL)
 	require.NotNil(t, body.OIDCSubject)
 	assert.Equal(t, "kc-sub-123", *body.OIDCSubject)
+}
+
+func TestMe_Get_JellyfinMode(t *testing.T) {
+	t.Parallel()
+	repo := newFakeMeRepo()
+	jid := "jf-42"
+	repo.seed(admin.User{
+		Username:       "alice",
+		Role:           admin.RoleUser,
+		AvatarMode:     admin.AvatarModeAuto,
+		JellyfinUserID: &jid,
+		Request:        true,
+	})
+	r := setupMe(t, repo, &middleware.AuthRuntime{}, "alice")
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/me", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body dto.MeResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "jellyfin", body.AuthMode)
+	assert.Equal(t, "jellyfin", body.AuthSource)
+	assert.Nil(t, body.IDPProfileURL)
+	assert.Nil(t, body.OIDCSubject)
 }
 
 func TestMe_Get_AvatarAutoNoEmailFallsToMonogram(t *testing.T) {

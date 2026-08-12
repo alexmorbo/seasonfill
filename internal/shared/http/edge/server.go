@@ -269,6 +269,18 @@ func NewServer(
 		api.GET("/auth/oidc/start", oidcHandler.Start)
 		api.GET("/auth/oidc/callback", oidcHandler.Callback)
 
+		// Ф8-U-3 — Jellyfin username/password auth source. PUBLIC route
+		// (no RequireAuth). The usecase needs only the users repo; the
+		// jellyfin.Client is built per request by the handler from the live
+		// AuthRuntime base URL (SEASONFILL_JELLYFIN_BASE_URL, threaded via the
+		// auth reload subscriber). Empty base URL => 503 at request time.
+		jellyfinUC := auth.NewJellyfinLoginUseCase(adminRepo).WithLogger(logger)
+		jellyfinHandler := adminrest.NewJellyfinHandler(
+			jellyfinUC, authHandler.AuthRuntime(), sessionKey,
+			cfg.Auth.SessionTTL, cfg.Auth.SecureCookie, logger,
+		)
+		api.POST("/auth/jellyfin/login", jellyfinHandler.Login)
+
 		guarded := api.Group("")
 		guarded.Use(middleware.RequireAuthWithRuntime(
 			cfg.Auth.APIKey, sessionKey, authHandler.AuthRuntime(),
