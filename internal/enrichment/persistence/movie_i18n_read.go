@@ -31,23 +31,27 @@ func NewMovieI18nReadRepository(db *gorm.DB) *MovieI18nReadRepository {
 	return &MovieI18nReadRepository{db: db}
 }
 
-// Get resolves the localized row for (movieID, lang) via the never-empty ladder:
-// requested language → en-US → any-available (language ASC), restricted to rows
-// carrying a NON-EMPTY poster_asset (S-E2/E3 invariant #2 — a canon-drop empty
-// row must never shadow a poster-bearing localized row). ports.ErrNotFound when
-// NO poster-bearing row exists in any language (the usecase then degrades to
-// canon). Mirrors SeriesMediaTextsRepository.GetPosterAnyLang.
+// Get resolves the localized row for (movieID, lang) via a PER-FIELD ladder
+// (requested language → en-US → any-available, language ASC). Candidates are
+// restricted to rows carrying a NON-EMPTY poster_asset (S-E2/E3 invariant #2 — a
+// canon-drop empty row must never shadow a poster-bearing localized row); among
+// those, EACH field (title, overview, tagline, poster, backdrop) is resolved
+// independently, so a poster-bearing ru-RU stub with an EMPTY overview no longer
+// shadows the good en-US overview (the localized title still wins). ports.ErrNotFound
+// when NO poster-bearing row exists in any language (the usecase then degrades to
+// canon). Mirrors the per-column any-lang philosophy of
+// SeriesMediaTextsRepository.GetPosterAnyLang/GetBackdropAnyLang.
 func (r *MovieI18nReadRepository) Get(ctx context.Context, movieID domain.MovieID, lang string) (MovieI18nRow, error) {
 	if lang == "" {
 		lang = fallbackLanguage
 	}
-	const q = "SELECT mi.title AS title, mi.overview AS overview, mi.tagline AS tagline, " +
-		"mi.poster_asset AS poster_asset, mi.backdrop_asset AS backdrop_asset " +
+	const q = "SELECT mi.language AS language, mi.title AS title, mi.overview AS overview, " +
+		"mi.tagline AS tagline, mi.poster_asset AS poster_asset, mi.backdrop_asset AS backdrop_asset " +
 		"FROM movie_i18n mi " +
 		"WHERE mi.movie_id = ? AND mi.poster_asset IS NOT NULL AND mi.poster_asset <> '' " +
-		"ORDER BY CASE WHEN mi.language = ? THEN 2 WHEN mi.language = ? THEN 1 ELSE 0 END DESC, mi.language ASC " +
-		"LIMIT 1"
-	var row struct {
+		"ORDER BY mi.language ASC"
+	var rows []struct {
+		Language      string  `gorm:"column:language"`
 		Title         *string `gorm:"column:title"`
 		Overview      *string `gorm:"column:overview"`
 		Tagline       *string `gorm:"column:tagline"`
@@ -55,22 +59,50 @@ func (r *MovieI18nReadRepository) Get(ctx context.Context, movieID domain.MovieI
 		BackdropAsset *string `gorm:"column:backdrop_asset"`
 	}
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Raw(q, int64(movieID), lang, fallbackLanguage).Scan(&row).Error; err != nil {
+		Raw(q, int64(movieID)).Scan(&rows).Error; err != nil {
 		return MovieI18nRow{}, fmt.Errorf("get movie_i18n: %w", err)
 	}
-	// Raw+Scan yields no ErrRecordNotFound: a no-match leaves the struct zero.
-	// The WHERE guarantees a matched row has a non-empty poster, so a nil
-	// PosterAsset uniquely means "no poster-bearing row in any language".
-	if row.PosterAsset == nil {
+	// Every candidate row carries a non-empty poster (WHERE clause), so an empty
+	// slice uniquely means "no poster-bearing row in any language".
+	if len(rows) == 0 {
 		return MovieI18nRow{}, ports.ErrNotFound
 	}
-	return MovieI18nRow{
-		Title:    row.Title,
-		Overview: row.Overview,
-		Tagline:  row.Tagline,
-		Poster:   row.PosterAsset,
-		Backdrop: row.BackdropAsset,
-	}, nil
+
+	langRank := func(l string) int {
+		switch l {
+		case lang:
+			return 2
+		case fallbackLanguage:
+			return 1
+		default:
+			return 0
+		}
+	}
+	// Per-field best-rank resolution. Rows are ordered language ASC, so at equal
+	// rank the first-seen (lowest language) wins — matching the old CASE…,language
+	// ASC tiebreak. A non-empty value from a strictly higher-ranked row overwrites,
+	// so each field falls through the ladder independently.
+	var out MovieI18nRow
+	titleRank, overviewRank, taglineRank, posterRank, backdropRank := -1, -1, -1, -1, -1
+	pick := func(field **string, curRank *int, val *string, rank int) {
+		if val == nil || *val == "" {
+			return
+		}
+		if rank > *curRank {
+			*curRank = rank
+			*field = val
+		}
+	}
+	for i := range rows {
+		row := rows[i]
+		rank := langRank(row.Language)
+		pick(&out.Title, &titleRank, row.Title, rank)
+		pick(&out.Overview, &overviewRank, row.Overview, rank)
+		pick(&out.Tagline, &taglineRank, row.Tagline, rank)
+		pick(&out.Poster, &posterRank, row.PosterAsset, rank)
+		pick(&out.Backdrop, &backdropRank, row.BackdropAsset, rank)
+	}
+	return out, nil
 }
 
 // ListTitlesByTMDBIDsWithFallback maps tmdb_id → localized non-empty title via

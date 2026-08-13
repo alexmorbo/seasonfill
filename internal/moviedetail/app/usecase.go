@@ -91,8 +91,12 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string) (
 			if row.Title != nil && *row.Title != "" {
 				d.Title = *row.Title
 			}
-			d.Overview = row.Overview
-			d.Tagline = row.Tagline
+			if row.Overview != nil && *row.Overview != "" {
+				d.Overview = row.Overview
+			}
+			if row.Tagline != nil && *row.Tagline != "" {
+				d.Tagline = row.Tagline
+			}
 			if row.Poster != nil {
 				d.Poster = row.Poster
 			}

@@ -178,3 +178,49 @@ func TestUseCase_Get_EmptyLangSkipsI18n(t *testing.T) {
 	assert.Equal(t, "Canon", d.Title)
 	assert.Empty(t, d.Degraded, "empty lang skips i18n entirely, no degrade")
 }
+
+func TestUseCase_Get_PerFieldI18nSurfaced(t *testing.T) {
+	t.Parallel()
+	canon := movie.Canon{ID: domain.MovieID(42), Title: "Canon Title", PosterAsset: new("/canon.jpg")}
+	uc := New(
+		fakeCanon{canon: canon},
+		// Reader resolves per-field: ru-RU title, but overview/tagline fell through to en-US.
+		fakeI18n{row: enrichpersistence.MovieI18nRow{
+			Title:    new("Русский"),
+			Overview: new("en overview"),
+			Tagline:  new("en tagline"),
+			Poster:   new("/ru-poster.jpg"),
+		}},
+		fakeCollection{},
+		fakeMembership{},
+	)
+
+	d, err := uc.Get(context.Background(), domain.TMDBID(1), "ru-RU")
+	require.NoError(t, err)
+	assert.Equal(t, "Русский", d.Title)
+	require.NotNil(t, d.Overview)
+	assert.Equal(t, "en overview", *d.Overview)
+	require.NotNil(t, d.Tagline)
+	assert.Equal(t, "en tagline", *d.Tagline)
+	assert.Empty(t, d.Degraded)
+}
+
+func TestUseCase_Get_EmptyI18nOverviewDoesNotShadow(t *testing.T) {
+	t.Parallel()
+	canon := movie.Canon{ID: domain.MovieID(42), Title: "Canon Title", PosterAsset: new("/canon.jpg")}
+	// Belt-and-suspenders: even if a reader ever returned an empty-string overview,
+	// the usecase guard must not surface it (d.Overview stays nil, no shadow).
+	empty := ""
+	uc := New(
+		fakeCanon{canon: canon},
+		fakeI18n{row: enrichpersistence.MovieI18nRow{Title: new("Русский"), Overview: &empty, Tagline: &empty, Poster: new("/ru.jpg")}},
+		fakeCollection{},
+		fakeMembership{},
+	)
+
+	d, err := uc.Get(context.Background(), domain.TMDBID(1), "ru-RU")
+	require.NoError(t, err)
+	assert.Equal(t, "Русский", d.Title, "localized title still wins")
+	assert.Nil(t, d.Overview, "empty overview must not be surfaced (no shadow)")
+	assert.Nil(t, d.Tagline, "empty tagline must not be surfaced")
+}
