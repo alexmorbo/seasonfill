@@ -372,12 +372,23 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// Phase 11 — webhook reconcile safety net (041d). The closure
 	// over holder.Load is reload-aware: every publish swaps the inner
 	// map so newly-added instances appear in the next tick.
+	//
+	// R-6: also feed the radarr holder so radarr webhooks are proactively
+	// (re)installed on boot + on the background ticker instead of only
+	// healing lazily on GET /webhooks/status. Guard the whole radarr bundle —
+	// a sonarr-only deployment has no RadarrSync; WithRadarrInstances(nil)
+	// keeps the loop sonarr-only. RadarrHolder.Load is reload-aware, same as
+	// the sonarr holder.
+	var radarrInstancesLoad loops.WebhookReconcileRadarrInstanceLister
+	if scanBundle.RadarrSync != nil && scanBundle.RadarrSync.RadarrHolder != nil {
+		radarrInstancesLoad = scanBundle.RadarrSync.RadarrHolder.Load
+	}
 	webhookReconcileLoopVal := loops.NewWebhookReconcileLoop(
 		webhookReconciler,
 		webhookStatusCache,
 		holder.Load,
 		log,
-	)
+	).WithRadarrInstances(radarrInstancesLoad)
 	lifecycle.Go(rootCtx, "webhook-reconcile", func(ctx context.Context) {
 		webhookReconcileLoopVal.Run(ctx)
 	})

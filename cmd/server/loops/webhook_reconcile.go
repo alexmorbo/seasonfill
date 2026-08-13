@@ -33,16 +33,25 @@ type WebhookReconcileStatusReader interface {
 
 type WebhookReconcileInstanceLister func() map[string]scan.Instance
 
+// WebhookReconcileRadarrInstanceLister is the radarr twin of
+// WebhookReconcileInstanceLister (R-6). Production type is
+// *adapters.RadarrInstanceMapHolder.Load; nil disables the radarr walk so a
+// sonarr-only / minimal deployment keeps the exact legacy behavior.
+type WebhookReconcileRadarrInstanceLister func() map[string]scan.RadarrInstance
+
 // WebhookReconcileLoop is the safety-net background reconciler. Boot
 // once; Run(ctx) blocks until ctx is cancelled. Each tick walks the
-// instance map and calls Reconcile per-instance (3 s timeout), skipping
+// instance map(s) and calls Reconcile per-instance (3 s timeout), skipping
 // fresh / disabled / backoff'd entries. Errors are logged WARN and
-// swallowed — the loop must NEVER fail-fast.
+// swallowed — the loop must NEVER fail-fast. R-6: after the sonarr walk it
+// walks the optional radarr map so radarr webhooks are proactively
+// (re)installed instead of only healing lazily on GET /webhooks/status.
 type WebhookReconcileLoop struct {
-	reconciler WebhookReconcileReconciler
-	cache      WebhookReconcileStatusReader
-	instances  WebhookReconcileInstanceLister
-	log        *slog.Logger
+	reconciler      WebhookReconcileReconciler
+	cache           WebhookReconcileStatusReader
+	instances       WebhookReconcileInstanceLister
+	radarrInstances WebhookReconcileRadarrInstanceLister // R-6: optional; nil → sonarr-only
+	log             *slog.Logger
 
 	tickIntervalNS atomic.Int64 // nanoseconds; <=0 → use default
 	wake           chan struct{}
@@ -68,6 +77,14 @@ func NewWebhookReconcileLoop(
 		now:        func() time.Time { return time.Now().UTC() },
 	}
 	l.tickIntervalNS.Store(int64(defaultWebhookReconcileTickInterval))
+	return l
+}
+
+// WithRadarrInstances registers the radarr instance source (R-6). Chainable so
+// it composes with NewWebhookReconcileLoop at the call site; nil is tolerated
+// (radarr walk stays disabled → sonarr-only behavior).
+func (l *WebhookReconcileLoop) WithRadarrInstances(f WebhookReconcileRadarrInstanceLister) *WebhookReconcileLoop {
+	l.radarrInstances = f
 	return l
 }
 
@@ -134,19 +151,53 @@ func (l *WebhookReconcileLoop) Run(ctx context.Context) {
 }
 
 // iterate is one full tick. NEVER propagates errors — the loop must
-// survive arbitrary Sonarr / DB failures.
+// survive arbitrary Sonarr / Radarr / DB failures. The sonarr walk is
+// unchanged; the radarr walk (R-6) is appended and runs only when a radarr
+// lister was registered.
 func (l *WebhookReconcileLoop) iterate(ctx context.Context) {
-	if l.instances == nil {
-		return
-	}
-	all := l.instances()
 	tick := l.TickInterval()
 	if tick <= 0 {
 		tick = defaultWebhookReconcileTickInterval
 	}
 	now := l.now()
 
-	for name, inst := range all {
+	if l.instances != nil {
+		all := l.instances()
+		for name, inst := range all {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			snap := inst.Config
+			instName := domain.InstanceName(name)
+			if !snap.WebhookInstallEnabled {
+				observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultSkipped)
+				continue
+			}
+
+			if l.skipByCache(name, now, tick) {
+				observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultSkipped)
+				continue
+			}
+
+			l.reconcileOne(ctx, name, now)
+		}
+	}
+
+	l.iterateRadarr(ctx, now, tick)
+}
+
+// iterateRadarr is the radarr twin of the sonarr walk (R-6). Same
+// enabled/fresh/backoff gating; Reconcile auto-dispatches to the reconciler's
+// radarr branch by instance-name (the reconciler's sonarr lookup misses, its
+// radarrLookup hits). No-op when no radarr lister was registered.
+func (l *WebhookReconcileLoop) iterateRadarr(ctx context.Context, now time.Time, tick time.Duration) {
+	if l.radarrInstances == nil {
+		return
+	}
+	for name, inst := range l.radarrInstances() {
 		select {
 		case <-ctx.Done():
 			return
@@ -205,7 +256,7 @@ func (l *WebhookReconcileLoop) reconcileOne(ctx context.Context, name string, st
 	case err == nil:
 		observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultOK)
 	case errors.Is(err, webhookinstall.ErrUnknownInstance):
-		// Deletion race between l.instances() and Reconcile.
+		// Deletion race between the instance lister and Reconcile.
 		observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultSkipped)
 	default:
 		observability.IncWebhookReconcileResult(instName, observability.WebhookReconcileResultError)
