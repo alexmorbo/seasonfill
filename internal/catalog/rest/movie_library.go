@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -28,12 +29,22 @@ var (
 	errMovieCursor    = errors.New("cursor must be a non-negative integer")
 )
 
+// MovieTitleLocalizer batch-loads localized movie titles by the never-empty
+// ladder (requested → en-US → any). Production impl:
+// *enrichpersistence.MovieI18nReadRepository.ListTitlesByTMDBIDsWithFallback.
+// nil-OK: an unwired localizer or a blank ?lang keeps canon titles
+// (pre-M-FIX-2 behavior).
+type MovieTitleLocalizer interface {
+	ListTitlesByTMDBIDsWithFallback(ctx context.Context, tmdbIDs []int, lang string) (map[int]string, error)
+}
+
 // MovieLibraryHandler serves GET /api/v1/movies — the global movie library
 // list (Ф6-R-6b), the movie analog of the series library list.
 type MovieLibraryHandler struct {
-	repo     ports.MovieLibraryRepository
-	resolver *media.Resolver // nil-OK: raw TMDB paths flow through unchanged
-	logger   *slog.Logger
+	repo      ports.MovieLibraryRepository
+	resolver  *media.Resolver     // nil-OK: raw TMDB paths flow through unchanged
+	localizer MovieTitleLocalizer // nil-OK: canon titles kept when unwired
+	logger    *slog.Logger
 }
 
 // NewMovieLibraryHandler constructs the handler. repo must be non-nil in
@@ -45,6 +56,13 @@ func NewMovieLibraryHandler(repo ports.MovieLibraryRepository, resolver *media.R
 		logger = slog.Default()
 	}
 	return &MovieLibraryHandler{repo: repo, resolver: resolver, logger: logger}
+}
+
+// WithLocalizer wires the ?lang title localizer. nil-OK — unwired keeps canon
+// titles. Returns the handler for chaining.
+func (h *MovieLibraryHandler) WithLocalizer(l MovieTitleLocalizer) *MovieLibraryHandler {
+	h.localizer = l
+	return h
 }
 
 // List returns the deduplicated movie library page.
@@ -62,6 +80,7 @@ func NewMovieLibraryHandler(repo ports.MovieLibraryRepository, resolver *media.R
 // @Param       q      query     string false "case-insensitive title substring"
 // @Param       limit  query     int    false "page size (1-100, default 24)"
 // @Param       cursor query     string false "opaque offset cursor from a prior next_cursor"
+// @Param       lang   query     string false "BCP-47 UI language for localized titles (e.g. ru-RU)"
 // @Success     200    {object}  dto.MovieLibraryList
 // @Failure     400    {object}  dto.ErrorResponse
 // @Failure     401    {object}  dto.ErrorResponse
@@ -136,6 +155,8 @@ func (h *MovieLibraryHandler) List(c *gin.Context) {
 		})
 	}
 
+	h.localizeMovieTitles(ctx, c.Query("lang"), items)
+
 	hasMore := offset+len(rows) < total
 	var nextCursor string
 	if hasMore {
@@ -147,6 +168,42 @@ func (h *MovieLibraryHandler) List(c *gin.Context) {
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
 	})
+}
+
+// localizeMovieTitles overrides item titles with the caller's requested language
+// in a single batch lookup. No-op (zero DB calls) when the localizer is unwired,
+// lang is blank, or the page is empty — preserving canon behavior. Items with a
+// map miss keep their canon title. Mirrors localizeSeriesCacheTitles.
+func (h *MovieLibraryHandler) localizeMovieTitles(ctx context.Context, lang string, items []dto.MovieLibraryItem) {
+	if h.localizer == nil || strings.TrimSpace(lang) == "" || len(items) == 0 {
+		return
+	}
+	ids := make([]int, 0, len(items))
+	seen := make(map[int]struct{}, len(items))
+	for _, it := range items {
+		if it.TMDBID == 0 {
+			continue
+		}
+		if _, ok := seen[it.TMDBID]; ok {
+			continue
+		}
+		seen[it.TMDBID] = struct{}{}
+		ids = append(ids, it.TMDBID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	titles, err := h.localizer.ListTitlesByTMDBIDsWithFallback(ctx, ids, lang)
+	if err != nil {
+		h.logger.WarnContext(ctx, "movie_library_localize_failed",
+			slog.String("lang", lang), slog.String("error", err.Error()))
+		return
+	}
+	for i := range items {
+		if t, ok := titles[items[i].TMDBID]; ok {
+			items[i].Title = t
+		}
+	}
 }
 
 func parseMovieLibraryState(raw string) (ports.MovieLibraryState, error) {

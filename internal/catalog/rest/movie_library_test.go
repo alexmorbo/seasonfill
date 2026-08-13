@@ -217,3 +217,56 @@ func TestMovieLibraryHandler_List_ResolvesPoster(t *testing.T) {
 		assert.Equal(t, rawPoster, *body.Items[0].Poster)
 	})
 }
+
+type fakeMovieTitleLocalizer struct {
+	byTMDB  map[int]string
+	gotLang string
+	gotIDs  []int
+}
+
+func (f *fakeMovieTitleLocalizer) ListTitlesByTMDBIDsWithFallback(_ context.Context, tmdbIDs []int, lang string) (map[int]string, error) {
+	f.gotLang = lang
+	f.gotIDs = tmdbIDs
+	return f.byTMDB, nil
+}
+
+// TestMovieLibraryHandler_List_LocalizesTitles asserts ?lang overrides canon
+// titles via the localizer; a tmdb id absent from the map keeps its canon title;
+// a blank ?lang bypasses the localizer entirely.
+func TestMovieLibraryHandler_List_LocalizesTitles(t *testing.T) {
+	repo := &fakeMovieLibraryRepo{rows: []ports.MovieLibraryRow{
+		{TMDBID: 693134, Title: "Dune: Part Two", Instances: []string{}},
+		{TMDBID: 438631, Title: "Dune", Instances: []string{}},
+	}, total: 2}
+	loc := &fakeMovieTitleLocalizer{byTMDB: map[int]string{693134: "Дюна: Часть вторая"}}
+	h := NewMovieLibraryHandler(repo, nil, slog.Default()).WithLocalizer(loc)
+
+	t.Run("lang localizes present ids, keeps canon for misses", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/movies?lang=ru-RU", nil)
+		h.List(c)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var body dto.MovieLibraryList
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.Len(t, body.Items, 2)
+		assert.Equal(t, "ru-RU", loc.gotLang)
+		byID := map[int]string{}
+		for _, it := range body.Items {
+			byID[it.TMDBID] = it.Title
+		}
+		assert.Equal(t, "Дюна: Часть вторая", byID[693134], "localized")
+		assert.Equal(t, "Dune", byID[438631], "map miss keeps canon")
+	})
+
+	t.Run("blank lang bypasses the localizer", func(t *testing.T) {
+		loc.gotIDs = nil
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/movies", nil)
+		h.List(c)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Nil(t, loc.gotIDs, "no localizer call for blank ?lang")
+	})
+}

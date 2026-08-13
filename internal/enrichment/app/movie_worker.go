@@ -20,6 +20,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -129,13 +130,34 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 
 	now := w.deps.Clock()
 
-	// Localized base-language row (nil-OK). resp.Title/Overview/Tagline are
-	// already localized to w.baseLang (GetMovie requested language=baseLang).
+	// Localized rows — one per supported UI language (mirror of PersonWorker's
+	// per-language biography fan-out, person_worker.go:201). The base language
+	// uses the response root (resp.Title/Overview/Tagline, already localized to
+	// w.baseLang); every OTHER language is pulled from resp.Translations
+	// (append_to_response=translations), so ALL supported languages are populated
+	// from this SINGLE GetMovie fetch — no extra per-language TMDB round-trips.
+	// The canon poster/backdrop are language-independent for movies (no per-lang
+	// image path on this route), so every row carries them — keeping the reader's
+	// poster-non-empty ladder able to select a localized row (S-E2/E3 invariant #2).
 	if w.deps.I18n != nil {
-		if err := w.deps.I18n.UpsertEnriched(ctx, canon.ID, w.baseLang,
-			resp.Title, resp.Overview, resp.Tagline,
-			mapped.PosterAsset, mapped.BackdropAsset, now); err != nil {
-			return fmt.Errorf("movie worker: upsert i18n %d: %w", canon.ID, err)
+		trByLang := movieTranslationsByLang(resp)
+		baseShort := shortLang(w.baseLang)
+		for _, lang := range locale.SupportedUserLanguages {
+			title, overview, tagline := resp.Title, resp.Overview, resp.Tagline
+			if shortLang(lang) != baseShort {
+				tr, ok := trByLang[shortLang(lang)]
+				if !ok {
+					// TMDB has no translation for this language — skip so the
+					// COALESCE writer never creates an all-empty row.
+					continue
+				}
+				title, overview, tagline = tr.Name, tr.Overview, tr.Tagline
+			}
+			if err := w.deps.I18n.UpsertEnriched(ctx, canon.ID, lang,
+				title, overview, tagline,
+				mapped.PosterAsset, mapped.BackdropAsset, now); err != nil {
+				return fmt.Errorf("movie worker: upsert i18n %d (%s): %w", canon.ID, lang, err)
+			}
 		}
 	}
 
@@ -177,4 +199,20 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 		}
 	}
 	return nil
+}
+
+// movieTranslationsByLang indexes append_to_response=translations by bare
+// 2-letter language code (shortLang) → localized text fields. Mirrors the
+// PersonWorker translation index (person_worker.go:192-198). Empty map when the
+// movie carries no translations sub-resource.
+func movieTranslationsByLang(resp *tmdb.MovieResponse) map[string]tmdb.TVTranslationData {
+	out := map[string]tmdb.TVTranslationData{}
+	if resp == nil || resp.Translations == nil {
+		return out
+	}
+	for i := range resp.Translations.Translations {
+		t := &resp.Translations.Translations[i]
+		out[shortLang(t.ISO6391)] = t.Data
+	}
+	return out
 }

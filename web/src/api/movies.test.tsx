@@ -88,4 +88,16 @@ describe('useMoviesLibrary', () => {
       '/movies?state=all&sort=updated_desc&limit=24',
     );
   });
+
+  it('appends ?lang when provided', async () => {
+    mockApi.mockResolvedValueOnce({ items: [], total: 0, has_more: false });
+    const { result } = renderHook(
+      () => useMoviesLibrary({ state: 'all', sort: 'updated_desc', limit: 24, lang: 'ru-RU' }),
+      { wrapper: wrapper() },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockApi).toHaveBeenCalledWith(
+      '/movies?state=all&sort=updated_desc&limit=24&lang=ru-RU',
+    );
+  });
 });

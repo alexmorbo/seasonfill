@@ -32,8 +32,10 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		catalogpersistence.NewMovieStatesRepository(db),
 	)
 	// Ф6-R-6b — global movie library list (GET /api/v1/movies).
+	movieI18nRead := enrichpersistence.NewMovieI18nReadRepository(db)
 	libraryHandler := catalogrest.NewMovieLibraryHandler(
-		catalogpersistence.NewMovieLibraryRepository(db), resolver, domainLog)
+		catalogpersistence.NewMovieLibraryRepository(db), resolver, domainLog).
+		WithLocalizer(movieI18nRead)
 	return &MovieDetailBundle{
 		Handler:        mdrest.NewHandler(uc, resolver, domainLog),
 		LibraryHandler: libraryHandler,

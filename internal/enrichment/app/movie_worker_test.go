@@ -54,6 +54,15 @@ func (f *fakeMovieCanon) MarkTMDBSynced(_ context.Context, id domain.MovieID, _ 
 	return nil
 }
 
+type movieI18nWrite struct {
+	lang     string
+	title    string
+	overview string
+	tagline  string
+	poster   *string
+	backdrop *string
+}
+
 type fakeMovieI18n struct {
 	calls    int
 	movieID  domain.MovieID
@@ -61,15 +70,17 @@ type fakeMovieI18n struct {
 	title    string
 	overview string
 	tagline  string
+	writes   []movieI18nWrite
 }
 
-func (f *fakeMovieI18n) UpsertEnriched(_ context.Context, movieID domain.MovieID, lang, title, overview, tagline string, _, _ *string, _ time.Time) error {
+func (f *fakeMovieI18n) UpsertEnriched(_ context.Context, movieID domain.MovieID, lang, title, overview, tagline string, poster, backdrop *string, _ time.Time) error {
 	f.calls++
 	f.movieID = movieID
 	f.lang = lang
 	f.title = title
 	f.overview = overview
 	f.tagline = tagline
+	f.writes = append(f.writes, movieI18nWrite{lang, title, overview, tagline, poster, backdrop})
 	return nil
 }
 
@@ -173,4 +184,78 @@ func TestNewMovieWorker_RequiresPorts(t *testing.T) {
 	require.Error(t, err)
 	_, err = NewMovieWorker(MovieWorkerDeps{TMDB: &fakeMovieTMDB{}})
 	require.Error(t, err)
+}
+
+// TestMovieWorker_HandleForced_WritesAllConfiguredLanguages asserts the worker
+// fans out over locale.SupportedUserLanguages: the base row from the response
+// root, and every other language from resp.Translations — from ONE GetMovie
+// fetch. A language absent from Translations is skipped (no empty row). Every
+// written row carries the language-independent canon poster/backdrop.
+func TestMovieWorker_HandleForced_WritesAllConfiguredLanguages(t *testing.T) {
+	poster := "/canon_poster.jpg"
+	backdrop := "/canon_backdrop.jpg"
+
+	cases := []struct {
+		name         string
+		translations *tmdb.TVTranslations
+		wantLangs    []string          // langs expected to be written, in order
+		wantTitles   map[string]string // lang -> expected title
+	}{
+		{
+			name: "ru translation present writes en-US and ru-RU",
+			translations: &tmdb.TVTranslations{Translations: []tmdb.TVTranslation{
+				{ISO6391: "en", Data: tmdb.TVTranslationData{Name: "Dune: Part Two", Overview: "en ov", Tagline: "en tag"}},
+				{ISO6391: "ru", Data: tmdb.TVTranslationData{Name: "Дюна: Часть вторая", Overview: "ру описание", Tagline: "ру слоган"}},
+			}},
+			wantLangs: []string{"en-US", "ru-RU"},
+			wantTitles: map[string]string{
+				"en-US": "Dune: Part Two",     // base = response root
+				"ru-RU": "Дюна: Часть вторая", // from translations
+			},
+		},
+		{
+			name:         "no ru translation writes en-US only",
+			translations: &tmdb.TVTranslations{Translations: []tmdb.TVTranslation{}},
+			wantLangs:    []string{"en-US"},
+			wantTitles:   map[string]string{"en-US": "Dune: Part Two"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmdbClient := &fakeMovieTMDB{resp: &tmdb.MovieResponse{
+				ID:           693134,
+				Title:        "Dune: Part Two", // response root = base lang (en-US)
+				Overview:     "en ov",
+				Tagline:      "en tag",
+				PosterPath:   poster,
+				BackdropPath: backdrop,
+				Translations: tc.translations,
+			}}
+			canon := &fakeMovieCanon{getResp: movieCanonWithTMDB(42, 693134)}
+			i18n := &fakeMovieI18n{}
+			w, err := NewMovieWorker(MovieWorkerDeps{TMDB: tmdbClient, Movies: canon, I18n: i18n})
+			require.NoError(t, err)
+
+			require.NoError(t, w.HandleForced(context.Background(), 42))
+
+			// exactly ONE TMDB fetch regardless of language count.
+			assert.Equal(t, 1, tmdbClient.calls, "one GetMovie fetch, translations reused")
+
+			gotLangs := make([]string, 0, len(i18n.writes))
+			for _, wr := range i18n.writes {
+				gotLangs = append(gotLangs, wr.lang)
+				// every row carries the canon poster/backdrop (poster-bearing).
+				require.NotNil(t, wr.poster)
+				assert.NotEmpty(t, *wr.poster)
+			}
+			assert.Equal(t, tc.wantLangs, gotLangs)
+
+			for _, wr := range i18n.writes {
+				if want, ok := tc.wantTitles[wr.lang]; ok {
+					assert.Equal(t, want, wr.title, "title for %s", wr.lang)
+				}
+			}
+		})
+	}
 }

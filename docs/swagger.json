@@ -10010,6 +10010,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "BCP-47 UI language for localized titles (e.g. ru-RU)",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {

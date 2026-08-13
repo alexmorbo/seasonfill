@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,47 +14,63 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
 
-// TestMovieI18nReadRepository_Get proves the localized read added for the
-// movie-detail aggregate (Ф6-R-6a): a seeded (movie_id, lang) row returns its
-// localized fields; a missing row returns ports.ErrNotFound (never an error the
-// caller can't classify); a wrong language misses the same way.
-func TestMovieI18nReadRepository_Get(t *testing.T) {
+func TestMovieI18nRead_Get_Ladder(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			db := backend.NewDB(t)
 			ctx := context.Background()
+			now := time.Now().UTC()
 
-			tid := domain.TMDBID(693134)
-			movieID, err := NewMovieRepository(db).Upsert(ctx, movie.Canon{
-				TMDBID:    &tid,
-				Hydration: movie.HydrationStub,
-				Title:     "Dune: Part Two",
+			movieRepo := NewMovieRepository(db)
+			seeder := NewMovieI18nSeeder(db)
+			reader := NewMovieI18nReadRepository(db)
+
+			mkMovie := func(tmdbID int) domain.MovieID {
+				tid := domain.TMDBID(tmdbID)
+				id, err := movieRepo.Upsert(ctx, movie.Canon{TMDBID: &tid, Hydration: movie.HydrationStub, Title: "x"})
+				require.NoError(t, err)
+				return id
+			}
+			poster := "/p.jpg"
+
+			t.Run("ru-RU present returns ru-RU row", func(t *testing.T) {
+				id := mkMovie(1001)
+				require.NoError(t, seeder.UpsertEnriched(ctx, id, "en-US", "English", "en ov", "", &poster, nil, now))
+				require.NoError(t, seeder.UpsertEnriched(ctx, id, "ru-RU", "Русский", "ру ов", "", &poster, nil, now))
+				row, err := reader.Get(ctx, id, "ru-RU")
+				require.NoError(t, err)
+				require.NotNil(t, row.Title)
+				assert.Equal(t, "Русский", *row.Title)
 			})
-			require.NoError(t, err)
-			require.NotZero(t, movieID)
 
-			poster := "/ru-poster.jpg"
-			require.NoError(t, NewMovieI18nSeeder(db).SeedStub(ctx, movieID, "ru-RU", "Дюна: Часть вторая", &poster, nil))
+			t.Run("ru-RU absent falls back to en-US", func(t *testing.T) {
+				id := mkMovie(1002)
+				require.NoError(t, seeder.UpsertEnriched(ctx, id, "en-US", "English", "en ov", "", &poster, nil, now))
+				row, err := reader.Get(ctx, id, "ru-RU")
+				require.NoError(t, err)
+				require.NotNil(t, row.Title)
+				assert.Equal(t, "English", *row.Title)
+			})
 
-			read := NewMovieI18nReadRepository(db)
+			t.Run("empty-poster requested row is skipped for a poster-bearing lang", func(t *testing.T) {
+				id := mkMovie(1003)
+				// ru-RU exists but with NO poster (canon-drop shape) → must be skipped.
+				require.NoError(t, seeder.UpsertEnriched(ctx, id, "ru-RU", "РусскийБезПостера", "", "", nil, nil, now))
+				require.NoError(t, seeder.UpsertEnriched(ctx, id, "en-US", "English", "", "", &poster, nil, now))
+				row, err := reader.Get(ctx, id, "ru-RU")
+				require.NoError(t, err)
+				require.NotNil(t, row.Title)
+				assert.Equal(t, "English", *row.Title, "empty-poster ru-RU row must not shadow the poster-bearing en-US row")
+			})
 
-			// Hit: localized fields resolved.
-			row, err := read.Get(ctx, movieID, "ru-RU")
-			require.NoError(t, err)
-			require.NotNil(t, row.Title)
-			assert.Equal(t, "Дюна: Часть вторая", *row.Title)
-			require.NotNil(t, row.Poster)
-			assert.Equal(t, "/ru-poster.jpg", *row.Poster)
-
-			// Miss: language not seeded → ports.ErrNotFound.
-			_, err = read.Get(ctx, movieID, "en-US")
-			require.ErrorIs(t, err, ports.ErrNotFound)
-
-			// Miss: unknown movie id → ports.ErrNotFound.
-			_, err = read.Get(ctx, domain.MovieID(999999), "ru-RU")
-			require.ErrorIs(t, err, ports.ErrNotFound)
+			t.Run("no poster-bearing row anywhere returns ErrNotFound", func(t *testing.T) {
+				id := mkMovie(1004)
+				require.NoError(t, seeder.UpsertEnriched(ctx, id, "en-US", "NoPoster", "", "", nil, nil, now))
+				_, err := reader.Get(ctx, id, "ru-RU")
+				assert.ErrorIs(t, err, ports.ErrNotFound)
+			})
 		})
 	}
 }

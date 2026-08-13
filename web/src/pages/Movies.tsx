@@ -66,12 +66,12 @@ const SORT_LABEL: Record<MoviesSort, string> = {
 };
 
 export function Movies() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   useSetPageTitle(t('movies.title'));
 
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => readFilters(params), [params]);
-  const filterKey = `${filters.state}|${filters.sort}|${filters.q}`;
+  const filterKey = `${filters.state}|${filters.sort}|${filters.q}|${i18n.language}`;
 
   // Cursor-based accumulation: `offset` is the next-page cursor (int); `items`
   // accumulates every page fetched for the current filter set. Both reset when
@@ -97,6 +97,7 @@ export function Movies() {
     state: filters.state,
     sort: filters.sort,
     limit: PAGE_LIMIT,
+    lang: i18n.language,
     ...(filters.q ? { q: filters.q } : {}),
     ...(offset > 0 ? { cursor: offset } : {}),
   });

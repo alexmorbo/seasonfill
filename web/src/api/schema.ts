@@ -4018,6 +4018,8 @@ export type paths = {
                     readonly limit?: number;
                     /** @description opaque offset cursor from a prior next_cursor */
                     readonly cursor?: string;
+                    /** @description BCP-47 UI language for localized titles (e.g. ru-RU) */
+                    readonly lang?: string;
                 };
                 readonly header?: never;
                 readonly path?: never;

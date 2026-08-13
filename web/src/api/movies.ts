@@ -22,6 +22,7 @@ export interface MoviesLibraryParams {
   readonly limit?: number;
   // Cursor is an integer offset (BE emits it as a string in `next_cursor`).
   readonly cursor?: number;
+  readonly lang?: string;
 }
 
 // Query keys — exported so mutation hooks (Wave B collection add-all /
@@ -39,6 +40,7 @@ function toLibraryQuery(p: MoviesLibraryParams): string {
   if (p.q) qs.set('q', p.q);
   if (typeof p.limit === 'number') qs.set('limit', String(p.limit));
   if (typeof p.cursor === 'number') qs.set('cursor', String(p.cursor));
+  if (p.lang) qs.set('lang', p.lang);
   const s = qs.toString();
   return s ? `?${s}` : '';
 }
@@ -66,8 +68,8 @@ export function useMovie(
 
 // useMoviesLibrary fetches one page of the movie library list. Pagination is
 // cursor-based (int offset): pass the numeric form of `next_cursor` from the
-// previous envelope to fetch the next page. No `?lang=` — the list has no
-// batch i18n reader.
+// previous envelope to fetch the next page. Passes `?lang=` (movie_i18n batch
+// title ladder, M-FIX-2).
 export function useMoviesLibrary(
   params: MoviesLibraryParams,
 ): UseQueryResult<MovieLibraryList, ApiError> {
