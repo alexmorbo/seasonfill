@@ -67,6 +67,14 @@ func (c *Client) post(ctx context.Context, endpoint string, body, out any) error
 	return c.Post(ctx, endpoint, body, out)
 }
 
+func (c *Client) put(ctx context.Context, endpoint string, body, out any) error {
+	return c.Put(ctx, endpoint, body, out)
+}
+
+func (c *Client) delete(ctx context.Context, endpoint string) error {
+	return c.Delete(ctx, endpoint)
+}
+
 // LookupMovie calls GET /api/v3/movie/lookup?term={term}. For add-flow the
 // caller passes term="tmdb:{id}". Radarr returns metadata for added or
 // un-added candidates; empty result ([]) is non-error (caller surfaces 404).
