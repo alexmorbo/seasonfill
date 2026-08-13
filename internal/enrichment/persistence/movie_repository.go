@@ -175,6 +175,21 @@ func (r *MovieRepository) MarkCastSynced(ctx context.Context, id domain.MovieID,
 	return nil
 }
 
+// MarkKeywordsSynced stamps movies.enrichment_keywords_synced_at = now (Ф1.1b). Single-column
+// stamp; mirrors MarkCastSynced. Called by MovieWorker.writeKeywords inside the keywords-write
+// tx so the clock commits atomically with the movie_keywords rows.
+func (r *MovieRepository) MarkKeywordsSynced(ctx context.Context, id domain.MovieID, now time.Time) error {
+	if id == 0 {
+		return fmt.Errorf("mark movie keywords synced: movie_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Table("movies").Where("id = ?", id).
+		Updates(map[string]any{"enrichment_keywords_synced_at": now.UTC(), "updated_at": now.UTC()}).Error
+	if err != nil {
+		return fmt.Errorf("mark movie keywords synced: %w", err)
+	}
+	return nil
+}
+
 // movieUpsertAssignments — the "два писателя" guard. COALESCE(excluded.X,
 // movies.X) on every TMDB/OMDb enrichment column so a Radarr-sync/webhook
 // write that carries nil cannot blank a previously enriched value; hydration

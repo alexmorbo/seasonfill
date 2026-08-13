@@ -1086,6 +1086,35 @@ type SeriesKeywordModel struct {
 
 func (SeriesKeywordModel) TableName() string { return "series_keywords" }
 
+// MovieGenreModel — join row for movie_genres (Ф1.1b). Composite PK (movie_id, genre_id);
+// position preserves the TMDB-emitted order. Mirror of SeriesGenreModel with movie_id.
+type MovieGenreModel struct {
+	MovieID  domain.MovieID `gorm:"primaryKey;column:movie_id"`
+	GenreID  int64          `gorm:"primaryKey;column:genre_id"`
+	Position *int           `gorm:"column:position"`
+}
+
+func (MovieGenreModel) TableName() string { return "movie_genres" }
+
+// MovieKeywordModel — join row for movie_keywords (Ф1.1b). Composite PK (movie_id,
+// keyword_id); keywords are unordered (NO position column). Mirror of SeriesKeywordModel.
+type MovieKeywordModel struct {
+	MovieID   domain.MovieID `gorm:"primaryKey;column:movie_id"`
+	KeywordID int64          `gorm:"primaryKey;column:keyword_id"`
+}
+
+func (MovieKeywordModel) TableName() string { return "movie_keywords" }
+
+// MovieCompanyModel — join row for movie_companies (Ф1.1b). Composite PK (movie_id,
+// company_id); position preserves the TMDB-emitted order. Mirror of SeriesCompanyModel.
+type MovieCompanyModel struct {
+	MovieID   domain.MovieID `gorm:"primaryKey;column:movie_id"`
+	CompanyID int64          `gorm:"primaryKey;column:company_id"`
+	Position  *int           `gorm:"column:position"`
+}
+
+func (MovieCompanyModel) TableName() string { return "movie_companies" }
+
 // VideoModel — TMDB-sourced video row (PRD §5.3 row "videos",
 // migration 000029). Natural key tmdb_video_id has a partial unique
 // index where not NULL so operator-curated rows (rare) can coexist

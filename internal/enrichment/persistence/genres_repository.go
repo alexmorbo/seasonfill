@@ -297,6 +297,40 @@ func (r *GenresRepository) Set(ctx context.Context, seriesID domain.SeriesID, ge
 	})
 }
 
+// SetMovie replaces the full movie_genres set for movieID (Ф1.1b). Mirror of Set (series):
+// DELETE+INSERT with position preserved by input order. Called inside the movie worker's
+// Transactor tx — the inner db.Transaction becomes a SAVEPOINT (same nesting as the series
+// Set inside applyTaxonomyForLanguage).
+func (r *GenresRepository) SetMovie(ctx context.Context, movieID domain.MovieID, genreIDs []int64) error {
+	if movieID == 0 {
+		return fmt.Errorf("set movie_genres: movie_id must be non-zero")
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("movie_id = ?", movieID).
+			Delete(&database.MovieGenreModel{}).Error; err != nil {
+			return fmt.Errorf("set movie_genres: clear: %w", err)
+		}
+		if len(genreIDs) == 0 {
+			return nil
+		}
+		genreIDs = dedupInt64Preserve(genreIDs)
+		rows := make([]database.MovieGenreModel, 0, len(genreIDs))
+		for i, gid := range genreIDs {
+			pos := i
+			rows = append(rows, database.MovieGenreModel{
+				MovieID:  movieID,
+				GenreID:  gid,
+				Position: &pos,
+			})
+		}
+		if err := tx.Create(&rows).Error; err != nil {
+			return fmt.Errorf("set movie_genres: insert: %w", err)
+		}
+		return nil
+	})
+}
+
 // ListBySeries returns the genre ids for the given series in
 // position-ascending order.
 func (r *GenresRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error) {

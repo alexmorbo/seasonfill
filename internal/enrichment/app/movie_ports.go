@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	enrichdomain "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -38,6 +39,10 @@ type MovieCanonRepo interface {
 	// cast write (Ф1.1a). Called inside the cast-write tx so the clock and the
 	// person_credits rows commit atomically.
 	MarkCastSynced(ctx context.Context, id domain.MovieID, now time.Time) error
+	// MarkKeywordsSynced stamps movies.enrichment_keywords_synced_at = now on a successful
+	// keyword write (Ф1.1b). Called inside the keyword-write tx so the clock and the
+	// movie_keywords rows commit atomically.
+	MarkKeywordsSynced(ctx context.Context, id domain.MovieID, now time.Time) error
 }
 
 // MovieI18nWriter is the enrichment-OWNED per-language movie_i18n upsert seam.
@@ -99,3 +104,30 @@ type noopMovieRefreshMetrics struct{}
 func (noopMovieRefreshMetrics) IncRefresh(enrichdomain.RefreshTier, string) {}
 func (noopMovieRefreshMetrics) ObserveBatchSize(int)                        {}
 func (noopMovieRefreshMetrics) ObserveTickDuration(time.Duration)           {}
+
+// MovieGenresWriter is the movie genre taxonomy write surface (Ф1.1b): seed the shared
+// `genres` dict by tmdb_id (Upsert → local id), seed the base-lang genres_i18n row
+// (UpsertI18n), and DELETE+INSERT the movie_genres join (SetMovie). Production impl:
+// wiring.GenresRepoAdapter (composes *GenresRepository + *GenresI18nRepository). nil-OK on
+// MovieWorkerDeps — when nil the worker skips the genre write.
+type MovieGenresWriter interface {
+	Upsert(ctx context.Context, g taxonomy.Genre) (int64, error)
+	UpsertI18n(ctx context.Context, genreID int64, language, name string) error
+	SetMovie(ctx context.Context, movieID domain.MovieID, genreIDs []int64) error
+}
+
+// MovieKeywordsWriter mirrors MovieGenresWriter for keywords. Production impl:
+// wiring.KeywordsRepoAdapter. nil-OK.
+type MovieKeywordsWriter interface {
+	Upsert(ctx context.Context, k taxonomy.Keyword) (int64, error)
+	UpsertI18n(ctx context.Context, keywordID int64, language, name string) error
+	SetMovie(ctx context.Context, movieID domain.MovieID, keywordIDs []int64) error
+}
+
+// MovieCompaniesWriter is the movie production-company write surface (Ф1.1b). Companies have
+// no i18n table, so no UpsertI18n. Production impl: *enrichpersistence.CompaniesRepository
+// (satisfies this directly). nil-OK.
+type MovieCompaniesWriter interface {
+	Upsert(ctx context.Context, c taxonomy.ProductionCompany) (int64, error)
+	SetMovie(ctx context.Context, movieID domain.MovieID, companyIDs []int64) error
+}

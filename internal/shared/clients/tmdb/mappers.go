@@ -579,6 +579,59 @@ func movieCastStub(c MovieCastMember) people.Person {
 	}
 }
 
+// MapMovieGenres flattens /movie root genres[] into taxonomy.Genre rows (Ф1.1b). Names are
+// localized to the fetch language; the worker seeds the base-lang genres_i18n row. Mirror of
+// the MapTVToTaxonomy genres branch.
+func MapMovieGenres(m *MovieResponse) []taxonomy.Genre {
+	if m == nil {
+		return nil
+	}
+	out := make([]taxonomy.Genre, 0, len(m.Genres))
+	for _, g := range m.Genres {
+		out = append(out, taxonomy.Genre{
+			TMDBID: new(domain.TMDBID(g.ID)),
+			Name:   g.Name,
+		})
+	}
+	return out
+}
+
+// MapMovieKeywords flattens the keywords.keywords[] embed (movie shape, NOT TV's
+// keywords.results[]) into taxonomy.Keyword rows (Ф1.1b). Empty when the sub-resource is
+// absent.
+func MapMovieKeywords(m *MovieResponse) []taxonomy.Keyword {
+	if m == nil || m.Keywords == nil {
+		return nil
+	}
+	out := make([]taxonomy.Keyword, 0, len(m.Keywords.Keywords))
+	for _, k := range m.Keywords.Keywords {
+		out = append(out, taxonomy.Keyword{
+			TMDBID: new(domain.TMDBID(k.ID)),
+			Name:   k.Name,
+		})
+	}
+	return out
+}
+
+// MapMovieCompanies flattens /movie root production_companies[] into
+// taxonomy.ProductionCompany rows (Ф1.1b). Companies have no i18n table — name/logo/origin
+// live on the dict row itself.
+func MapMovieCompanies(m *MovieResponse) []taxonomy.ProductionCompany {
+	if m == nil {
+		return nil
+	}
+	out := make([]taxonomy.ProductionCompany, 0, len(m.ProductionCompanies))
+	for _, c := range m.ProductionCompanies {
+		out = append(out, taxonomy.ProductionCompany{
+			TMDBID:        new(domain.TMDBID(c.ID)),
+			Name:          c.Name,
+			LogoAsset:     nonEmptyPtr(c.LogoPath),
+			OriginCountry: nonEmptyPtr(c.OriginCountry),
+		})
+	}
+	return out
+}
+
 // MapFindResponseToTMDBID picks the first tv_results[*].id. Returns
 // (0, false) on empty — caller treats as "no tvdb→tmdb mapping",
 // the worker records an enrichment_errors row with attempts=terminalAttempts.

@@ -255,6 +255,37 @@ func (r *KeywordsRepository) Set(ctx context.Context, seriesID domain.SeriesID, 
 	})
 }
 
+// SetMovie replaces the full movie_keywords set for movieID (Ф1.1b). Keywords are unordered
+// — no position column (mirror series_keywords). dedupInt64Preserve guards the composite PK
+// against a duplicate keyword id in the payload.
+func (r *KeywordsRepository) SetMovie(ctx context.Context, movieID domain.MovieID, keywordIDs []int64) error {
+	if movieID == 0 {
+		return fmt.Errorf("set movie_keywords: movie_id must be non-zero")
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("movie_id = ?", movieID).
+			Delete(&database.MovieKeywordModel{}).Error; err != nil {
+			return fmt.Errorf("set movie_keywords: clear: %w", err)
+		}
+		if len(keywordIDs) == 0 {
+			return nil
+		}
+		keywordIDs = dedupInt64Preserve(keywordIDs)
+		rows := make([]database.MovieKeywordModel, 0, len(keywordIDs))
+		for _, kid := range keywordIDs {
+			rows = append(rows, database.MovieKeywordModel{
+				MovieID:   movieID,
+				KeywordID: kid,
+			})
+		}
+		if err := tx.Create(&rows).Error; err != nil {
+			return fmt.Errorf("set movie_keywords: insert: %w", err)
+		}
+		return nil
+	})
+}
+
 func (r *KeywordsRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error) {
 	var rows []database.SeriesKeywordModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).

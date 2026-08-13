@@ -53,9 +53,17 @@ type MovieWorkerDeps struct {
 	People        PeopleRepo        // nil-OK
 	PersonCredits PersonCreditsPort // nil-OK
 	Tx            Transactor        // nil-OK
-	BaseLang      string            // default tmdb.DefaultLanguage
-	Logger        *slog.Logger
-	Clock         func() time.Time
+	// Genres / Keywords / Companies — Ф1.1b movie taxonomy trio writers. Each nil-OK:
+	// when nil the worker skips that writer (exact pre-Ф1.1b behavior, so existing
+	// movie_worker_test.go fixtures — which set none — stay green). Gated together with Tx
+	// in HandleForced; each writer is its own Transactor tx. Production impls compose the
+	// enrichment taxonomy repos (see wiring/enrichment_movie.go).
+	Genres    MovieGenresWriter    // nil-OK
+	Keywords  MovieKeywordsWriter  // nil-OK
+	Companies MovieCompaniesWriter // nil-OK
+	BaseLang  string               // default tmdb.DefaultLanguage
+	Logger    *slog.Logger
+	Clock     func() time.Time
 }
 
 // MovieOMDbHandler is the post-hydrate OMDb trigger seam. Production impl is
@@ -218,6 +226,30 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 				slog.Int("collection_id", *mapped.CollectionID),
 				slog.String("error", cerr.Error()),
 			)
+		}
+	}
+
+	// Ф1.1b: movie taxonomy trio (genres / keywords / companies) into the movie_* join
+	// tables. Each writer is an independent Transactor tx (parent dict seed by tmdb_id +
+	// base-lang i18n seed + DELETE+INSERT join; keywords also stamps
+	// enrichment_keywords_synced_at). Each is nil-OK gated (Tx + its writer port). Genres
+	// and companies are /movie root fields (always decoded); keywords additionally gates on
+	// the decoded sub-resource. SetMovie is authoritative (clears removed items on refresh).
+	// Errors return so the scheduler retries — the canon hydrate above already committed and
+	// every write is idempotent.
+	if w.deps.Tx != nil && w.deps.Genres != nil {
+		if err := w.writeGenres(ctx, canon.ID, tmdb.MapMovieGenres(resp)); err != nil {
+			return fmt.Errorf("movie worker: write genres %d: %w", canon.ID, err)
+		}
+	}
+	if w.deps.Tx != nil && w.deps.Keywords != nil && resp.Keywords != nil {
+		if err := w.writeKeywords(ctx, canon.ID, tmdb.MapMovieKeywords(resp)); err != nil {
+			return fmt.Errorf("movie worker: write keywords %d: %w", canon.ID, err)
+		}
+	}
+	if w.deps.Tx != nil && w.deps.Companies != nil {
+		if err := w.writeCompanies(ctx, canon.ID, tmdb.MapMovieCompanies(resp)); err != nil {
+			return fmt.Errorf("movie worker: write companies %d: %w", canon.ID, err)
 		}
 	}
 	return nil

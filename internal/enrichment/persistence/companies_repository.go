@@ -153,6 +153,38 @@ func (r *CompaniesRepository) Set(ctx context.Context, seriesID domain.SeriesID,
 	})
 }
 
+// SetMovie replaces the full movie_companies set for movieID (Ф1.1b). Mirror of Set
+// (series): DELETE+INSERT with position preserved by input order.
+func (r *CompaniesRepository) SetMovie(ctx context.Context, movieID domain.MovieID, companyIDs []int64) error {
+	if movieID == 0 {
+		return fmt.Errorf("set movie_companies: movie_id must be non-zero")
+	}
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("movie_id = ?", movieID).
+			Delete(&database.MovieCompanyModel{}).Error; err != nil {
+			return fmt.Errorf("set movie_companies: clear: %w", err)
+		}
+		if len(companyIDs) == 0 {
+			return nil
+		}
+		companyIDs = dedupInt64Preserve(companyIDs)
+		rows := make([]database.MovieCompanyModel, 0, len(companyIDs))
+		for i, cid := range companyIDs {
+			pos := i
+			rows = append(rows, database.MovieCompanyModel{
+				MovieID:   movieID,
+				CompanyID: cid,
+				Position:  &pos,
+			})
+		}
+		if err := tx.Create(&rows).Error; err != nil {
+			return fmt.Errorf("set movie_companies: insert: %w", err)
+		}
+		return nil
+	})
+}
+
 func (r *CompaniesRepository) ListBySeries(ctx context.Context, seriesID domain.SeriesID) ([]int64, error) {
 	var rows []database.SeriesCompanyModel
 	err := dbFromContext(ctx, r.db).WithContext(ctx).

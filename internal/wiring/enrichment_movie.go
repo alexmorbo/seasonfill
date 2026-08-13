@@ -126,6 +126,12 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 	personCredits := PersonCreditsRepoAdapter{Inner: enrichpersistence.NewPersonCreditsRepository(deps.Persistence.DB)}
 	tx := catalogpersistence.NewGormTransactor(deps.Persistence.DB)
 
+	genresRepo := enrichpersistence.NewGenresRepository(deps.Persistence.DB)
+	genresI18n := enrichpersistence.NewGenresI18nRepository(deps.Persistence.DB)
+	keywordsRepo := enrichpersistence.NewKeywordsRepository(deps.Persistence.DB)
+	keywordsI18n := enrichpersistence.NewKeywordsI18nRepository(deps.Persistence.DB)
+	companiesRepo := enrichpersistence.NewCompaniesRepository(deps.Persistence.DB)
+
 	worker, err := appenrich.NewMovieWorker(appenrich.MovieWorkerDeps{
 		TMDB:          movieTMDBFromHolder{holder: deps.TMDBHolder},
 		Movies:        movies,
@@ -136,6 +142,9 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 		People:        peopleRepo,
 		PersonCredits: personCredits,
 		Tx:            tx,
+		Genres:        GenresRepoAdapter{Main: genresRepo, I18n: genresI18n},
+		Keywords:      KeywordsRepoAdapter{Main: keywordsRepo, I18n: keywordsI18n},
+		Companies:     companiesRepo,
 		BaseLang:      tmdb.DefaultLanguage,
 		Logger:        deps.Log,
 	})
@@ -281,4 +290,7 @@ var (
 	_ appenrich.MovieCollectionPopulator = (*appenrich.MovieCollectionWorker)(nil)
 	_ appenrich.PeopleRepo               = (*enrichpersistence.PeopleRepository)(nil)
 	_ appenrich.Transactor               = (*catalogpersistence.GormTransactor)(nil)
+	_ appenrich.MovieGenresWriter        = GenresRepoAdapter{}
+	_ appenrich.MovieKeywordsWriter      = KeywordsRepoAdapter{}
+	_ appenrich.MovieCompaniesWriter     = (*enrichpersistence.CompaniesRepository)(nil)
 )

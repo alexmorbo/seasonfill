@@ -1239,6 +1239,10 @@ func (a GenresRepoAdapter) Set(ctx context.Context, seriesID domain.SeriesID, id
 	return a.Main.Set(ctx, seriesID, ids)
 }
 
+func (a GenresRepoAdapter) SetMovie(ctx context.Context, movieID domain.MovieID, ids []int64) error {
+	return a.Main.SetMovie(ctx, movieID, ids)
+}
+
 // KeywordsRepoAdapter mirrors GenresRepoAdapter.
 type KeywordsRepoAdapter struct {
 	Main *enrichpersistence.KeywordsRepository
@@ -1259,6 +1263,10 @@ func (a KeywordsRepoAdapter) UpsertI18n(ctx context.Context, keywordID int64, la
 
 func (a KeywordsRepoAdapter) Set(ctx context.Context, seriesID domain.SeriesID, ids []int64) error {
 	return a.Main.Set(ctx, seriesID, ids)
+}
+
+func (a KeywordsRepoAdapter) SetMovie(ctx context.Context, movieID domain.MovieID, ids []int64) error {
+	return a.Main.SetMovie(ctx, movieID, ids)
 }
 
 // ExternalIDsRepoAdapter wraps the canonical repo to match the

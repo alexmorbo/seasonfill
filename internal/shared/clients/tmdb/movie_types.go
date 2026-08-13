@@ -34,6 +34,9 @@ type MovieResponse struct {
 	BackdropPath        string              `json:"backdrop_path"`
 	BelongsToCollection *MovieCollectionRef `json:"belongs_to_collection"`
 	Adult               bool                `json:"adult"`
+	// Ф1.1b — /movie ROOT taxonomy arrays (present by default, no append token).
+	Genres              []TVGenre   `json:"genres"`               // reuse TVGenre {id,name}
+	ProductionCompanies []TVCompany `json:"production_companies"` // reuse TVCompany {id,name,logo_path,origin_country}
 
 	// append_to_response sub-resources.
 	ExternalIDs  *MovieExternalIDs  `json:"external_ids"`
@@ -44,6 +47,16 @@ type MovieResponse struct {
 	// cast[*] carries a 0-based `order` billing index (0 = lead). Crew is deferred
 	// to Ф1.1b, so only Cast is decoded here.
 	Credits *MovieCredits `json:"credits"`
+	// Keywords — Ф1.1b. Movie shape is keywords.keywords[] (NOT TV's keywords.results[]);
+	// requires append_to_response=keywords.
+	Keywords *MovieKeywords `json:"keywords"`
+}
+
+// MovieKeywords mirrors the /movie/{id} keywords sub-resource. The movie payload nests the
+// list under `keywords` (NOT `results` as /tv does), so it needs its own wrapper; the
+// element reuses TVKeyword ({id,name}). Ф1.1b.
+type MovieKeywords struct {
+	Keywords []TVKeyword `json:"keywords"`
 }
 
 // MovieCredits mirrors the /movie/{id} credits sub-resource. Only Cast is consumed

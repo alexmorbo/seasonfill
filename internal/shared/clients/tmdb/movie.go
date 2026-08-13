@@ -12,12 +12,13 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// movieAppendToResponse is the comma-separated sub-resource list the movie
-// enrichment worker consumes in a single round-trip. external_ids (imdb
-// fallback), release_dates (digital/physical), images (per-lang art),
-// translations (localized title/overview/tagline), credits (Ф1.1a cast →
-// person_credits). keywords/videos/recommendations remain deferred to Ф1.1b.
-const movieAppendToResponse = "external_ids,release_dates,images,translations,credits"
+// movieAppendToResponse is the comma-separated sub-resource list the movie enrichment
+// worker consumes in a single round-trip. external_ids (imdb fallback), release_dates
+// (digital/physical), images (per-lang art), translations (localized title/overview/
+// tagline), credits (Ф1.1a cast → person_credits), keywords (Ф1.1b → movie_keywords).
+// genres[] and production_companies[] are /movie ROOT fields (no token needed).
+// videos/recommendations remain deferred to Ф1.1c.
+const movieAppendToResponse = "external_ids,release_dates,images,translations,credits,keywords"
 
 // releaseTypeDigital / releaseTypePhysical are the TMDB release_dates type enum
 // values the mapper extracts into movies.digital_release_date /
