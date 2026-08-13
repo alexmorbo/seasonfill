@@ -517,6 +517,68 @@ func personCreditFromMovie(c PersonMovieCredit, kind people.SeriesCreditKind) pe
 	}
 }
 
+// MapMovieCast flattens a movie's FLAT credits.cast[*] (append_to_response=credits)
+// into three parallel outputs the movie worker stitches together (Ф1.1a):
+//
+//   - credits: []people.PersonCredit with PersonID=0 (the worker resolves the real
+//     person_id after upserting the stubs). MediaType=movie, TMDBMediaID=movie
+//     tmdb_id, Kind=cast, Title=movie title, PosterAsset=movie poster, rating/votes
+//     = the movie's own TMDB rating (mirror mapSeriesCreditsToPersonCredits), and
+//     CreditOrder = the 0-based billing index set UNCONDITIONALLY (0 = lead).
+//   - stubs: one people.Person (hydration=stub) per UNIQUE cast tmdb id.
+//   - tmdbPersonIDs: parallel to credits; tmdbPersonIDs[i] is the TMDB person id for
+//     credits[i], so the worker can set credits[i].PersonID from the resolve map.
+//
+// Crew is deliberately NOT mapped (Ф1.1b). Rows with a zero person id or empty
+// credit_id are dropped (person_credits validation would reject them).
+func MapMovieCast(m *MovieResponse) (credits []people.PersonCredit, stubs []people.Person, tmdbPersonIDs []int64) {
+	if m == nil || m.Credits == nil {
+		return nil, nil, nil
+	}
+	rating := nonZeroFloatPtr(m.VoteAverage)
+	votes := nonZeroIntPtr(m.VoteCount)
+	poster := nonEmptyPtr(m.PosterPath)
+	release := parseDate(m.ReleaseDate)
+	seen := make(map[int64]struct{}, len(m.Credits.Cast))
+	for _, c := range m.Credits.Cast {
+		if c.ID == 0 || c.CreditID == "" {
+			continue
+		}
+		if _, ok := seen[c.ID]; !ok {
+			seen[c.ID] = struct{}{}
+			stubs = append(stubs, movieCastStub(c))
+		}
+		credits = append(credits, people.PersonCredit{
+			MediaType:     MediaTypeMovie,
+			TMDBMediaID:   m.ID,
+			TMDBCreditID:  c.CreditID,
+			Kind:          people.SeriesCreditCast,
+			Title:         m.Title,
+			CharacterName: nonEmptyPtr(c.Character),
+			CreditOrder:   new(c.Order), // 0-based billing index; 0 = lead, always set.
+			ReleaseDate:   release,
+			PosterAsset:   poster,
+			TMDBRating:    rating,
+			TMDBVotes:     votes,
+		})
+		tmdbPersonIDs = append(tmdbPersonIDs, c.ID)
+	}
+	return credits, stubs, tmdbPersonIDs
+}
+
+func movieCastStub(c MovieCastMember) people.Person {
+	return people.Person{
+		TMDBID:             new(domain.TMDBID(c.ID)),
+		Hydration:          people.HydrationStub,
+		Name:               c.Name,
+		OriginalName:       nonEmptyPtr(c.OriginalName),
+		Gender:             c.Gender,
+		KnownForDepartment: nonEmptyPtr(c.KnownForDepartment),
+		Popularity:         nonZeroFloatPtr(c.Popularity),
+		ProfileAsset:       nonEmptyPtr(c.ProfilePath),
+	}
+}
+
 // MapFindResponseToTMDBID picks the first tv_results[*].id. Returns
 // (0, false) on empty — caller treats as "no tvdb→tmdb mapping",
 // the worker records an enrichment_errors row with attempts=terminalAttempts.

@@ -40,6 +40,32 @@ type MovieResponse struct {
 	ReleaseDates *MovieReleaseDates `json:"release_dates"`
 	Images       *TVImages          `json:"images"`       // reused: posters/backdrops
 	Translations *TVTranslations    `json:"translations"` // reused: localized name/overview/tagline
+	// Credits — Ф1.1a movie cast writer. FLAT credits (append_to_response=credits):
+	// cast[*] carries a 0-based `order` billing index (0 = lead). Crew is deferred
+	// to Ф1.1b, so only Cast is decoded here.
+	Credits *MovieCredits `json:"credits"`
+}
+
+// MovieCredits mirrors the /movie/{id} credits sub-resource. Only Cast is consumed
+// in Ф1.1a; crew is a Ф1.1b concern (add a Crew field then).
+type MovieCredits struct {
+	Cast []MovieCastMember `json:"cast"`
+}
+
+// MovieCastMember is one FLAT credits.cast[*] row. Order is the 0-based TMDB
+// billing index (0 = top billing). CreditID is the stable per-credit id used as
+// the person_credits natural key.
+type MovieCastMember struct {
+	ID                 int64   `json:"id"` // TMDB person id
+	Name               string  `json:"name"`
+	OriginalName       string  `json:"original_name"`
+	Gender             *int    `json:"gender"`
+	KnownForDepartment string  `json:"known_for_department"`
+	Popularity         float64 `json:"popularity"`
+	ProfilePath        string  `json:"profile_path"`
+	Character          string  `json:"character"`
+	CreditID           string  `json:"credit_id"`
+	Order              int     `json:"order"`
 }
 
 // MovieCollectionRef mirrors belongs_to_collection. Only the id is copied into

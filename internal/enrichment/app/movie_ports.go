@@ -34,6 +34,10 @@ type MovieCanonRepo interface {
 	Get(ctx context.Context, id domain.MovieID) (movie.Canon, error)
 	Upsert(ctx context.Context, c movie.Canon) (domain.MovieID, error)
 	MarkTMDBSynced(ctx context.Context, id domain.MovieID, now time.Time) error
+	// MarkCastSynced stamps movies.enrichment_cast_synced_at = now on a successful
+	// cast write (Ф1.1a). Called inside the cast-write tx so the clock and the
+	// person_credits rows commit atomically.
+	MarkCastSynced(ctx context.Context, id domain.MovieID, now time.Time) error
 }
 
 // MovieI18nWriter is the enrichment-OWNED per-language movie_i18n upsert seam.

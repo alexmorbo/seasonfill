@@ -16,8 +16,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/locale"
@@ -42,9 +44,18 @@ type MovieWorkerDeps struct {
 	// non-nil CollectionID, the worker fires it AFTER MarkTMDBSynced. Best-effort:
 	// a failure is logged, never failing/rolling back the committed TMDB hydrate.
 	Collections MovieCollectionPopulator
-	BaseLang    string // default tmdb.DefaultLanguage
-	Logger      *slog.Logger
-	Clock       func() time.Time
+	// People / PersonCredits / Tx — Ф1.1a movie CAST writer seam. All THREE must be
+	// set for the cast write to run (nil-OK: when any is nil the worker skips cast,
+	// exact pre-Ф1.1a behavior, so existing MovieWorker construction/tests are
+	// unaffected). People upserts cast person stubs (→ person_id); PersonCredits
+	// writes the movie person_credits rows via BatchUpsertAuthoritative; Tx makes
+	// the stubs + credits + enrichment_cast_synced_at stamp atomic.
+	People        PeopleRepo        // nil-OK
+	PersonCredits PersonCreditsPort // nil-OK
+	Tx            Transactor        // nil-OK
+	BaseLang      string            // default tmdb.DefaultLanguage
+	Logger        *slog.Logger
+	Clock         func() time.Time
 }
 
 // MovieOMDbHandler is the post-hydrate OMDb trigger seam. Production impl is
@@ -170,6 +181,17 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 		slog.Int64("tmdb_id", tmdbID),
 	)
 
+	// Ф1.1a: movie CAST → person_credits (media_type='movie'), wrapped in the
+	// Transactor (the sole transactional path in this worker). Gated on all three
+	// cast deps + a decoded credits sub-resource. Returns on failure so the
+	// scheduler retries — the canon hydrate above already committed and is
+	// idempotent, so a retry re-lands the cast without duplicating canon work.
+	if w.deps.People != nil && w.deps.PersonCredits != nil && w.deps.Tx != nil && resp.Credits != nil {
+		if err := w.writeCast(ctx, canon.ID, resp); err != nil {
+			return fmt.Errorf("movie worker: write cast %d: %w", canon.ID, err)
+		}
+	}
+
 	// Ф6-R-4a L3-3: enqueue-after-imdb OMDb ratings follow-up. Runs inline on the
 	// movie scheduler goroutine (isolated from the series worker/dispatcher budget
 	// — the movie mirror of the EntityOMDb precedent). Gated on a present imdb_id
@@ -199,6 +221,50 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 		}
 	}
 	return nil
+}
+
+// writeCast upserts the movie's cast person stubs, resolves each credit's person_id,
+// writes the person_credits rows authoritatively, and stamps
+// enrichment_cast_synced_at — ALL inside one Transactor tx (Ф1.1a). Person stubs are
+// sorted by tmdb_id ASC so concurrent movie txes lock `people` in a global order
+// (mirror SeriesWorker B-26). A no-cast movie (or one whose every stub upsert was
+// suppressed) commits nothing and does NOT bump the cast clock.
+func (w *MovieWorker) writeCast(ctx context.Context, movieID domain.MovieID, resp *tmdb.MovieResponse) error {
+	credits, stubs, tmdbPersonIDs := tmdb.MapMovieCast(resp)
+	if len(credits) == 0 {
+		return nil
+	}
+	slices.SortStableFunc(stubs, func(a, b people.Person) int {
+		return compareTMDBID(a.TMDBID, b.TMDBID)
+	})
+	return w.deps.Tx.Transaction(ctx, func(txCtx context.Context) error {
+		personIDByTMDB := make(map[int64]int64, len(stubs))
+		for _, st := range stubs {
+			pid, err := w.deps.People.Upsert(txCtx, st)
+			if err != nil {
+				return fmt.Errorf("upsert movie cast person stub: %w", err)
+			}
+			if st.TMDBID != nil {
+				personIDByTMDB[int64(*st.TMDBID)] = pid
+			}
+		}
+		rows := make([]people.PersonCredit, 0, len(credits))
+		for i := range credits {
+			pid, ok := personIDByTMDB[tmdbPersonIDs[i]]
+			if !ok || pid == 0 {
+				continue // stub upsert suppressed this person — drop its credit.
+			}
+			credits[i].PersonID = pid
+			rows = append(rows, credits[i])
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		if _, err := w.deps.PersonCredits.BatchUpsertAuthoritative(txCtx, rows); err != nil {
+			return fmt.Errorf("batch upsert person_credits (movie): %w", err)
+		}
+		return w.deps.Movies.MarkCastSynced(txCtx, movieID, w.deps.Clock())
+	})
 }
 
 // movieTranslationsByLang indexes append_to_response=translations by bare

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
+	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	enrichdomain "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
@@ -121,15 +122,22 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 		collectionPopulator = collectionWorker
 	}
 
+	peopleRepo := enrichpersistence.NewPeopleRepository(deps.Persistence.DB)
+	personCredits := PersonCreditsRepoAdapter{Inner: enrichpersistence.NewPersonCreditsRepository(deps.Persistence.DB)}
+	tx := catalogpersistence.NewGormTransactor(deps.Persistence.DB)
+
 	worker, err := appenrich.NewMovieWorker(appenrich.MovieWorkerDeps{
-		TMDB:        movieTMDBFromHolder{holder: deps.TMDBHolder},
-		Movies:      movies,
-		I18n:        i18n,
-		Resolver:    resolver,
-		OMDb:        omdbHandler,
-		Collections: collectionPopulator,
-		BaseLang:    tmdb.DefaultLanguage,
-		Logger:      deps.Log,
+		TMDB:          movieTMDBFromHolder{holder: deps.TMDBHolder},
+		Movies:        movies,
+		I18n:          i18n,
+		Resolver:      resolver,
+		OMDb:          omdbHandler,
+		Collections:   collectionPopulator,
+		People:        peopleRepo,
+		PersonCredits: personCredits,
+		Tx:            tx,
+		BaseLang:      tmdb.DefaultLanguage,
+		Logger:        deps.Log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire movie worker: %w", err)
@@ -271,4 +279,6 @@ var (
 	_ appenrich.MovieOMDbHandler         = (*appenrich.MovieOMDbWorker)(nil)
 	_ appenrich.MovieCollectionUpserter  = (*enrichpersistence.MovieCollectionsRepository)(nil)
 	_ appenrich.MovieCollectionPopulator = (*appenrich.MovieCollectionWorker)(nil)
+	_ appenrich.PeopleRepo               = (*enrichpersistence.PeopleRepository)(nil)
+	_ appenrich.Transactor               = (*catalogpersistence.GormTransactor)(nil)
 )

@@ -3362,7 +3362,7 @@ func buildMovieChangesStateTable(d Dialect) *atlasschema.Table {
 		AddChecks(singletonCheck)
 }
 
-// buildMoviesTable returns the canonical `movies` table — 31 cols, PK id,
+// buildMoviesTable returns the canonical `movies` table — 36 cols, PK id,
 // 5 indexes (partial-unique tmdb_id, imdb_id, popularity DESC, tmdb_rating
 // DESC, partial collection_id). Mirrors buildSeriesTable. budget/revenue
 // are bigint on Postgres, integer on SQLite (same dialect branch used for
@@ -3405,6 +3405,17 @@ func buildMoviesTable(d Dialect) *atlasschema.Table {
 	omdbAwards := atlasschema.NewNullStringColumn("omdb_awards", "text")
 	enrichmentTMDBSyncedAt := timestampColumn(d, "enrichment_tmdb_synced_at", false, false)
 	enrichmentOMDBSyncedAt := timestampColumn(d, "enrichment_omdb_synced_at", false, false)
+	// Ф1.1a movie section stamps — per-section "last synced" clocks for the
+	// section-level ETag/freshness reads (Ф1.1b). Nullable, no default; stamped by
+	// their section writer. enrichment_cast_synced_at gets its writer in Ф1.1a
+	// (MovieRepository.MarkCastSynced); text/recs/media/keywords are schema-only
+	// until Ф1.1b wires their writers. `keywords` has no series analog (movies
+	// carry a keywords section that series does not).
+	enrichmentTextSyncedAt := timestampColumn(d, "enrichment_text_synced_at", false, false)
+	enrichmentCastSyncedAt := timestampColumn(d, "enrichment_cast_synced_at", false, false)
+	enrichmentRecsSyncedAt := timestampColumn(d, "enrichment_recs_synced_at", false, false)
+	enrichmentMediaSyncedAt := timestampColumn(d, "enrichment_media_synced_at", false, false)
+	enrichmentKeywordsSyncedAt := timestampColumn(d, "enrichment_keywords_synced_at", false, false)
 	// tmdbChangedAt (Ф6-R-4a) — write-once "TMDB /movie/changes last reported
 	// a change for this movie" clock. NULL = never reported. Stamped ONLY by
 	// the dedicated movie changes-writer; deliberately absent from
@@ -3445,6 +3456,11 @@ func buildMoviesTable(d Dialect) *atlasschema.Table {
 			omdbAwards,
 			enrichmentTMDBSyncedAt,
 			enrichmentOMDBSyncedAt,
+			enrichmentTextSyncedAt,
+			enrichmentCastSyncedAt,
+			enrichmentRecsSyncedAt,
+			enrichmentMediaSyncedAt,
+			enrichmentKeywordsSyncedAt,
 			tmdbChangedAt,
 			createdAt,
 			updatedAt,

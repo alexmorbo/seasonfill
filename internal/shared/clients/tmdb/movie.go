@@ -13,13 +13,11 @@ import (
 )
 
 // movieAppendToResponse is the comma-separated sub-resource list the movie
-// enrichment worker consumes in a single round-trip (Ф6-R-4a L3-2). Trimmed to
-// exactly what MapMovieToCanon + the worker's i18n write read: external_ids
-// (imdb fallback), release_dates (digital/physical), images (per-lang art),
-// translations (localized title/overview/tagline). credits/keywords/videos/
-// recommendations are deferred to R-4b — keeping this list minimal keeps the
-// payload small (movie analog of tvAppendToResponse; do NOT touch tv.go).
-const movieAppendToResponse = "external_ids,release_dates,images,translations"
+// enrichment worker consumes in a single round-trip. external_ids (imdb
+// fallback), release_dates (digital/physical), images (per-lang art),
+// translations (localized title/overview/tagline), credits (Ф1.1a cast →
+// person_credits). keywords/videos/recommendations remain deferred to Ф1.1b.
+const movieAppendToResponse = "external_ids,release_dates,images,translations,credits"
 
 // releaseTypeDigital / releaseTypePhysical are the TMDB release_dates type enum
 // values the mapper extracts into movies.digital_release_date /

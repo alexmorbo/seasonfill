@@ -36,6 +36,9 @@ type fakeMovieCanon struct {
 	upserted    movie.Canon
 	markCalls   int
 	markedID    domain.MovieID
+	// Ф1.1a cast stamp capture.
+	castMarkCalls int
+	castMarkedID  domain.MovieID
 }
 
 func (f *fakeMovieCanon) Get(_ context.Context, _ domain.MovieID) (movie.Canon, error) {
@@ -51,6 +54,12 @@ func (f *fakeMovieCanon) Upsert(_ context.Context, c movie.Canon) (domain.MovieI
 func (f *fakeMovieCanon) MarkTMDBSynced(_ context.Context, id domain.MovieID, _ time.Time) error {
 	f.markCalls++
 	f.markedID = id
+	return nil
+}
+
+func (f *fakeMovieCanon) MarkCastSynced(_ context.Context, id domain.MovieID, _ time.Time) error {
+	f.castMarkCalls++
+	f.castMarkedID = id
 	return nil
 }
 
