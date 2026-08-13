@@ -51,6 +51,16 @@ type Canon struct {
 	OMDBAwards             *string
 	EnrichmentTMDBSyncedAt *time.Time
 	EnrichmentOMDBSyncedAt *time.Time
+	// Per-section enrichment stamps (migration 000061). NULL = section never
+	// enriched. Surfaced on canon (Ф1.2) so the moviedetail on-read hydration
+	// probe reads section staleness with zero extra IO. Written only by the
+	// narrow MovieRepository.Mark*Synced writers; absent from
+	// movieUpsertAssignments so a Radarr/TMDB canon write cannot null them.
+	EnrichmentTextSyncedAt     *time.Time
+	EnrichmentCastSyncedAt     *time.Time
+	EnrichmentRecsSyncedAt     *time.Time
+	EnrichmentMediaSyncedAt    *time.Time
+	EnrichmentKeywordsSyncedAt *time.Time
 	// TMDBChangedAt (Ф6-R-4a) — write-once /movie/changes clock. Written ONLY
 	// by the movie changes-marker; never by Upsert (absent from
 	// movieUpsertAssignments).

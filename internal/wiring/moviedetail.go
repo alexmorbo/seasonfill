@@ -2,6 +2,7 @@ package wiring
 
 import (
 	"log/slog"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -25,12 +26,13 @@ type MovieDetailBundle struct {
 // library list, both over local repos (movies canon + movie_states).
 func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *MovieDetailBundle {
 	domainLog := sharedports.DomainLogger(log, "http")
+	movieRepo := enrichpersistence.NewMovieRepository(db)
 	uc := mdapp.New(
-		enrichpersistence.NewMovieRepository(db),
+		movieRepo,
 		enrichpersistence.NewMovieI18nReadRepository(db),
 		enrichpersistence.NewMovieCollectionsRepository(db),
 		catalogpersistence.NewMovieStatesRepository(db),
-	)
+	).WithHydrationTrigger(movieRepo, time.Now, domainLog)
 	// Ф6-R-6b — global movie library list (GET /api/v1/movies).
 	movieI18nRead := enrichpersistence.NewMovieI18nReadRepository(db)
 	libraryHandler := catalogrest.NewMovieLibraryHandler(

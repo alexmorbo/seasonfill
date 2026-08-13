@@ -1450,6 +1450,15 @@ type MovieModel struct {
 	OMDBAwards             *string        `gorm:"column:omdb_awards;type:text"`
 	EnrichmentTMDBSyncedAt *time.Time     `gorm:"column:enrichment_tmdb_synced_at"`
 	EnrichmentOMDBSyncedAt *time.Time     `gorm:"column:enrichment_omdb_synced_at"`
+	// Per-section enrichment stamps (migration 000061). NULL = section never
+	// enriched. Surfaced on canon (Ф1.2) for the moviedetail on-read hydration
+	// probe; absent from movieUpsertAssignments so a Radarr/TMDB canon write
+	// cannot null them.
+	EnrichmentTextSyncedAt     *time.Time `gorm:"column:enrichment_text_synced_at"`
+	EnrichmentCastSyncedAt     *time.Time `gorm:"column:enrichment_cast_synced_at"`
+	EnrichmentRecsSyncedAt     *time.Time `gorm:"column:enrichment_recs_synced_at"`
+	EnrichmentMediaSyncedAt    *time.Time `gorm:"column:enrichment_media_synced_at"`
+	EnrichmentKeywordsSyncedAt *time.Time `gorm:"column:enrichment_keywords_synced_at"`
 	// TMDBChangedAt (Ф6-R-4a) — write-once "TMDB /movie/changes last reported
 	// a change" clock. NULL = never reported. Stamped ONLY by the movie
 	// changes-writer; deliberately ABSENT from movieUpsertAssignments() so a

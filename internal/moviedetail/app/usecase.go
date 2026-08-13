@@ -9,11 +9,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
 // CanonReader resolves a movie canon by tmdb id. Impl: *enrichpersistence.MovieRepository.
@@ -61,17 +64,47 @@ type LibraryMembership struct {
 	SizeOnDisk    int64
 }
 
-// UseCase assembles the movie-detail aggregate from local read ports.
+// StaleMarker marks a movie for re-enrichment on the next MovieRefreshScheduler
+// tick (Ф1.2 on-read hydration). Impl: *enrichpersistence.MovieRepository.
+type StaleMarker interface {
+	MarkStaleForReenrich(ctx context.Context, movieID domain.MovieID, now time.Time) error
+}
+
+// UseCase assembles the movie-detail aggregate from local read ports. The
+// hydration trigger (stale/now/log) is optional — wired via WithHydrationTrigger;
+// when stale is nil the trigger is a no-op (New alone leaves reads unchanged).
 type UseCase struct {
 	canon      CanonReader
 	i18n       I18nReader
 	collection CollectionReader
 	membership MembershipReader
+
+	stale StaleMarker
+	now   func() time.Time
+	log   *slog.Logger
 }
 
-// New constructs the movie-detail usecase over its four read ports.
+// New constructs the movie-detail usecase over its four read ports. The on-read
+// hydration trigger is opt-in via WithHydrationTrigger (WithLocalizer precedent),
+// so existing callers stay unchanged and the trigger stays a no-op until wired.
 func New(canon CanonReader, i18n I18nReader, collection CollectionReader, membership MembershipReader) *UseCase {
 	return &UseCase{canon: canon, i18n: i18n, collection: collection, membership: membership}
+}
+
+// WithHydrationTrigger enables the Ф1.2 on-read mark-stale nudge. now nil →
+// time.Now; log nil → a default "http" domain logger. Returns the receiver for
+// chaining in the wiring.
+func (uc *UseCase) WithHydrationTrigger(stale StaleMarker, now func() time.Time, log *slog.Logger) *UseCase {
+	uc.stale = stale
+	if now == nil {
+		now = time.Now
+	}
+	uc.now = now
+	if log == nil {
+		log = sharedports.DomainLogger(slog.Default(), "http")
+	}
+	uc.log = log
+	return uc
 }
 
 // Get assembles the detail for a tmdb id. ports.ErrNotFound bubbles when no
@@ -133,5 +166,33 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string) (
 			SizeOnDisk:    s.SizeOnDiskBytes,
 		})
 	}
+
+	uc.maybeTriggerHydration(ctx, canon)
 	return d, nil
+}
+
+// maybeTriggerHydration runs the pure section probe over the already-loaded
+// canon and, if any section is stale AND the movie has a tmdb_id, bumps
+// tmdb_changed_at so the next MovieRefreshScheduler tick re-enriches it. The
+// nudge is a single guarded PK UPDATE (sub-ms) executed synchronously; a marker
+// error is swallowed (logged at Warn) so the read NEVER fails — fail-open per
+// the Radarr lesson. No-op when the trigger is unwired (stale nil) or the movie
+// has no tmdb_id (a Radarr orphan the picker can never re-enrich anyway).
+func (uc *UseCase) maybeTriggerHydration(ctx context.Context, canon movie.Canon) {
+	if uc.stale == nil || canon.TMDBID == nil {
+		return
+	}
+	now := time.Now
+	if uc.now != nil {
+		now = uc.now
+	}
+	if !AnyStale(MovieProbe(canon, now())) {
+		return
+	}
+	if err := uc.stale.MarkStaleForReenrich(ctx, canon.ID, now()); err != nil && uc.log != nil {
+		uc.log.WarnContext(ctx, "moviedetail.hydration.mark_stale_error",
+			slog.Int64("movie_id", int64(canon.ID)),
+			slog.String("error", err.Error()),
+		)
+	}
 }
