@@ -24,8 +24,9 @@ const runtimeConfigBodyLimit = 64 << 10
 // the client sends on PUT is silently dropped (the usecase does not
 // read it).
 type RuntimeConfigHandler struct {
-	uc     *runtimeconfig.UseCase
-	logger *slog.Logger
+	uc            *runtimeconfig.UseCase
+	adminResolver AdminRoleResolver // nil-OK; F-09 role-aware trim
+	logger        *slog.Logger
 }
 
 func NewRuntimeConfigHandler(uc *runtimeconfig.UseCase, logger *slog.Logger) *RuntimeConfigHandler {
@@ -33,6 +34,14 @@ func NewRuntimeConfigHandler(uc *runtimeconfig.UseCase, logger *slog.Logger) *Ru
 		logger = slog.Default()
 	}
 	return &RuntimeConfigHandler{uc: uc, logger: logger}
+}
+
+// WithAdminResolver wires the role resolver so Get trims operator/infra fields
+// from a non-admin response. nil-OK — unwired ⇒ full payload (production always
+// wires it via edge/server.go). F-09.
+func (h *RuntimeConfigHandler) WithAdminResolver(r AdminRoleResolver) *RuntimeConfigHandler {
+	h.adminResolver = r
+	return h
 }
 
 // Get returns the current runtime_config row.
@@ -56,7 +65,27 @@ func (h *RuntimeConfigHandler) Get(c *gin.Context) {
 	if !ts.IsZero() {
 		c.Header("Last-Modified", ts.UTC().Format(http.TimeFormat))
 	}
-	c.JSON(http.StatusOK, outputToDTO(out))
+	body := outputToDTO(out)
+	if !callerIsAdmin(c, h.adminResolver) {
+		body = trimRuntimeConfigForNonAdmin(body)
+	}
+	c.JSON(http.StatusOK, body)
+}
+
+// trimRuntimeConfigForNonAdmin reduces the runtime-config payload to the fields
+// a non-admin surface legitimately reads. Only updated_at survives; everything
+// else — cron schedule, scan internals, global rate limit, the whole auth
+// subtree (session TTL, trusted proxies, OIDC config), the
+// auto_generated_api_key flag, AND guid_rewrites (whose `from` rules can embed
+// cluster-internal tracker-proxy hostnames, e.g.
+// rutracker-proxy.servarr.svc.cluster.local) — is operator/infra configuration
+// a plain user must not see. guid_rewrites is returned as an empty (non-null)
+// slice to preserve the `[]`-not-`null` wire contract. F-09.
+func trimRuntimeConfigForNonAdmin(full dto.RuntimeConfigDTO) dto.RuntimeConfigDTO {
+	return dto.RuntimeConfigDTO{
+		GUIDRewrites: []dto.GUIDRewriteDTO{},
+		UpdatedAt:    full.UpdatedAt,
+	}
 }
 
 // Update full-replaces the runtime_config row.

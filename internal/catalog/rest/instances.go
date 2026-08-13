@@ -38,6 +38,7 @@ type InstancesHandler struct {
 	localizer      SeriesTextLocalizer                 // nil-OK; Story E-1-B7
 	mediaLocalizer SeriesMediaLocalizer                // nil-OK; Story 584b
 	radarr         RadarrConfigLookup                  // nil-OK; Ф6-R-6b
+	adminResolver  AdminRoleResolver                   // nil-OK; F-09 role-aware trim
 	logger         *slog.Logger
 }
 
@@ -140,6 +141,14 @@ func (h *InstancesHandler) WithRadarrHolder(l RadarrConfigLookup) *InstancesHand
 	return h
 }
 
+// WithAdminResolver wires the role resolver so List trims cluster-internal
+// fields (url, last_error) from a non-admin response. nil-OK — unwired ⇒ full
+// payload (production always wires it via edge/server.go). F-09.
+func (h *InstancesHandler) WithAdminResolver(r AdminRoleResolver) *InstancesHandler {
+	h.adminResolver = r
+	return h
+}
+
 // WithMediaPrewarmer wires the optional downloader-enqueue kick
 // fired after EnsurePending lands the rows. nil-OK: without it,
 // the media handler's on-demand fetch path covers the bytes-not-
@@ -167,11 +176,26 @@ func (h *InstancesHandler) List(c *gin.Context) {
 	if h.radarr != nil {
 		radarrMap = h.radarr.Load()
 	}
+	isAdmin := callerIsAdmin(c, h.adminResolver)
 	out := make([]dto.Instance, 0, len(snap))
 	for _, s := range snap {
-		out = append(out, snapshotToDTO(s, instMap, radarrMap))
+		d := snapshotToDTO(s, instMap, radarrMap)
+		if !isAdmin {
+			trimInstanceForNonAdmin(&d)
+		}
+		out = append(out, d)
 	}
 	c.JSON(http.StatusOK, dto.InstanceList{Instances: out})
+}
+
+// trimInstanceForNonAdmin strips cluster-internal fields a plain user must not
+// see: the upstream base URL (e.g. http://sonarr:80) and LastError (dial
+// failures embed the same internal host). Public/UI fields the sidebar and
+// deep-links need — name, type, public_url, mode, health, last_check_at,
+// transitions_count, and the add-modal defaults — are preserved. F-09.
+func trimInstanceForNonAdmin(d *dto.Instance) {
+	d.URL = ""
+	d.LastError = ""
 }
 
 // DEAD: per-instance route deleted at N-1b cutover (story 492). Function retained for future cleanup sweep.

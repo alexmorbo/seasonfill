@@ -190,7 +190,11 @@ func NewServer(
 		WithMediaPending(mediaPending).
 		WithLocalizer(seriesTitleLocalizer).
 		WithMediaLocalizer(seriesMediaLocalizer).
-		WithRadarrHolder(radarrConfigLookup) // Ф6-R-6b Gap 2a
+		WithRadarrHolder(radarrConfigLookup). // Ф6-R-6b Gap 2a
+		WithAdminResolver(adminRepo)          // F-09 role-aware trim
+	if runtimeConfigHandler != nil {
+		runtimeConfigHandler.WithAdminResolver(adminRepo) // F-09 role-aware trim
+	}
 	// Story 491 / N-1a — global catalog handler over the per-instance one.
 	globalCatalogHandler := catalogrest.NewGlobalCatalogHandler(instancesHandler, logger)
 	// Story 492 / N-1b — global series-scoped wrappers + global grab
