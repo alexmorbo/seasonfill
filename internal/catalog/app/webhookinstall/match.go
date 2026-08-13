@@ -4,10 +4,12 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/radarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 )
 
 const webhookPathPrefix = "/api/v1/webhook/sonarr/"
+const radarrWebhookPathPrefix = "/api/v1/webhook/radarr/"
 
 // CanonicalPath returns the seasonfill-side webhook path for an
 // instance. Exported so callers both construct expected URLs and
@@ -34,6 +36,44 @@ func CanonicalPath(instanceName string) string {
 //     in case never collide.
 func MatchesWebhookURL(fields []sonarr.NotificationField, instanceName string) bool {
 	canonical := CanonicalPath(instanceName)
+	for _, f := range fields {
+		if f.Name != "url" {
+			continue
+		}
+		s, ok := f.Value.(string)
+		if !ok {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if u, err := url.Parse(s); err == nil && u.Path != "" {
+			p := strings.TrimRight(u.Path, "/")
+			if p == canonical {
+				return true
+			}
+			continue
+		}
+		if strings.Contains(strings.ToLower(s), strings.ToLower(canonical)) {
+			return true
+		}
+	}
+	return false
+}
+
+// CanonicalPathRadarr is the radarr twin of CanonicalPath — the seasonfill-side
+// radarr webhook path. Matches the live inbox route
+// /api/v1/webhook/radarr/:instance_name (server.go:702).
+func CanonicalPathRadarr(instanceName string) string {
+	return radarrWebhookPathPrefix + instanceName
+}
+
+// MatchesWebhookURLRadarr is the radarr twin of MatchesWebhookURL. Identical
+// path-suffix logic (trailing-slash strip, query ignored, malformed-URL
+// case-insensitive substring fallback) against the radarr canonical path.
+func MatchesWebhookURLRadarr(fields []radarr.NotificationField, instanceName string) bool {
+	canonical := CanonicalPathRadarr(instanceName)
 	for _, f := range fields {
 		if f.Name != "url" {
 			continue

@@ -93,8 +93,7 @@ func TestClient_CreateNotification_Success(t *testing.T) {
 	assert.Contains(t, gotBody, `"onMovieAdded":true`)
 	assert.Contains(t, gotBody, `"onMovieDelete":true`)
 	assert.Contains(t, gotBody, `"onMovieFileDelete":true`)
-	assert.Contains(t, gotBody, `"onManualInteractionRequired":true`)
-	assert.Contains(t, gotBody, `"onHealthIssue":true`)
+	assert.Contains(t, gotBody, `"onRename":true`)
 	assert.Contains(t, gotBody, `"key":"X-Api-Key"`)
 	assert.Contains(t, gotBody, `"value":"k"`)
 	assert.Contains(t, gotBody, `"value":"https://x/y"`)
@@ -102,10 +101,11 @@ func TestClient_CreateNotification_Success(t *testing.T) {
 	assert.NotContains(t, gotBody, `"onSeriesAdd"`)
 	assert.NotContains(t, gotBody, `"onSeriesDelete"`)
 	assert.NotContains(t, gotBody, `"onEpisodeFileDelete"`)
-	// radarr flags outside the requested set must NOT be requested.
-	assert.NotContains(t, gotBody, `"onRename"`)
-	assert.NotContains(t, gotBody, `"onUpgrade"`)
-	assert.NotContains(t, gotBody, `"onApplicationUpdate"`)
+	// Dropped/never-requested radarr flags must NOT be set true.
+	assert.NotContains(t, gotBody, `"onManualInteractionRequired":true`)
+	assert.NotContains(t, gotBody, `"onHealthIssue":true`)
+	assert.NotContains(t, gotBody, `"onUpgrade":true`)
+	assert.NotContains(t, gotBody, `"onApplicationUpdate":true`)
 }
 
 func TestClient_CreateNotification_409Conflict(t *testing.T) {
@@ -197,14 +197,13 @@ func TestClient_CreateNotification_FallbackOnUnknownMovieTrigger(t *testing.T) {
 	require.Len(t, bodies, 2, "exactly two POSTs: original + fallback")
 	assert.Contains(t, bodies[0], `"onMovieAdded":true`, "first attempt includes the movie flags")
 	assert.Contains(t, bodies[0], `"onMovieFileDelete":true`)
-	assert.Contains(t, bodies[0], `"onHealthIssue":true`)
+	assert.Contains(t, bodies[0], `"onRename":true`, "first attempt includes onRename")
 	assert.NotContains(t, bodies[1], `"onMovieAdded":true`, "fallback omits onMovieAdded (omitempty)")
 	assert.NotContains(t, bodies[1], `"onMovieDelete":true`, "fallback omits onMovieDelete (omitempty)")
 	assert.NotContains(t, bodies[1], `"onMovieFileDelete":true`, "fallback omits onMovieFileDelete (omitempty)")
-	assert.NotContains(t, bodies[1], `"onManualInteractionRequired":true`, "fallback omits onManualInteractionRequired (omitempty)")
-	assert.NotContains(t, bodies[1], `"onHealthIssue":true`, "fallback omits onHealthIssue (omitempty)")
 	assert.Contains(t, bodies[1], `"onGrab":true`, "fallback keeps the known-good core")
 	assert.Contains(t, bodies[1], `"onDownload":true`)
+	assert.Contains(t, bodies[1], `"onRename":true`, "onRename is known-good and stays in the fallback")
 }
 
 func TestClient_CreateNotification_400WithoutMovieTrigger_NoRetry(t *testing.T) {
@@ -262,8 +261,7 @@ func TestClient_UpdateNotification_PUTsExpectedPath(t *testing.T) {
 	assert.Contains(t, gotBody, `"onMovieAdded":true`)
 	assert.Contains(t, gotBody, `"onMovieDelete":true`)
 	assert.Contains(t, gotBody, `"onMovieFileDelete":true`)
-	assert.Contains(t, gotBody, `"onManualInteractionRequired":true`)
-	assert.Contains(t, gotBody, `"onHealthIssue":true`)
+	assert.Contains(t, gotBody, `"onRename":true`)
 }
 
 func TestClient_UpdateNotification_FallbackOnUnknownTrigger(t *testing.T) {
@@ -296,10 +294,9 @@ func TestClient_UpdateNotification_FallbackOnUnknownTrigger(t *testing.T) {
 	assert.NotContains(t, bodies[1], `"onMovieFileDelete":true`, "fallback drops onMovieFileDelete")
 	assert.NotContains(t, bodies[1], `"onMovieAdded":true`, "fallback drops onMovieAdded")
 	assert.NotContains(t, bodies[1], `"onMovieDelete":true`, "fallback drops onMovieDelete")
-	assert.NotContains(t, bodies[1], `"onManualInteractionRequired":true`, "fallback drops onManualInteractionRequired")
-	assert.NotContains(t, bodies[1], `"onHealthIssue":true`, "fallback drops onHealthIssue")
 	assert.Contains(t, bodies[1], `"onGrab":true`, "fallback keeps the known-good core")
 	assert.Contains(t, bodies[1], `"onDownload":true`)
+	assert.Contains(t, bodies[1], `"onRename":true`, "onRename is known-good and stays in the fallback")
 }
 
 func TestClient_UpdateNotification_RejectsZeroID(t *testing.T) {
@@ -372,13 +369,12 @@ func TestWebhookFieldURL_Absent(t *testing.T) {
 func TestDesiredTriggers_AllOn(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, TriggerSet{
-		OnGrab:                      true,
-		OnDownload:                  true,
-		OnMovieAdded:                true,
-		OnMovieDelete:               true,
-		OnMovieFileDelete:           true,
-		OnManualInteractionRequired: true,
-		OnHealthIssue:               true,
+		OnGrab:            true,
+		OnDownload:        true,
+		OnMovieAdded:      true,
+		OnMovieDelete:     true,
+		OnMovieFileDelete: true,
+		OnRename:          true,
 	}, DesiredTriggers())
 }
 
@@ -411,6 +407,7 @@ func TestClient_TestNotification_Success(t *testing.T) {
 	assert.Contains(t, gotBody, `"onGrab":true`)
 	assert.Contains(t, gotBody, `"onDownload":true`)
 	assert.Contains(t, gotBody, `"onMovieAdded":true`)
+	assert.Contains(t, gotBody, `"onRename":true`)
 	assert.Contains(t, gotBody, `"value":"https://x/y"`)
 	assert.Contains(t, gotBody, `"key":"X-Api-Key"`)
 	assert.Contains(t, gotBody, `"value":"k"`)

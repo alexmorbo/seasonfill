@@ -31,6 +31,7 @@ type notificationDTO struct {
 	OnMovieAdded                bool                `json:"onMovieAdded,omitempty"`
 	OnMovieDelete               bool                `json:"onMovieDelete,omitempty"`
 	OnMovieFileDelete           bool                `json:"onMovieFileDelete,omitempty"`
+	OnRename                    bool                `json:"onRename,omitempty"`
 	OnManualInteractionRequired bool                `json:"onManualInteractionRequired,omitempty"`
 	OnHealthIssue               bool                `json:"onHealthIssue,omitempty"`
 	Fields                      []NotificationField `json:"fields"`
@@ -59,6 +60,7 @@ type Notification struct {
 	OnMovieAdded                bool
 	OnMovieDelete               bool
 	OnMovieFileDelete           bool
+	OnRename                    bool
 	OnManualInteractionRequired bool
 	OnHealthIssue               bool
 	Fields                      []NotificationField
@@ -73,6 +75,7 @@ type TriggerSet struct {
 	OnMovieAdded                bool
 	OnMovieDelete               bool
 	OnMovieFileDelete           bool
+	OnRename                    bool
 	OnManualInteractionRequired bool
 	OnHealthIssue               bool
 }
@@ -85,6 +88,7 @@ func (n Notification) Triggers() TriggerSet {
 		OnMovieAdded:                n.OnMovieAdded,
 		OnMovieDelete:               n.OnMovieDelete,
 		OnMovieFileDelete:           n.OnMovieFileDelete,
+		OnRename:                    n.OnRename,
 		OnManualInteractionRequired: n.OnManualInteractionRequired,
 		OnHealthIssue:               n.OnHealthIssue,
 	}
@@ -130,6 +134,7 @@ func notificationFromDTO(d notificationDTO) Notification {
 		OnMovieAdded:                d.OnMovieAdded,
 		OnMovieDelete:               d.OnMovieDelete,
 		OnMovieFileDelete:           d.OnMovieFileDelete,
+		OnRename:                    d.OnRename,
 		OnManualInteractionRequired: d.OnManualInteractionRequired,
 		OnHealthIssue:               d.OnHealthIssue,
 		Fields:                      d.Fields,
@@ -222,27 +227,26 @@ func (c *Client) UpdateNotification(ctx context.Context, existing Notification, 
 }
 
 // desiredTriggerDTO is the SINGLE source of the trigger set seasonfill wants on
-// the Radarr webhook. MAIN-specified movie trigger set:
+// the Radarr webhook. Aligned (M-FIX-4b) to exactly what the radarr inbox+mapper
+// consume:
 //
-//	onGrab, onDownload, onMovieAdded, onMovieDelete, onMovieFileDelete,
-//	onManualInteractionRequired, onHealthIssue
+//	onGrab, onDownload, onMovieAdded, onMovieDelete, onMovieFileDelete, onRename
+//
+// onManualInteractionRequired and onHealthIssue are DELIBERATELY OFF: the inbox
+// mapper classifies them Unsupported (dropped at ingest), so firing them is a
+// wasted round-trip. onRename IS on because the mapper upserts `rename`.
 //
 // Both the outbound write (setDesiredTriggers) and the drift-check target
-// (DesiredTriggers) derive from this factory so they cannot diverge. Mirror of
-// sonarr.desiredTriggerDTO.
-//
-// NOTE (open for M-FIX-4b): this set is NOT perfectly aligned with what the
-// radarr inbox consumes — see the "Concerns / open-notes" section. 4a
-// implements MAIN's list verbatim; 4b reconciles.
+// (DesiredTriggers) derive from this factory so they cannot diverge — this is
+// what makes triggersConverged stable (no perpetual churn).
 func desiredTriggerDTO() notificationDTO {
 	return notificationDTO{
-		OnGrab:                      true,
-		OnDownload:                  true,
-		OnMovieAdded:                true,
-		OnMovieDelete:               true,
-		OnMovieFileDelete:           true,
-		OnManualInteractionRequired: true,
-		OnHealthIssue:               true,
+		OnGrab:            true,
+		OnDownload:        true,
+		OnMovieAdded:      true,
+		OnMovieDelete:     true,
+		OnMovieFileDelete: true,
+		OnRename:          true,
 	}
 }
 
@@ -256,8 +260,11 @@ func setDesiredTriggers(dto *notificationDTO) {
 	dto.OnMovieAdded = d.OnMovieAdded
 	dto.OnMovieDelete = d.OnMovieDelete
 	dto.OnMovieFileDelete = d.OnMovieFileDelete
-	dto.OnManualInteractionRequired = d.OnManualInteractionRequired
-	dto.OnHealthIssue = d.OnHealthIssue
+	dto.OnRename = d.OnRename
+	// Explicitly OFF: our writes clear any operator-set value so the persisted
+	// resource matches DesiredTriggers() and triggersConverged stays stable.
+	dto.OnManualInteractionRequired = false
+	dto.OnHealthIssue = false
 }
 
 // DesiredTriggers is the readable trigger set seasonfill wants on the webhook,
@@ -267,17 +274,15 @@ func DesiredTriggers() TriggerSet {
 	return notificationFromDTO(desiredTriggerDTO()).Triggers()
 }
 
-// dropUnsupportedTriggers strips the triggers an older Radarr may not
-// recognise, leaving the known-good core (onGrab/onDownload). Used by the
-// version-variance fallback after a 400 whose body names one of the newer
-// trigger fields. The dropped fields carry omitempty so they vanish from the
-// retried payload. Mirror of sonarr.dropUnsupportedTriggers.
+// dropUnsupportedTriggers strips the newer movie triggers an older Radarr may not
+// recognise, leaving the known-good core (onGrab/onDownload) plus onRename (a
+// long-standing trigger no Radarr rejects). Used by the version-variance fallback
+// after a 400 whose body names one of the newer movie trigger fields. The dropped
+// fields carry omitempty so they vanish from the retried payload.
 func dropUnsupportedTriggers(dto *notificationDTO) {
 	dto.OnMovieAdded = false
 	dto.OnMovieDelete = false
 	dto.OnMovieFileDelete = false
-	dto.OnManualInteractionRequired = false
-	dto.OnHealthIssue = false
 }
 
 // submitNotification POSTs (isPut=false) or PUTs (isPut=true) the notification
@@ -336,9 +341,9 @@ func WebhookFieldURL(fields []NotificationField) string {
 }
 
 // isUnsupportedTriggerErr returns true when Radarr rejected the write body
-// specifically because one of the newer trigger fields (onMovieAdded /
-// onMovieDelete / onMovieFileDelete / onManualInteractionRequired /
-// onHealthIssue) is unknown to it (older Radarr). Rule: HTTP 400 with body
+// specifically because one of the newer movie trigger fields (onMovieAdded /
+// onMovieDelete / onMovieFileDelete) is unknown to it (older Radarr). Rule:
+// HTTP 400 with body
 // containing the trigger name (case-insensitive). All other failure modes —
 // network, auth, 5xx, other 4xx — return false so they propagate. Mirror of
 // sonarr.isUnsupportedTriggerErr.
@@ -353,9 +358,7 @@ func isUnsupportedTriggerErr(err error) bool {
 	body := strings.ToLower(se.Body)
 	return strings.Contains(body, "onmovieadded") ||
 		strings.Contains(body, "onmoviedelete") ||
-		strings.Contains(body, "onmoviefiledelete") ||
-		strings.Contains(body, "onmanualinteractionrequired") ||
-		strings.Contains(body, "onhealthissue")
+		strings.Contains(body, "onmoviefiledelete")
 }
 
 // buildNotificationFields constructs the Radarr notification.fields array. If

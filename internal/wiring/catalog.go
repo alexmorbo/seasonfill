@@ -447,7 +447,6 @@ func BuildWebhook(
 	outbox ports.OutboxEmitter,
 	log *slog.Logger,
 ) (*WebhookBundle, error) {
-	_ = scanBundle // reserved — see godoc
 	db := persistence.DB
 	holder := sonarrBundle.Holder
 
@@ -566,9 +565,18 @@ func BuildWebhook(
 		},
 	})
 
+	// M-FIX-4b: wire the radarr branch of the webhook reconciler. Guard every
+	// hop — a sonarr-only deployment has no RadarrSync bundle/holder, and a nil
+	// RadarrLookup simply disables the radarr path (Deps.RadarrLookup optional).
+	var radarrReconcileLookup webhookinstall.RadarrLookup
+	if scanBundle.RadarrSync != nil && scanBundle.RadarrSync.RadarrHolder != nil {
+		radarrReconcileLookup = adapters.NewRadarrWebhookReconcileLookup(scanBundle.RadarrSync.RadarrHolder)
+	}
+
 	webhookStatusCache := webhookinstall.NewStatusCache()
 	webhookReconciler := webhookinstall.New(webhookinstall.Deps{
-		Lookup: adapters.NewWebhookReconcileLookup(sonarrBundle.InstanceReg),
+		Lookup:       adapters.NewWebhookReconcileLookup(sonarrBundle.InstanceReg),
+		RadarrLookup: radarrReconcileLookup,
 		// Per-request X-Forwarded public URL wins; fall back to the
 		// configured SEASONFILL_WEBHOOK_BASE_URL so the context-less
 		// background/pod-restart reconcile can still resolve a base URL.

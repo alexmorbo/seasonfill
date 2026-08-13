@@ -7,6 +7,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/webhookinstall"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/radarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -28,6 +29,29 @@ func NewWebhookReconcileLookup(reg catalogrest.InstanceRegistry) webhookinstall.
 			return runtime.InstanceSnapshot{}, nil, false
 		}
 		concrete, ok := inst.Client.(*sonarr.Client)
+		if !ok {
+			return runtime.InstanceSnapshot{}, nil, false
+		}
+		return inst.Config, concrete, true
+	}
+}
+
+// NewRadarrWebhookReconcileLookup adapts the radarr instance-map holder to
+// webhookinstall.RadarrLookup (M-FIX-4b). The Radarr client is type-asserted to
+// *radarr.Client so the reconciler can reach notification methods
+// ports.RadarrClient intentionally omits. A nil holder or a type-assert miss
+// yields ok=false so the reconciler degrades to "unknown instance" (and, for a
+// non-*radarr.Client fake, never panics).
+func NewRadarrWebhookReconcileLookup(holder *RadarrInstanceMapHolder) webhookinstall.RadarrLookup {
+	return func(name string) (runtime.InstanceSnapshot, webhookinstall.RadarrNotifier, bool) {
+		if holder == nil {
+			return runtime.InstanceSnapshot{}, nil, false
+		}
+		inst, ok := holder.Load()[name]
+		if !ok {
+			return runtime.InstanceSnapshot{}, nil, false
+		}
+		concrete, ok := inst.Client.(*radarr.Client)
 		if !ok {
 			return runtime.InstanceSnapshot{}, nil, false
 		}

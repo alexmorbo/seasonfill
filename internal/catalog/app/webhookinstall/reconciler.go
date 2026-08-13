@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/runtime"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/radarr"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -54,23 +56,26 @@ const GraceMaxAttempts = 3
 // compares against it (not the ideal) so an older Sonarr that drops
 // unsupported triggers converges instead of updating every tick.
 type Reconciler struct {
-	lookup    InstanceLookup
-	publicURL PublicURLFunc
-	cache     *StatusCache
-	apiKey    string
-	logger    *slog.Logger
-	now       func() time.Time
+	lookup       InstanceLookup
+	radarrLookup RadarrLookup // M-FIX-4b: optional radarr branch; nil → disabled
+	publicURL    PublicURLFunc
+	cache        *StatusCache
+	apiKey       string
+	logger       *slog.Logger
+	now          func() time.Time
 
-	mu       sync.Mutex
-	achieved map[string]sonarr.TriggerSet
+	mu             sync.Mutex
+	achieved       map[string]sonarr.TriggerSet
+	achievedRadarr map[string]radarr.TriggerSet // M-FIX-4b: per-type memo
 }
 
 type Deps struct {
-	Lookup    InstanceLookup
-	PublicURL PublicURLFunc
-	Cache     *StatusCache
-	APIKey    string
-	Logger    *slog.Logger
+	Lookup       InstanceLookup
+	RadarrLookup RadarrLookup // M-FIX-4b: optional; nil → sonarr-only
+	PublicURL    PublicURLFunc
+	Cache        *StatusCache
+	APIKey       string
+	Logger       *slog.Logger
 }
 
 func New(d Deps) *Reconciler {
@@ -89,7 +94,7 @@ func New(d Deps) *Reconciler {
 		pf = func(context.Context) string { return "" }
 	}
 	return &Reconciler{
-		lookup: d.Lookup, publicURL: pf, cache: d.Cache,
+		lookup: d.Lookup, radarrLookup: d.RadarrLookup, publicURL: pf, cache: d.Cache,
 		apiKey: d.APIKey, logger: lg, now: time.Now,
 	}
 }
@@ -117,6 +122,14 @@ func (r *Reconciler) WithClock(f func() time.Time) *Reconciler { r.now = f; retu
 func (r *Reconciler) Reconcile(ctx context.Context, instanceName string) (Status, error) {
 	snap, notifier, ok := r.lookup(instanceName)
 	if !ok {
+		// M-FIX-4b: an instance lives in exactly one holder. A sonarr miss may
+		// still be a known radarr instance — dispatch to the additive radarr
+		// path before declaring the instance unknown.
+		if r.radarrLookup != nil {
+			if rsnap, rnotifier, rok := r.radarrLookup(instanceName); rok {
+				return r.reconcileRadarr(ctx, instanceName, rsnap, rnotifier)
+			}
+		}
 		return Status{}, fmt.Errorf("%w: %s", ErrUnknownInstance, instanceName)
 	}
 	now := r.now()
@@ -218,6 +231,147 @@ func (r *Reconciler) Reconcile(ctx context.Context, instanceName string) (Status
 	return st, nil
 }
 
+// reconcileRadarr is the radarr twin of Reconcile's happy path (M-FIX-4b). It
+// mirrors the sonarr flow verbatim over radarr types + the radarr canonical
+// path + a radarr-specific achieved memo. It shares recordFailure/successStatus/
+// cache (all type-agnostic) so failure/grace/backoff semantics are identical.
+func (r *Reconciler) reconcileRadarr(ctx context.Context, instanceName string, snap runtime.InstanceSnapshot, notifier RadarrNotifier) (Status, error) {
+	now := r.now()
+
+	if !snap.WebhookInstallEnabled {
+		st := Status{Installed: false, LastCheckedAt: now}
+		r.cache.Set(instanceName, st)
+		return st, nil
+	}
+
+	publicURL := snap.WebhookBaseURL(r.publicURL(ctx))
+	if publicURL == "" {
+		msg := "public_url undetermined"
+		next := now.Add(DefaultRetryAfter)
+		st := Status{LastError: &msg, LastCheckedAt: now, NextRetryAt: &next}
+		r.cache.Set(instanceName, st)
+		return st, errors.New(msg)
+	}
+
+	expectedURL := publicURL + CanonicalPathRadarr(instanceName)
+
+	existing, err := notifier.ListNotifications(ctx)
+	if err != nil {
+		return r.recordFailure(ctx, instanceName, now, "list_notifications", err), err
+	}
+
+	var match *radarr.Notification
+	for i := range existing {
+		n := &existing[i]
+		if n.Implementation != "Webhook" {
+			continue
+		}
+		if MatchesWebhookURLRadarr(n.Fields, instanceName) {
+			match = n
+			break
+		}
+	}
+
+	if match == nil {
+		payload := radarr.NotificationPayload{
+			Name:           "seasonfill",
+			URL:            expectedURL,
+			APIKeyHeader:   r.apiKey,
+			TemplateFields: pickTemplateFieldsRadarr(existing),
+		}
+		created, err := notifier.CreateNotification(ctx, payload)
+		if err != nil {
+			return r.recordFailure(ctx, instanceName, now, "create_notification", err), err
+		}
+		if err := notifier.TestNotification(ctx, payload); err != nil {
+			return r.recordFailure(ctx, instanceName, now, "test_notification", err), err
+		}
+		r.rememberAchievedRadarr(instanceName, created)
+		st := r.successStatus(now, created.ID, expectedURL)
+		r.cache.Set(instanceName, st)
+		r.logger.InfoContext(ctx, "webhook_reconciled",
+			slog.String("instance", instanceName),
+			slog.String("kind", "radarr"),
+			slog.String("action", "create"),
+			slog.Int("notification_id", created.ID))
+		return st, nil
+	}
+
+	urlMatches := radarr.WebhookFieldURL(match.Fields) == expectedURL
+	if urlMatches && r.triggersConvergedRadarr(instanceName, *match) {
+		st := r.successStatus(now, match.ID, expectedURL)
+		r.cache.Set(instanceName, st)
+		return st, nil
+	}
+
+	updatePayload := radarr.NotificationPayload{
+		Name: "seasonfill", URL: expectedURL, APIKeyHeader: r.apiKey,
+	}
+	updated, err := notifier.UpdateNotification(ctx, *match, updatePayload)
+	if err != nil {
+		return r.recordFailure(ctx, instanceName, now, "update_notification", err), err
+	}
+	if err := notifier.TestNotification(ctx, updatePayload); err != nil {
+		return r.recordFailure(ctx, instanceName, now, "test_notification", err), err
+	}
+	r.rememberAchievedRadarr(instanceName, updated)
+	st := r.successStatus(now, updated.ID, expectedURL)
+	r.cache.Set(instanceName, st)
+	reason := "url"
+	if urlMatches {
+		reason = "triggers"
+	}
+	r.logger.InfoContext(ctx, "webhook_reconciled",
+		slog.String("instance", instanceName),
+		slog.String("kind", "radarr"),
+		slog.String("action", "update"),
+		slog.String("reason", reason),
+		slog.Int("notification_id", updated.ID),
+		slog.String("url", expectedURL))
+	return st, nil
+}
+
+// pickTemplateFieldsRadarr is the radarr twin of pickTemplateFields — returns the
+// field array of the first existing Webhook notification to defend against
+// Radarr field-schema drift across versions.
+func pickTemplateFieldsRadarr(list []radarr.Notification) []radarr.NotificationField {
+	for _, n := range list {
+		if n.Implementation == "Webhook" && len(n.Fields) > 0 {
+			return n.Fields
+		}
+	}
+	return nil
+}
+
+// triggersConvergedRadarr is the radarr twin of triggersConverged: target is the
+// achieved memo when present (storm-proof against an older Radarr that dropped
+// unsupported triggers), else the ideal DesiredTriggers on first sight.
+func (r *Reconciler) triggersConvergedRadarr(instanceName string, n radarr.Notification) bool {
+	cur := n.Triggers()
+	r.mu.Lock()
+	target, ok := r.achievedRadarr[instanceName]
+	r.mu.Unlock()
+	if ok {
+		return cur == target
+	}
+	return cur == radarr.DesiredTriggers()
+}
+
+func (r *Reconciler) rememberAchievedRadarr(instanceName string, n radarr.Notification) {
+	r.mu.Lock()
+	if r.achievedRadarr == nil {
+		r.achievedRadarr = make(map[string]radarr.TriggerSet)
+	}
+	r.achievedRadarr[instanceName] = n.Triggers()
+	r.mu.Unlock()
+}
+
+func (r *Reconciler) forgetAchievedRadarr(instanceName string) {
+	r.mu.Lock()
+	delete(r.achievedRadarr, instanceName)
+	r.mu.Unlock()
+}
+
 // GetStatus returns the cached Status, lazily triggering Reconcile
 // when the entry is missing, stale (older than DefaultRefreshAfter),
 // or carries a LastError past NextRetryAt. A lazy-reconcile failure
@@ -239,12 +393,31 @@ func (r *Reconciler) GetStatus(ctx context.Context, instanceName string) (Status
 func (r *Reconciler) HandleInstanceDeleted(ctx context.Context, instanceName string) {
 	defer r.cache.Delete(instanceName)
 	defer r.forgetAchieved(instanceName)
+	defer r.forgetAchievedRadarr(instanceName) // M-FIX-4b
 	cur, hit := r.cache.Get(instanceName)
 	if !hit || !cur.Installed || cur.NotificationID == nil {
 		return
 	}
 	_, notifier, ok := r.lookup(instanceName)
 	if !ok {
+		// M-FIX-4b: radarr cleanup twin.
+		if r.radarrLookup != nil {
+			if _, rnotifier, rok := r.radarrLookup(instanceName); rok {
+				if err := rnotifier.DeleteNotification(ctx, *cur.NotificationID); err != nil {
+					r.logger.WarnContext(ctx, "webhook_cleanup_failed",
+						slog.String("instance", instanceName),
+						slog.String("kind", "radarr"),
+						slog.Int("notification_id", *cur.NotificationID),
+						slog.String("error", err.Error()))
+					return
+				}
+				r.logger.InfoContext(ctx, "webhook_cleanup_ok",
+					slog.String("instance", instanceName),
+					slog.String("kind", "radarr"),
+					slog.Int("notification_id", *cur.NotificationID))
+				return
+			}
+		}
 		r.logger.WarnContext(ctx, "webhook_cleanup_skipped_unknown_instance",
 			slog.String("instance", instanceName))
 		return
