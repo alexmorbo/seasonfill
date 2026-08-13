@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/calendar"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // CalendarUseCase is the narrow port the handler depends on. Production:
@@ -20,15 +21,16 @@ type CalendarUseCase interface {
 
 // CalendarHandler serves GET /api/v1/calendar — the read-only release calendar.
 type CalendarHandler struct {
-	uc     CalendarUseCase
-	logger *slog.Logger
+	uc       CalendarUseCase
+	resolver *media.Resolver // nil-OK: raw TMDB paths flow through unchanged
+	logger   *slog.Logger
 }
 
-func NewCalendarHandler(uc CalendarUseCase, logger *slog.Logger) *CalendarHandler {
+func NewCalendarHandler(uc CalendarUseCase, resolver *media.Resolver, logger *slog.Logger) *CalendarHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &CalendarHandler{uc: uc, logger: logger}
+	return &CalendarHandler{uc: uc, resolver: resolver, logger: logger}
 }
 
 const calendarDateLayout = "2006-01-02"
@@ -85,23 +87,33 @@ func (h *CalendarHandler) Get(c *gin.Context) {
 		q.To = t.UTC().Add(24*time.Hour - time.Nanosecond)
 	}
 
-	rep, err := h.uc.Build(c.Request.Context(), q)
+	ctx := c.Request.Context()
+	rep, err := h.uc.Build(ctx, q)
 	if err != nil {
-		h.logger.ErrorContext(c.Request.Context(), "calendar_query_failed",
+		h.logger.ErrorContext(ctx, "calendar_query_failed",
 			slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "calendar unavailable"})
 		return
 	}
-	c.JSON(http.StatusOK, toCalendarDTO(rep))
+	c.JSON(http.StatusOK, h.toCalendarDTO(ctx, rep))
 }
 
 func isTrue(v string) bool { return v == "true" || v == "1" }
 
-func toCalendarDTO(rep calendar.Report) dto.CalendarDTO {
+// toCalendarDTO maps the domain report to the wire DTO, resolving each event's
+// raw TMDB poster path → sha256 media hash via the injected resolver (nil-OK:
+// raw path flows through unchanged). Mirrors MovieCalendarHandler.Get.
+func (h *CalendarHandler) toCalendarDTO(ctx context.Context, rep calendar.Report) dto.CalendarDTO {
 	days := make([]dto.CalendarDayDTO, 0, len(rep.Days))
 	for _, d := range rep.Days {
 		events := make([]dto.CalendarEventDTO, 0, len(d.Events))
 		for _, e := range d.Events {
+			poster := e.Poster
+			if h.resolver != nil {
+				if hash := h.resolver.Resolve(ctx, e.Poster, "w342", "poster_w342"); hash != nil {
+					poster = hash
+				}
+			}
 			events = append(events, dto.CalendarEventDTO{
 				SeriesID:           e.SeriesID,
 				TMDBID:             e.TMDBID,
@@ -111,7 +123,7 @@ func toCalendarDTO(rep calendar.Report) dto.CalendarDTO {
 				AirDate:            e.AirDate,
 				State:              e.State,
 				InLibraryInstances: e.InLibraryInstances,
-				Poster:             e.Poster,
+				Poster:             poster,
 				SeasonPremiere:     e.SeasonPremiere,
 				Milestone:          e.Milestone,
 				MediaType:          e.MediaType,

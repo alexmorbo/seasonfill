@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/calendar"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 type fakeCalUC struct {
@@ -30,7 +34,7 @@ func (f *fakeCalUC) Build(_ context.Context, q calendar.Query) (calendar.Report,
 
 func serveCalendar(t *testing.T, uc CalendarUseCase, url string) *httptest.ResponseRecorder {
 	t.Helper()
-	h := NewCalendarHandler(uc, nil)
+	h := NewCalendarHandler(uc, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/calendar", h.Get)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
@@ -110,4 +114,69 @@ func TestCalendarHandler_DTOMapping(t *testing.T) {
 	require.NotNil(t, ev.Milestone)
 	assert.Equal(t, "premiere", *ev.Milestone)
 	assert.True(t, ev.SeasonPremiere)
+}
+
+// TestCalendarHandler_Get_ResolvesPoster is the Ф0.1 regression: each insights
+// calendar event's poster must be the resolved sha256 media hash, NOT the raw
+// TMDB path. Mirrors the M-FIX-1 movie-calendar regression.
+func TestCalendarHandler_Get_ResolvesPoster(t *testing.T) {
+	const posterHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	rawPoster := "/insightsPoster.jpg"
+
+	report := func(poster *string) calendar.Report {
+		air := time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)
+		return calendar.Report{
+			GeneratedAt: air, From: air.AddDate(0, -3, 0), To: air.AddDate(0, 3, 0),
+			Days: []calendar.Day{{Date: "2026-06-25", Events: []calendar.Event{{
+				SeriesID: 42, Title: "The Expanse", Season: 1, Episode: 1, AirDate: air,
+				State: "downloaded", InLibraryInstances: []string{"main"},
+				Poster: poster, SeasonPremiere: true, MediaType: "tv",
+			}}}},
+		}
+	}
+
+	serve := func(uc CalendarUseCase, resolver *media.Resolver) *httptest.ResponseRecorder {
+		h := NewCalendarHandler(uc, resolver, nil)
+		r := gin.New()
+		r.GET("/api/v1/calendar", h.Get)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/calendar", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	firstEvent := func(t *testing.T, w *httptest.ResponseRecorder) dto.CalendarEventDTO {
+		t.Helper()
+		require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+		var body dto.CalendarDTO
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.NotEmpty(t, body.Days)
+		require.NotEmpty(t, body.Days[0].Events)
+		return body.Days[0].Events[0]
+	}
+
+	t.Run("resolver hit replaces raw path with media hash", func(t *testing.T) {
+		lookup := movieMediaLookupStub{byURL: map[string]string{
+			appmedia.BuildTMDBImageURL("w342", rawPoster): posterHash,
+		}}
+		resolver := media.NewResolver(lookup, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		ev := firstEvent(t, serve(&fakeCalUC{rep: report(&rawPoster)}, resolver))
+		require.NotNil(t, ev.Poster)
+		assert.Equal(t, posterHash, *ev.Poster)
+		assert.NotEqual(t, rawPoster, *ev.Poster, "must NOT emit the raw /xxxx.jpg path")
+	})
+
+	t.Run("nil resolver preserves raw path (legacy)", func(t *testing.T) {
+		ev := firstEvent(t, serve(&fakeCalUC{rep: report(&rawPoster)}, nil))
+		require.NotNil(t, ev.Poster)
+		assert.Equal(t, rawPoster, *ev.Poster)
+	})
+
+	t.Run("nil poster stays absent, no crash", func(t *testing.T) {
+		lookup := movieMediaLookupStub{byURL: map[string]string{}}
+		resolver := media.NewResolver(lookup, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		ev := firstEvent(t, serve(&fakeCalUC{rep: report(nil)}, resolver))
+		// Legacy (non-unified) resolver returns nil for a nil path → poster omitted.
+		assert.Nil(t, ev.Poster)
+	})
 }

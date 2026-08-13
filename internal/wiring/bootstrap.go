@@ -1132,6 +1132,7 @@ func BuildHTTPServer(
 		movieDetailBundle.LibraryHandler,   // Ф6-R-6b movie library list
 		requestsBundle.Handler,             // Ф8-U-2 request-workflow
 		auth.UsersHandler,                  // Ф8-U-6b admin user-management
+		seriesDetailBundle.MediaResolver,   // Ф0.1 insights /calendar poster resolve
 		log,
 	)
 	return srv, instanceMetadataBundle

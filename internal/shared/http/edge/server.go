@@ -41,6 +41,7 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/handlers"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	torrentactionrest "github.com/alexmorbo/seasonfill/internal/torrentaction/rest"
 	watchdogrest "github.com/alexmorbo/seasonfill/internal/watchdog/rest"
 )
@@ -154,6 +155,9 @@ func NewServer(
 	// Ф8-U-6b — admin user-management handler. nil-OK: the /admin/users
 	// routes are omitted when the handler is absent (minimal/test wirings).
 	usersHandler *adminrest.UsersHandler,
+	// Ф0.1 — shared media resolver for the insights /calendar poster paths
+	// (mirrors the movie calendar). nil-OK: raw TMDB paths flow through.
+	insightsCalendarResolver *media.Resolver,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -345,7 +349,7 @@ func NewServer(
 		// ADR-0015 Ф3 S2 — release calendar (read-only). Usecase owns the
 		// clock (window default + upcoming boundary); repo is the dialect-
 		// portable windowed episode read.
-		insightsCalendarHandler := catalogrest.NewCalendarHandler(calendar.NewUseCase(calendarRepo), logger)
+		insightsCalendarHandler := catalogrest.NewCalendarHandler(calendar.NewUseCase(calendarRepo), insightsCalendarResolver, logger)
 		// Story 217 (H-2) — person detail page. Top-level resource —
 		// `/people` is instance-independent. Nil-OK pattern matches
 		// seriesCastHandler.
