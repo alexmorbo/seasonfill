@@ -95,12 +95,12 @@ func doDELETE(t *testing.T, writer discoveryrest.RowConfigWriter) *httptest.Resp
 func TestRowConfigHandler_Empty_ServesDefaults(t *testing.T) {
 	t.Parallel()
 	got := doGET(t, &fakeRowConfigLister{rows: nil})
-	require.Len(t, got.Rows, 7)
+	require.Len(t, got.Rows, 9)
 	require.Equal(t, "trending", got.Rows[0].RowType)
 	require.Zero(t, got.Rows[0].ID)
 	require.NotNil(t, got.Rows[0].Params)
 	for i, r := range got.Rows {
-		require.Equal(t, i, r.Position, "positions dense 0..6")
+		require.Equal(t, i, r.Position, "positions dense 0..8")
 	}
 	rawBody := mustMarshal(t, got)
 	require.Contains(t, rawBody, `"params":{}`)
@@ -124,7 +124,7 @@ func TestRowConfigHandler_Seeded_PassesThrough(t *testing.T) {
 func TestRowConfigHandler_RepoError_GracefulDegrade(t *testing.T) {
 	t.Parallel()
 	got := doGET(t, &fakeRowConfigLister{err: errors.New("db down")})
-	require.Len(t, got.Rows, 7, "repo error falls back to code-default set")
+	require.Len(t, got.Rows, 9, "repo error falls back to code-default set")
 	require.Equal(t, "trending", got.Rows[0].RowType)
 }
 

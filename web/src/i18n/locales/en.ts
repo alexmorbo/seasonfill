@@ -1155,6 +1155,9 @@ export const en = {
         keyword_id: 'Keyword ID (TMDB)',
         provider_id: 'Provider ID (TMDB)',
         region: 'Region',
+        media: 'Media type',
+        media_tv: 'TV',
+        media_movie: 'Movies',
       },
     },
     rowType: {
@@ -1184,6 +1187,9 @@ export const en = {
     search: {
       placeholder: 'Search shows…',
       no_results: 'No matches for "{{query}}"',
+      tabs_label: 'Result type',
+      tab_tv: 'TV',
+      tab_movie: 'Movies',
     },
     in_library: 'In library',
     card: {

@@ -211,6 +211,7 @@ function AddRowPicker({
 }) {
   const { t } = useTranslation();
   const [type, setType] = useState<AddType>('genre');
+  const [mediaType, setMediaType] = useState<'tv' | 'movie'>('tv');
   const [genreId, setGenreId] = useState('');
   const [networkId, setNetworkId] = useState('');
   const [numId, setNumId] = useState('');
@@ -230,7 +231,7 @@ function AddRowPicker({
   const reset = () => { setGenreId(''); setNetworkId(''); setNumId(''); };
 
   const buildRow = (): DiscoveryRowInput | null => {
-    const base = { source: 'tmdb_discover', media_type: 'tv', position: 0, enabled: true } as const;
+    const base = { source: 'tmdb_discover', media_type: mediaType, position: 0, enabled: true } as const;
     if (type === 'genre') {
       const id = Number(genreId);
       if (!id) return null;
@@ -277,6 +278,19 @@ function AddRowPicker({
       className="flex flex-wrap items-end gap-2 rounded-md border border-dashed border-border-subtle p-3"
       data-testid="discovery-add-row"
     >
+      <div className="flex flex-col gap-1">
+        <span className="text-[11px] text-tx-muted">{t('discovery.edit.add.media')}</span>
+        <Select value={mediaType} onValueChange={(v) => setMediaType(v as 'tv' | 'movie')}>
+          <SelectTrigger className="w-32" data-testid="discovery-add-media">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tv">{t('discovery.edit.add.media_tv')}</SelectItem>
+            <SelectItem value="movie">{t('discovery.edit.add.media_movie')}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="flex flex-col gap-1">
         <span className="text-[11px] text-tx-muted">{t('discovery.edit.add.type')}</span>
         <Select value={type} onValueChange={(v) => { setType(v as AddType); reset(); }}>

@@ -52,7 +52,7 @@ func (s RowSource) IsValid() bool {
 	return s == SourceTMDBDiscover || s == SourceLibrary
 }
 
-// MediaType is the ADR-0017 Phase-6 movie задел. S1 default set is all tv.
+// MediaType is the ADR-0017 Phase-6 movie задел. Rows may be tv or movie.
 type MediaType string
 
 const (
@@ -82,8 +82,9 @@ type Row struct {
 }
 
 // DefaultRows is the curated code-default set (ADR-0017 §D-1 "MVP набор").
-// Rendered verbatim when discovery_rows is empty. All media_type=tv (movies
-// land after Radarr, Phase 6). Titles are Russian per the UI language.
+// Rendered verbatim when discovery_rows is empty. TV rails first, then the
+// movie rails (media_type=movie) the FE dispatches to MovieDiscoveryRail →
+// /discovery/movie/{trending,popular}. Titles are Russian per the UI language.
 //
 // Param keys are the EXACT /discovery/discover query-param names the
 // discover handler parses (internal/discovery/rest/discover_handler.go
@@ -94,6 +95,10 @@ type Row struct {
 // upcoming_releases carries only sort_by here; the FE injects a live
 // first_air_date.gte=<today>. The upcoming row's FE injects a live
 // first_air_date.gte=<today-45d> + .lte=<today> window (static dates would rot).
+//
+// The trending/popular movie rails carry no Params: MovieDiscoveryRail
+// dispatches them by RowType to the dedicated /discovery/movie/{trending,
+// popular} endpoints (source/params are ignored for those two types).
 func DefaultRows() []Row {
 	return []Row{
 		{Position: 0, RowType: RowTypeTrending, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Тренды", Params: map[string]string{}},
@@ -103,5 +108,7 @@ func DefaultRows() []Row {
 		{Position: 4, RowType: RowTypeUpcomingReleases, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Скоро на экраны", Params: map[string]string{"sort_by": "first_air_date.asc"}},
 		{Position: 5, RowType: RowTypeGenre, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Драмы", Params: map[string]string{"with_genres": "18", "sort_by": "popularity.desc"}},
 		{Position: 6, RowType: RowTypeNetwork, Source: SourceTMDBDiscover, MediaType: MediaTypeTV, Enabled: true, Title: "Netflix", Params: map[string]string{"with_networks": "213", "sort_by": "popularity.desc"}},
+		{Position: 7, RowType: RowTypePopular, Source: SourceTMDBDiscover, MediaType: MediaTypeMovie, Enabled: true, Title: "Популярные фильмы", Params: map[string]string{}},
+		{Position: 8, RowType: RowTypeTrending, Source: SourceTMDBDiscover, MediaType: MediaTypeMovie, Enabled: true, Title: "Трендовые фильмы", Params: map[string]string{}},
 	}
 }

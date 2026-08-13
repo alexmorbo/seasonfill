@@ -1160,6 +1160,9 @@ export const ru: Translations = {
         keyword_id: 'ID ключевого слова (TMDB)',
         provider_id: 'ID стриминга (TMDB)',
         region: 'Регион',
+        media: 'Тип контента',
+        media_tv: 'Сериалы',
+        media_movie: 'Фильмы',
       },
     },
     rowType: {
@@ -1189,6 +1192,9 @@ export const ru: Translations = {
     search: {
       placeholder: 'Найти сериал…',
       no_results: 'Ничего не найдено по запросу «{{query}}»',
+      tabs_label: 'Тип результатов',
+      tab_tv: 'Сериалы',
+      tab_movie: 'Фильмы',
     },
     in_library: 'В библиотеке',
     card: {
