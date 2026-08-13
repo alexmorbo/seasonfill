@@ -132,6 +132,66 @@ func (r *MovieRepository) Upsert(ctx context.Context, c movie.Canon) (domain.Mov
 	return m.ID, nil
 }
 
+// UpsertStub inserts/updates a recommendation stub by the tmdb_id partial-unique (Ф1.1c). A
+// thin stub must NEVER blank a richer previously-hydrated value, so movieStubUpsertAssignments
+// is existing-wins COALESCE(movies.X, excluded.X) — the INVERSE polarity of the full-hydrate
+// Upsert (movieUpsertAssignments = excluded-wins). Hydration is full-sticky: a 'full' movie is
+// never downgraded to 'stub'. Mirror of SeriesRepository.UpsertStub. Called inside the recs
+// tx BEFORE the movie_recommendations join insert so the recommended_movie_id FK is satisfied.
+func (r *MovieRepository) UpsertStub(ctx context.Context, c movie.Canon) (domain.MovieID, error) {
+	if c.TMDBID == nil {
+		return 0, fmt.Errorf("upsert stub movie: tmdb_id required")
+	}
+	now := time.Now().UTC()
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = now
+	}
+	c.UpdatedAt = now
+	if c.Hydration == "" {
+		c.Hydration = movie.HydrationStub
+	}
+	if !c.Hydration.IsValid() {
+		return 0, fmt.Errorf("upsert stub movie: invalid hydration %q", c.Hydration)
+	}
+	m := movieFromCanon(c)
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+	conflict := clause.OnConflict{
+		Columns:     []clause.Column{{Name: "tmdb_id"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "tmdb_id IS NOT NULL"}}},
+		DoUpdates:   clause.Assignments(movieStubUpsertAssignments()),
+	}
+	if err := db.Clauses(conflict).Create(&m).Error; err != nil {
+		return 0, fmt.Errorf("upsert stub movie: %w", err)
+	}
+	return m.ID, nil
+}
+
+// movieStubUpsertAssignments — existing-row-wins COALESCE(movies.X, excluded.X). A thin
+// recommendation stub may carry fewer / older values than a previously-hydrated row, so the
+// EXISTING value wins and hydration is 'full'-sticky (CASE). Inverse polarity of
+// movieUpsertAssignments. Title uses NULLIF so a prior stub's empty title can still be filled
+// by the incoming stub, but a non-empty existing title always wins. Mirror of the
+// SeriesRepository.UpsertStub assignment map.
+func movieStubUpsertAssignments() map[string]any {
+	return map[string]any{
+		"imdb_id":           gorm.Expr("COALESCE(movies.imdb_id, excluded.imdb_id)"),
+		"hydration":         gorm.Expr("CASE WHEN movies.hydration = 'full' THEN movies.hydration ELSE excluded.hydration END"),
+		"title":             gorm.Expr("COALESCE(NULLIF(movies.title, ''), NULLIF(excluded.title, ''), movies.title)"),
+		"original_title":    gorm.Expr("COALESCE(movies.original_title, excluded.original_title)"),
+		"status":            gorm.Expr("COALESCE(movies.status, excluded.status)"),
+		"release_date":      gorm.Expr("COALESCE(movies.release_date, excluded.release_date)"),
+		"year":              gorm.Expr("COALESCE(movies.year, excluded.year)"),
+		"runtime_minutes":   gorm.Expr("COALESCE(movies.runtime_minutes, excluded.runtime_minutes)"),
+		"original_language": gorm.Expr("COALESCE(movies.original_language, excluded.original_language)"),
+		"popularity":        gorm.Expr("COALESCE(movies.popularity, excluded.popularity)"),
+		"poster_asset":      gorm.Expr("COALESCE(movies.poster_asset, excluded.poster_asset)"),
+		"backdrop_asset":    gorm.Expr("COALESCE(movies.backdrop_asset, excluded.backdrop_asset)"),
+		"tmdb_rating":       gorm.Expr("COALESCE(movies.tmdb_rating, excluded.tmdb_rating)"),
+		"tmdb_votes":        gorm.Expr("COALESCE(movies.tmdb_votes, excluded.tmdb_votes)"),
+		"updated_at":        gorm.Expr("excluded.updated_at"),
+	}
+}
+
 // MarkTMDBSynced stamps movies.enrichment_tmdb_synced_at = now. Single-column
 // stamp; mirrors SeriesRepository.MarkTMDBSynced.
 func (r *MovieRepository) MarkTMDBSynced(ctx context.Context, id domain.MovieID, now time.Time) error {
@@ -186,6 +246,34 @@ func (r *MovieRepository) MarkKeywordsSynced(ctx context.Context, id domain.Movi
 		Updates(map[string]any{"enrichment_keywords_synced_at": now.UTC(), "updated_at": now.UTC()}).Error
 	if err != nil {
 		return fmt.Errorf("mark movie keywords synced: %w", err)
+	}
+	return nil
+}
+
+// MarkMediaSynced stamps movies.enrichment_media_synced_at = now (Ф1.1c). Single-column stamp;
+// mirrors MarkKeywordsSynced. Called inside the media-write tx.
+func (r *MovieRepository) MarkMediaSynced(ctx context.Context, id domain.MovieID, now time.Time) error {
+	if id == 0 {
+		return fmt.Errorf("mark movie media synced: movie_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Table("movies").Where("id = ?", id).
+		Updates(map[string]any{"enrichment_media_synced_at": now.UTC(), "updated_at": now.UTC()}).Error
+	if err != nil {
+		return fmt.Errorf("mark movie media synced: %w", err)
+	}
+	return nil
+}
+
+// MarkRecsSynced stamps movies.enrichment_recs_synced_at = now (Ф1.1c). Single-column stamp;
+// mirrors MarkKeywordsSynced. Called inside the recs-write tx.
+func (r *MovieRepository) MarkRecsSynced(ctx context.Context, id domain.MovieID, now time.Time) error {
+	if id == 0 {
+		return fmt.Errorf("mark movie recs synced: movie_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Table("movies").Where("id = ?", id).
+		Updates(map[string]any{"enrichment_recs_synced_at": now.UTC(), "updated_at": now.UTC()}).Error
+	if err != nil {
+		return fmt.Errorf("mark movie recs synced: %w", err)
 	}
 	return nil
 }

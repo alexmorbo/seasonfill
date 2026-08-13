@@ -1115,6 +1115,40 @@ type MovieCompanyModel struct {
 
 func (MovieCompanyModel) TableName() string { return "movie_companies" }
 
+// MovieVideoModel — one movie_videos row (Ф1.1c, mig 60). Surrogate id PK; the movie writer
+// persists a SINGLE best trailer per movie (authoritative DELETE-all + INSERT-one). Natural
+// key tmdb_video_id has a partial-unique WHERE tmdb_video_id IS NOT NULL. Mirror of VideoModel
+// (series) with movie_id.
+type MovieVideoModel struct {
+	ID          int64          `gorm:"primaryKey;autoIncrement;column:id"`
+	MovieID     domain.MovieID `gorm:"column:movie_id;not null"`
+	TMDBVideoID *string        `gorm:"column:tmdb_video_id;type:text"`
+	Name        string         `gorm:"column:name;type:text;not null"`
+	Site        *string        `gorm:"column:site;type:text"`
+	Key         *string        `gorm:"column:key;type:text"`
+	Type        *string        `gorm:"column:type;type:text"`
+	Official    bool           `gorm:"column:official;not null;default:false"`
+	Language    *string        `gorm:"column:language;type:text"`
+	PublishedAt *time.Time     `gorm:"column:published_at"`
+	CreatedAt   time.Time      `gorm:"column:created_at;not null"`
+	UpdatedAt   time.Time      `gorm:"column:updated_at;not null"`
+}
+
+func (MovieVideoModel) TableName() string { return "movie_videos" }
+
+// MovieRecommendationModel — TMDB "you might also like" join row (Ф1.1c, mig 60). Self-joining
+// on movies: recommended_movie_id references movies.id (typically a stub row upserted in the
+// same recs write). Composite PK (movie_id, recommended_movie_id); CHECK forbids self-ref.
+// Mirror of SeriesRecommendationModel.
+type MovieRecommendationModel struct {
+	MovieID            domain.MovieID `gorm:"primaryKey;column:movie_id"`
+	RecommendedMovieID domain.MovieID `gorm:"primaryKey;column:recommended_movie_id"`
+	Position           *int           `gorm:"column:position"`
+	UpdatedAt          time.Time      `gorm:"column:updated_at;not null"`
+}
+
+func (MovieRecommendationModel) TableName() string { return "movie_recommendations" }
+
 // VideoModel — TMDB-sourced video row (PRD §5.3 row "videos",
 // migration 000029). Natural key tmdb_video_id has a partial unique
 // index where not NULL so operator-curated rows (rare) can coexist

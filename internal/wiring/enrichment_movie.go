@@ -132,6 +132,9 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 	keywordsI18n := enrichpersistence.NewKeywordsI18nRepository(deps.Persistence.DB)
 	companiesRepo := enrichpersistence.NewCompaniesRepository(deps.Persistence.DB)
 
+	movieVideos := enrichpersistence.NewMovieVideosRepository(deps.Persistence.DB)
+	movieRecs := enrichpersistence.NewMovieRecommendationsRepository(deps.Persistence.DB)
+
 	worker, err := appenrich.NewMovieWorker(appenrich.MovieWorkerDeps{
 		TMDB:          movieTMDBFromHolder{holder: deps.TMDBHolder},
 		Movies:        movies,
@@ -145,6 +148,8 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 		Genres:        GenresRepoAdapter{Main: genresRepo, I18n: genresI18n},
 		Keywords:      KeywordsRepoAdapter{Main: keywordsRepo, I18n: keywordsI18n},
 		Companies:     companiesRepo,
+		Videos:        movieVideos,
+		Recs:          movieRecs,
 		BaseLang:      tmdb.DefaultLanguage,
 		Logger:        deps.Log,
 	})
@@ -293,4 +298,6 @@ var (
 	_ appenrich.MovieGenresWriter        = GenresRepoAdapter{}
 	_ appenrich.MovieKeywordsWriter      = KeywordsRepoAdapter{}
 	_ appenrich.MovieCompaniesWriter     = (*enrichpersistence.CompaniesRepository)(nil)
+	_ appenrich.MovieVideosWriter        = (*enrichpersistence.MovieVideosRepository)(nil)
+	_ appenrich.MovieRecsWriter          = (*enrichpersistence.MovieRecommendationsRepository)(nil)
 )

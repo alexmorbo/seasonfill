@@ -42,6 +42,33 @@ type fakeMovieCanon struct {
 	// Ф1.1b keyword stamp capture.
 	keywordsMarkCalls int
 	keywordsMarkedID  domain.MovieID
+	// Ф1.1c media/recs capture.
+	stubUpserts    []movie.Canon
+	stubNextID     domain.MovieID
+	stubIDByTMDB   map[int64]domain.MovieID // optional UpsertStub id override (self-ref test)
+	mediaMarkCalls int
+	recsMarkCalls  int
+}
+
+func (f *fakeMovieCanon) UpsertStub(_ context.Context, c movie.Canon) (domain.MovieID, error) {
+	f.stubUpserts = append(f.stubUpserts, c)
+	if f.stubIDByTMDB != nil && c.TMDBID != nil {
+		if id, ok := f.stubIDByTMDB[int64(*c.TMDBID)]; ok {
+			return id, nil
+		}
+	}
+	f.stubNextID++
+	return f.stubNextID, nil
+}
+
+func (f *fakeMovieCanon) MarkMediaSynced(_ context.Context, _ domain.MovieID, _ time.Time) error {
+	f.mediaMarkCalls++
+	return nil
+}
+
+func (f *fakeMovieCanon) MarkRecsSynced(_ context.Context, _ domain.MovieID, _ time.Time) error {
+	f.recsMarkCalls++
+	return nil
 }
 
 func (f *fakeMovieCanon) Get(_ context.Context, _ domain.MovieID) (movie.Canon, error) {

@@ -61,9 +61,15 @@ type MovieWorkerDeps struct {
 	Genres    MovieGenresWriter    // nil-OK
 	Keywords  MovieKeywordsWriter  // nil-OK
 	Companies MovieCompaniesWriter // nil-OK
-	BaseLang  string               // default tmdb.DefaultLanguage
-	Logger    *slog.Logger
-	Clock     func() time.Time
+	// Videos / Recs — Ф1.1c movie media + recommendations writers. Each nil-OK: when nil the
+	// worker skips that writer (exact pre-Ф1.1c behavior, so existing movie_worker_test.go
+	// fixtures stay green). Gated with Tx + the decoded sub-resource in HandleForced; each is
+	// its own Transactor tx. Recs is the F-Ф1-12 stub-before-join FK path.
+	Videos   MovieVideosWriter // nil-OK
+	Recs     MovieRecsWriter   // nil-OK
+	BaseLang string            // default tmdb.DefaultLanguage
+	Logger   *slog.Logger
+	Clock    func() time.Time
 }
 
 // MovieOMDbHandler is the post-hydrate OMDb trigger seam. Production impl is
@@ -250,6 +256,24 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 	if w.deps.Tx != nil && w.deps.Companies != nil {
 		if err := w.writeCompanies(ctx, canon.ID, tmdb.MapMovieCompanies(resp)); err != nil {
 			return fmt.Errorf("movie worker: write companies %d: %w", canon.ID, err)
+		}
+	}
+
+	// Ф1.1c: best trailer → movie_videos (authoritative single-row replace) + media stamp.
+	// Gated on Tx + the writer + a decoded videos sub-resource. A nil chosen trailer still runs
+	// (clears the rows + stamps — the media section was checked). Own Transactor tx.
+	if w.deps.Tx != nil && w.deps.Videos != nil && resp.Videos != nil {
+		if err := w.writeVideos(ctx, canon.ID, tmdb.MapMovieBestTrailer(resp)); err != nil {
+			return fmt.Errorf("movie worker: write videos %d: %w", canon.ID, err)
+		}
+	}
+	// Ф1.1c: recommendations → movie_recommendations (F-Ф1-12 stub-before-join). Gated on Tx +
+	// the writer + a decoded recommendations sub-resource. Own Transactor tx (stub upserts +
+	// join Set + recs stamp, atomic). Errors return so the scheduler retries — the canon hydrate
+	// above already committed and every write is idempotent.
+	if w.deps.Tx != nil && w.deps.Recs != nil && resp.Recommendations != nil {
+		if err := w.writeRecommendations(ctx, canon.ID, resp); err != nil {
+			return fmt.Errorf("movie worker: write recommendations %d: %w", canon.ID, err)
 		}
 	}
 	return nil

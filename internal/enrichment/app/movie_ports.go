@@ -43,6 +43,17 @@ type MovieCanonRepo interface {
 	// keyword write (Ф1.1b). Called inside the keyword-write tx so the clock and the
 	// movie_keywords rows commit atomically.
 	MarkKeywordsSynced(ctx context.Context, id domain.MovieID, now time.Time) error
+	// UpsertStub inserts/updates a recommended movie as a stub (Ф1.1c). Existing-wins COALESCE
+	// (a thin stub never blanks a richer enriched value); hydration is 'full'-sticky (a full
+	// movie is NEVER downgraded to stub). Called inside the recs-write tx BEFORE the join insert
+	// so the movie_recommendations.recommended_movie_id FK is satisfied (F-Ф1-12).
+	UpsertStub(ctx context.Context, c movie.Canon) (domain.MovieID, error)
+	// MarkMediaSynced stamps movies.enrichment_media_synced_at = now on a successful best-trailer
+	// write (Ф1.1c). Called inside the media-write tx.
+	MarkMediaSynced(ctx context.Context, id domain.MovieID, now time.Time) error
+	// MarkRecsSynced stamps movies.enrichment_recs_synced_at = now on a successful
+	// recommendations write (Ф1.1c). Called inside the recs-write tx.
+	MarkRecsSynced(ctx context.Context, id domain.MovieID, now time.Time) error
 }
 
 // MovieI18nWriter is the enrichment-OWNED per-language movie_i18n upsert seam.
@@ -130,4 +141,20 @@ type MovieKeywordsWriter interface {
 type MovieCompaniesWriter interface {
 	Upsert(ctx context.Context, c taxonomy.ProductionCompany) (int64, error)
 	SetMovie(ctx context.Context, movieID domain.MovieID, companyIDs []int64) error
+}
+
+// MovieVideosWriter is the movie best-trailer persist surface (Ф1.1c). ReplaceBestTrailer
+// authoritatively clears the movie's movie_videos rows and inserts the single chosen trailer
+// (nil trailer just clears). Production impl: *enrichpersistence.MovieVideosRepository. nil-OK
+// on MovieWorkerDeps — when nil the worker skips the media write.
+type MovieVideosWriter interface {
+	ReplaceBestTrailer(ctx context.Context, movieID domain.MovieID, trailer *movie.Video) error
+}
+
+// MovieRecsWriter is the movie_recommendations join replace surface (Ф1.1c). Set DELETE+INSERTs
+// the parent's recommendation set in TMDB-rank order. The CALLER must have UpsertStub-ed the
+// recommended movie rows first (FK movie_recommendations.recommended_movie_id → movies.id).
+// Production impl: *enrichpersistence.MovieRecommendationsRepository. nil-OK.
+type MovieRecsWriter interface {
+	Set(ctx context.Context, movieID domain.MovieID, recommendedIDs []domain.MovieID) error
 }

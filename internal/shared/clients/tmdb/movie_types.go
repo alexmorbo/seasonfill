@@ -50,6 +50,36 @@ type MovieResponse struct {
 	// Keywords — Ф1.1b. Movie shape is keywords.keywords[] (NOT TV's keywords.results[]);
 	// requires append_to_response=keywords.
 	Keywords *MovieKeywords `json:"keywords"`
+	// Ф1.1c append_to_response=recommendations,videos.
+	// Recommendations: movie shape uses title/original_title/release_date (NOT TV's
+	// name/first_air_date), so it needs its own element type. Videos reuses TVVideos —
+	// /movie videos.results[*] is structurally identical to /tv's.
+	Recommendations *MovieRecommendations `json:"recommendations"`
+	Videos          *TVVideos             `json:"videos"`
+}
+
+// MovieRecommendations mirrors the /movie/{id} recommendations sub-resource (Ф1.1c). Each
+// result is a movie summary; the mapper (MapMovieRecommendations) produces stub movie.Canon
+// rows the recs writer UpsertStubs before writing the movie_recommendations join.
+type MovieRecommendations struct {
+	Results []MovieRecommendation `json:"results"`
+}
+
+// MovieRecommendation mirrors recommendations.results[*] on /movie. Only the handful of
+// fields a stub movie.Canon needs are decoded. Note the movie field names (title,
+// original_title, release_date) differ from TVRecommendation (name, first_air_date).
+type MovieRecommendation struct {
+	ID               int64   `json:"id"`
+	Title            string  `json:"title"`
+	OriginalTitle    string  `json:"original_title"`
+	OriginalLanguage string  `json:"original_language"`
+	Overview         string  `json:"overview"`
+	ReleaseDate      string  `json:"release_date"`
+	PosterPath       string  `json:"poster_path"`
+	BackdropPath     string  `json:"backdrop_path"`
+	VoteAverage      float64 `json:"vote_average"`
+	VoteCount        int     `json:"vote_count"`
+	Popularity       float64 `json:"popularity"`
 }
 
 // MovieKeywords mirrors the /movie/{id} keywords sub-resource. The movie payload nests the

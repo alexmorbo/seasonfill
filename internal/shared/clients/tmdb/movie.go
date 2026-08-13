@@ -5,20 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// movieAppendToResponse is the comma-separated sub-resource list the movie enrichment
-// worker consumes in a single round-trip. external_ids (imdb fallback), release_dates
-// (digital/physical), images (per-lang art), translations (localized title/overview/
-// tagline), credits (Ф1.1a cast → person_credits), keywords (Ф1.1b → movie_keywords).
-// genres[] and production_companies[] are /movie ROOT fields (no token needed).
-// videos/recommendations remain deferred to Ф1.1c.
-const movieAppendToResponse = "external_ids,release_dates,images,translations,credits,keywords"
+// movieAppendToResponse is the comma-separated sub-resource list the movie enrichment worker
+// consumes in a single round-trip. external_ids (imdb fallback), release_dates (digital/
+// physical), images (per-lang art), translations (localized title/overview/tagline), credits
+// (Ф1.1a cast), keywords (Ф1.1b), recommendations + videos (Ф1.1c → movie_recommendations /
+// movie_videos best trailer). genres[] and production_companies[] are /movie ROOT fields.
+const movieAppendToResponse = "external_ids,release_dates,images,translations,credits,keywords,recommendations,videos"
 
 // releaseTypeDigital / releaseTypePhysical are the TMDB release_dates type enum
 // values the mapper extracts into movies.digital_release_date /
@@ -168,4 +169,134 @@ func pickReleaseDate(rd *MovieReleaseDates, wantType int) *time.Time {
 		}
 	}
 	return fallback
+}
+
+// MapMovieRecommendations flattens recommendations.results[*] into stub movie.Canon rows plus
+// a parallel TMDB-rank-order id slice (Ф1.1c). Hydration is HydrationStub — the recs writer
+// UpsertStubs these (COALESCE-preserving any existing full hydration) before writing the
+// movie_recommendations join. Rows with a zero tmdb id are skipped. Returns (nil, nil) when
+// the sub-resource is absent. Mirror of MapTVToRecommendations for the movie payload shape.
+func MapMovieRecommendations(m *MovieResponse) ([]movie.Canon, []domain.TMDBID) {
+	if m == nil || m.Recommendations == nil {
+		return nil, nil
+	}
+	stubs := make([]movie.Canon, 0, len(m.Recommendations.Results))
+	order := make([]domain.TMDBID, 0, len(m.Recommendations.Results))
+	for _, r := range m.Recommendations.Results {
+		if r.ID == 0 {
+			continue
+		}
+		tid := domain.TMDBID(r.ID)
+		c := movie.Canon{
+			TMDBID:           &tid,
+			Hydration:        movie.HydrationStub,
+			Title:            r.Title,
+			OriginalTitle:    nonEmptyPtr(r.OriginalTitle),
+			OriginalLanguage: nonEmptyPtr(r.OriginalLanguage),
+			ReleaseDate:      parseDate(r.ReleaseDate),
+			Popularity:       nonZeroFloatPtr(r.Popularity),
+			TMDBRating:       nonZeroFloatPtr(r.VoteAverage),
+			TMDBVotes:        nonZeroIntPtr(r.VoteCount),
+			PosterAsset:      nonEmptyPtr(r.PosterPath),
+			BackdropAsset:    nonEmptyPtr(r.BackdropPath),
+		}
+		if c.ReleaseDate != nil {
+			y := c.ReleaseDate.Year()
+			c.Year = &y
+		}
+		stubs = append(stubs, c)
+		order = append(order, tid)
+	}
+	return stubs, order
+}
+
+// MapMovieBestTrailer selects the single best trailer from the videos sub-resource and maps
+// it to a movie.Video (Ф1.1c). Returns nil when there are no videos or no YouTube candidate.
+func MapMovieBestTrailer(m *MovieResponse) *movie.Video {
+	if m == nil || m.Videos == nil {
+		return nil
+	}
+	v, ok := pickBestTrailer(m.Videos.Results)
+	if !ok {
+		return nil
+	}
+	return &movie.Video{
+		TMDBVideoID: nonEmptyPtr(v.ID),
+		Name:        v.Name,
+		Site:        nonEmptyPtr(v.Site),
+		Key:         nonEmptyPtr(v.Key),
+		Type:        nonEmptyPtr(v.Type),
+		Official:    v.Official,
+		Language:    nonEmptyPtr(v.ISO6391),
+		PublishedAt: parseRFC3339(v.PublishedAt),
+	}
+}
+
+// pickBestTrailer returns the best YouTube trailer from a videos slice, deterministically.
+// ONLY site==YouTube (case-insensitive) with a non-empty key are candidates — a movie with
+// no YouTube video yields (_, false) so the writer clears movie_videos. Ranking (best first):
+//  1. official == true beats official == false
+//  2. type rank: Trailer < Teaser < Clip < everything else (lower = better)
+//  3. newer published_at wins (nil published_at sorts last)
+//  4. tie-break: lexicographically smaller tmdb video id (stable determinism)
+func pickBestTrailer(vids []TVVideo) (TVVideo, bool) {
+	cands := make([]TVVideo, 0, len(vids))
+	for _, v := range vids {
+		if strings.EqualFold(v.Site, "YouTube") && v.Key != "" {
+			cands = append(cands, v)
+		}
+	}
+	if len(cands) == 0 {
+		return TVVideo{}, false
+	}
+	slices.SortStableFunc(cands, func(a, b TVVideo) int {
+		if a.Official != b.Official {
+			if a.Official {
+				return -1
+			}
+			return 1
+		}
+		if r := trailerTypeRank(a.Type) - trailerTypeRank(b.Type); r != 0 {
+			return r
+		}
+		if c := compareTimeDescNilLast(parseRFC3339(a.PublishedAt), parseRFC3339(b.PublishedAt)); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return cands[0], true
+}
+
+// trailerTypeRank orders TMDB video types so a Trailer outranks a Teaser outranks a Clip
+// (lower rank = preferred). Case-insensitive; unknown types sort last.
+func trailerTypeRank(t string) int {
+	switch {
+	case strings.EqualFold(t, "Trailer"):
+		return 0
+	case strings.EqualFold(t, "Teaser"):
+		return 1
+	case strings.EqualFold(t, "Clip"):
+		return 2
+	default:
+		return 3
+	}
+}
+
+// compareTimeDescNilLast orders two optional times newest-first with nil last. Returns a
+// negative value when a should sort before b (a is newer, or b is nil).
+func compareTimeDescNilLast(a, b *time.Time) int {
+	switch {
+	case a == nil && b == nil:
+		return 0
+	case a == nil:
+		return 1
+	case b == nil:
+		return -1
+	case a.After(*b):
+		return -1
+	case a.Before(*b):
+		return 1
+	default:
+		return 0
+	}
 }
