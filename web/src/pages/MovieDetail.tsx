@@ -16,6 +16,8 @@ import { useMovie, type MovieDetailLibrary } from '@/api/movies';
 import { MovieCollectionBlock } from '@/components/movies/MovieCollectionBlock';
 import { useAddToRadarrLauncher } from '@/components/movies/add-to-radarr-context';
 import { useInstances } from '@/lib/instances';
+import { buildRadarrMovieHref } from '@/lib/radarrUrl';
+import { useFormatDate } from '@/lib/timezone';
 
 function parseTmdbId(raw: string | undefined): number | null {
   if (!raw) return null;
@@ -109,10 +111,49 @@ function AddToRadarrSplitButton({ title, tmdbId }: { title: string; tmdbId: numb
   );
 }
 
+// OpenInRadarrButton — deep-links the movie in the radarr instance that already
+// holds it. Mirrors the SERIES hero "Open in Sonarr" CTA: resolves the
+// instance's operator-configured public_url from the roster and renders an
+// external link (disabled when the instance has no public_url configured).
+function OpenInRadarrButton({ tmdbId, instanceName }: { tmdbId: number; instanceName: string }) {
+  const { t } = useTranslation();
+  const instancesQ = useInstances();
+  const publicUrl = useMemo(() => {
+    for (const i of instancesQ.data?.instances ?? []) {
+      if (i.name === instanceName && i.public_url) return i.public_url;
+    }
+    return undefined;
+  }, [instancesQ.data, instanceName]);
+  const href = publicUrl ? buildRadarrMovieHref(publicUrl, tmdbId) : undefined;
+
+  return (
+    <Button
+      asChild={Boolean(href)}
+      variant="outline"
+      size="sm"
+      disabled={!href}
+      data-testid="movie-detail-open-in-radarr"
+    >
+      {href ? (
+        <a href={href} target="_blank" rel="noopener noreferrer">
+          <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          {t('common.openInRadarr')}
+        </a>
+      ) : (
+        <span>
+          <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          {t('common.openInRadarr')}
+        </span>
+      )}
+    </Button>
+  );
+}
+
 export function MovieDetail() {
   const { t } = useTranslation();
   const { tmdbId: tmdbParam } = useParams();
   const lang = useLanguage().current;
+  const formatDate = useFormatDate();
 
   const tmdbId = useMemo(() => parseTmdbId(tmdbParam), [tmdbParam]);
   const query = useMovie(tmdbId ?? undefined, lang);
@@ -197,7 +238,7 @@ export function MovieDetail() {
                 className="text-2xl font-semibold text-tx-primary"
               >
                 {movie.title}
-                {movie.year !== undefined && (
+                {typeof movie.year === 'number' && movie.year > 0 && (
                   <span className="ml-2 text-tx-muted tabular-nums">({movie.year})</span>
                 )}
               </h1>
@@ -228,7 +269,7 @@ export function MovieDetail() {
               )}
               {movie.release_date && (
                 <span data-testid="movie-detail-released">
-                  {t('movieDetail.meta.released', { date: movie.release_date })}
+                  {t('movieDetail.meta.released', { date: formatDate(movie.release_date, 'date') })}
                 </span>
               )}
             </div>
@@ -280,7 +321,14 @@ export function MovieDetail() {
 
             {typeof movie.tmdb_id === 'number' && movie.tmdb_id > 0 && (
               <div className="pt-1">
-                <AddToRadarrSplitButton title={movie.title ?? ''} tmdbId={movie.tmdb_id} />
+                {library.length > 0 && library[0]?.instance_name ? (
+                  <OpenInRadarrButton
+                    tmdbId={movie.tmdb_id}
+                    instanceName={library[0].instance_name}
+                  />
+                ) : (
+                  <AddToRadarrSplitButton title={movie.title ?? ''} tmdbId={movie.tmdb_id} />
+                )}
               </div>
             )}
           </div>

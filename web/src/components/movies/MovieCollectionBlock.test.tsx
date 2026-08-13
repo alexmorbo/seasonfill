@@ -117,6 +117,24 @@ describe('<MovieCollectionBlock />', () => {
       .toHaveTextContent(i18n.t('movieCollection.part.missing'));
   });
 
+  it('omits the empty year parens when a part has no year but keeps a valued one', async () => {
+    installFetch({
+      ...COLLECTION,
+      parts: [
+        { tmdb_id: 111, title: 'Gladiator III', year: null, in_library: false, movie_id: 3 },
+        { tmdb_id: 222, title: 'Gladiator', year: 2000, in_library: true, movie_id: 4 },
+      ],
+    });
+    renderBlock();
+
+    const nullPart = await screen.findByTestId('movie-collection-part-111');
+    expect(nullPart).toHaveTextContent('Gladiator III');
+    expect(nullPart.textContent ?? '').not.toContain('()');
+
+    const valuedPart = screen.getByTestId('movie-collection-part-222');
+    expect(valuedPart).toHaveTextContent('(2000)');
+  });
+
   it('fires the monitor PUT when the toggle is switched on', async () => {
     installFetch();
     renderBlock();

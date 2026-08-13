@@ -45,6 +45,7 @@ export const ru: Translations = {
     on: 'вкл',
     off: 'выкл',
     openInSonarr: 'Открыть в Sonarr',
+    openInRadarr: 'Открыть в Radarr',
   },
   net: {
     reconnected: 'Соединение восстановлено',

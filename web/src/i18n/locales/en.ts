@@ -43,6 +43,7 @@ export const en = {
     on: 'on',
     off: 'off',
     openInSonarr: 'Open in Sonarr',
+    openInRadarr: 'Open in Radarr',
   },
   net: {
     reconnected: 'Reconnected',

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -116,12 +116,48 @@ describe('<MovieDetail />', () => {
     expect(await screen.findByTestId('movie-detail-error')).toBeInTheDocument();
   });
 
-  it('renders the Add-to-Radarr split-button in the hero', async () => {
-    spyFetch(movie());
+  it('renders the Add-to-Radarr split-button when the movie is in no library', async () => {
+    spyFetch({ ...movie(), library: [] });
     renderRoute('/movies/438631');
 
     expect(await screen.findByTestId('movie-detail-add-to-radarr')).toBeInTheDocument();
     expect(screen.getByTestId('movie-detail-add-to-radarr-primary')).toBeInTheDocument();
+    expect(screen.queryByTestId('movie-detail-open-in-radarr')).toBeNull();
+  });
+
+  it('swaps in the Open-in-Radarr deep link when the movie is in a library', async () => {
+    // Route the movie detail vs the instances roster by URL so the button can
+    // resolve the radarr instance's operator-configured public_url.
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/v1/admin/instances')) {
+        return json({
+          instances: [{ name: 'radarr', type: 'radarr', public_url: 'https://radarr.example' }],
+        });
+      }
+      return json(movie());
+    }) as typeof fetch;
+    renderRoute('/movies/438631');
+
+    await screen.findByTestId('movie-detail-open-in-radarr');
+    // The public_url resolves once the instances roster query settles, at which
+    // point the CTA swaps from a disabled <button> to the deep-link <a>.
+    await waitFor(() => {
+      const open = screen.getByTestId('movie-detail-open-in-radarr');
+      expect(open.tagName).toBe('A');
+      expect(open).toHaveAttribute('href', 'https://radarr.example/movie/438631');
+    });
+    expect(screen.getByTestId('movie-detail-open-in-radarr')).toHaveAttribute('target', '_blank');
+    expect(screen.queryByTestId('movie-detail-add-to-radarr-primary')).toBeNull();
+  });
+
+  it('formats the hero release date instead of printing raw ISO', async () => {
+    spyFetch({ ...movie(), release_date: '2024-11-13T00:00:00Z' });
+    renderRoute('/movies/438631');
+
+    const released = await screen.findByTestId('movie-detail-released');
+    expect(released.textContent ?? '').not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+    expect(released).toHaveTextContent('2024');
   });
 
   it('omits the collection block when the movie has no collection', async () => {

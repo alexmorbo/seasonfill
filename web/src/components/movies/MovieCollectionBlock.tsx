@@ -44,7 +44,7 @@ function PartCard({ part }: { part: MovieCollectionPartDTO }) {
     >
       <span className="truncate text-[13px] font-medium text-tx-primary" title={part.title}>
         {part.title}
-        {part.year !== undefined && (
+        {typeof part.year === 'number' && part.year > 0 && (
           <span className="ml-1 text-tx-muted tabular-nums">({part.year})</span>
         )}
       </span>
