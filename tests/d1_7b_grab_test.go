@@ -278,8 +278,9 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// Ф6-R-4a adds movie_changes_state → 71.
 			// Ф8-U-1 adds user_instance_access → 72.
 			// Ф8-U-2 adds requests → 73.
-			if len(s.Tables) != 73 {
-				t.Errorf("Schema(%s) tables = %d, want 73 (after Ф8-U-2 requests)", d, len(s.Tables))
+			// Ф0.3 adds movie genres/keywords/recommendations/companies/videos → 78.
+			if len(s.Tables) != 78 {
+				t.Errorf("Schema(%s) tables = %d, want 78 (after Ф0.3 movie tables)", d, len(s.Tables))
 			}
 		})
 	}

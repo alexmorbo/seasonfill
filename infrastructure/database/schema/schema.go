@@ -3293,6 +3293,11 @@ func buildRadarrInstanceSettingsTable(d Dialect, arrInstance *atlasschema.Table)
 
 // addMovies appends movies, movie_i18n, movie_states, collections,
 // movie_changes_state.
+// addMovies appends movies, movie_i18n, movie_states, collections,
+// movie_changes_state, and the 5 movie join/projection tables
+// (movie_genres, movie_companies, movie_keywords, movie_recommendations,
+// movie_videos) — the movie-side mirror of the series taxonomy-joins +
+// series-extras families.
 func addMovies(s *atlasschema.Schema, d Dialect) {
 	movies := buildMoviesTable(d)
 	s.AddTables(movies)
@@ -3300,6 +3305,19 @@ func addMovies(s *atlasschema.Schema, d Dialect) {
 	s.AddTables(buildMovieStatesTable(d, movies))
 	s.AddTables(buildCollectionsTable(d))
 	s.AddTables(buildMovieChangesStateTable(d))
+
+	// Ф0.3 — movie taxonomy joins + extras. Reuse the shared genres/
+	// keywords/production_companies dimension tables (media-agnostic).
+	genres := mustTable(s, "genres")
+	companies := mustTable(s, "production_companies")
+	keywords := mustTable(s, "keywords")
+	s.AddTables(
+		joinTable(d, "movie_genres", "movie_id", movies, "genre_id", genres, true /* position */),
+		joinTable(d, "movie_companies", "movie_id", movies, "company_id", companies, true),
+		joinTable(d, "movie_keywords", "movie_id", movies, "keyword_id", keywords, false /* no position */),
+		buildMovieRecommendationsTable(d, movies),
+		buildMovieVideosTable(d, movies),
+	)
 }
 
 // buildMovieChangesStateTable returns movie_changes_state — a single-row
@@ -3464,6 +3482,85 @@ func buildMovieI18nTable(d Dialect, movies *atlasschema.Table) *atlasschema.Tabl
 		"",   // no (language, name) lookup index
 		true, // include enriched_at
 	)
+}
+
+// buildMovieRecommendationsTable returns movie_recommendations — the movie-side
+// mirror of buildSeriesRecommendationsTable. 4 cols, composite PK
+// (movie_id, recommended_movie_id), BOTH FKs → movies(id) CASCADE (self-joining
+// table, dead if either side is wiped), self-reference CHECK, position index.
+func buildMovieRecommendationsTable(d Dialect, movies *atlasschema.Table) *atlasschema.Table {
+	movieID := fkColumn(d, "movie_id", false)
+	recommendedID := fkColumn(d, "recommended_movie_id", false)
+	position := atlasschema.NewNullIntColumn("position", "integer")
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	selfRefCheck := atlasschema.NewCheck().
+		SetName("movie_recommendations_no_self_ref").
+		SetExpr("recommended_movie_id != movie_id")
+
+	refCol := parentRefCol(movies)
+	return atlasschema.NewTable("movie_recommendations").
+		AddColumns(movieID, recommendedID, position, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(movieID, recommendedID)).
+		AddIndexes(
+			atlasschema.NewIndex("movie_recommendations_position").
+				AddColumns(movieID, position),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("movie_recommendations_movie_id_fkey").
+				AddColumns(movieID).
+				SetRefTable(movies).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("movie_recommendations_recommended_movie_id_fkey").
+				AddColumns(recommendedID).
+				SetRefTable(movies).
+				AddRefColumns(refCol).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		).
+		AddChecks(selfRefCheck)
+}
+
+// buildMovieVideosTable returns movie_videos — the movie-side mirror of
+// buildVideosTable (the series `videos` table is NOT reusable: its series_id
+// FK is NOT NULL). 12 cols + 2 indexes (partial-unique tmdb_video_id;
+// composite movie/type/official). FK movie_id → movies(id) CASCADE.
+func buildMovieVideosTable(d Dialect, movies *atlasschema.Table) *atlasschema.Table {
+	id := pkColumn(d)
+	movieID := fkColumn(d, "movie_id", false)
+	tmdbVideoID := atlasschema.NewNullStringColumn("tmdb_video_id", "text")
+	name := atlasschema.NewStringColumn("name", "text").SetNull(false)
+	site := atlasschema.NewNullStringColumn("site", "text")
+	key := atlasschema.NewNullStringColumn("key", "text")
+	typeCol := atlasschema.NewNullStringColumn("type", "text")
+	official := atlasschema.NewBoolColumn("official", "boolean").
+		SetNull(false).
+		SetDefault(&atlasschema.Literal{V: "false"})
+	language := atlasschema.NewNullStringColumn("language", "text")
+	publishedAt := timestampColumn(d, "published_at", false, false)
+	createdAt := timestampColumn(d, "created_at", true, true)
+	updatedAt := timestampColumn(d, "updated_at", true, true)
+
+	return atlasschema.NewTable("movie_videos").
+		AddColumns(id, movieID, tmdbVideoID, name, site, key, typeCol,
+			official, language, publishedAt, createdAt, updatedAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
+		AddIndexes(
+			partialUniqueIndex(d, "movie_videos_tmdb_id",
+				[]*atlasschema.Column{tmdbVideoID}, "tmdb_video_id IS NOT NULL"),
+			atlasschema.NewIndex("movie_videos_movie_type").
+				AddColumns(movieID, typeCol, official),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("movie_videos_movie_id_fkey").
+				AddColumns(movieID).
+				SetRefTable(movies).
+				AddRefColumns(parentRefCol(movies)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
 }
 
 // buildMovieStatesTable returns movie_states — per-instance Radarr library
