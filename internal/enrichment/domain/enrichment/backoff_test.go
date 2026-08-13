@@ -58,3 +58,14 @@ func TestNextAttemptAt_Clamp24h(t *testing.T) {
 			"attempts=%d should clamp", n)
 	}
 }
+
+// TestShouldPark — E-FIX-1 poison / dead-letter cap. A retryable failure parks
+// (terminal, no next retry) once attempts reach MaxRetryAttempts. The 99
+// not_found sentinel is well above the cap, so it parks too.
+func TestShouldPark(t *testing.T) {
+	t.Parallel()
+	assert.False(t, ShouldPark(MaxRetryAttempts-1))
+	assert.True(t, ShouldPark(MaxRetryAttempts))
+	assert.True(t, ShouldPark(MaxRetryAttempts+1))
+	assert.True(t, ShouldPark(99)) // the app-layer not_found sentinel is also parked
+}

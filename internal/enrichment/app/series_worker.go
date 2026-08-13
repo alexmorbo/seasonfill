@@ -16,6 +16,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/seriesdetail/app/freshener"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -1043,6 +1044,13 @@ func (w *SeriesWorker) applyAllForLanguage(txCtx context.Context, canon series.C
 		m.Episodes[i].SeriesID = seriesID
 		if sid, ok := seasonIDByNumber[m.Episodes[i].SeasonNumber]; ok {
 			m.Episodes[i].SeasonID = &sid
+		} else {
+			// E-FIX-1: this episode reports a season_number TMDB did NOT list in
+			// tv.Seasons (a mismatched per-episode season_number — year-bucketed
+			// specials on shows like "Shark Week"). Leave season_id NULL rather
+			// than the mapper's resolve-sentinel: a non-existent season_id trips
+			// episodes_season_id_fkey (23503) and poisons the whole tx.
+			m.Episodes[i].SeasonID = nil
 		}
 	}
 	episodeIDs, err := w.deps.Episodes.BatchUpsert(txCtx, m.Episodes)
@@ -1728,8 +1736,25 @@ func (w *SeriesWorker) handleTMDBError(ctx context.Context, seriesID domain.Seri
 		return nil
 	}
 
-	// Retryable — record + backoff.
+	// Retryable — record + backoff, UNLESS the retry budget is exhausted.
+	// E-FIX-1: a persistently-failing retryable error (e.g. the 23503 tx error
+	// on poisoned TMDB season data) previously retried FOREVER — the nightly
+	// ListDueForRetry sweep has no attempts cap, so a poisoned series burned a
+	// TMDB cycle once/24h indefinitely. At MaxRetryAttempts we PARK it: record
+	// with NextAttemptAt=nil (terminal) so ListDueForRetry skips it, warn once,
+	// and tick the parked counter for observability.
 	attempts := previousAttempts + 1
+	if enrichment.ShouldPark(attempts) {
+		w.recordEnrichmentError(ctx, seriesID, enrichment.SourceTMDBSeries, err, attempts, nil, log)
+		observability.IncEnrichmentSeriesParked()
+		log.WarnContext(ctx, "enrichment.series.handle.parked",
+			slog.Int("attempts", attempts),
+			slog.Int("max_attempts", enrichment.MaxRetryAttempts),
+			slog.Int("duration_ms", durMs),
+			slog.String("error", err.Error()),
+		)
+		return nil
+	}
 	next := enrichment.NextAttemptAt(attempts, now)
 	w.recordEnrichmentError(ctx, seriesID, enrichment.SourceTMDBSeries, err, attempts, &next, log)
 	log.WarnContext(ctx, "enrichment.series.handle.failed",

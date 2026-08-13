@@ -474,6 +474,15 @@ func IncEnrichmentQueueDrop(worker string) {
 	metrics.GetOrCreateCounter(`enrichment_queue_drops_total{worker="` + worker + `"}`).Inc()
 }
 
+// IncEnrichmentSeriesParked ticks when a series enrichment is PARKED
+// (dead-lettered) after exhausting MaxRetryAttempts retryable failures
+// (E-FIX-1). A rising counter means a series is permanently stuck — inspect
+// enrichment_errors WHERE source='tmdb_series' AND next_attempt_at IS NULL
+// AND attempts >= 12 for the last_error.
+func IncEnrichmentSeriesParked() {
+	metrics.GetOrCreateCounter(`seasonfill_enrichment_series_parked_total`).Inc()
+}
+
 // IncTMDBRateLimitPause bumps the pause-entry counter (Story 313).
 // Called exactly once per fresh entry to the paused state — repeated
 // 429s during an existing pause MUST NOT tick this (the caller's

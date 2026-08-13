@@ -37,3 +37,19 @@ func NextAttemptAt(attempts int, lastAttempt time.Time) time.Time {
 	delay := min(backoffBase<<attempts, backoffMax)
 	return lastAttempt.Add(delay)
 }
+
+// MaxRetryAttempts is the poison / dead-letter cap for a persistently-failing
+// retryable enrichment (E-FIX-1). Once a source's attempts reach this count the
+// worker stops scheduling a next_attempt_at — the row is PARKED (terminal) so
+// the nightly ListDueForRetry sweep skips it (its next_attempt_at IS NOT NULL
+// filter) and the RefreshScheduler already excludes it via the picker's
+// attempts>5 guard. 12 sits above the picker's fast-path 5-attempt cutoff (a
+// transient fault still gets ~a week of daily retries to self-heal) and below
+// the 99 not_found sentinel (parked and not_found stay distinguishable).
+const MaxRetryAttempts = 12
+
+// ShouldPark reports whether a retryable failure at this attempt count has
+// exhausted the retry budget and must be parked (terminal, no next retry).
+func ShouldPark(attempts int) bool {
+	return attempts >= MaxRetryAttempts
+}

@@ -353,15 +353,28 @@ func MapTVToRecommendations(tv *TVResponse) []series.Canon {
 // rows. seriesID and seasonID are passed in — the mapper does not
 // know them. Only TMDB-owned fields per PRD §5.4 are filled;
 // Sonarr-owned fields (SonarrEpisodeID, AbsoluteNumber) stay nil.
+//
+// seasonID==0 is the "resolve in tx" sentinel the series-worker enrichment
+// path passes (applyAllForLanguage mints the real id after the season upsert
+// and wires it in). E-FIX-1: birth those episodes with a NULL season_id, NOT
+// a &0 pointer — season_id=0 references no seasons row and trips
+// episodes_season_id_fkey (SQLSTATE 23503) for any episode whose per-episode
+// season_number never resolves (e.g. year-bucketed specials on "Shark Week").
+// The slim refresh path passes a real minted id, so it keeps the non-nil
+// pointer verbatim.
 func MapSeasonToEpisodes(season *SeasonResponse, seriesID domain.SeriesID, seasonID int64) []series.CanonEpisode {
 	if season == nil {
 		return nil
+	}
+	var seasonIDPtr *int64
+	if seasonID != 0 {
+		seasonIDPtr = new(seasonID)
 	}
 	out := make([]series.CanonEpisode, 0, len(season.Episodes))
 	for _, e := range season.Episodes {
 		ep := series.CanonEpisode{
 			SeriesID:      seriesID,
-			SeasonID:      new(seasonID),
+			SeasonID:      seasonIDPtr,
 			SeasonNumber:  e.SeasonNumber,
 			EpisodeNumber: e.EpisodeNumber,
 			TMDBEpisodeID: new(int(e.ID)),
