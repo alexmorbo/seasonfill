@@ -284,12 +284,13 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 // enrichment_cast_synced_at — ALL inside one Transactor tx (Ф1.1a). Person stubs are
 // sorted by tmdb_id ASC so concurrent movie txes lock `people` in a global order
 // (mirror SeriesWorker B-26). A no-cast movie (or one whose every stub upsert was
-// suppressed) commits nothing and does NOT bump the cast clock.
+// suppressed) still stamps the cast clock ("checked, empty") — a stamp-only tx —
+// so the Ф1.2 on-read hydration probe stops re-firing the picker forever (mirror
+// writeRecommendations "prevents re-fire storms"). The authoritative person_credits
+// write only runs when there are resolvable rows, so a transient empty TMDB credits
+// response stamps without nuking existing cast.
 func (w *MovieWorker) writeCast(ctx context.Context, movieID domain.MovieID, resp *tmdb.MovieResponse) error {
 	credits, stubs, tmdbPersonIDs := tmdb.MapMovieCast(resp)
-	if len(credits) == 0 {
-		return nil
-	}
 	slices.SortStableFunc(stubs, func(a, b people.Person) int {
 		return compareTMDBID(a.TMDBID, b.TMDBID)
 	})
@@ -313,12 +314,16 @@ func (w *MovieWorker) writeCast(ctx context.Context, movieID domain.MovieID, res
 			credits[i].PersonID = pid
 			rows = append(rows, credits[i])
 		}
-		if len(rows) == 0 {
-			return nil
+		if len(rows) > 0 {
+			if _, err := w.deps.PersonCredits.BatchUpsertAuthoritative(txCtx, rows); err != nil {
+				return fmt.Errorf("batch upsert person_credits (movie): %w", err)
+			}
 		}
-		if _, err := w.deps.PersonCredits.BatchUpsertAuthoritative(txCtx, rows); err != nil {
-			return fmt.Errorf("batch upsert person_credits (movie): %w", err)
-		}
+		// Stamp even for an empty cast / all-suppressed stubs: "checked, empty"
+		// records a timestamp so the on-read probe stops re-firing (mirror
+		// writeRecommendations/writeKeywords). Empty rows → stamp-only tx; the
+		// authoritative write above is skipped so a transient empty credits
+		// response never clears an existing cast.
 		return w.deps.Movies.MarkCastSynced(txCtx, movieID, w.deps.Clock())
 	})
 }

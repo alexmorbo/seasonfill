@@ -105,3 +105,40 @@ func TestMovieWorker_HandleForced_NoCastDepsSkipsCast(t *testing.T) {
 	require.NoError(t, worker.HandleForced(context.Background(), 7))
 	assert.Equal(t, 0, canon.castMarkCalls, "no cast stamp without cast deps")
 }
+
+// TestMovieWorker_HandleForced_EmptyCastStillStampsCast proves the Ф1.2b churn fix:
+// a movie whose TMDB credits sub-resource is present but carries an EMPTY cast still
+// stamps enrichment_cast_synced_at (stamp-only tx) — no person stubs, no
+// person_credits, but the clock is bumped so the on-read hydration probe stops
+// re-firing forever.
+func TestMovieWorker_HandleForced_EmptyCastStillStampsCast(t *testing.T) {
+	tmdbID := domain.TMDBID(42)
+	canon := &fakeMovieCanon{getResp: movie.Canon{ID: 7, TMDBID: &tmdbID}}
+	people0 := &fakePeopleUpsert{}
+	pc := &fakePersonCredits{}
+	tx := &passthroughTx{}
+
+	worker, err := NewMovieWorker(MovieWorkerDeps{
+		TMDB: &fakeMovieTMDB{resp: &tmdb.MovieResponse{
+			ID:    42,
+			Title: "Cast-less",
+			// Credits present (gate resp.Credits != nil passes) but Cast empty —
+			// the exact len(credits)==0 churn path.
+			Credits: &tmdb.MovieCredits{Cast: []tmdb.MovieCastMember{}},
+		}},
+		Movies:        canon,
+		People:        people0,
+		PersonCredits: pc,
+		Tx:            tx,
+		Clock:         func() time.Time { return time.Unix(1700000000, 0).UTC() },
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, worker.HandleForced(context.Background(), 7))
+
+	assert.Equal(t, 1, tx.calls, "stamp-only tx still opened for an empty cast")
+	assert.Empty(t, people0.upserted, "no person stubs for an empty cast")
+	assert.Empty(t, pc.authoritativeRows, "no authoritative person_credits write for an empty cast")
+	assert.Equal(t, 1, canon.castMarkCalls, "enrichment_cast_synced_at stamped once (checked-empty)")
+	assert.Equal(t, domain.MovieID(7), canon.castMarkedID)
+}
