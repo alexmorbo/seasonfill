@@ -414,6 +414,77 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/admin/movies/reenrich": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Backfill: re-enrich all movies (admin)
+         * @description Marks every movie carrying a tmdb_id as changed so the movie
+         *     refresh scheduler re-enriches all of them once (cast, genres,
+         *     keywords, companies, videos, recommendations + ru-RU overview).
+         *     Idempotent + throttled: the scheduler drains the marked set over
+         *     multiple ticks at its tier LIMIT + 15m race guard — the endpoint
+         *     returns immediately with the number of movies marked.
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.movieReenrichResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                readonly 403: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/admin/users": {
         readonly parameters: {
             readonly query?: never;
@@ -9351,6 +9422,10 @@ export type components = {
             readonly searched?: boolean;
             readonly season_number?: number;
             readonly series_id?: number;
+        };
+        readonly "rest.movieReenrichResponse": {
+            /** @example 411 */
+            readonly marked?: number;
         };
         readonly "rest.requestItem": {
             /** @example 1 */

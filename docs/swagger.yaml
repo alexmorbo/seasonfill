@@ -4114,6 +4114,12 @@ components:
         series_id:
           type: integer
       type: object
+    rest.movieReenrichResponse:
+      properties:
+        marked:
+          example: 411
+          type: integer
+      type: object
     rest.requestItem:
       properties:
         approver_id:
@@ -4704,6 +4710,46 @@ paths:
       summary: Probe a Sonarr instance for reachability/auth
       tags:
       - instances
+  /admin/movies/reenrich:
+    post:
+      description: |-
+        Marks every movie carrying a tmdb_id as changed so the movie
+        refresh scheduler re-enriches all of them once (cast, genres,
+        keywords, companies, videos, recommendations + ru-RU overview).
+        Idempotent + throttled: the scheduler drains the marked set over
+        multiple ticks at its tier LIMIT + 15m race guard — the endpoint
+        returns immediately with the number of movies marked.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rest.movieReenrichResponse'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Forbidden
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: 'Backfill: re-enrich all movies (admin)'
+      tags:
+      - admin-movies
   /admin/users:
     get:
       responses:

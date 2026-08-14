@@ -22,6 +22,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/config"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
 	notifpersistence "github.com/alexmorbo/seasonfill/internal/notification/persistence"
 	notifrest "github.com/alexmorbo/seasonfill/internal/notification/rest"
 	"github.com/alexmorbo/seasonfill/internal/observability"
@@ -979,6 +980,12 @@ func BuildHTTPServer(
 	radarrAddUC.WithRequestQueue(requestsBundle.Queue)
 	movieCollectionsHandler := BuildMovieCollections(persistence.DB, scanBundle.RadarrSync, log)
 	movieCalendarHandler := BuildMovieCalendar(persistence.DB, seriesDetailBundle.MediaResolver, log)
+	// Ф1.4 — one-shot movie re-enrichment backfill trigger (audit F-Ф1-07).
+	// Standalone: the marker's only dep is persistence.DB. Marks every tmdb_id
+	// movie as changed so the throttled movie refresh scheduler re-enriches the
+	// pre-Ф1.1 movies once (new sections + ru-RU overview). Mark-and-drain.
+	movieReenrichHandler := enrichrest.NewMovieReenrichHandler(
+		enrichpersistence.NewMovieRepository(persistence.DB), log)
 	// ADR-0017 Ф5 D-1 — discovery row-config read API. Standalone: the
 	// repo's only dependency is persistence.DB. Always wired (no TMDB
 	// gate) — the endpoint serves the code-default set even with an empty
@@ -1132,6 +1139,7 @@ func BuildHTTPServer(
 		movieDetailBundle.LibraryHandler,   // Ф6-R-6b movie library list
 		requestsBundle.Handler,             // Ф8-U-2 request-workflow
 		auth.UsersHandler,                  // Ф8-U-6b admin user-management
+		movieReenrichHandler,               // Ф1.4 movie re-enrich backfill
 		seriesDetailBundle.MediaResolver,   // Ф0.1 insights /calendar poster resolve
 		log,
 	)

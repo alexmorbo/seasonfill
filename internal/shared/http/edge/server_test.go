@@ -370,6 +370,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
 		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
+		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
 		lg)
 }
@@ -458,6 +459,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
 		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
+		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
 		lg)
 }
@@ -553,6 +555,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
 		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
+		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
 		lg)
 }
@@ -795,6 +798,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // movieLibraryHandler (Ф6-R-6b) — nil-OK, /movies route omitted
 		nil, // requestHandler (Ф8-U-2) — nil-OK, /requests routes omitted
 		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
+		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
 		lg)
 

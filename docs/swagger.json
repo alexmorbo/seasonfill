@@ -5204,6 +5204,15 @@
                 },
                 "type": "object"
             },
+            "rest.movieReenrichResponse": {
+                "properties": {
+                    "marked": {
+                        "example": 411,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "rest.requestItem": {
                 "properties": {
                     "approver_id": {
@@ -6125,6 +6134,65 @@
                 "summary": "Update a Sonarr instance",
                 "tags": [
                     "instances"
+                ]
+            }
+        },
+        "/admin/movies/reenrich": {
+            "post": {
+                "description": "Marks every movie carrying a tmdb_id as changed so the movie\nrefresh scheduler re-enriches all of them once (cast, genres,\nkeywords, companies, videos, recommendations + ru-RU overview).\nIdempotent + throttled: the scheduler drains the marked set over\nmultiple ticks at its tier LIMIT + 15m race guard — the endpoint\nreturns immediately with the number of movies marked.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/rest.movieReenrichResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Backfill: re-enrich all movies (admin)",
+                "tags": [
+                    "admin-movies"
                 ]
             }
         },

@@ -155,6 +155,10 @@ func NewServer(
 	// Ф8-U-6b — admin user-management handler. nil-OK: the /admin/users
 	// routes are omitted when the handler is absent (minimal/test wirings).
 	usersHandler *adminrest.UsersHandler,
+	// Ф1.4 — one-shot movie re-enrichment backfill trigger (audit F-Ф1-07).
+	// nil-OK: the /admin/movies/reenrich route is omitted when absent
+	// (minimal/test wirings).
+	movieReenrichHandler *enrichrest.MovieReenrichHandler,
 	// Ф0.1 — shared media resolver for the insights /calendar poster paths
 	// (mirrors the movie calendar). nil-OK: raw TMDB paths flow through.
 	insightsCalendarResolver *media.Resolver,
@@ -511,6 +515,12 @@ func NewServer(
 			guarded.GET("/admin/users", permManageUsers, usersHandler.List)
 			guarded.PATCH("/admin/users/:id", permManageUsers, usersHandler.Patch)
 			guarded.DELETE("/admin/users/:id", permManageUsers, usersHandler.Delete)
+		}
+		// Ф1.4 — one-shot movie re-enrichment backfill (audit F-Ф1-07). Behind
+		// permAdmin (role='admin' + api-key short-circuit), mirroring POST /scan.
+		// nil-OK: omitted when the handler is absent (minimal/test wirings).
+		if movieReenrichHandler != nil {
+			guarded.POST("/admin/movies/reenrich", permAdmin, movieReenrichHandler.Trigger)
 		}
 		// Story 507 (N-2f) — curated discovery read endpoints.
 		// Nil-OK pattern: when wiring did not construct the handler
