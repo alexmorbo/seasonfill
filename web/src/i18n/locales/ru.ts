@@ -2945,6 +2945,10 @@ export const ru: Translations = {
     ratings: {
       tmdb: 'TMDB',
       imdb: 'IMDb',
+      sectionTitle: 'Рейтинги',
+      rated: 'Возрастной рейтинг',
+      awards: 'Награды',
+      votes: 'голосов',
     },
     meta: {
       runtime: '{{count}} мин',

@@ -2947,6 +2947,10 @@ export const en = {
     ratings: {
       tmdb: 'TMDB',
       imdb: 'IMDb',
+      sectionTitle: 'Ratings',
+      rated: 'Rated',
+      awards: 'Awards',
+      votes: 'votes',
     },
     meta: {
       runtime: '{{count}} min',
