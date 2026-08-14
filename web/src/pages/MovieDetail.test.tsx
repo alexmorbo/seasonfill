@@ -28,17 +28,77 @@ function movie() {
     title: 'Dune',
     year: 2021,
     tagline: 'Beyond fear, destiny awaits.',
-    status: 'released',
+    status: 'Released',
     runtime_minutes: 155,
     release_date: '2021-10-22',
     overview: 'Paul Atreides arrives on Arrakis.',
     tmdb_rating: 8.1,
     imdb_rating: 8.0,
     imdb_id: 'tt1160419',
+    studio: 'Legendary Pictures',
+    country: 'US',
+    countries: ['US'],
+    original_language: 'en',
+    genres: [{ id: 878, name: 'Science Fiction', language: 'en-US' }],
+    keywords: [{ id: 1, name: 'desert', language: 'en-US' }],
+    trailer: { key: 'n9xhJrPXop4', name: 'Official Trailer', site: 'YouTube' },
     library: [
       { instance_name: 'radarr', monitored: true, has_file: true, availability: 'released' },
     ],
   };
+}
+
+// Routes each per-section sub-fetch to a distinct payload so the composed page
+// renders every section. Falls back to the base movie for /movies/:id and any
+// unmatched URL. Keeps the page a unit test (network fully stubbed).
+function routedFetch(base: Record<string, unknown> = movie()) {
+  globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.endsWith('/api/v1/admin/instances')) {
+      return json({
+        instances: [{ name: 'radarr', type: 'radarr', public_url: 'https://radarr.example' }],
+      });
+    }
+    if (url.includes('/collections/')) {
+      return json({
+        tmdb_collection_id: 726871, name: 'Dune Collection', poster: null,
+        radarr_monitored: false,
+        parts: [{ tmdb_id: 438631, title: 'Dune', year: 2021, in_library: true, movie_id: 1 }],
+      });
+    }
+    if (url.includes('/cast')) {
+      return json({
+        tmdb_id: 438631,
+        served_language: 'en',
+        cast: [
+          { person_id: 1, tmdb_id: 30614, name: 'Timothée Chalamet', character_name: 'Paul', credit_order: 0 },
+        ],
+      });
+    }
+    if (url.includes('/overview')) {
+      return json({
+        overview: 'Paul Atreides arrives on Arrakis.',
+        tagline: 'Beyond fear, destiny awaits.',
+        title: 'Dune',
+        served_language: 'en',
+      });
+    }
+    if (url.includes('/ratings')) {
+      return json({
+        tmdb_rating: 8.1, tmdb_votes: 12000,
+        imdb_rating: 8.0, imdb_votes: 900000,
+        rated: 'PG-13', awards: 'Won 6 Oscars',
+        sources: { tmdb: 'fresh', omdb: 'fresh' },
+      });
+    }
+    if (url.includes('/recommendations')) {
+      return json({
+        items: [{ tmdb_id: 370172, title: 'Dune: Part Two', year: 2024, tmdb_rating: 8.4, poster_asset: 'p1' }],
+        degraded: [],
+      });
+    }
+    return json(base);
+  }) as typeof fetch;
 }
 
 function renderRoute(path: string) {
@@ -89,10 +149,55 @@ describe('<MovieDetail />', () => {
       'href',
       'https://www.imdb.com/title/tt1160419/',
     );
+    // Overview text paints from the base movie DTO on the first frame (the
+    // localized /overview endpoint only refines it).
     expect(screen.getByTestId('movie-detail-overview')).toHaveTextContent('Arrakis');
     expect(screen.getByTestId('movie-library-row-radarr')).toBeInTheDocument();
     expect(screen.getByTestId('movie-library-monitored')).toBeInTheDocument();
     expect(screen.getByTestId('movie-library-hasfile')).toBeInTheDocument();
+  });
+
+  it('composes all four movie sections (overview, cast, ratings, recommendations)', async () => {
+    routedFetch();
+    renderRoute('/movies/438631');
+
+    expect(await screen.findByTestId('movie-detail-page')).toBeInTheDocument();
+    // Overview block (prop-driven, fed by the page).
+    expect(await screen.findByTestId('movie-overview-block')).toBeInTheDocument();
+    // Cast strip (prop-driven, fed by useMovieCast).
+    expect(await screen.findByTestId('movie-cast-strip')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-cast-strip-name')).toHaveTextContent('Timothée Chalamet');
+    // Ratings section (self-fetches /ratings).
+    expect(await screen.findByTestId('movie-ratings-section')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-ratings-awards')).toHaveTextContent('Won 6 Oscars');
+    // Recommendations rail (self-fetches /recommendations).
+    expect(await screen.findByTestId('movie-recommendations')).toBeInTheDocument();
+  });
+
+  it('renders the right-rail sidebar (status, studio, country, language, keywords)', async () => {
+    routedFetch();
+    renderRoute('/movies/438631');
+
+    expect(await screen.findByTestId('movie-detail-sidebar')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-detail-sidebar-status')).toHaveTextContent('Released');
+    expect(screen.getByTestId('movie-detail-sidebar-studio-value')).toHaveTextContent('Legendary Pictures');
+    expect(screen.getByTestId('movie-detail-sidebar-country')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-detail-sidebar-language')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-detail-sidebar-keywords')).toBeInTheDocument();
+    // Genre chips render in the hero (KeywordChips leaf).
+    expect(screen.getAllByTestId('keyword-chip').length).toBeGreaterThan(0);
+  });
+
+  it('opens the trailer modal from the hero trailer button', async () => {
+    routedFetch();
+    renderRoute('/movies/438631');
+
+    const btn = await screen.findByTestId('movie-detail-trailer-button');
+    expect(screen.queryByTestId('trailer-modal-iframe')).toBeNull();
+    btn.click();
+    await waitFor(() => {
+      expect(screen.getByTestId('trailer-modal-iframe')).toBeInTheDocument();
+    });
   });
 
   it('renders the empty library note when the movie is in no library', async () => {

@@ -1,7 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Star, ExternalLink, Clock, Plus, ChevronDown } from 'lucide-react';
+import {
+  AlertTriangle, Star, ExternalLink, Clock, Plus, ChevronDown, PlayCircle,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useLanguage } from '@/hooks/useLanguage';
 import { MediaImage } from '@/components/MediaImage';
@@ -12,7 +15,19 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
-import { useMovie, type MovieDetailLibrary } from '@/api/movies';
+import { StatusBadge } from '@/components/StatusBadge';
+import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
+import { KeywordChips } from '@/components/series-detail/KeywordChips';
+import { CountryName } from '@/components/series-detail/CountryName';
+import { LanguageName } from '@/components/series-detail/LanguageName';
+import { TrailerModal } from '@/components/series-detail/TrailerModal';
+import { useMovie, type MovieDetail, type MovieDetailLibrary } from '@/api/movies';
+import { useMovieOverview } from '@/api/movieOverview';
+import { useMovieCast } from '@/api/movieCast';
+import { MovieOverviewBlock } from '@/components/movies/MovieOverviewBlock';
+import { MovieCastStrip } from '@/components/movies/MovieCastStrip';
+import { MovieRatingsSection } from '@/components/movies/MovieRatingsSection';
+import { MovieRecommendationsRail } from '@/components/movies/MovieRecommendationsRail';
 import { MovieCollectionBlock } from '@/components/movies/MovieCollectionBlock';
 import { useAddToRadarrLauncher } from '@/components/movies/add-to-radarr-context';
 import { useInstances } from '@/lib/instances';
@@ -149,15 +164,118 @@ function OpenInRadarrButton({ tmdbId, instanceName }: { tmdbId: number; instance
   );
 }
 
+// MetaRow — one right-rail sidebar row (label + value), mirroring RailCard's
+// RailRow. Local to the page (page-level composition, not a section rebuild).
+function MetaRow({
+  label, value, accent, testId,
+}: {
+  label: string;
+  value: React.ReactNode;
+  accent?: boolean;
+  testId?: string;
+}) {
+  return (
+    <div
+      data-testid={testId}
+      className="flex items-center justify-between gap-3.5 py-[9px] text-[12.5px] border-b border-border-faint last:border-b-0"
+    >
+      <span className="text-tx-muted whitespace-nowrap">{label}</span>
+      <span className={cn(
+        'font-medium text-right min-w-0 inline-flex items-center gap-1.5',
+        accent ? 'text-accent' : 'text-tx-secondary',
+      )}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// MovieSidebar — the right-rail metadata card, the movie analogue of RailCard.
+// Reuses the series-detail leaves (StatusBadge / CountryName / LanguageName /
+// KeywordChips) and the generic seriesDetail.rail.* labels (no movie-specific
+// rail i18n keys exist).
+function MovieSidebar({ movie }: { movie: MovieDetail }) {
+  const { t } = useTranslation();
+
+  const country = movie.countries?.[0] ?? movie.country;
+  const showStatus = Boolean(movie.status);
+  const showStudio = Boolean(movie.studio);
+  const showCountry = Boolean(country);
+  const showLanguage = Boolean(movie.original_language);
+  const keywords = movie.keywords ?? [];
+  const showKeywords = keywords.length > 0;
+
+  if (!showStatus && !showStudio && !showCountry && !showLanguage && !showKeywords) {
+    return null;
+  }
+
+  return (
+    <div
+      data-testid="movie-detail-sidebar"
+      className={cn(
+        'flex flex-col overflow-hidden rounded-lg border border-white/10 bg-bg-surface/40 backdrop-blur-md',
+        'lg:sticky lg:top-[64px]',
+      )}
+    >
+      <div className="px-4 pt-1 pb-1">
+        {showStatus && (
+          <MetaRow
+            label={t('seriesDetail.rail.status')}
+            testId="movie-detail-sidebar-status"
+            value={<StatusBadge value={movie.status} />}
+          />
+        )}
+        {showStudio && (
+          <MetaRow
+            label={t('seriesDetail.rail.studio')}
+            testId="movie-detail-sidebar-studio"
+            value={<span data-testid="movie-detail-sidebar-studio-value">{movie.studio}</span>}
+          />
+        )}
+        {showCountry && (
+          <MetaRow
+            label={t('seriesDetail.rail.country', { count: 1 })}
+            testId="movie-detail-sidebar-country"
+            value={<CountryName code={country} />}
+          />
+        )}
+        {showLanguage && (
+          <MetaRow
+            label={t('seriesDetail.rail.originalLanguage')}
+            testId="movie-detail-sidebar-language"
+            value={<LanguageName code={movie.original_language} />}
+          />
+        )}
+      </div>
+      {showKeywords && (
+        <div
+          data-testid="movie-detail-sidebar-keywords"
+          className="border-t border-border-faint px-4 py-3.5"
+        >
+          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-tx-faint mb-2.5">
+            {t('seriesDetail.overview.keywords')}
+          </div>
+          <KeywordChips chips={keywords} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MovieDetail() {
   const { t } = useTranslation();
   const { tmdbId: tmdbParam } = useParams();
   const lang = useLanguage().current;
   const formatDate = useFormatDate();
+  const [trailerOpen, setTrailerOpen] = useState(false);
 
   const tmdbId = useMemo(() => parseTmdbId(tmdbParam), [tmdbParam]);
   const query = useMovie(tmdbId ?? undefined, lang);
   const movie = query.data;
+
+  // Prop-driven sections: the page owns the fetch, the component owns the view.
+  const overviewQ = useMovieOverview({ tmdbId: tmdbId ?? undefined, lang });
+  const castQ = useMovieCast({ tmdbId: tmdbId ?? undefined, lang });
 
   useSetPageTitle(movie?.title ?? t('movies.title'));
 
@@ -200,6 +318,26 @@ export function MovieDetail() {
   const showTmdb = typeof movie.tmdb_rating === 'number' && movie.tmdb_rating > 0;
   const showImdb = typeof movie.imdb_rating === 'number' && movie.imdb_rating > 0;
   const library = movie.library ?? [];
+  const genres = movie.genres ?? [];
+
+  // Overview block — base movie.overview paints on first frame (gating query),
+  // the localized /overview endpoint refines it once it lands. loading only
+  // while BOTH are absent + pending, so a populated block never regresses.
+  const ov = overviewQ.data;
+  const overviewText = ov?.overview ?? movie.overview;
+  const overviewTitle = ov?.title ?? movie.title;
+  const overviewTagline = ov?.tagline ?? movie.tagline;
+  const overviewLoading =
+    overviewQ.isLoading && !overviewText && !overviewTagline;
+
+  const cast = castQ.data?.cast;
+  const castServed = castQ.data?.served_language;
+
+  const trailerKey =
+    movie.trailer?.key
+    && (movie.trailer.site === undefined || movie.trailer.site === 'YouTube')
+      ? movie.trailer.key
+      : undefined;
 
   return (
     <div className="flex flex-col gap-6" data-testid="movie-detail-page">
@@ -252,12 +390,11 @@ export function MovieDetail() {
               )}
             </div>
 
+            {genres.length > 0 && (
+              <KeywordChips chips={genres} className="mt-0.5" />
+            )}
+
             <div className="flex flex-wrap items-center gap-2 text-[13px] text-tx-secondary">
-              {movie.status && (
-                <Badge variant="neutral" data-testid="movie-detail-status">
-                  {movie.status}
-                </Badge>
-              )}
               {typeof movie.runtime_minutes === 'number' && movie.runtime_minutes > 0 && (
                 <span
                   data-testid="movie-detail-runtime"
@@ -274,7 +411,8 @@ export function MovieDetail() {
               )}
             </div>
 
-            {/* Ratings row */}
+            {/* Ratings row (compact, mirrors SeriesHero ★). The richer
+                MovieRatingsSection renders below in the main column. */}
             {(showTmdb || showImdb) && (
               <div
                 className="flex flex-wrap items-center gap-4"
@@ -319,35 +457,64 @@ export function MovieDetail() {
               </div>
             )}
 
-            {typeof movie.tmdb_id === 'number' && movie.tmdb_id > 0 && (
-              <div className="pt-1">
-                {library.length > 0 && library[0]?.instance_name ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {typeof movie.tmdb_id === 'number' && movie.tmdb_id > 0 && (
+                library.length > 0 && library[0]?.instance_name ? (
                   <OpenInRadarrButton
                     tmdbId={movie.tmdb_id}
                     instanceName={library[0].instance_name}
                   />
                 ) : (
                   <AddToRadarrSplitButton title={movie.title ?? ''} tmdbId={movie.tmdb_id} />
-                )}
-              </div>
-            )}
+                )
+              )}
+              {trailerKey && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-testid="movie-detail-trailer-button"
+                  onClick={() => setTrailerOpen(true)}
+                >
+                  <PlayCircle className="h-4 w-4" aria-hidden="true" />
+                  {t('seriesDetail.hero.trailer')}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Overview */}
-      <section data-testid="movie-detail-overview">
-        <h2 className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-tx-faint">
-          {t('movieDetail.overview.label')}
-        </h2>
-        <p className="max-w-3xl text-[14px] leading-relaxed text-tx-secondary">
-          {movie.overview && movie.overview.length > 0
-            ? movie.overview
-            : t('movieDetail.overview.empty')}
-        </p>
-      </section>
+      {/* Main content + right rail (series-parity OverviewGrid). */}
+      <OverviewGrid
+        left={
+          <>
+            <section data-testid="movie-detail-overview">
+              <MovieOverviewBlock
+                tmdbId={movie.tmdb_id ?? tmdbId}
+                {...(overviewTitle ? { title: overviewTitle } : {})}
+                {...(overviewText ? { overview: overviewText } : {})}
+                {...(overviewTagline ? { tagline: overviewTagline } : {})}
+                {...(ov?.served_language ? { servedLanguage: ov.served_language } : {})}
+                {...(lang ? { requestedLang: lang } : {})}
+                {...(overviewLoading ? { loading: true } : {})}
+              />
+            </section>
 
-      {/* Wave B: collection block + add-to-radarr */}
+            <MovieCastStrip
+              tmdbId={movie.tmdb_id ?? tmdbId}
+              {...(cast ? { cast } : {})}
+              {...(castServed ? { servedLanguage: castServed } : {})}
+              {...(lang ? { requestedLang: lang } : {})}
+            />
+
+            <MovieRatingsSection tmdbId={movie.tmdb_id ?? tmdbId} />
+          </>
+        }
+        right={<MovieSidebar movie={movie} />}
+      />
+
+      {/* Collection block (movie-only). */}
       {typeof movie.collection?.tmdb_collection_id === 'number'
         && movie.collection.tmdb_collection_id > 0 && (
         <MovieCollectionBlock
@@ -358,7 +525,7 @@ export function MovieDetail() {
         />
       )}
 
-      {/* Library membership */}
+      {/* Library membership. */}
       <section data-testid="movie-detail-library">
         <h2 className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-tx-faint">
           {t('movieDetail.library.title')}
@@ -375,6 +542,18 @@ export function MovieDetail() {
           </div>
         )}
       </section>
+
+      {/* Recommendations rail (self-fetches). */}
+      <MovieRecommendationsRail tmdbId={movie.tmdb_id ?? tmdbId} />
+
+      {trailerKey && (
+        <TrailerModal
+          open={trailerOpen}
+          onOpenChange={setTrailerOpen}
+          youtubeKey={trailerKey}
+          {...(movie.trailer?.name ? { name: movie.trailer.name } : {})}
+        />
+      )}
     </div>
   );
 }
