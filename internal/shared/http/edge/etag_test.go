@@ -11,8 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // fakeSyncedAt is an injected stub for SectionSyncedAtReader so the ETag
@@ -21,13 +19,13 @@ type fakeSyncedAt struct {
 	stamp *time.Time
 	err   error
 
-	gotSeriesID domain.SeriesID
-	gotSection  string
-	gotSeason   int
+	gotID      int
+	gotSection string
+	gotSeason  int
 }
 
-func (f *fakeSyncedAt) SectionSyncedAt(_ context.Context, id domain.SeriesID, section string, season int) (*time.Time, error) {
-	f.gotSeriesID = id
+func (f *fakeSyncedAt) SectionSyncedAt(_ context.Context, id int, section string, season int) (*time.Time, error) {
+	f.gotID = id
 	f.gotSection = section
 	f.gotSeason = season
 	return f.stamp, f.err
@@ -40,7 +38,7 @@ func newETagEngine(t *testing.T, route string, reader SectionSyncedAtReader, cal
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET(route, ETagMiddleware(reader, nil), func(c *gin.Context) {
+	r.GET(route, ETagMiddleware("id", reader, nil), func(c *gin.Context) {
 		*called = true
 		c.String(http.StatusOK, "SENTINEL-BODY")
 	})
@@ -68,7 +66,7 @@ func TestETagMiddleware_EmitsHeadersOnMiss(t *testing.T) {
 	assert.Empty(t, w.Header().Get("Vary"), "must NOT emit Vary (L-1)")
 
 	// section + id + season threaded correctly.
-	assert.Equal(t, domain.SeriesID(42), reader.gotSeriesID)
+	assert.Equal(t, 42, reader.gotID)
 	assert.Equal(t, "skeleton", reader.gotSection)
 	assert.Equal(t, 0, reader.gotSeason)
 }
@@ -336,4 +334,34 @@ func TestETagMiddleware_CastSortChangesValidator(t *testing.T) {
 	// -srtlast suffix. The sort→suffix parse is duplicated in the seriesdetail
 	// rest package (can't import edge), so pin the suffix here to catch drift.
 	assert.Equal(t, fmt.Sprintf(`W/"42-%d-ru-cast-srtlast"`, stamp.Unix()), last)
+}
+
+func TestETagMiddleware_MovieParamName(t *testing.T) {
+	stamp := time.Unix(1_700_000_000, 0).UTC()
+	reader := &fakeSyncedAt{stamp: &stamp}
+	var called bool
+	r := newMovieETagEngine(t, "/movies/:tmdb_id/cast", reader, &called)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/movies/603/cast?lang=ru", nil)
+	r.ServeHTTP(w, req)
+
+	require.True(t, called)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, fmt.Sprintf(`W/"603-%d-ru-cast"`, stamp.Unix()), w.Header().Get("ETag"))
+	assert.Equal(t, 603, reader.gotID, "tmdb_id param must be parsed as the id")
+	assert.Equal(t, "cast", reader.gotSection)
+}
+
+// newMovieETagEngine mirrors newETagEngine but wires the "tmdb_id" param name so
+// the movie routes' id is read from :tmdb_id.
+func newMovieETagEngine(t *testing.T, route string, reader SectionSyncedAtReader, called *bool) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET(route, ETagMiddleware("tmdb_id", reader, nil), func(c *gin.Context) {
+		*called = true
+		c.String(http.StatusOK, "SENTINEL-BODY")
+	})
+	return r
 }

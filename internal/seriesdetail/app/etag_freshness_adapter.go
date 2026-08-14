@@ -39,7 +39,8 @@ func NewETagFreshnessAdapter(series *enrichpersistence.SeriesRepository, seasons
 //
 // A nil *time.Time (NULL stamp) is a valid "never synced" result and is
 // returned without error; the middleware skips the ETag for it.
-func (a *ETagFreshnessAdapter) SectionSyncedAt(ctx context.Context, seriesID domain.SeriesID, section string, seasonNumber int) (*time.Time, error) {
+func (a *ETagFreshnessAdapter) SectionSyncedAt(ctx context.Context, id int, section string, seasonNumber int) (*time.Time, error) {
+	seriesID := domain.SeriesID(id)
 	if section == "season" {
 		return a.seasons.GetEpisodesSyncedAt(ctx, seriesID, seasonNumber)
 	}

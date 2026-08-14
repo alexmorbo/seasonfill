@@ -382,7 +382,7 @@ func NewServer(
 		// 304 / fail-open path it either aborts or c.Next()s untouched.
 		// Deliberately NOT wired onto POST /regrab (mutating), /torrents
 		// or /library (per-instance *Arr state, no enrichment stamp).
-		etagMW := ETagMiddleware(etagFreshness, logger)
+		etagMW := ETagMiddleware("id", etagFreshness, logger)
 		if globalSeriesHandler != nil {
 			guarded.GET("/series/:id", etagMW, globalSeriesHandler.Get)
 			guarded.POST("/series/:id/regrab", permRequest, globalSeriesHandler.Regrab)

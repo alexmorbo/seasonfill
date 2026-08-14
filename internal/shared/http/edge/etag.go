@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-
-	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 // Section tokens for the ETag cache key + the synced_at column selector.
@@ -28,25 +26,32 @@ const (
 
 const etagCacheControl = "private, max-age=60, stale-while-revalidate=600"
 
-// SectionSyncedAtReader resolves the last-write timestamp for one canon
-// series-detail section. Implemented structurally by
-// seriesdetail.ETagFreshnessAdapter (no import back into edge). Returns
-// (nil, nil) when the section was never synced (NULL stamp); the middleware
-// fails open without an ETag. A non-nil error (including ports.ErrNotFound
-// for an absent series/season) also fails open.
+// SectionSyncedAtReader resolves the last-write timestamp for one enrichment
+// section, keyed by the numeric URL id + the HTTP section token. The id is the
+// value parsed from the route's id param (the series canon id for /series/:id,
+// the TMDB id for /movies/:tmdb_id); each adapter re-types it. Implemented
+// structurally by seriesdetail.ETagFreshnessAdapter and
+// moviedetail.MovieETagFreshnessAdapter (neither imports edge — that would
+// cycle). Returns (nil, nil) when the section was never synced (NULL stamp); the
+// middleware fails open without an ETag. A non-nil error (including
+// ports.ErrNotFound for an absent row/season) also fails open.
 type SectionSyncedAtReader interface {
-	SectionSyncedAt(ctx context.Context, seriesID domain.SeriesID, section string, seasonNumber int) (*time.Time, error)
+	SectionSyncedAt(ctx context.Context, id int, section string, seasonNumber int) (*time.Time, error)
 }
 
-// ETagMiddleware emits a weak ETag + Cache-Control on the enrichment-backed
-// series-detail GET routes and short-circuits with 304 Not Modified when the
+// ETagMiddleware emits a weak ETag + Cache-Control on enrichment-backed
+// canon-detail GET routes and short-circuits with 304 Not Modified when the
 // client's If-None-Match matches. It is strictly additive: on any error, an
 // unrecognised route, or a NULL/zero stamp it calls c.Next() unchanged — a
 // caching optimisation must never 500 or alter a response body.
 //
+// paramName is the route's id param ("id" for /series/:id, "tmdb_id" for
+// /movies/:tmdb_id). reader maps (parsed id, section, season) → the section's
+// last-write stamp for whichever vertical the routes belong to.
+//
 // gin runs route middleware before the handler, so a 304 abort here prevents
 // the handler from ever executing (bandwidth + CPU saved).
-func ETagMiddleware(reader SectionSyncedAtReader, logger *slog.Logger) gin.HandlerFunc {
+func ETagMiddleware(paramName string, reader SectionSyncedAtReader, logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if reader == nil {
 			c.Next()
@@ -57,19 +62,18 @@ func ETagMiddleware(reader SectionSyncedAtReader, logger *slog.Logger) gin.Handl
 			c.Next()
 			return
 		}
-		parsedID, err := strconv.Atoi(c.Param("id"))
+		parsedID, err := strconv.Atoi(c.Param(paramName))
 		if err != nil {
 			c.Next() // malformed id — let the handler return its 400
 			return
 		}
-		seriesID := domain.SeriesID(parsedID)
 		lang := c.Query("lang")
 
-		syncedAt, err := reader.SectionSyncedAt(c.Request.Context(), seriesID, section, seasonNumber)
+		syncedAt, err := reader.SectionSyncedAt(c.Request.Context(), parsedID, section, seasonNumber)
 		if err != nil {
 			if logger != nil {
 				logger.Debug("etag: synced_at lookup failed, skipping cache header",
-					slog.Int("series_id", parsedID),
+					slog.Int("id", parsedID),
 					slog.String("section", section),
 					slog.String("error", err.Error()))
 			}
@@ -85,7 +89,7 @@ func ETagMiddleware(reader SectionSyncedAtReader, logger *slog.Logger) gin.Handl
 		if section == sectionSeason {
 			tag = fmt.Sprintf("season:%d", seasonNumber)
 		}
-		key := fmt.Sprintf("%d-%d-%s-%s", int64(seriesID), syncedAt.Unix(), lang, tag)
+		key := fmt.Sprintf("%d-%d-%s-%s", int64(parsedID), syncedAt.Unix(), lang, tag)
 		// Story 1087a — the cast endpoint takes an optional ?limit=N that
 		// changes the response cardinality. Fold it into the ETag key so
 		// ?limit=8 and the full page never share a 304. Only the cast section
