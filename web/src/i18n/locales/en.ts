@@ -2942,6 +2942,7 @@ export const en = {
     overview: {
       label: 'Overview',
       empty: 'No overview available.',
+      loading: 'Loading overview…',
     },
     ratings: {
       tmdb: 'TMDB',

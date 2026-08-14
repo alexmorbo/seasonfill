@@ -2940,6 +2940,7 @@ export const ru: Translations = {
     overview: {
       label: 'Описание',
       empty: 'Описание недоступно.',
+      loading: 'Загрузка описания…',
     },
     ratings: {
       tmdb: 'TMDB',
