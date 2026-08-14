@@ -2955,5 +2955,10 @@ export const ru: Translations = {
       hasFile: 'Загружено',
       empty: 'Нет ни в одной библиотеке.',
     },
+    cast: {
+      label: 'В ролях',
+      viewAll: 'Все',
+      loading: 'Загрузка актёров…',
+    },
   },
 };

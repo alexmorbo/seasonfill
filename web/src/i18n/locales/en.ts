@@ -2957,6 +2957,11 @@ export const en = {
       hasFile: 'Downloaded',
       empty: 'Not in any library.',
     },
+    cast: {
+      label: 'Cast',
+      viewAll: 'View all',
+      loading: 'Loading cast…',
+    },
   },
 };
 
