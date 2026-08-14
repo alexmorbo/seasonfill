@@ -22,6 +22,7 @@ type MovieDetailBundle struct {
 	LibraryHandler    *catalogrest.MovieLibraryHandler
 	CastHandler       *mdrest.MovieCastHandler         // Ф2.1
 	CastETagFreshness *mdapp.MovieETagFreshnessAdapter // Ф2.1 first live movie ETag wiring
+	OverviewHandler   *mdrest.MovieOverviewHandler     // Ф2.2 movie overview sub-endpoint
 }
 
 // BuildMovieDetail wires the read-only movie-detail aggregate + the movie
@@ -50,10 +51,15 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 	)
 	castHandler := mdrest.NewMovieCastHandler(castUC, resolver, domainLog)
 	castETag := mdapp.NewMovieETagFreshnessAdapter(movieRepo)
+	// Ф2.2 — movie overview sub-endpoint. movieI18nRead drives both the per-field
+	// text ladder (Get) and served_language (TitleLanguage); movieRepo = canon.
+	overviewUC := mdapp.NewOverviewUseCase(movieRepo, movieI18nRead, movieI18nRead)
+	overviewHandler := mdrest.NewMovieOverviewHandler(overviewUC, domainLog)
 	return &MovieDetailBundle{
 		Handler:           mdrest.NewHandler(uc, resolver, domainLog),
 		LibraryHandler:    libraryHandler,
 		CastHandler:       castHandler,
 		CastETagFreshness: castETag,
+		OverviewHandler:   overviewHandler,
 	}
 }

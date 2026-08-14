@@ -373,6 +373,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
 		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
+		nil, // movieOverviewHandler (Ф2.2) — nil-OK, /movies/:tmdb_id/overview route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		lg)
 }
@@ -464,6 +465,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
 		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
+		nil, // movieOverviewHandler (Ф2.2) — nil-OK, /movies/:tmdb_id/overview route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		lg)
 }
@@ -562,6 +564,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
 		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
+		nil, // movieOverviewHandler (Ф2.2) — nil-OK, /movies/:tmdb_id/overview route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		lg)
 }
@@ -807,6 +810,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
 		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
+		nil, // movieOverviewHandler (Ф2.2) — nil-OK, /movies/:tmdb_id/overview route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		lg)
 

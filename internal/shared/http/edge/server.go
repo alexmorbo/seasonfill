@@ -165,6 +165,9 @@ func NewServer(
 	// Ф2.1 — movie cast sub-endpoint. nil-OK: the /movies/:tmdb_id/cast route is
 	// omitted when the handler is absent (minimal/test wirings).
 	movieCastHandler *moviedetailrest.MovieCastHandler,
+	// Ф2.2 — movie overview sub-endpoint. nil-OK: the /movies/:tmdb_id/overview
+	// route is omitted when the handler is absent (minimal/test wirings).
+	movieOverviewHandler *moviedetailrest.MovieOverviewHandler,
 	// Ф2.1 — per-section movie freshness reader for the movie ETag middleware.
 	// nil-OK: the middleware is a pass-through when nil.
 	movieEtagFreshness SectionSyncedAtReader,
@@ -606,6 +609,13 @@ func NewServer(
 		if movieCastHandler != nil {
 			movieEtagMW := ETagMiddleware("tmdb_id", movieEtagFreshness, logger)
 			guarded.GET("/movies/:tmdb_id/cast", movieEtagMW, movieCastHandler.Get)
+		}
+		// Ф2.2 — movie overview sub-endpoint. Reuses the movie ETag adapter
+		// (overview section → enrichment_text_synced_at); edge.extractSection
+		// maps the /overview suffix to sectionOverview automatically.
+		if movieOverviewHandler != nil {
+			movieOverviewEtagMW := ETagMiddleware("tmdb_id", movieEtagFreshness, logger)
+			guarded.GET("/movies/:tmdb_id/overview", movieOverviewEtagMW, movieOverviewHandler.Get)
 		}
 		// Ф6-R-6a — TMDB franchise collections.
 		if movieCollectionsHandler != nil {

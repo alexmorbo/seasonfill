@@ -4313,6 +4313,91 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/movies/{tmdb_id}/overview": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Movie overview block (localized title/overview/tagline)
+         * @description Returns ONLY the localized text slice for a movie keyed by TMDB
+         *     id: title (localized > canon), overview and tagline. All data is
+         *     local (no live TMDB). served_language reports the language the
+         *     title resolved to; degraded=["missing_lang"] when a fallback
+         *     language was served. 404 when no canon row exists.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB movie id */
+                    readonly tmdb_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieOverviewResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/movies/calendar": {
         readonly parameters: {
             readonly query?: never;
@@ -8215,6 +8300,42 @@ export type components = {
             readonly next_cursor?: string;
             /** @example 42 */
             readonly total?: number;
+        };
+        readonly "dto.MovieOverviewResponse": {
+            /**
+             * @description Degraded carries "missing_lang" when a real fallback-language title was
+             *     served. Empty slice on the happy path.
+             */
+            readonly degraded?: readonly string[];
+            /**
+             * @description Lang is the BCP-47 language requested.
+             * @example en-US
+             */
+            readonly lang?: string;
+            /**
+             * @description Overview is the localized synopsis. nil when no localized/canon overview
+             *     row exists in any language.
+             */
+            readonly overview?: string;
+            /**
+             * @description ServedLanguage is the BCP-47 language the localized title resolved to
+             *     (the movie's principal localized text). Empty when no localized title row
+             *     exists. When it differs from Lang, Degraded includes "missing_lang".
+             * @example ru-RU
+             */
+            readonly served_language?: string;
+            /** @description Tagline is the localized tagline. nil when absent. */
+            readonly tagline?: string;
+            /**
+             * @description Title is the localized title (localized > canon fallback). Never empty.
+             * @example The Matrix
+             */
+            readonly title?: string;
+            /**
+             * @description TMDBID is the TMDB movie id from the URL.
+             * @example 603
+             */
+            readonly tmdb_id?: number;
         };
         /**
          * @description NextEpisodeToAir is the earliest future-dated episode (monitored

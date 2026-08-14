@@ -2758,6 +2758,47 @@
                 },
                 "type": "object"
             },
+            "dto.MovieOverviewResponse": {
+                "properties": {
+                    "degraded": {
+                        "description": "Degraded carries \"missing_lang\" when a real fallback-language title was\nserved. Empty slice on the happy path.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "lang": {
+                        "description": "Lang is the BCP-47 language requested.",
+                        "example": "en-US",
+                        "type": "string"
+                    },
+                    "overview": {
+                        "description": "Overview is the localized synopsis. nil when no localized/canon overview\nrow exists in any language.",
+                        "type": "string"
+                    },
+                    "served_language": {
+                        "description": "ServedLanguage is the BCP-47 language the localized title resolved to\n(the movie's principal localized text). Empty when no localized title row\nexists. When it differs from Lang, Degraded includes \"missing_lang\".",
+                        "example": "ru-RU",
+                        "type": "string"
+                    },
+                    "tagline": {
+                        "description": "Tagline is the localized tagline. nil when absent.",
+                        "type": "string"
+                    },
+                    "title": {
+                        "description": "Title is the localized title (localized \u003e canon fallback). Never empty.",
+                        "example": "The Matrix",
+                        "type": "string"
+                    },
+                    "tmdb_id": {
+                        "description": "TMDBID is the TMDB movie id from the URL.",
+                        "example": 603,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "dto.NextEpisode": {
                 "description": "NextEpisodeToAir is the earliest future-dated episode (monitored\npreferred). Title is nil by design — titles live in the canon episode\nendpoints, not this Sonarr-state handle.",
                 "properties": {
@@ -10466,6 +10507,94 @@
                     }
                 ],
                 "summary": "Movie cast list",
+                "tags": [
+                    "movies"
+                ]
+            }
+        },
+        "/movies/{tmdb_id}/overview": {
+            "get": {
+                "description": "Returns ONLY the localized text slice for a movie keyed by TMDB\nid: title (localized \u003e canon), overview and tagline. All data is\nlocal (no live TMDB). served_language reports the language the\ntitle resolved to; degraded=[\"missing_lang\"] when a fallback\nlanguage was served. 404 when no canon row exists.",
+                "parameters": [
+                    {
+                        "description": "TMDB movie id",
+                        "in": "path",
+                        "name": "tmdb_id",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "BCP-47 language tag",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.MovieOverviewResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Movie overview block (localized title/overview/tagline)",
                 "tags": [
                     "movies"
                 ]

@@ -1142,6 +1142,7 @@ func BuildHTTPServer(
 		movieReenrichHandler,                // Ф1.4 movie re-enrich backfill
 		seriesDetailBundle.MediaResolver,    // Ф0.1 insights /calendar poster resolve
 		movieDetailBundle.CastHandler,       // Ф2.1 movie cast sub-endpoint
+		movieDetailBundle.OverviewHandler,   // Ф2.2 movie overview sub-endpoint
 		movieDetailBundle.CastETagFreshness, // Ф2.1 movie ETag adapter
 		log,
 	)
