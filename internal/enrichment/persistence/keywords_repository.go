@@ -302,6 +302,26 @@ func (r *KeywordsRepository) ListBySeries(ctx context.Context, seriesID domain.S
 	return out, nil
 }
 
+// ListByMovie returns the keyword ids attached to a movie (keyword_id-ASC;
+// keywords have no position column — mirror of ListBySeries over the
+// movie_keywords join, Ф2.5a). The caller resolves localized names via
+// ListByIDsWithFallback (v1 keywords are en-only → en-US fallback path).
+func (r *KeywordsRepository) ListByMovie(ctx context.Context, movieID domain.MovieID) ([]int64, error) {
+	var rows []database.MovieKeywordModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("movie_id = ?", movieID).
+		Order("keyword_id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("list movie_keywords: %w", err)
+	}
+	out := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.KeywordID)
+	}
+	return out, nil
+}
+
 func toKeyword(m database.KeywordModel) taxonomy.Keyword {
 	return taxonomy.Keyword{
 		ID:        m.ID,

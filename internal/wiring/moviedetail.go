@@ -37,7 +37,12 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		enrichpersistence.NewMovieI18nReadRepository(db),
 		enrichpersistence.NewMovieCollectionsRepository(db),
 		catalogpersistence.NewMovieStatesRepository(db),
-	).WithHydrationTrigger(movieRepo, time.Now, domainLog)
+	).
+		WithHydrationTrigger(movieRepo, time.Now, domainLog).
+		WithTaxonomy(
+			enrichpersistence.NewGenresRepository(db),
+			enrichpersistence.NewKeywordsRepository(db),
+		)
 	// Ф6-R-6b — global movie library list (GET /api/v1/movies).
 	movieI18nRead := enrichpersistence.NewMovieI18nReadRepository(db)
 	libraryHandler := catalogrest.NewMovieLibraryHandler(

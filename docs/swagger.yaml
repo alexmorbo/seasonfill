@@ -2085,10 +2085,27 @@ components:
           uniqueItems: false
         digital_release_date:
           type: string
+        genres:
+          description: |-
+            Genres are localized taxonomy chips mirroring the series hero (Ф2.5a).
+            Each chip carries its own resolved Language (en-US when the requested lang
+            had no row). Omitted when the movie has no genres attached yet.
+          items:
+            $ref: '#/components/schemas/dto.TaxonomyChip'
+          type: array
+          uniqueItems: false
         imdb_id:
           type: string
         imdb_rating:
           type: number
+        keywords:
+          description: |-
+            Keywords are localized taxonomy chips (Ф2.5a). v1 keywords are en-only, so
+            Language is en-US for any requested lang. Omitted when none attached.
+          items:
+            $ref: '#/components/schemas/dto.TaxonomyChip'
+          type: array
+          uniqueItems: false
         library:
           items:
             $ref: '#/components/schemas/dto.MovieDetailLibrary'

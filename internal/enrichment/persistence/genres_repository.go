@@ -349,6 +349,26 @@ func (r *GenresRepository) ListBySeries(ctx context.Context, seriesID domain.Ser
 	return out, nil
 }
 
+// ListByMovie returns the genre ids attached to a movie in position-ASC order
+// (Ф2.5a base-detail taxonomy read). Exact mirror of ListBySeries over the
+// movie_genres join; the caller resolves localized names via
+// ListByIDsWithFallback (same two-step the seriesdetail skeleton hero uses).
+func (r *GenresRepository) ListByMovie(ctx context.Context, movieID domain.MovieID) ([]int64, error) {
+	var rows []database.MovieGenreModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("movie_id = ?", movieID).
+		Order("position ASC, genre_id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("list movie_genres: %w", err)
+	}
+	out := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.GenreID)
+	}
+	return out, nil
+}
+
 func toGenre(m database.GenreModel) taxonomy.Genre {
 	return taxonomy.Genre{
 		ID:        m.ID,

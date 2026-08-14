@@ -164,3 +164,103 @@ func TestCompaniesRepository_SetMovie(t *testing.T) {
 		})
 	}
 }
+
+func TestGenresRepository_ListByMovie(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			movies := NewMovieRepository(db)
+			genres := NewGenresRepository(db)
+			i18n := NewGenresI18nRepository(db)
+
+			movieID := mkMovie(t, movies, 693134, "Dune: Part Two")
+
+			g1, err := genres.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(878)})
+			require.NoError(t, err)
+			g2, err := genres.Upsert(ctx, taxonomy.Genre{TMDBID: ptrTMDBID(12)})
+			require.NoError(t, err)
+			// g1: en-US + ru-RU; g2: en-US only (drives the fallback path).
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{GenreID: g1, Language: "en-US", Name: "Science Fiction"}))
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{GenreID: g1, Language: "ru-RU", Name: "Фантастика"}))
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.GenreI18n{GenreID: g2, Language: "en-US", Name: "Adventure"}))
+
+			// SetMovie preserves input order → ListByMovie returns [g1, g2] by position.
+			require.NoError(t, genres.SetMovie(ctx, movieID, []int64{g1, g2}))
+
+			ids, err := genres.ListByMovie(ctx, movieID)
+			require.NoError(t, err)
+			assert.Equal(t, []int64{g1, g2}, ids, "position-ordered join ids")
+
+			// ru-RU: g1 localized present, g2 falls back to en-US.
+			resolved, err := genres.ListByIDsWithFallback(ctx, ids, "ru-RU")
+			require.NoError(t, err)
+			byID := make(map[int64]taxonomy.Genre, len(resolved))
+			for _, g := range resolved {
+				byID[g.ID] = g
+			}
+			require.Contains(t, byID, g1)
+			assert.Equal(t, "Фантастика", byID[g1].Name, "requested-lang name wins")
+			assert.Equal(t, "ru-RU", byID[g1].Language)
+			require.Contains(t, byID, g2)
+			assert.Equal(t, "Adventure", byID[g2].Name, "en-US fallback name")
+			assert.Equal(t, "en-US", byID[g2].Language, "fallback language surfaced")
+
+			// empty movie → nil ids, nil error.
+			empty := mkMovie(t, movies, 111111, "Empty")
+			got, err := genres.ListByMovie(ctx, empty)
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+	}
+}
+
+func TestKeywordsRepository_ListByMovie(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			movies := NewMovieRepository(db)
+			keywords := NewKeywordsRepository(db)
+			i18n := NewKeywordsI18nRepository(db)
+
+			movieID := mkMovie(t, movies, 42, "Dune")
+
+			k1, err := keywords.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(4565)})
+			require.NoError(t, err)
+			k2, err := keywords.Upsert(ctx, taxonomy.Keyword{TMDBID: ptrTMDBID(9951)})
+			require.NoError(t, err)
+			// v1 keywords are en-only → both rows en-US; ru-RU request hits the fallback.
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{KeywordID: k1, Language: "en-US", Name: "dystopia"}))
+			require.NoError(t, i18n.Upsert(ctx, taxonomy.KeywordI18n{KeywordID: k2, Language: "en-US", Name: "desert"}))
+
+			require.NoError(t, keywords.SetMovie(ctx, movieID, []int64{k1, k2}))
+
+			ids, err := keywords.ListByMovie(ctx, movieID)
+			require.NoError(t, err)
+			assert.Equal(t, []int64{k1, k2}, ids, "keyword_id-ASC join ids")
+
+			resolved, err := keywords.ListByIDsWithFallback(ctx, ids, "ru-RU")
+			require.NoError(t, err)
+			byID := make(map[int64]taxonomy.Keyword, len(resolved))
+			for _, k := range resolved {
+				byID[k.ID] = k
+			}
+			require.Contains(t, byID, k1)
+			assert.Equal(t, "dystopia", byID[k1].Name, "en-US fallback (keywords en-only)")
+			assert.Equal(t, "en-US", byID[k1].Language)
+			require.Contains(t, byID, k2)
+			assert.Equal(t, "desert", byID[k2].Name)
+
+			// empty movie → nil, nil.
+			empty := mkMovie(t, movies, 222222, "Empty")
+			got, err := keywords.ListByMovie(ctx, empty)
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+	}
+}

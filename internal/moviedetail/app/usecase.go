@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -41,6 +42,20 @@ type MembershipReader interface {
 	ListActiveByMovieID(ctx context.Context, movieID domain.MovieID) ([]movie.StateEntry, error)
 }
 
+// GenresReader lists a movie's genre ids + resolves localized names via the
+// shared §5.6 two-tier fallback (Ф2.5a). Impl: *enrichpersistence.GenresRepository.
+type GenresReader interface {
+	ListByMovie(ctx context.Context, movieID domain.MovieID) ([]int64, error)
+	ListByIDsWithFallback(ctx context.Context, ids []int64, language string) ([]taxonomy.Genre, error)
+}
+
+// KeywordsReader — same shape as GenresReader for keywords (Ф2.5a). Impl:
+// *enrichpersistence.KeywordsRepository.
+type KeywordsReader interface {
+	ListByMovie(ctx context.Context, movieID domain.MovieID) ([]int64, error)
+	ListByIDsWithFallback(ctx context.Context, ids []int64, language string) ([]taxonomy.Keyword, error)
+}
+
 // Detail is the assembled aggregate. Localized fields fall back to canon.
 type Detail struct {
 	Canon      movie.Canon
@@ -51,7 +66,9 @@ type Detail struct {
 	Backdrop   *string
 	Collection *movie.CollectionCanon // nil when the movie has no collection_id
 	Library    []LibraryMembership
-	Degraded   []string // "movie_i18n" when no localized row for lang
+	Genres     []taxonomy.Genre   // Ф2.5a localized genre chips (join order)
+	Keywords   []taxonomy.Keyword // Ф2.5a localized keyword chips (keyword_id order)
+	Degraded   []string           // "movie_i18n" when no localized row for lang
 }
 
 // LibraryMembership is one active per-instance Radarr membership row.
@@ -79,6 +96,9 @@ type UseCase struct {
 	collection CollectionReader
 	membership MembershipReader
 
+	genres   GenresReader   // nil-OK: Genres stays empty when unwired
+	keywords KeywordsReader // nil-OK: Keywords stays empty when unwired
+
 	stale StaleMarker
 	now   func() time.Time
 	log   *slog.Logger
@@ -89,6 +109,15 @@ type UseCase struct {
 // so existing callers stay unchanged and the trigger stays a no-op until wired.
 func New(canon CanonReader, i18n I18nReader, collection CollectionReader, membership MembershipReader) *UseCase {
 	return &UseCase{canon: canon, i18n: i18n, collection: collection, membership: membership}
+}
+
+// WithTaxonomy enables the Ф2.5a genres+keywords enrichment. Both readers are
+// used together; either nil leaves both slices empty (no partial state). Returns
+// the receiver for chaining in the wiring.
+func (uc *UseCase) WithTaxonomy(genres GenresReader, keywords KeywordsReader) *UseCase {
+	uc.genres = genres
+	uc.keywords = keywords
+	return uc
 }
 
 // WithHydrationTrigger enables the Ф1.2 on-read mark-stale nudge. now nil →
@@ -167,8 +196,72 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string) (
 		})
 	}
 
+	uc.loadTaxonomy(ctx, &d, canon.ID, lang)
 	uc.maybeTriggerHydration(ctx, canon)
 	return d, nil
+}
+
+// loadTaxonomy fills d.Genres / d.Keywords from the movie join tables (Ф2.5a).
+// Two reads per kind: the join ids (position order) then the batch i18n
+// fallback resolve; results are re-projected into join order via a map (the
+// batch reader orders by id-ASC). Fail-open: a read error is logged at Warn and
+// leaves the slice empty — taxonomy NEVER 500s the detail. No-op when the
+// readers are unwired (genres/keywords nil).
+func (uc *UseCase) loadTaxonomy(ctx context.Context, d *Detail, movieID domain.MovieID, lang string) {
+	if uc.genres != nil {
+		if ids, err := uc.genres.ListByMovie(ctx, movieID); err != nil {
+			uc.logTaxonomyWarn(ctx, "movie_genres", movieID, err)
+		} else if len(ids) > 0 {
+			resolved, rerr := uc.genres.ListByIDsWithFallback(ctx, ids, lang)
+			if rerr != nil {
+				uc.logTaxonomyWarn(ctx, "movie_genres_i18n", movieID, rerr)
+			} else {
+				byID := make(map[int64]taxonomy.Genre, len(resolved))
+				for _, g := range resolved {
+					byID[g.ID] = g
+				}
+				for _, id := range ids {
+					if g, ok := byID[id]; ok {
+						d.Genres = append(d.Genres, g)
+					}
+				}
+			}
+		}
+	}
+
+	if uc.keywords != nil {
+		if ids, err := uc.keywords.ListByMovie(ctx, movieID); err != nil {
+			uc.logTaxonomyWarn(ctx, "movie_keywords", movieID, err)
+		} else if len(ids) > 0 {
+			resolved, rerr := uc.keywords.ListByIDsWithFallback(ctx, ids, lang)
+			if rerr != nil {
+				uc.logTaxonomyWarn(ctx, "movie_keywords_i18n", movieID, rerr)
+			} else {
+				byID := make(map[int64]taxonomy.Keyword, len(resolved))
+				for _, k := range resolved {
+					byID[k.ID] = k
+				}
+				for _, id := range ids {
+					if k, ok := byID[id]; ok {
+						d.Keywords = append(d.Keywords, k)
+					}
+				}
+			}
+		}
+	}
+}
+
+// logTaxonomyWarn records a fail-open taxonomy read error. Silent when the
+// logger is unwired (New without WithHydrationTrigger — the test path).
+func (uc *UseCase) logTaxonomyWarn(ctx context.Context, section string, movieID domain.MovieID, err error) {
+	if uc.log == nil {
+		return
+	}
+	uc.log.WarnContext(ctx, "moviedetail.taxonomy.read_error",
+		slog.String("section", section),
+		slog.Int64("movie_id", int64(movieID)),
+		slog.String("error", err.Error()),
+	)
 }
 
 // maybeTriggerHydration runs the pure section probe over the already-loaded

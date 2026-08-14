@@ -8419,8 +8419,19 @@ export type components = {
             readonly collection?: components["schemas"]["dto.MovieDetailCollection"];
             readonly degraded?: readonly string[];
             readonly digital_release_date?: string;
+            /**
+             * @description Genres are localized taxonomy chips mirroring the series hero (Ф2.5a).
+             *     Each chip carries its own resolved Language (en-US when the requested lang
+             *     had no row). Omitted when the movie has no genres attached yet.
+             */
+            readonly genres?: readonly components["schemas"]["dto.TaxonomyChip"][];
             readonly imdb_id?: string;
             readonly imdb_rating?: number;
+            /**
+             * @description Keywords are localized taxonomy chips (Ф2.5a). v1 keywords are en-only, so
+             *     Language is en-US for any requested lang. Omitted when none attached.
+             */
+            readonly keywords?: readonly components["schemas"]["dto.TaxonomyChip"][];
             readonly library?: readonly components["schemas"]["dto.MovieDetailLibrary"][];
             readonly overview?: string;
             readonly physical_release_date?: string;

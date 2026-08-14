@@ -131,5 +131,11 @@ func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto
 			SizeOnDisk:    m.SizeOnDisk,
 		})
 	}
+	for _, g := range d.Genres {
+		out.Genres = append(out.Genres, dto.TaxonomyChip{ID: g.ID, Name: g.Name, Language: g.Language})
+	}
+	for _, k := range d.Keywords {
+		out.Keywords = append(out.Keywords, dto.TaxonomyChip{ID: k.ID, Name: k.Name, Language: k.Language})
+	}
 	return out
 }

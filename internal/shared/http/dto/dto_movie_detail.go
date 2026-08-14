@@ -22,7 +22,14 @@ type MovieDetailResponse struct {
 	IMDBRating *float64               `json:"imdb_rating"`
 	Collection *MovieDetailCollection `json:"collection"`
 	Library    []MovieDetailLibrary   `json:"library"`
-	Degraded   []string               `json:"degraded"`
+	// Genres are localized taxonomy chips mirroring the series hero (Ф2.5a).
+	// Each chip carries its own resolved Language (en-US when the requested lang
+	// had no row). Omitted when the movie has no genres attached yet.
+	Genres []TaxonomyChip `json:"genres,omitempty"`
+	// Keywords are localized taxonomy chips (Ф2.5a). v1 keywords are en-only, so
+	// Language is en-US for any requested lang. Omitted when none attached.
+	Keywords []TaxonomyChip `json:"keywords,omitempty"`
+	Degraded []string       `json:"degraded"`
 }
 
 // MovieDetailCollection is the franchise-collection header on a movie detail.
