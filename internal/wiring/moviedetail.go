@@ -18,12 +18,13 @@ import (
 // MovieDetailBundle groups the movie read handlers (Ф6-R-6a detail +
 // Ф6-R-6b library list + Ф2.1 cast sub-endpoint).
 type MovieDetailBundle struct {
-	Handler           *mdrest.Handler
-	LibraryHandler    *catalogrest.MovieLibraryHandler
-	CastHandler       *mdrest.MovieCastHandler         // Ф2.1
-	CastETagFreshness *mdapp.MovieETagFreshnessAdapter // Ф2.1 first live movie ETag wiring
-	OverviewHandler   *mdrest.MovieOverviewHandler     // Ф2.2 movie overview sub-endpoint
-	RatingsHandler    *mdrest.MovieRatingsHandler      // Ф2.3 movie ratings sub-endpoint
+	Handler                *mdrest.Handler
+	LibraryHandler         *catalogrest.MovieLibraryHandler
+	CastHandler            *mdrest.MovieCastHandler            // Ф2.1
+	CastETagFreshness      *mdapp.MovieETagFreshnessAdapter    // Ф2.1 first live movie ETag wiring
+	OverviewHandler        *mdrest.MovieOverviewHandler        // Ф2.2 movie overview sub-endpoint
+	RatingsHandler         *mdrest.MovieRatingsHandler         // Ф2.3 movie ratings sub-endpoint
+	RecommendationsHandler *mdrest.MovieRecommendationsHandler // Ф2.4 movie recommendations sub-endpoint
 }
 
 // BuildMovieDetail wires the read-only movie-detail aggregate + the movie
@@ -60,12 +61,23 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 	// no localization, no ETag, no live refresh.
 	ratingsUC := mdapp.NewRatingsUseCase(movieRepo)
 	ratingsHandler := mdrest.NewMovieRatingsHandler(ratingsUC, domainLog)
+	// Ф2.4 — movie recommendations sub-endpoint. Read-only over local repos:
+	// movie_recommendations rank list + movies canon batch (movieRepo doubles as
+	// CanonReader and MovieCanonBatchReader). Reuses the movie ETag adapter (recs
+	// section → enrichment_recs_synced_at) already built as castETag.
+	recsUC := mdapp.NewRecommendationsUseCase(
+		movieRepo,
+		enrichpersistence.NewMovieRecommendationsRepository(db),
+		movieRepo,
+	)
+	recsHandler := mdrest.NewMovieRecommendationsHandler(recsUC, resolver, domainLog)
 	return &MovieDetailBundle{
-		Handler:           mdrest.NewHandler(uc, resolver, domainLog),
-		LibraryHandler:    libraryHandler,
-		CastHandler:       castHandler,
-		CastETagFreshness: castETag,
-		OverviewHandler:   overviewHandler,
-		RatingsHandler:    ratingsHandler,
+		Handler:                mdrest.NewHandler(uc, resolver, domainLog),
+		LibraryHandler:         libraryHandler,
+		CastHandler:            castHandler,
+		CastETagFreshness:      castETag,
+		OverviewHandler:        overviewHandler,
+		RatingsHandler:         ratingsHandler,
+		RecommendationsHandler: recsHandler,
 	}
 }

@@ -4481,6 +4481,91 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/movies/{tmdb_id}/recommendations": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Movie recommendations ("you might also like")
+         * @description Rank-ordered recommended movies for a movie keyed by TMDB id. All
+         *     data is local (no live TMDB). Each item carries tmdb_id (FE link),
+         *     title, year, poster and tmdb_rating. 404 when no canon row exists.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description page size (1..50, default 20) */
+                    readonly limit?: number;
+                    /** @description page offset (>=0, default 0) */
+                    readonly offset?: number;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB movie id */
+                    readonly tmdb_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieRecommendationsResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/movies/calendar": {
         readonly parameters: {
             readonly query?: never;
@@ -8432,6 +8517,42 @@ export type components = {
         readonly "dto.MovieRatingsSources": {
             readonly omdb?: string;
             readonly tmdb?: string;
+        };
+        readonly "dto.MovieRecommendation": {
+            readonly poster_asset?: string;
+            /** @example The Matrix Reloaded */
+            readonly title?: string;
+            /** @example 604 */
+            readonly tmdb_id?: number;
+            /** @example 7.2 */
+            readonly tmdb_rating?: number;
+            /** @example 2003 */
+            readonly year?: number;
+        };
+        readonly "dto.MovieRecommendationsResponse": {
+            /**
+             * @description Degraded carries "tmdb_movie" when the recs list read failed (empty items,
+             *     still 200). Empty slice on the happy path.
+             */
+            readonly degraded?: readonly string[];
+            readonly has_more?: boolean;
+            /** @description Items is the rank-ordered recs slice (empty when the movie has none). */
+            readonly items?: readonly components["schemas"]["dto.MovieRecommendation"][];
+            /** @example 20 */
+            readonly limit?: number;
+            /** @example 0 */
+            readonly offset?: number;
+            /**
+             * @description TMDBID is the base movie's TMDB id (from the URL).
+             * @example 603
+             */
+            readonly tmdb_id?: number;
+            /**
+             * @description TotalCount is the number of RENDERABLE recs (canon-resolvable + tmdb-linkable),
+             *     NOT the raw join-row count.
+             * @example 12
+             */
+            readonly total_count?: number;
         };
         /**
          * @description NextEpisodeToAir is the earliest future-dated episode (monitored

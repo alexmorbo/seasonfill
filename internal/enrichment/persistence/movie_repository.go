@@ -87,6 +87,38 @@ func (r *MovieRepository) ListByTMDBIDs(ctx context.Context, tmdbIDs []domain.TM
 	return out, nil
 }
 
+// ListByIDs returns canon rows for the given canonical movie ids in id-ascending
+// order. Missing ids are silently dropped; empty input → (nil, nil) — callers MUST
+// tolerate a nil slice (matches ListByTMDBIDs convention). Powers the Ф2.4 movie
+// recommendations batch hydration (one round-trip regardless of M ≤ 50); the
+// caller reorders by the recs rank sequence. Read shape is byte-equal to Get() via
+// the shared movieToCanon projector. Mirror of SeriesRepository.ListByIDs.
+func (r *MovieRepository) ListByIDs(ctx context.Context, ids []domain.MovieID) ([]movie.Canon, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	// Cast to int64 so GORM's IN-expander binds correctly on both Postgres and
+	// sqlite (older driver builds trip on the typed primitive) — same conversion
+	// as SeriesRepository.ListByIDs.
+	bound := make([]int64, len(ids))
+	for i, id := range ids {
+		bound[i] = int64(id)
+	}
+	var models []database.MovieModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("id IN ?", bound).
+		Order("id ASC").
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("list movies by ids: %w", err)
+	}
+	out := make([]movie.Canon, 0, len(models))
+	for _, m := range models {
+		out = append(out, movieToCanon(m))
+	}
+	return out, nil
+}
+
 // Upsert inserts or updates the canon row. id!=0 ⇒ conflict on PK; else
 // conflict on the partial-unique tmdb_id; else pure insert. Returns the id.
 func (r *MovieRepository) Upsert(ctx context.Context, c movie.Canon) (domain.MovieID, error) {

@@ -171,6 +171,9 @@ func NewServer(
 	// Ф2.3 — movie ratings sub-endpoint. nil-OK: the /movies/:tmdb_id/ratings
 	// route is omitted when the handler is absent (minimal/test wirings).
 	movieRatingsHandler *moviedetailrest.MovieRatingsHandler,
+	// Ф2.4 — movie recommendations sub-endpoint. nil-OK: the
+	// /movies/:tmdb_id/recommendations route is omitted when absent.
+	movieRecommendationsHandler *moviedetailrest.MovieRecommendationsHandler,
 	// Ф2.1 — per-section movie freshness reader for the movie ETag middleware.
 	// nil-OK: the middleware is a pass-through when nil.
 	movieEtagFreshness SectionSyncedAtReader,
@@ -625,6 +628,13 @@ func NewServer(
 		// /series/:id/ratings — this route carries NO ETag middleware.
 		if movieRatingsHandler != nil {
 			guarded.GET("/movies/:tmdb_id/ratings", movieRatingsHandler.Get)
+		}
+		// Ф2.4 — movie recommendations sub-endpoint. ETag-cached off the recs
+		// section stamp: edge.extractSection maps the /recommendations suffix to
+		// sectionRecs, and the movie adapter maps "recs" → enrichment_recs_synced_at.
+		if movieRecommendationsHandler != nil {
+			movieRecsEtagMW := ETagMiddleware("tmdb_id", movieEtagFreshness, logger)
+			guarded.GET("/movies/:tmdb_id/recommendations", movieRecsEtagMW, movieRecommendationsHandler.Get)
 		}
 		// Ф6-R-6a — TMDB franchise collections.
 		if movieCollectionsHandler != nil {

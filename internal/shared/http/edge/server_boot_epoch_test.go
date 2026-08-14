@@ -113,6 +113,7 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // movieCastHandler (Ф2.1)
 		nil,                            // movieOverviewHandler (Ф2.2)
 		nil,                            // movieRatingsHandler (Ф2.3)
+		nil,                            // movieRecommendationsHandler (Ф2.4)
 		nil,                            // movieEtagFreshness (Ф2.1)
 		logger,
 	)

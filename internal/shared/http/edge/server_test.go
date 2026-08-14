@@ -375,6 +375,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
 		nil, // movieOverviewHandler (Ф2.2) — nil-OK, /movies/:tmdb_id/overview route omitted
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
+		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		lg)
 }
@@ -468,6 +469,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
 		nil, // movieOverviewHandler (Ф2.2) — nil-OK, /movies/:tmdb_id/overview route omitted
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
+		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		lg)
 }
@@ -568,6 +570,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
 		nil, // movieOverviewHandler (Ф2.2) — nil-OK, /movies/:tmdb_id/overview route omitted
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
+		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		lg)
 }
@@ -815,6 +818,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
 		nil, // movieOverviewHandler (Ф2.2) — nil-OK, /movies/:tmdb_id/overview route omitted
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
+		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		lg)
 

@@ -2836,6 +2836,72 @@
                 },
                 "type": "object"
             },
+            "dto.MovieRecommendation": {
+                "properties": {
+                    "poster_asset": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "example": "The Matrix Reloaded",
+                        "type": "string"
+                    },
+                    "tmdb_id": {
+                        "example": 604,
+                        "type": "integer"
+                    },
+                    "tmdb_rating": {
+                        "example": 7.2,
+                        "type": "number"
+                    },
+                    "year": {
+                        "example": 2003,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.MovieRecommendationsResponse": {
+                "properties": {
+                    "degraded": {
+                        "description": "Degraded carries \"tmdb_movie\" when the recs list read failed (empty items,\nstill 200). Empty slice on the happy path.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "has_more": {
+                        "type": "boolean"
+                    },
+                    "items": {
+                        "description": "Items is the rank-ordered recs slice (empty when the movie has none).",
+                        "items": {
+                            "$ref": "#/components/schemas/dto.MovieRecommendation"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "limit": {
+                        "example": 20,
+                        "type": "integer"
+                    },
+                    "offset": {
+                        "example": 0,
+                        "type": "integer"
+                    },
+                    "tmdb_id": {
+                        "description": "TMDBID is the base movie's TMDB id (from the URL).",
+                        "example": 603,
+                        "type": "integer"
+                    },
+                    "total_count": {
+                        "description": "TotalCount is the number of RENDERABLE recs (canon-resolvable + tmdb-linkable),\nNOT the raw join-row count.",
+                        "example": 12,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "dto.NextEpisode": {
                 "description": "NextEpisodeToAir is the earliest future-dated episode (monitored\npreferred). Title is nil by design — titles live in the canon episode\nendpoints, not this Sonarr-state handle.",
                 "properties": {
@@ -10712,6 +10778,102 @@
                     }
                 ],
                 "summary": "Movie ratings (TMDB + OMDb/IMDb)",
+                "tags": [
+                    "movies"
+                ]
+            }
+        },
+        "/movies/{tmdb_id}/recommendations": {
+            "get": {
+                "description": "Rank-ordered recommended movies for a movie keyed by TMDB id. All\ndata is local (no live TMDB). Each item carries tmdb_id (FE link),\ntitle, year, poster and tmdb_rating. 404 when no canon row exists.",
+                "parameters": [
+                    {
+                        "description": "TMDB movie id",
+                        "in": "path",
+                        "name": "tmdb_id",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "page size (1..50, default 20)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "page offset (\u003e=0, default 0)",
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.MovieRecommendationsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Movie recommendations (\"you might also like\")",
                 "tags": [
                     "movies"
                 ]
