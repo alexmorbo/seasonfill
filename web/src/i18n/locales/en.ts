@@ -2962,6 +2962,10 @@ export const en = {
       hasFile: 'Downloaded',
       empty: 'Not in any library.',
     },
+    recommendations: {
+      label: 'You might also like',
+      loading: 'Loading recommendations…',
+    },
     cast: {
       label: 'Cast',
       viewAll: 'View all',

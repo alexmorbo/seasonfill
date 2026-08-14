@@ -2960,6 +2960,10 @@ export const ru: Translations = {
       hasFile: 'Загружено',
       empty: 'Нет ни в одной библиотеке.',
     },
+    recommendations: {
+      label: 'Вам может понравиться',
+      loading: 'Загружаем рекомендации…',
+    },
     cast: {
       label: 'В ролях',
       viewAll: 'Все',
