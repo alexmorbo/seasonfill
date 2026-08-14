@@ -23,6 +23,7 @@ type MovieDetailBundle struct {
 	CastHandler       *mdrest.MovieCastHandler         // Ф2.1
 	CastETagFreshness *mdapp.MovieETagFreshnessAdapter // Ф2.1 first live movie ETag wiring
 	OverviewHandler   *mdrest.MovieOverviewHandler     // Ф2.2 movie overview sub-endpoint
+	RatingsHandler    *mdrest.MovieRatingsHandler      // Ф2.3 movie ratings sub-endpoint
 }
 
 // BuildMovieDetail wires the read-only movie-detail aggregate + the movie
@@ -55,11 +56,16 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 	// text ladder (Get) and served_language (TitleLanguage); movieRepo = canon.
 	overviewUC := mdapp.NewOverviewUseCase(movieRepo, movieI18nRead, movieI18nRead)
 	overviewHandler := mdrest.NewMovieOverviewHandler(overviewUC, domainLog)
+	// Ф2.3 — movie ratings sub-endpoint. Read-only over the canon row (movieRepo);
+	// no localization, no ETag, no live refresh.
+	ratingsUC := mdapp.NewRatingsUseCase(movieRepo)
+	ratingsHandler := mdrest.NewMovieRatingsHandler(ratingsUC, domainLog)
 	return &MovieDetailBundle{
 		Handler:           mdrest.NewHandler(uc, resolver, domainLog),
 		LibraryHandler:    libraryHandler,
 		CastHandler:       castHandler,
 		CastETagFreshness: castETag,
 		OverviewHandler:   overviewHandler,
+		RatingsHandler:    ratingsHandler,
 	}
 }

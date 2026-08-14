@@ -2799,6 +2799,43 @@
                 },
                 "type": "object"
             },
+            "dto.MovieRatingsResponse": {
+                "properties": {
+                    "awards": {
+                        "type": "string"
+                    },
+                    "imdb_rating": {
+                        "type": "number"
+                    },
+                    "imdb_votes": {
+                        "type": "integer"
+                    },
+                    "rated": {
+                        "type": "string"
+                    },
+                    "sources": {
+                        "$ref": "#/components/schemas/dto.MovieRatingsSources"
+                    },
+                    "tmdb_rating": {
+                        "type": "number"
+                    },
+                    "tmdb_votes": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "dto.MovieRatingsSources": {
+                "properties": {
+                    "omdb": {
+                        "type": "string"
+                    },
+                    "tmdb": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "dto.NextEpisode": {
                 "description": "NextEpisodeToAir is the earliest future-dated episode (monitored\npreferred). Title is nil by design — titles live in the canon episode\nendpoints, not this Sonarr-state handle.",
                 "properties": {
@@ -10595,6 +10632,86 @@
                     }
                 ],
                 "summary": "Movie overview block (localized title/overview/tagline)",
+                "tags": [
+                    "movies"
+                ]
+            }
+        },
+        "/movies/{tmdb_id}/ratings": {
+            "get": {
+                "description": "Returns the ratings a movie carries on its canon row — TMDB ★ +\nvotes and OMDb/IMDb ★ + votes + content rating (rated) + awards.\nAll data is local (no live TMDB/OMDb). The movie vertical is\nread-only, so each source reports fresh (value present) or\nunavailable (absent); revalidating/pending never occur. There is\nno Rotten Tomatoes / Metacritic field. 404 when no canon row exists.",
+                "parameters": [
+                    {
+                        "description": "TMDB movie id",
+                        "in": "path",
+                        "name": "tmdb_id",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.MovieRatingsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Movie ratings (TMDB + OMDb/IMDb)",
                 "tags": [
                     "movies"
                 ]

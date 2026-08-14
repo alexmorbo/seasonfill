@@ -4398,6 +4398,89 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/movies/{tmdb_id}/ratings": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Movie ratings (TMDB + OMDb/IMDb)
+         * @description Returns the ratings a movie carries on its canon row — TMDB ★ +
+         *     votes and OMDb/IMDb ★ + votes + content rating (rated) + awards.
+         *     All data is local (no live TMDB/OMDb). The movie vertical is
+         *     read-only, so each source reports fresh (value present) or
+         *     unavailable (absent); revalidating/pending never occur. There is
+         *     no Rotten Tomatoes / Metacritic field. 404 when no canon row exists.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB movie id */
+                    readonly tmdb_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieRatingsResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/movies/calendar": {
         readonly parameters: {
             readonly query?: never;
@@ -8336,6 +8419,19 @@ export type components = {
              * @example 603
              */
             readonly tmdb_id?: number;
+        };
+        readonly "dto.MovieRatingsResponse": {
+            readonly awards?: string;
+            readonly imdb_rating?: number;
+            readonly imdb_votes?: number;
+            readonly rated?: string;
+            readonly sources?: components["schemas"]["dto.MovieRatingsSources"];
+            readonly tmdb_rating?: number;
+            readonly tmdb_votes?: number;
+        };
+        readonly "dto.MovieRatingsSources": {
+            readonly omdb?: string;
+            readonly tmdb?: string;
         };
         /**
          * @description NextEpisodeToAir is the earliest future-dated episode (monitored
