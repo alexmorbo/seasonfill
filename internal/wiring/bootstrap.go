@@ -1132,15 +1132,17 @@ func BuildHTTPServer(
 		seriesDetailBundle.ETagFreshness,
 		seriesTitleLocalizer,
 		seriesMediaLocalizer,
-		followBundle.Handler,               // ADR-0015 Ф3 C1
-		icsEpochRepo,                       // ADR-0015 Ф3 S3
-		notificationAgentsHandler,          // ADR-0016 Ф4 N1
-		scanBundle.RadarrSync.RadarrHolder, // Ф6-R-6b Gap 2a
-		movieDetailBundle.LibraryHandler,   // Ф6-R-6b movie library list
-		requestsBundle.Handler,             // Ф8-U-2 request-workflow
-		auth.UsersHandler,                  // Ф8-U-6b admin user-management
-		movieReenrichHandler,               // Ф1.4 movie re-enrich backfill
-		seriesDetailBundle.MediaResolver,   // Ф0.1 insights /calendar poster resolve
+		followBundle.Handler,                // ADR-0015 Ф3 C1
+		icsEpochRepo,                        // ADR-0015 Ф3 S3
+		notificationAgentsHandler,           // ADR-0016 Ф4 N1
+		scanBundle.RadarrSync.RadarrHolder,  // Ф6-R-6b Gap 2a
+		movieDetailBundle.LibraryHandler,    // Ф6-R-6b movie library list
+		requestsBundle.Handler,              // Ф8-U-2 request-workflow
+		auth.UsersHandler,                   // Ф8-U-6b admin user-management
+		movieReenrichHandler,                // Ф1.4 movie re-enrich backfill
+		seriesDetailBundle.MediaResolver,    // Ф0.1 insights /calendar poster resolve
+		movieDetailBundle.CastHandler,       // Ф2.1 movie cast sub-endpoint
+		movieDetailBundle.CastETagFreshness, // Ф2.1 movie ETag adapter
 		log,
 	)
 	return srv, instanceMetadataBundle

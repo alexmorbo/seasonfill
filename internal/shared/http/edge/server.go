@@ -162,6 +162,12 @@ func NewServer(
 	// Ф0.1 — shared media resolver for the insights /calendar poster paths
 	// (mirrors the movie calendar). nil-OK: raw TMDB paths flow through.
 	insightsCalendarResolver *media.Resolver,
+	// Ф2.1 — movie cast sub-endpoint. nil-OK: the /movies/:tmdb_id/cast route is
+	// omitted when the handler is absent (minimal/test wirings).
+	movieCastHandler *moviedetailrest.MovieCastHandler,
+	// Ф2.1 — per-section movie freshness reader for the movie ETag middleware.
+	// nil-OK: the middleware is a pass-through when nil.
+	movieEtagFreshness SectionSyncedAtReader,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -591,6 +597,15 @@ func NewServer(
 		// route is omitted for minimal/test wirings.
 		if movieDetailHandler != nil {
 			guarded.GET("/movies/:tmdb_id", movieDetailHandler.Get)
+		}
+		// Ф2.1 — movie cast sub-endpoint (decomposition 1/N). Deeper static
+		// segment under the :tmdb_id param — coexists with /movies/:tmdb_id in
+		// gin's radix tree exactly as /series/:id/cast does with /series/:id.
+		// First live wiring of the Ф2.0 movie ETag adapter (cast section →
+		// enrichment_cast_synced_at); movieEtagFreshness nil-OK → pass-through.
+		if movieCastHandler != nil {
+			movieEtagMW := ETagMiddleware("tmdb_id", movieEtagFreshness, logger)
+			guarded.GET("/movies/:tmdb_id/cast", movieEtagMW, movieCastHandler.Get)
 		}
 		// Ф6-R-6a — TMDB franchise collections.
 		if movieCollectionsHandler != nil {

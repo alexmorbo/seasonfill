@@ -105,6 +105,52 @@ func (r *MovieI18nReadRepository) Get(ctx context.Context, movieID domain.MovieI
 	return out, nil
 }
 
+// TitleLanguage resolves the BCP-47 language the localized TITLE resolves to via
+// the requested → en-US → any (language ASC) ladder, over rows carrying a
+// non-empty title. Returns "" (and nil error) when the movie has no titled
+// localized row. Feeds the Ф2.1 movie cast served_language / missing_lang signal
+// — the movie analog of the series cast hero-title language (W15-9).
+func (r *MovieI18nReadRepository) TitleLanguage(ctx context.Context, movieID domain.MovieID, lang string) (string, error) {
+	if lang == "" {
+		lang = fallbackLanguage
+	}
+	const q = "SELECT mi.language AS language, mi.title AS title " +
+		"FROM movie_i18n mi " +
+		"WHERE mi.movie_id = ? AND mi.title IS NOT NULL AND mi.title <> '' " +
+		"ORDER BY mi.language ASC"
+	var rows []struct {
+		Language string  `gorm:"column:language"`
+		Title    *string `gorm:"column:title"`
+	}
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Raw(q, int64(movieID)).Scan(&rows).Error; err != nil {
+		return "", fmt.Errorf("get movie_i18n title language: %w", err)
+	}
+	// requested(2) > en-US(1) > any(0); rows are language ASC so the first
+	// best-ranked row wins the tiebreak.
+	langRank := func(l string) int {
+		switch l {
+		case lang:
+			return 2
+		case fallbackLanguage:
+			return 1
+		default:
+			return 0
+		}
+	}
+	best, out := -1, ""
+	for _, row := range rows {
+		if row.Title == nil || *row.Title == "" {
+			continue
+		}
+		if rank := langRank(row.Language); rank > best {
+			best = rank
+			out = row.Language
+		}
+	}
+	return out, nil
+}
+
 // ListTitlesByTMDBIDsWithFallback maps tmdb_id → localized non-empty title via
 // the never-empty ladder, for the movie library list (which carries tmdb ids,
 // not canon PKs). JOINs movie_i18n → movies on movie_id. Ids with no localized

@@ -1900,6 +1900,68 @@ components:
         tmdb_id:
           type: integer
       type: object
+    dto.MovieCastMember:
+      properties:
+        character_name:
+          description: CharacterName is the role in this movie. nil when TMDB carried
+            none.
+          type: string
+        credit_order:
+          description: CreditOrder is the TMDB billing order. nil sorts NULLS LAST.
+          type: integer
+        name:
+          description: Name is the resolved display name (localized via people_texts
+            fallback).
+          example: Keanu Reeves
+          type: string
+        person_id:
+          description: PersonID is the canon people.id (person-page link target).
+          type: integer
+        profile_asset:
+          description: |-
+            ProfileAsset is the media_assets hash for the profile photo. nil when
+            the person has no profile_path (frontend renders a monogram).
+          type: string
+        tmdb_id:
+          description: TMDBID is the TMDB person id. nil for non-TMDB-sourced people
+            (rare).
+          type: integer
+      type: object
+    dto.MovieCastResponse:
+      properties:
+        cast:
+          description: |-
+            Cast is the cast list. Default order is credit_order ASC NULLS LAST
+            (?sort=name switches to localized display-name collation). Empty slice
+            when the movie has no person_credits kind='cast' rows.
+          items:
+            $ref: '#/components/schemas/dto.MovieCastMember'
+          type: array
+          uniqueItems: false
+        degraded:
+          description: |-
+            Degraded carries "missing_lang" when a real fallback-language title was
+            served. Empty slice on the happy path.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        lang:
+          description: Lang is the BCP-47 language requested.
+          example: en-US
+          type: string
+        served_language:
+          description: |-
+            ServedLanguage is the BCP-47 language the localized title (the movie's
+            principal localized text) was served in. Empty when no localized title
+            row exists. When it differs from Lang, Degraded includes "missing_lang".
+          example: ru-RU
+          type: string
+        tmdb_id:
+          description: TMDBID is the TMDB movie id from the URL.
+          example: 603
+          type: integer
+      type: object
     dto.MovieCollectionAddAllRequest:
       properties:
         instance_name:
@@ -7226,6 +7288,66 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Movie detail aggregate
+      tags:
+      - movies
+  /movies/{tmdb_id}/cast:
+    get:
+      description: |-
+        Full cast for a movie keyed by TMDB id. All data is local (no
+        live TMDB). Default sort is credit_order ASC (?sort=name switches
+        to localized name collation). 404 when no canon row exists.
+      parameters:
+      - description: TMDB movie id
+        in: path
+        name: tmdb_id
+        required: true
+        schema:
+          type: integer
+      - description: BCP-47 language tag
+        in: query
+        name: lang
+        schema:
+          type: string
+      - description: credit (default) | name
+        in: query
+        name: sort
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MovieCastResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Movie cast list
       tags:
       - movies
   /movies/calendar:

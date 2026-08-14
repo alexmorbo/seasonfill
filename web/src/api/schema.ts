@@ -4228,6 +4228,91 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/movies/{tmdb_id}/cast": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Movie cast list
+         * @description Full cast for a movie keyed by TMDB id. All data is local (no
+         *     live TMDB). Default sort is credit_order ASC (?sort=name switches
+         *     to localized name collation). 404 when no canon row exists.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description BCP-47 language tag */
+                    readonly lang?: string;
+                    /** @description credit (default) | name */
+                    readonly sort?: string;
+                };
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB movie id */
+                    readonly tmdb_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieCastResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/movies/calendar": {
         readonly parameters: {
             readonly query?: never;
@@ -7968,6 +8053,56 @@ export type components = {
             readonly movie_id?: number;
             readonly poster?: string;
             readonly title?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "dto.MovieCastMember": {
+            /** @description CharacterName is the role in this movie. nil when TMDB carried none. */
+            readonly character_name?: string;
+            /** @description CreditOrder is the TMDB billing order. nil sorts NULLS LAST. */
+            readonly credit_order?: number;
+            /**
+             * @description Name is the resolved display name (localized via people_texts fallback).
+             * @example Keanu Reeves
+             */
+            readonly name?: string;
+            /** @description PersonID is the canon people.id (person-page link target). */
+            readonly person_id?: number;
+            /**
+             * @description ProfileAsset is the media_assets hash for the profile photo. nil when
+             *     the person has no profile_path (frontend renders a monogram).
+             */
+            readonly profile_asset?: string;
+            /** @description TMDBID is the TMDB person id. nil for non-TMDB-sourced people (rare). */
+            readonly tmdb_id?: number;
+        };
+        readonly "dto.MovieCastResponse": {
+            /**
+             * @description Cast is the cast list. Default order is credit_order ASC NULLS LAST
+             *     (?sort=name switches to localized display-name collation). Empty slice
+             *     when the movie has no person_credits kind='cast' rows.
+             */
+            readonly cast?: readonly components["schemas"]["dto.MovieCastMember"][];
+            /**
+             * @description Degraded carries "missing_lang" when a real fallback-language title was
+             *     served. Empty slice on the happy path.
+             */
+            readonly degraded?: readonly string[];
+            /**
+             * @description Lang is the BCP-47 language requested.
+             * @example en-US
+             */
+            readonly lang?: string;
+            /**
+             * @description ServedLanguage is the BCP-47 language the localized title (the movie's
+             *     principal localized text) was served in. Empty when no localized title
+             *     row exists. When it differs from Lang, Degraded includes "missing_lang".
+             * @example ru-RU
+             */
+            readonly served_language?: string;
+            /**
+             * @description TMDBID is the TMDB movie id from the URL.
+             * @example 603
+             */
             readonly tmdb_id?: number;
         };
         readonly "dto.MovieCollectionAddAllRequest": {

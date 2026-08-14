@@ -16,10 +16,12 @@ import (
 )
 
 // MovieDetailBundle groups the movie read handlers (Ф6-R-6a detail +
-// Ф6-R-6b library list).
+// Ф6-R-6b library list + Ф2.1 cast sub-endpoint).
 type MovieDetailBundle struct {
-	Handler        *mdrest.Handler
-	LibraryHandler *catalogrest.MovieLibraryHandler
+	Handler           *mdrest.Handler
+	LibraryHandler    *catalogrest.MovieLibraryHandler
+	CastHandler       *mdrest.MovieCastHandler         // Ф2.1
+	CastETagFreshness *mdapp.MovieETagFreshnessAdapter // Ф2.1 first live movie ETag wiring
 }
 
 // BuildMovieDetail wires the read-only movie-detail aggregate + the movie
@@ -38,8 +40,20 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 	libraryHandler := catalogrest.NewMovieLibraryHandler(
 		catalogpersistence.NewMovieLibraryRepository(db), resolver, domainLog).
 		WithLocalizer(movieI18nRead)
+	// Ф2.1 — movie cast sub-endpoint. Reuses the person_credits reverse reader +
+	// people name reader; movieI18nRead drives served_language via TitleLanguage.
+	castUC := mdapp.NewCastUseCase(
+		movieRepo,
+		enrichpersistence.NewPersonCreditsRepository(db),
+		enrichpersistence.NewPeopleRepository(db),
+		movieI18nRead,
+	)
+	castHandler := mdrest.NewMovieCastHandler(castUC, resolver, domainLog)
+	castETag := mdapp.NewMovieETagFreshnessAdapter(movieRepo)
 	return &MovieDetailBundle{
-		Handler:        mdrest.NewHandler(uc, resolver, domainLog),
-		LibraryHandler: libraryHandler,
+		Handler:           mdrest.NewHandler(uc, resolver, domainLog),
+		LibraryHandler:    libraryHandler,
+		CastHandler:       castHandler,
+		CastETagFreshness: castETag,
 	}
 }

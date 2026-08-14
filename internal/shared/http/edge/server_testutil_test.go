@@ -65,5 +65,7 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // usersHandler (Ф8-U-6b) — nil-OK, /admin/users routes omitted
 		nil, // movieReenrichHandler (Ф1.4) — nil-OK, /admin/movies/reenrich route omitted
 		nil, // insightsCalendarResolver (Ф0.1) — nil-OK, raw poster paths flow through
+		nil, // movieCastHandler (Ф2.1) — nil-OK, /movies/:tmdb_id/cast route omitted
+		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		logger)
 }
