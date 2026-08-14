@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	mdapp "github.com/alexmorbo/seasonfill/internal/moviedetail/app"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -85,20 +86,21 @@ func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto
 		}
 	}
 	out := dto.MovieDetailResponse{
-		Title:      d.Title,
-		Overview:   d.Overview,
-		Tagline:    d.Tagline,
-		Year:       d.Canon.Year,
-		Status:     d.Canon.Status,
-		Runtime:    d.Canon.RuntimeMinutes,
-		Poster:     poster,
-		Backdrop:   backdrop,
-		Released:   d.Canon.ReleaseDate,
-		Digital:    d.Canon.DigitalReleaseDate,
-		Physical:   d.Canon.PhysicalReleaseDate,
-		TMDBRating: d.Canon.TMDBRating,
-		IMDBRating: d.Canon.IMDBRating,
-		Degraded:   d.Degraded,
+		Title:            d.Title,
+		Overview:         d.Overview,
+		Tagline:          d.Tagline,
+		Year:             d.Canon.Year,
+		Status:           d.Canon.Status,
+		Runtime:          d.Canon.RuntimeMinutes,
+		Poster:           poster,
+		Backdrop:         backdrop,
+		Released:         d.Canon.ReleaseDate,
+		Digital:          d.Canon.DigitalReleaseDate,
+		Physical:         d.Canon.PhysicalReleaseDate,
+		TMDBRating:       d.Canon.TMDBRating,
+		IMDBRating:       d.Canon.IMDBRating,
+		OriginalLanguage: d.Canon.OriginalLanguage,
+		Degraded:         d.Degraded,
 	}
 	if d.Canon.TMDBID != nil {
 		out.TMDBID = int(*d.Canon.TMDBID)
@@ -137,5 +139,45 @@ func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto
 	for _, k := range d.Keywords {
 		out.Keywords = append(out.Keywords, dto.TaxonomyChip{ID: k.ID, Name: k.Name, Language: k.Language})
 	}
+	if len(d.Canon.OriginCountries) > 0 {
+		out.Countries = append(out.Countries, d.Canon.OriginCountries...)
+		c0 := d.Canon.OriginCountries[0]
+		out.Country = &c0
+	}
+	if len(d.Companies) > 0 {
+		studio := d.Companies[0].Name
+		out.Studio = &studio
+		for _, co := range d.Companies {
+			logo := co.LogoAsset
+			if h.resolver != nil {
+				if hash := h.resolver.Resolve(ctx, co.LogoAsset, "w185", "company_logo_w185"); hash != nil {
+					logo = hash
+				}
+			}
+			row := dto.MovieDetailCompany{Name: co.Name, LogoAsset: logo, OriginCountry: co.OriginCountry}
+			if co.TMDBID != nil {
+				id := int(*co.TMDBID)
+				row.TMDBID = &id
+			}
+			out.Companies = append(out.Companies, row)
+		}
+	}
+	if t := toMovieTrailer(d.Trailer); t != nil {
+		out.Trailer = t
+	}
 	return out
+}
+
+// toMovieTrailer projects the stored best-trailer row to the wire dto.Trailer.
+// Returns nil when there is no trailer or no playable key (site/key nil) so the
+// field stays omitempty — the FE hides a trailer with no key by design.
+func toMovieTrailer(v *enrichpersistence.MovieVideo) *dto.Trailer {
+	if v == nil || v.Key == nil || *v.Key == "" {
+		return nil
+	}
+	site := ""
+	if v.Site != nil {
+		site = *v.Site
+	}
+	return &dto.Trailer{Site: site, Key: *v.Key, Name: v.Name, PublishedAt: v.PublishedAt}
 }

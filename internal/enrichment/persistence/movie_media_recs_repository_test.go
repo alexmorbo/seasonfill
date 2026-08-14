@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
@@ -152,6 +153,42 @@ func TestMovieRecommendations_ColdRecs_NoFKViolation(t *testing.T) {
 			stored, err := recs.ListByMovie(ctx, parent)
 			require.NoError(t, err)
 			assert.Equal(t, recIDs, stored)
+		})
+	}
+}
+
+func TestMovieVideosRepository_GetBestTrailer(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			movies := NewMovieRepository(db)
+			videos := NewMovieVideosRepository(db)
+
+			movieID := mkMovie(t, movies, 603, "The Matrix")
+
+			// No trailer yet → ErrNotFound.
+			_, err := videos.GetBestTrailer(ctx, movieID)
+			require.ErrorIs(t, err, ports.ErrNotFound)
+
+			require.NoError(t, videos.ReplaceBestTrailer(ctx, movieID, &movie.Video{
+				TMDBVideoID: new("vid1"), Name: "Official Trailer",
+				Site: new("YouTube"), Key: new("abc"), Type: new("Trailer"), Official: true,
+			}))
+
+			got, err := videos.GetBestTrailer(ctx, movieID)
+			require.NoError(t, err)
+			assert.Equal(t, "Official Trailer", got.Name)
+			require.NotNil(t, got.Key)
+			assert.Equal(t, "abc", *got.Key)
+			assert.True(t, got.Official)
+
+			// nil clears → ErrNotFound again.
+			require.NoError(t, videos.ReplaceBestTrailer(ctx, movieID, nil))
+			_, err = videos.GetBestTrailer(ctx, movieID)
+			require.ErrorIs(t, err, ports.ErrNotFound)
 		})
 	}
 }

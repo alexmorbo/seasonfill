@@ -8406,6 +8406,14 @@ export type components = {
             readonly radarr_monitored?: boolean;
             readonly tmdb_collection_id?: number;
         };
+        readonly "dto.MovieDetailCompany": {
+            readonly logo_asset?: string;
+            /** @example Legendary Pictures */
+            readonly name?: string;
+            /** @example US */
+            readonly origin_country?: string;
+            readonly tmdb_id?: number;
+        };
         readonly "dto.MovieDetailLibrary": {
             readonly availability?: string;
             readonly has_file?: boolean;
@@ -8417,6 +8425,26 @@ export type components = {
         readonly "dto.MovieDetailResponse": {
             readonly backdrop?: string;
             readonly collection?: components["schemas"]["dto.MovieDetailCollection"];
+            /**
+             * @description Companies is the full production-company list in join order (position ASC).
+             *     Omitted when none attached.
+             */
+            readonly companies?: readonly components["schemas"]["dto.MovieDetailCompany"][];
+            /**
+             * @description Countries is the full origin-country list (ISO 3166-1 alpha-2 each), sourced
+             *     from canon.origin_countries. Omitted/empty → FE hides the row.
+             * @example [
+             *       "US",
+             *       "CA"
+             *     ]
+             */
+            readonly countries?: readonly string[];
+            /**
+             * @description Country is the first ISO 3166-1 alpha-2 origin country (Countries[0]).
+             *     DEPRECATED for new consumers — use Countries. Omitted when canon has none.
+             * @example US
+             */
+            readonly country?: string;
             readonly degraded?: readonly string[];
             readonly digital_release_date?: string;
             /**
@@ -8433,16 +8461,30 @@ export type components = {
              */
             readonly keywords?: readonly components["schemas"]["dto.TaxonomyChip"][];
             readonly library?: readonly components["schemas"]["dto.MovieDetailLibrary"][];
+            /**
+             * @description OriginalLanguage is the ISO 639-1 code (e.g. "en", "ru") from canon. FE renders
+             *     the localized display name via Intl.DisplayNames. Omitted when canon has none.
+             * @example en
+             */
+            readonly original_language?: string;
             readonly overview?: string;
             readonly physical_release_date?: string;
             readonly poster?: string;
             readonly release_date?: string;
             readonly runtime_minutes?: number;
             readonly status?: string;
+            /**
+             * @description Studio is the headline production company name (first movie_companies row by
+             *     position). Omitted when the movie has no companies attached (cold/never-enriched).
+             *     Mirror of the series hero Studio (Ф2.5b).
+             * @example Legendary Pictures
+             */
+            readonly studio?: string;
             readonly tagline?: string;
             readonly title?: string;
             readonly tmdb_id?: number;
             readonly tmdb_rating?: number;
+            readonly trailer?: components["schemas"]["dto.Trailer"];
             readonly year?: number;
         };
         readonly "dto.MovieLibraryItem": {
@@ -9652,6 +9694,18 @@ export type components = {
             readonly up_speed_bps?: number;
             /** @example 8589934592 */
             readonly uploaded_bytes?: number;
+        };
+        /**
+         * @description Trailer is the single best official trailer. Omitted when the movie has no
+         *     trailer row (movie_videos empty). Reuses the shared dto.Trailer shape.
+         */
+        readonly "dto.Trailer": {
+            /** @example X9F1jh5jc-Y */
+            readonly key?: string;
+            readonly name?: string;
+            readonly published_at?: string;
+            /** @example YouTube */
+            readonly site?: string;
         };
         readonly "dto.WatchdogBlacklistItem": {
             /** @example 3 */

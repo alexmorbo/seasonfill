@@ -201,6 +201,25 @@ func (r *CompaniesRepository) ListBySeries(ctx context.Context, seriesID domain.
 	return out, nil
 }
 
+// ListByMovie returns the company ids attached to movieID in join order
+// (position ASC, company_id ASC) — mirror of ListBySeries over the movie_companies
+// join (Ф2.5b, audit F-Ф2-02). Dict rows resolve via ListByIDs.
+func (r *CompaniesRepository) ListByMovie(ctx context.Context, movieID domain.MovieID) ([]int64, error) {
+	var rows []database.MovieCompanyModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("movie_id = ?", movieID).
+		Order("position ASC, company_id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("list movie_companies: %w", err)
+	}
+	out := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.CompanyID)
+	}
+	return out, nil
+}
+
 func toCompany(m database.ProductionCompanyModel) taxonomy.ProductionCompany {
 	return taxonomy.ProductionCompany{
 		ID:            m.ID,

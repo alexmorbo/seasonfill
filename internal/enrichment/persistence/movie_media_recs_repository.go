@@ -2,12 +2,14 @@ package persistence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -66,6 +68,31 @@ func (r *MovieVideosRepository) ReplaceBestTrailer(ctx context.Context, movieID 
 		}
 		return nil
 	})
+}
+
+// MovieVideo is the read-shape returned by MovieVideosRepository — the model row
+// 1:1 (mirror of the series VideosRepository.Video alias). The movie card shows a
+// single hero trailer, so reads return at most one row.
+type MovieVideo = database.MovieVideoModel
+
+// GetBestTrailer returns the movie's single stored best trailer (Ф2.5b, audit
+// F-Ф2-02). ReplaceBestTrailer persists at most one row per movie, so First is
+// authoritative; the ORDER BY is defensive against a hypothetical multi-row state
+// (official first, then most recent). Returns ports.ErrNotFound when the movie has
+// no trailer row (the caller omits the field — fail-open, never a 500).
+func (r *MovieVideosRepository) GetBestTrailer(ctx context.Context, movieID domain.MovieID) (MovieVideo, error) {
+	var m database.MovieVideoModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Where("movie_id = ?", movieID).
+		Order("official DESC, published_at DESC, id ASC").
+		First(&m).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return MovieVideo{}, ports.ErrNotFound
+		}
+		return MovieVideo{}, fmt.Errorf("get movie best trailer: %w", err)
+	}
+	return m, nil
 }
 
 // MovieRecommendationsRepository persists the `movie_recommendations` table (Ф1.1c). Composite

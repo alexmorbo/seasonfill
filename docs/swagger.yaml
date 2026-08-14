@@ -2057,6 +2057,19 @@ components:
         tmdb_collection_id:
           type: integer
       type: object
+    dto.MovieDetailCompany:
+      properties:
+        logo_asset:
+          type: string
+        name:
+          example: Legendary Pictures
+          type: string
+        origin_country:
+          example: US
+          type: string
+        tmdb_id:
+          type: integer
+      type: object
     dto.MovieDetailLibrary:
       properties:
         availability:
@@ -2078,6 +2091,31 @@ components:
           type: string
         collection:
           $ref: '#/components/schemas/dto.MovieDetailCollection'
+        companies:
+          description: |-
+            Companies is the full production-company list in join order (position ASC).
+            Omitted when none attached.
+          items:
+            $ref: '#/components/schemas/dto.MovieDetailCompany'
+          type: array
+          uniqueItems: false
+        countries:
+          description: |-
+            Countries is the full origin-country list (ISO 3166-1 alpha-2 each), sourced
+            from canon.origin_countries. Omitted/empty → FE hides the row.
+          example:
+          - US
+          - CA
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        country:
+          description: |-
+            Country is the first ISO 3166-1 alpha-2 origin country (Countries[0]).
+            DEPRECATED for new consumers — use Countries. Omitted when canon has none.
+          example: US
+          type: string
         degraded:
           items:
             type: string
@@ -2111,6 +2149,12 @@ components:
             $ref: '#/components/schemas/dto.MovieDetailLibrary'
           type: array
           uniqueItems: false
+        original_language:
+          description: |-
+            OriginalLanguage is the ISO 639-1 code (e.g. "en", "ru") from canon. FE renders
+            the localized display name via Intl.DisplayNames. Omitted when canon has none.
+          example: en
+          type: string
         overview:
           type: string
         physical_release_date:
@@ -2123,6 +2167,13 @@ components:
           type: integer
         status:
           type: string
+        studio:
+          description: |-
+            Studio is the headline production company name (first movie_companies row by
+            position). Omitted when the movie has no companies attached (cold/never-enriched).
+            Mirror of the series hero Studio (Ф2.5b).
+          example: Legendary Pictures
+          type: string
         tagline:
           type: string
         title:
@@ -2131,6 +2182,8 @@ components:
           type: integer
         tmdb_rating:
           type: number
+        trailer:
+          $ref: '#/components/schemas/dto.Trailer'
         year:
           type: integer
       type: object
@@ -3892,6 +3945,22 @@ components:
         uploaded_bytes:
           example: 8589934592
           type: integer
+      type: object
+    dto.Trailer:
+      description: |-
+        Trailer is the single best official trailer. Omitted when the movie has no
+        trailer row (movie_videos empty). Reuses the shared dto.Trailer shape.
+      properties:
+        key:
+          example: X9F1jh5jc-Y
+          type: string
+        name:
+          type: string
+        published_at:
+          type: string
+        site:
+          example: YouTube
+          type: string
       type: object
     dto.WatchdogBlacklistItem:
       properties:

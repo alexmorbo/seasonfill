@@ -29,7 +29,35 @@ type MovieDetailResponse struct {
 	// Keywords are localized taxonomy chips (Ф2.5a). v1 keywords are en-only, so
 	// Language is en-US for any requested lang. Omitted when none attached.
 	Keywords []TaxonomyChip `json:"keywords,omitempty"`
-	Degraded []string       `json:"degraded"`
+	// Studio is the headline production company name (first movie_companies row by
+	// position). Omitted when the movie has no companies attached (cold/never-enriched).
+	// Mirror of the series hero Studio (Ф2.5b).
+	Studio *string `json:"studio,omitempty" example:"Legendary Pictures"`
+	// Companies is the full production-company list in join order (position ASC).
+	// Omitted when none attached.
+	Companies []MovieDetailCompany `json:"companies,omitempty"`
+	// Country is the first ISO 3166-1 alpha-2 origin country (Countries[0]).
+	// DEPRECATED for new consumers — use Countries. Omitted when canon has none.
+	Country *string `json:"country,omitempty" example:"US"`
+	// Countries is the full origin-country list (ISO 3166-1 alpha-2 each), sourced
+	// from canon.origin_countries. Omitted/empty → FE hides the row.
+	Countries []string `json:"countries,omitempty" example:"US,CA"`
+	// OriginalLanguage is the ISO 639-1 code (e.g. "en", "ru") from canon. FE renders
+	// the localized display name via Intl.DisplayNames. Omitted when canon has none.
+	OriginalLanguage *string `json:"original_language,omitempty" example:"en"`
+	// Trailer is the single best official trailer. Omitted when the movie has no
+	// trailer row (movie_videos empty). Reuses the shared dto.Trailer shape.
+	Trailer  *Trailer `json:"trailer,omitempty"`
+	Degraded []string `json:"degraded"`
+}
+
+// MovieDetailCompany is one production-company sidebar row (Ф2.5b). name / logo_asset /
+// origin_country live on the production_companies dict row (no i18n side-table).
+type MovieDetailCompany struct {
+	TMDBID        *int    `json:"tmdb_id,omitempty"`
+	Name          string  `json:"name" example:"Legendary Pictures"`
+	LogoAsset     *string `json:"logo_asset,omitempty"`
+	OriginCountry *string `json:"origin_country,omitempty" example:"US"`
 }
 
 // MovieDetailCollection is the franchise-collection header on a movie detail.

@@ -56,6 +56,19 @@ type KeywordsReader interface {
 	ListByIDsWithFallback(ctx context.Context, ids []int64, language string) ([]taxonomy.Keyword, error)
 }
 
+// CompaniesReader lists a movie's production-company ids (join order) and resolves
+// the dict rows (Ф2.5b). Impl: *enrichpersistence.CompaniesRepository.
+type CompaniesReader interface {
+	ListByMovie(ctx context.Context, movieID domain.MovieID) ([]int64, error)
+	ListByIDs(ctx context.Context, ids []int64) ([]taxonomy.ProductionCompany, error)
+}
+
+// MovieTrailerReader resolves the movie's single best trailer (Ф2.5b). ports.ErrNotFound
+// means the movie has no trailer. Impl: *enrichpersistence.MovieVideosRepository.
+type MovieTrailerReader interface {
+	GetBestTrailer(ctx context.Context, movieID domain.MovieID) (enrichpersistence.MovieVideo, error)
+}
+
 // Detail is the assembled aggregate. Localized fields fall back to canon.
 type Detail struct {
 	Canon      movie.Canon
@@ -66,9 +79,11 @@ type Detail struct {
 	Backdrop   *string
 	Collection *movie.CollectionCanon // nil when the movie has no collection_id
 	Library    []LibraryMembership
-	Genres     []taxonomy.Genre   // Ф2.5a localized genre chips (join order)
-	Keywords   []taxonomy.Keyword // Ф2.5a localized keyword chips (keyword_id order)
-	Degraded   []string           // "movie_i18n" when no localized row for lang
+	Genres     []taxonomy.Genre              // Ф2.5a localized genre chips (join order)
+	Keywords   []taxonomy.Keyword            // Ф2.5a localized keyword chips (keyword_id order)
+	Companies  []taxonomy.ProductionCompany  // Ф2.5b production-company sidebar (join order)
+	Trailer    *enrichpersistence.MovieVideo // Ф2.5b best trailer; nil when none
+	Degraded   []string                      // "movie_i18n" when no localized row for lang
 }
 
 // LibraryMembership is one active per-instance Radarr membership row.
@@ -99,6 +114,9 @@ type UseCase struct {
 	genres   GenresReader   // nil-OK: Genres stays empty when unwired
 	keywords KeywordsReader // nil-OK: Keywords stays empty when unwired
 
+	companies CompaniesReader    // nil-OK: Companies stays empty when unwired
+	trailer   MovieTrailerReader // nil-OK: Trailer stays nil when unwired
+
 	stale StaleMarker
 	now   func() time.Time
 	log   *slog.Logger
@@ -117,6 +135,15 @@ func New(canon CanonReader, i18n I18nReader, collection CollectionReader, member
 func (uc *UseCase) WithTaxonomy(genres GenresReader, keywords KeywordsReader) *UseCase {
 	uc.genres = genres
 	uc.keywords = keywords
+	return uc
+}
+
+// WithSidebar enables the Ф2.5b companies + best-trailer enrichment. Both readers are
+// nil-OK independently (an unwired reader leaves its slice/pointer empty). Returns the
+// receiver for chaining in the wiring.
+func (uc *UseCase) WithSidebar(companies CompaniesReader, trailer MovieTrailerReader) *UseCase {
+	uc.companies = companies
+	uc.trailer = trailer
 	return uc
 }
 
@@ -197,6 +224,7 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string) (
 	}
 
 	uc.loadTaxonomy(ctx, &d, canon.ID, lang)
+	uc.loadSidebar(ctx, &d, canon.ID)
 	uc.maybeTriggerHydration(ctx, canon)
 	return d, nil
 }
@@ -247,6 +275,48 @@ func (uc *UseCase) loadTaxonomy(ctx context.Context, d *Detail, movieID domain.M
 					}
 				}
 			}
+		}
+	}
+}
+
+// loadSidebar fills d.Companies (join order) and d.Trailer from the movie sidebar
+// tables (Ф2.5b). Companies: two reads (join ids position-ASC, then batch dict resolve
+// re-projected into join order via a map — the dict reader orders by id-ASC). Trailer:
+// one read; ports.ErrNotFound → no trailer (leave nil). Fail-open: every read error is
+// logged at Warn and leaves the field empty — the sidebar NEVER 500s the detail. No-op
+// when the readers are unwired (companies/trailer nil).
+func (uc *UseCase) loadSidebar(ctx context.Context, d *Detail, movieID domain.MovieID) {
+	if uc.companies != nil {
+		if ids, err := uc.companies.ListByMovie(ctx, movieID); err != nil {
+			uc.logTaxonomyWarn(ctx, "movie_companies", movieID, err)
+		} else if len(ids) > 0 {
+			rows, rerr := uc.companies.ListByIDs(ctx, ids)
+			if rerr != nil {
+				uc.logTaxonomyWarn(ctx, "movie_companies_dict", movieID, rerr)
+			} else {
+				byID := make(map[int64]taxonomy.ProductionCompany, len(rows))
+				for _, c := range rows {
+					byID[c.ID] = c
+				}
+				for _, id := range ids {
+					if c, ok := byID[id]; ok {
+						d.Companies = append(d.Companies, c)
+					}
+				}
+			}
+		}
+	}
+
+	if uc.trailer != nil {
+		v, err := uc.trailer.GetBestTrailer(ctx, movieID)
+		switch {
+		case err == nil:
+			vv := v
+			d.Trailer = &vv
+		case errors.Is(err, ports.ErrNotFound):
+			// movie has no trailer — omit (not an error).
+		default:
+			uc.logTaxonomyWarn(ctx, "movie_videos", movieID, err)
 		}
 	}
 }

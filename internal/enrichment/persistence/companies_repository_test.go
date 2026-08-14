@@ -164,3 +164,35 @@ func TestCompaniesRepository_Set_DedupesDuplicateIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestCompaniesRepository_ListByMovie(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			movies := NewMovieRepository(db)
+			repo := NewCompaniesRepository(db)
+
+			movieID := mkMovie(t, movies, 693134, "Dune: Part Two")
+			c1, err := repo.Upsert(ctx, sampleCompany("Warner Bros.", 174))
+			require.NoError(t, err)
+			c2, err := repo.Upsert(ctx, sampleCompany("Legendary Pictures", 923))
+			require.NoError(t, err)
+
+			// SetMovie stores position = input order (c2 first).
+			require.NoError(t, repo.SetMovie(ctx, movieID, []int64{c2, c1}))
+
+			ids, err := repo.ListByMovie(ctx, movieID)
+			require.NoError(t, err)
+			require.Equal(t, []int64{c2, c1}, ids, "join order preserved (position ASC)")
+
+			// Empty movie → empty (not error).
+			otherID := mkMovie(t, movies, 700, "Solo")
+			empty, err := repo.ListByMovie(ctx, otherID)
+			require.NoError(t, err)
+			assert.Empty(t, empty)
+		})
+	}
+}
