@@ -44,6 +44,32 @@ func seedMovie(t *testing.T, db *gorm.DB, tmdbID int, syncedAt, changedAt *time.
 	return id
 }
 
+// markMovieSections stamps the four per-section enrichment clocks
+// (enrichment_{cast,keywords,recs,media}_synced_at) on an existing movie. A nil
+// pointer leaves that column NULL. Lets a test place a movie in the "fully
+// processed" state (all 4 non-NULL) or reproduce the pre-Ф1 hole (fresh tmdb
+// clock, one-or-more section clock NULL).
+func markMovieSections(t *testing.T, db *gorm.DB, id domain.MovieID, cast, keywords, recs, media *time.Time) {
+	t.Helper()
+	updates := map[string]any{}
+	if cast != nil {
+		updates["enrichment_cast_synced_at"] = cast.UTC()
+	}
+	if keywords != nil {
+		updates["enrichment_keywords_synced_at"] = keywords.UTC()
+	}
+	if recs != nil {
+		updates["enrichment_recs_synced_at"] = recs.UTC()
+	}
+	if media != nil {
+		updates["enrichment_media_synced_at"] = media.UTC()
+	}
+	if len(updates) == 0 {
+		return
+	}
+	require.NoError(t, db.Model(&database.MovieModel{}).Where("id = ?", id).UpdateColumns(updates).Error)
+}
+
 // TestMovieRepository_PickMovieRefreshCandidates covers the 2-tier picker:
 // CHANGED before NORMAL, NULL-sync first within a tier, the 15m race guard
 // excluding a just-stamped changed movie, anti-double-pick (a changed+stale
@@ -67,11 +93,16 @@ func TestMovieRepository_PickMovieRefreshCandidates(t *testing.T) {
 			// changedNeverSynced: tmdb_changed_at set, sync NULL → CHANGED, sorts first.
 			changedNeverSynced := seedMovie(t, db, 101, nil, new(now.Add(-1*time.Hour)))
 			// changedButRaceGuarded: changed, but synced 2m ago → EXCLUDED (mid-Handle).
-			_ = seedMovie(t, db, 102, new(recent), new(now.Add(-1*time.Hour)))
+			rg := seedMovie(t, db, 102, new(recent), new(now.Add(-1*time.Hour)))
 			// normalStale: no change flag, sync old → NORMAL tier.
 			normalStale := seedMovie(t, db, 200, new(old), nil)
 			// normalFresh: no change flag, synced just now → EXCLUDED (within TTL).
-			_ = seedMovie(t, db, 201, new(now), nil)
+			nf := seedMovie(t, db, 201, new(now), nil)
+			// Ф1.4: both are fully-processed (all 4 section stamps non-NULL) so the new
+			// NULL-section OR does NOT pull them into NORMAL — they must stay excluded on
+			// their tmdb-path grounds (race guard / TTL) exactly as before.
+			markMovieSections(t, db, rg, new(recent), new(recent), new(recent), new(recent))
+			markMovieSections(t, db, nf, new(now), new(now), new(now), new(now))
 
 			// tmdbless: a Radarr orphan (tmdb_id NULL) → NEVER picked.
 			_, err := repo.Upsert(ctx, movie.Canon{Title: "orphan", Hydration: movie.HydrationStub})
@@ -102,6 +133,67 @@ func TestMovieRepository_PickMovieRefreshCandidates(t *testing.T) {
 			require.Len(t, lim, 2)
 			assert.Equal(t, changedNeverSynced, lim[0].MovieID)
 			assert.Equal(t, changedStale, lim[1].MovieID)
+		})
+	}
+}
+
+// TestMovieRepository_PickMovieRefreshCandidates_NullSectionBackfill covers Ф1.4:
+// a movie with a FRESH enrichment_tmdb_synced_at but a NULL section stamp
+// (cast/keywords/recs/media) is re-picked into the NORMAL tier so the pre-Ф1
+// section holes get filled; a fully-stamped movie (all 4 non-NULL) is NOT
+// re-picked; and a movie whose sections are empty-but-STAMPED is not re-picked
+// (the picker keys off the stamp column, not row counts → no churn).
+func TestMovieRepository_PickMovieRefreshCandidates_NullSectionBackfill(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewMovieRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+			fresh := now.Add(-1 * time.Hour) // well within Normal TTL (14d), no change flag
+			ttl := enrichment.DefaultRefreshTTL()
+
+			// (a) fresh tmdb clock, cast section NULL (other 3 stamped) → PICKED (NORMAL).
+			//     This is the movie-558449 hole: enriched before the Ф1 cast writer.
+			nullCast := seedMovie(t, db, 300, new(fresh), nil)
+			markMovieSections(t, db, nullCast, nil, new(fresh), new(fresh), new(fresh))
+
+			// (b) fully-processed: all 4 section stamps non-NULL, tmdb fresh → NOT picked.
+			fullStamped := seedMovie(t, db, 301, new(fresh), nil)
+			markMovieSections(t, db, fullStamped, new(fresh), new(fresh), new(fresh), new(fresh))
+
+			// (c) empty-section-but-STAMPED: all 4 stamped, zero child rows seeded
+			//     (mirrors the worker's "checked, empty" stamp-only tx) → NOT re-picked.
+			//     Proves the picker keys off the stamp column, not section row counts.
+			emptyStamped := seedMovie(t, db, 302, new(fresh), nil)
+			markMovieSections(t, db, emptyStamped, new(fresh), new(fresh), new(fresh), new(fresh))
+
+			got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
+			require.NoError(t, err)
+
+			ids := map[domain.MovieID]enrichment.RefreshTier{}
+			for _, c := range got {
+				ids[c.MovieID] = c.Tier
+			}
+
+			// (a) picked, in NORMAL tier.
+			tier, ok := ids[nullCast]
+			require.True(t, ok, "movie with NULL cast stamp must be re-picked; got %+v", got)
+			assert.Equal(t, enrichment.RefreshTierNormal, tier)
+
+			// (b) fully-stamped, tmdb-fresh → absent.
+			_, ok = ids[fullStamped]
+			assert.False(t, ok, "fully-stamped fresh movie must NOT be picked (no churn)")
+
+			// (c) empty-but-stamped → absent (idempotent, no re-pick storm).
+			_, ok = ids[emptyStamped]
+			assert.False(t, ok, "empty-but-stamped movie must NOT be re-picked")
+
+			// Negative-space guard: with only these 3 seeded, exactly one is pickable.
+			require.Len(t, got, 1, "only the NULL-section movie is pickable; got %+v", got)
 		})
 	}
 }

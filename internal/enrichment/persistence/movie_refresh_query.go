@@ -38,9 +38,17 @@ const movieRefreshRaceGuard = 15 * time.Minute
 //     enrichment_tmdb_synced_at < ?)` — a never-synced changed movie (NULL) must
 //     still be picked (a bare `< ?` would evaluate NULL < ts = false forever).
 //   - NORMAL (tier 3): tmdb_id IS NOT NULL AND NOT changed-pending AND
-//     (enrichment_tmdb_synced_at IS NULL OR enrichment_tmdb_synced_at < now-ttl).
+//     (enrichment_tmdb_synced_at IS NULL OR enrichment_tmdb_synced_at < now-ttl
+//     OR any of enrichment_{cast,keywords,recs,media}_synced_at IS NULL).
 //     ttl is enrichment.RefreshTTL.Normal (reused domain type; Hot/Followed/Cold
 //     are ignored — movies have a single non-changed staleness tier for R-4a).
+//     The NULL-section OR re-picks a movie whose CANON was TMDB-enriched before
+//     the Ф1 section-writers existed (fresh tmdb clock, NULL section stamps) so
+//     its cast/keywords/recs/media sections get filled. Churn-safe: the movie
+//     worker stamps all 4 sections atomically per Handle (empty sections stamped
+//     too), so once processed all 4 are non-NULL → the OR is false → not re-picked.
+//     enrichment_text_synced_at (no movie writer) and genres/companies (no stamp
+//     column) are intentionally excluded.
 //
 // R-A02-analog: the NORMAL arm carries an anti-predicate `AND NOT (<changed-
 // pending>)` (column refs only, zero new bind params) so a changed+stale movie
@@ -92,7 +100,11 @@ SELECT * FROM (
                    OR m.enrichment_tmdb_synced_at < m.tmdb_changed_at))
      AND (
            m.enrichment_tmdb_synced_at IS NULL
-        OR m.enrichment_tmdb_synced_at < ?)
+        OR m.enrichment_tmdb_synced_at < ?
+        OR m.enrichment_cast_synced_at IS NULL
+        OR m.enrichment_keywords_synced_at IS NULL
+        OR m.enrichment_recs_synced_at IS NULL
+        OR m.enrichment_media_synced_at IS NULL)
 ) u
 ORDER BY u.tier ASC,
          COALESCE(u.synced_at, ?) ASC,
