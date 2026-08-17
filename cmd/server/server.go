@@ -906,11 +906,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		})
 	}
 
-	// Wave 2 (W2-6) — TMDB /tv/changes poller. Double-gated: cfg.Cron.Enabled
-	// (global cron lever) AND the dark-launch bootCfg.Enrichment.Changes.Enabled
-	// (default false). Ships inert; enabling is env-only. Skips when the wirer
-	// left ChangesPoller nil (required port absent). A single boot-log line
-	// states enabled/disabled so prod can verify the dark-launch state.
+	// TMDB /tv/changes poller. Double-gated: cfg.Cron.Enabled (global cron
+	// lever) AND bootCfg.Enrichment.Changes.Enabled (default true; disable via
+	// SEASONFILL_TMDB_CHANGES_ENABLED=false). Skips when the wirer left
+	// ChangesPoller nil (required port absent). A single boot-log line states
+	// enabled/disabled so prod can verify the state.
 	if cfg.Cron.Enabled && bootCfg.Enrichment.Changes.Enabled &&
 		enrichBundle != nil && enrichBundle.ChangesPoller != nil {
 		changesLog := sharedports.DomainLogger(log, "enrichment")
@@ -931,8 +931,9 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// poller (generic ChangesPoller reused with movie deps + dedicated cursor).
 	// Built only when the live TMDB holder exists. The movie refresh scheduler is
 	// gated by cfg.Cron.Enabled (same single operator lever as series refresh);
-	// the movie changes poller is DARK-LAUNCH gated (default OFF) by
-	// SEASONFILL_MOVIE_CHANGES_ENABLED, mirroring the /tv/changes dark-launch.
+	// the movie changes poller runs by default (SEASONFILL_MOVIE_CHANGES_ENABLED,
+	// default ON) and is disabled by setting that env to a false-ish value —
+	// mirroring the /tv/changes gate.
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		movieEnrichLog := sharedports.DomainLogger(log, "enrichment")
 		movieEnrich, merr := wiring.BuildMovieEnrichment(wiring.MovieEnrichmentDeps{
@@ -957,7 +958,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 					movieEnrich.RefreshScheduler.RunForever(ctx, movieRefreshInterval)
 				})
 			}
-			movieChangesEnabled := os.Getenv("SEASONFILL_MOVIE_CHANGES_ENABLED") == "true"
+			movieChangesEnabled := config.EnvBool("SEASONFILL_MOVIE_CHANGES_ENABLED", true)
 			if cfg.Cron.Enabled && movieChangesEnabled && movieEnrich.ChangesPoller != nil {
 				movieChangesInterval := 8 * time.Hour
 				if v := os.Getenv("SEASONFILL_MOVIE_CHANGES_INTERVAL"); v != "" {

@@ -432,7 +432,7 @@ func TestFromEnv_ChangesDefaults(t *testing.T) {
 	cfg, err := FromEnv()
 	require.NoError(t, err)
 	c := cfg.Enrichment.Changes
-	assert.False(t, c.Enabled, "changes poller must default OFF (G4)")
+	assert.True(t, c.Enabled, "changes poller must default ON")
 	assert.Equal(t, 8*time.Hour, c.PollInterval)
 	assert.Equal(t, 1, c.OverlapDays)
 	assert.Equal(t, 14, c.LookbackDays)
@@ -455,6 +455,29 @@ func TestFromEnv_ChangesEnabledParse(t *testing.T) {
 			cfg, err := FromEnv()
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, cfg.Enrichment.Changes.Enabled)
+		})
+	}
+}
+
+func TestEnvBool_DefaultAndOverride(t *testing.T) {
+	t.Run("unset returns default", func(t *testing.T) {
+		// key is never set in this process → exercises the unset→def branch.
+		assert.True(t, EnvBool("SEASONFILL_UNSET_FLAG_FOR_TEST", true))
+		assert.False(t, EnvBool("SEASONFILL_UNSET_FLAG_FOR_TEST", false))
+	})
+	const key = "SEASONFILL_MOVIE_CHANGES_ENABLED"
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"false", false}, {"0", false}, {"no", false}, {"off", false},
+		{"true", true}, {"1", true}, {"yes", true}, {"on", true},
+		{"garbage", true}, // unparseable → default (true)
+	}
+	for _, tc := range cases {
+		t.Run(tc.val, func(t *testing.T) {
+			t.Setenv(key, tc.val)
+			assert.Equal(t, tc.want, EnvBool(key, true))
 		})
 	}
 }

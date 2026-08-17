@@ -52,14 +52,14 @@ func scrapeChangesResult(t *testing.T, result string) int64 {
 	return parseFirstMatch(t, buf.String(), prefix)
 }
 
-// G4 zero-regression headline: with SEASONFILL_TMDB_CHANGES_ENABLED unset
-// (default false) the poller loop is NEVER registered — poll_total does not
-// advance even after a window that comfortably exceeds the (shrunk) startup
-// delay. The delay is shrunk so that IF the loop were wrongly registered it
-// WOULD tick inside the wait window and fail this assertion.
-func TestChanges_E2E_DisabledByDefault(t *testing.T) {
+// With SEASONFILL_TMDB_CHANGES_ENABLED=false the poller loop is NEVER
+// registered — poll_total does not advance even after a window that comfortably
+// exceeds the (shrunk) startup delay. The delay is shrunk so that IF the loop
+// were wrongly registered it WOULD tick inside the wait window and fail this
+// assertion.
+func TestChanges_E2E_DisabledWhenFalse(t *testing.T) {
 	changesE2EEnv(t)
-	// ENABLED deliberately unset.
+	t.Setenv("SEASONFILL_TMDB_CHANGES_ENABLED", "false")
 	defer loops.SetChangesStartupDelayForTest(20 * time.Millisecond)()
 
 	before := scrapeChangesPollTotal(t)
@@ -69,7 +69,25 @@ func TestChanges_E2E_DisabledByDefault(t *testing.T) {
 	time.Sleep(500 * time.Millisecond) // 25x the shrunk startup delay
 	after := scrapeChangesPollTotal(t)
 	assert.Equal(t, before, after,
-		"poll_total must not advance when SEASONFILL_TMDB_CHANGES_ENABLED is unset (G4)")
+		"poll_total must not advance when SEASONFILL_TMDB_CHANGES_ENABLED=false")
+}
+
+// New default: with SEASONFILL_TMDB_CHANGES_ENABLED unset the loop registers,
+// ticks, and (no TMDB key) emits skipped_no_client — i.e. the poller is ON by
+// default. Direct contrast with TestChanges_E2E_DisabledWhenFalse.
+func TestChanges_E2E_EnabledByDefault(t *testing.T) {
+	changesE2EEnv(t)
+	// ENABLED deliberately unset → default is now ON.
+	defer loops.SetChangesStartupDelayForTest(20 * time.Millisecond)()
+
+	before := scrapeChangesResult(t, "skipped_no_client")
+	_, stop := bootForTest(t)
+	defer stop()
+
+	require.Eventually(t, func() bool {
+		return scrapeChangesResult(t, "skipped_no_client") > before
+	}, 5*time.Second, 50*time.Millisecond,
+		"unset SEASONFILL_TMDB_CHANGES_ENABLED must default the poller ON")
 }
 
 // ENABLED=true + no TMDB key: the loop registers, ticks, and the ClientReady

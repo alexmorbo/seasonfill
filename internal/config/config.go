@@ -172,12 +172,12 @@ type EnrichmentConfig struct {
 	Changes ChangesConfig
 }
 
-// ChangesConfig carries the env-only knobs for the Wave 2 TMDB /tv/changes
-// firehose poller (plan §10). DEFAULT Enabled=false — the poller ships inert
-// (dark-launch; G4 zero-regression). server.go double-gates the loop on
-// cfg.Cron.Enabled && Enrichment.Changes.Enabled.
+// ChangesConfig carries the env knobs for the TMDB /tv/changes firehose
+// poller (plan §10). DEFAULT Enabled=true — the poller runs unless an operator
+// sets SEASONFILL_TMDB_CHANGES_ENABLED to a false-ish value. server.go still
+// double-gates the loop on cfg.Cron.Enabled && Enrichment.Changes.Enabled.
 type ChangesConfig struct {
-	// Enabled — SEASONFILL_TMDB_CHANGES_ENABLED. Default false.
+	// Enabled — SEASONFILL_TMDB_CHANGES_ENABLED. Default true.
 	Enabled bool
 	// PollInterval — SEASONFILL_TMDB_CHANGES_POLL_INTERVAL (a Go duration
 	// string, e.g. "8h"). Default 8h; min-clamped to 1h (anti-tick-storm).
@@ -624,6 +624,11 @@ func getenvBool(name string, def bool) bool {
 	}
 }
 
+// EnvBool exposes getenvBool for composition-root env reads outside this
+// package (the movie changes-poller gate in cmd/server) so the config layer and
+// the boot wiring share one accept-set and one default semantics.
+func EnvBool(name string, def bool) bool { return getenvBool(name, def) }
+
 // getenvFloat parses a float64 env var (story 313). Returns def when
 // the var is unset, empty, unparseable, OR <= 0. The "<=0 → default"
 // rule lets the caller pass def=0 to mean "let the downstream package
@@ -718,7 +723,7 @@ func refreshIntervalFromEnv() time.Duration {
 // never disable the poller nor exceed the API window cap.
 func changesConfigFromEnv() ChangesConfig {
 	return ChangesConfig{
-		Enabled:      getenvBool("SEASONFILL_TMDB_CHANGES_ENABLED", false),
+		Enabled:      getenvBool("SEASONFILL_TMDB_CHANGES_ENABLED", true),
 		PollInterval: changesPollIntervalFromEnv(),
 		// getenvInt floors <=0/unparseable to the default; upper-clamp to 7.
 		OverlapDays: clampInt(getenvInt("SEASONFILL_TMDB_CHANGES_OVERLAP_DAYS", 1), 1, 7),

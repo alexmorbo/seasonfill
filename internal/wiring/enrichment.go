@@ -195,7 +195,7 @@ type EnrichmentBundle struct {
 	// does not satisfy ChangedSeriesMarker) OR when NewChangesPoller errored.
 	// server.go's LATE BIND ZONE owns the lifecycle.Go("tmdb-changes-poller")
 	// goroutine, double-gated by cfg.Cron.Enabled && Enrichment.Changes.Enabled
-	// (default false). Constructed even when TMDB is unconfigured — the
+	// (default true). Constructed even when TMDB is unconfigured — the
 	// ClientReady gate skips each tick until a key is present.
 	ChangesPoller *appenrich.ChangesPoller
 	// TVDBResolver (W15-13) — scan-piggyback tvdb→tmdb resolver, built
