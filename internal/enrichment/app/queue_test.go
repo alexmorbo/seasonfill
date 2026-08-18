@@ -226,3 +226,20 @@ func metricValue(t *testing.T, body, name string) float64 {
 	}
 	return 0
 }
+
+func TestQueue_MovieEnqueueLands_HotChannel(t *testing.T) {
+	t.Parallel()
+	q := newPriorityQueue()
+	// Pre-S1b this was a silent no-op: EntityMovie was absent from knownKinds
+	// so enqueue hit a nil chanPair and returned false. S1b allocates the movie
+	// channel pair, so the job now LANDS and drains from the movie Hot channel.
+	require.True(t, q.enqueue(Job{Kind: EntityMovie, EntityID: 1315772, Priority: PriorityHot}),
+		"EntityMovie enqueue must land now that knownKinds includes it")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	got, ok := q.dequeue(ctx, EntityMovie)
+	require.True(t, ok, "movie job dequeued from the movie channel")
+	assert.Equal(t, int64(1315772), got.EntityID)
+	assert.Equal(t, PriorityHot, got.Priority, "landed at the requested Hot priority")
+	assert.Equal(t, EntityMovie, got.Kind)
+}

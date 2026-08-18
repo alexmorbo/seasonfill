@@ -122,6 +122,8 @@ type UseCase struct {
 	log   *slog.Logger
 
 	freshener freshenerPort // nil-OK: unwired → legacy mark-stale-only behavior
+
+	enqueuer EnrichmentEnqueuer // nil-OK: unwired → no Hot-lane enqueue (S1b)
 }
 
 // freshenerPort is the synchronous read-through seam the movie detail read
@@ -129,6 +131,17 @@ type UseCase struct {
 // leaves the read on the pre-S1a mark-stale-only path (existing tests stay green).
 type freshenerPort interface {
 	EnsureFresh(ctx context.Context, canon movie.Canon, lang string) FreshenResult
+}
+
+// EnrichmentEnqueuer is the S1b async-fallback seam: when the sync freshener
+// degrades (timeout/error) OR is unwired, the movie detail read pushes the
+// movie onto the enrichment dispatcher's interactive Hot lane so a movie worker
+// hydrates it off-request — alongside the existing MarkStaleForReenrich
+// background nudge (both fire). The production impl is a wiring adapter over
+// *appenrich.DispatcherImpl.Enqueue(EntityMovie, id, PriorityHot); declared
+// locally so moviedetail/app never imports enrichment/app. nil-OK.
+type EnrichmentEnqueuer interface {
+	EnqueueMovieHot(movieID domain.MovieID)
 }
 
 // New constructs the movie-detail usecase over its four read ports. The on-read
@@ -179,6 +192,17 @@ func (uc *UseCase) WithHydrationTrigger(stale StaleMarker, now func() time.Time,
 // nudge. Returns the receiver for chaining in the wiring.
 func (uc *UseCase) WithFreshener(f freshenerPort) *UseCase {
 	uc.freshener = f
+	return uc
+}
+
+// WithEnrichmentEnqueuer enables the S1b Hot-lane async fallback. On a
+// stale-movie open where the sync freshener degraded (or is unwired), the async
+// fallback pushes an EntityMovie/PriorityHot job so the interactive dispatcher
+// lane hydrates the movie off-request within seconds — alongside the existing
+// mark-stale nudge. nil-OK: unwired keeps the mark-stale-only fallback. Returns
+// the receiver for chaining in the wiring.
+func (uc *UseCase) WithEnrichmentEnqueuer(e EnrichmentEnqueuer) *UseCase {
+	uc.enqueuer = e
 	return uc
 }
 
@@ -385,14 +409,20 @@ func (uc *UseCase) logTaxonomyWarn(ctx context.Context, section string, movieID 
 }
 
 // maybeTriggerHydration runs the pure section probe over the already-loaded
-// canon and, if any section is stale AND the movie has a tmdb_id, bumps
-// tmdb_changed_at so the next MovieRefreshScheduler tick re-enriches it. The
-// nudge is a single guarded PK UPDATE (sub-ms) executed synchronously; a marker
-// error is swallowed (logged at Warn) so the read NEVER fails — fail-open per
-// the Radarr lesson. No-op when the trigger is unwired (stale nil) or the movie
-// has no tmdb_id (a Radarr orphan the picker can never re-enrich anyway).
+// canon and, if any section is stale AND the movie has a tmdb_id, fires the
+// async fallback: (1) bumps tmdb_changed_at (MarkStaleForReenrich) so the next
+// throttled MovieRefreshScheduler tick re-enriches it, AND (2) — S1b — enqueues
+// an EntityMovie/PriorityHot job so the interactive dispatcher lane hydrates it
+// off-request within seconds. Both writers are independently nil-guarded and
+// fail-open (a marker error is swallowed; Enqueue is itself non-blocking) so the
+// read NEVER fails — the Radarr lesson. No-op when the movie has no tmdb_id (a
+// Radarr orphan neither the picker nor the dispatcher can re-enrich) or neither
+// fallback is wired.
 func (uc *UseCase) maybeTriggerHydration(ctx context.Context, canon movie.Canon) {
-	if uc.stale == nil || canon.TMDBID == nil {
+	if canon.TMDBID == nil {
+		return
+	}
+	if uc.stale == nil && uc.enqueuer == nil {
 		return
 	}
 	now := time.Now
@@ -402,10 +432,15 @@ func (uc *UseCase) maybeTriggerHydration(ctx context.Context, canon movie.Canon)
 	if !AnyStale(MovieProbe(canon, now())) {
 		return
 	}
-	if err := uc.stale.MarkStaleForReenrich(ctx, canon.ID, now()); err != nil && uc.log != nil {
-		uc.log.WarnContext(ctx, "moviedetail.hydration.mark_stale_error",
-			slog.Int64("movie_id", int64(canon.ID)),
-			slog.String("error", err.Error()),
-		)
+	if uc.stale != nil {
+		if err := uc.stale.MarkStaleForReenrich(ctx, canon.ID, now()); err != nil && uc.log != nil {
+			uc.log.WarnContext(ctx, "moviedetail.hydration.mark_stale_error",
+				slog.Int64("movie_id", int64(canon.ID)),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+	if uc.enqueuer != nil {
+		uc.enqueuer.EnqueueMovieHot(canon.ID)
 	}
 }

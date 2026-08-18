@@ -27,6 +27,12 @@ type DispatcherImpl struct {
 	// cold-start path. Read by runHandler from goroutines; the atomic
 	// pointer makes the publication race-free without widening mu.
 	onSeriesComplete atomic.Pointer[func(int64)]
+	// S1b — late-bound movie hydration handler. The movie goroutine
+	// resolves this per job (resolveMovieHandler) so the MovieWorker,
+	// built AFTER dispatcher.Start, can be wired via SetMovieHandler
+	// without racing the goroutine spawn. nil (unset) → falls back to
+	// Workers.MovieHandler → handler_nil path.
+	movieHandler atomic.Pointer[jobHandler]
 }
 
 // Workers is the dependency bundle. SeriesHandler is required; the
@@ -45,6 +51,15 @@ type Workers struct {
 	// HandleCold (backs off at the floor). Series/person handlers stay
 	// id-only (they have no lane).
 	OMDbHandler func(ctx context.Context, id int64, p Priority) error
+	// MovieHandler — S1b (ADR-0021 §S1 Part B). Movie TMDB hydration
+	// handler; id-only (no lane) like Series/Person. nil-OK at
+	// NewDispatcher time: the production handler is late-bound via
+	// SetMovieHandler AFTER the MovieWorker is built (dispatcher.Start
+	// runs first). When neither this nor SetMovieHandler is set, the
+	// movie loop logs "handler_nil" + releases the slot — same pattern as
+	// the OMDb pre-activation path. Tests may set it directly for a
+	// deterministic drain assertion.
+	MovieHandler func(ctx context.Context, id int64) error
 	// 306. Optional per-series completion hook. Fired AFTER the
 	// queue release for EntitySeries jobs only — success OR error.
 	// Nil-OK (production-only feature for the cold-start gauge;
@@ -57,6 +72,11 @@ type Workers struct {
 	// them via SEASONFILL_ENRICHMENT_{SERIES,PERSON}_WORKERS. OMDb stays 1.
 	SeriesWorkers int
 	PersonWorkers int
+	// MovieWorkers — S1b. Number of concurrent movie-hydration goroutines
+	// Start spawns. 0/negative → clamped to 1 inside Start (defensive; the
+	// config layer already floors to the >=1 default via
+	// SEASONFILL_ENRICHMENT_MOVIE_WORKERS).
+	MovieWorkers int
 }
 
 // jobHandler is the internal, priority-aware handler shape the worker loop
@@ -133,10 +153,22 @@ func (d *DispatcherImpl) Start(parent context.Context) {
 	d.wg.Go(func() {
 		d.loop(ctx, EntityOMDb, 0, d.workers.OMDbHandler)
 	})
+	// S1b — movie goroutines. Count is configurable (default 1). The
+	// handler is resolved per-job via resolveMovieHandler so the late-bound
+	// SetMovieHandler (wired after the MovieWorker is built) is observed
+	// without restarting the pool. nil handler → loop logs "handler_nil".
+	movieWorkers := max(d.workers.MovieWorkers, 1)
+	for i := range movieWorkers {
+		idx := i
+		d.wg.Go(func() {
+			d.movieLoop(ctx, idx)
+		})
+	}
 	d.logger.InfoContext(ctx, "enrichment.dispatcher.started",
 		slog.Int("series_workers", seriesWorkers),
 		slog.Int("person_workers", personWorkers),
 		slog.Int("omdb_workers", 1),
+		slog.Int("movie_workers", movieWorkers),
 	)
 }
 
@@ -282,4 +314,48 @@ func (d *DispatcherImpl) SetOnSeriesComplete(fn func(id int64)) {
 		return
 	}
 	d.onSeriesComplete.Store(&fn)
+}
+
+// movieLoop is the S1b movie worker pump. Unlike loop(), it resolves the
+// handler FRESH on every job via resolveMovieHandler so a late-bound
+// SetMovieHandler (the MovieWorker is built after dispatcher.Start) is observed
+// without a pool restart. dequeue is per-kind (Story 1104), so a movie worker
+// only ever receives EntityMovie jobs.
+func (d *DispatcherImpl) movieLoop(ctx context.Context, idx int) {
+	log := d.logger.With(
+		slog.String("entity_type", string(EntityMovie)),
+		slog.Int("worker_idx", idx),
+	)
+	for {
+		j, ok := d.queue.dequeue(ctx, EntityMovie)
+		if !ok {
+			return
+		}
+		d.runHandler(ctx, log, j, d.resolveMovieHandler())
+	}
+}
+
+// resolveMovieHandler returns the effective movie handler: the late-bound
+// SetMovieHandler override if present, else the static Workers.MovieHandler
+// (lifted to the priority-aware shape). Returns nil when neither is set so
+// runHandler's handler_nil path fires (pre-late-bind boot window).
+func (d *DispatcherImpl) resolveMovieHandler() jobHandler {
+	if cb := d.movieHandler.Load(); cb != nil {
+		return *cb
+	}
+	return liftIDHandler(d.workers.MovieHandler)
+}
+
+// SetMovieHandler late-binds the movie hydration handler (S1b). Called from
+// cmd/server after the MovieWorker is constructed — dispatcher.Start already
+// spawned the movie goroutines, which resolve this pointer per job. fn nil
+// clears the override (falls back to Workers.MovieHandler). Safe to call
+// concurrently with the worker goroutines (atomic publication).
+func (d *DispatcherImpl) SetMovieHandler(fn func(ctx context.Context, id int64) error) {
+	lifted := liftIDHandler(fn)
+	if lifted == nil {
+		d.movieHandler.Store(nil)
+		return
+	}
+	d.movieHandler.Store(&lifted)
 }

@@ -599,6 +599,12 @@ func BuildEnrichment(
 		// Story 1096 (Fix A): env-configurable series/person pool sizes.
 		SeriesWorkers: bootstrap.Enrichment.EnrichmentSeriesWorkers,
 		PersonWorkers: bootstrap.Enrichment.EnrichmentPersonWorkers,
+		// S1b (ADR-0021 §S1 Part B): movie Hot-lane pool size. MovieHandler is
+		// NOT set here — the MovieWorker is built later (server.go, after
+		// BuildMovieEnrichment); server.go late-binds it via SetMovieHandler.
+		// The movie goroutines spawn now and log handler_nil until then (no
+		// movie is enqueued until the HTTP server is up).
+		MovieWorkers: bootstrap.Enrichment.EnrichmentMovieWorkers,
 	}, enrichmentLog)
 	holder.set(dispatcher)
 

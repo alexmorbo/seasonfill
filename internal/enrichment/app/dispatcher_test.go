@@ -435,3 +435,55 @@ func TestDispatcher_PersonWorkersClampAtOne(t *testing.T) {
 	d.Enqueue(EntityPerson, 77, PriorityHot)
 	waitFor(t, time.Second, func() bool { return seen.Load() == 77 })
 }
+
+// S1b — a real DispatcherImpl with MovieWorkers=1 routes an EntityMovie job to
+// the (statically-registered) movie handler and NOT into any other kind's
+// handler. Genuine dequeue+drain, not a mock echo.
+func TestDispatcher_MovieHandlerCalledForMovieJob(t *testing.T) {
+	t.Parallel()
+	var movieSeen, seriesSeen int64
+	d := NewDispatcher(Workers{
+		SeriesHandler: func(_ context.Context, id int64) error {
+			atomic.StoreInt64(&seriesSeen, id)
+			return nil
+		},
+		MovieHandler: func(_ context.Context, id int64) error {
+			atomic.StoreInt64(&movieSeen, id)
+			return nil
+		},
+		MovieWorkers: 1,
+	}, quietLogger())
+	ctx := t.Context()
+	d.Start(ctx)
+	defer d.Close()
+
+	d.Enqueue(EntityMovie, 693134, PriorityHot)
+	waitFor(t, time.Second, func() bool { return atomic.LoadInt64(&movieSeen) == 693134 })
+	assert.Zero(t, atomic.LoadInt64(&seriesSeen), "movie job must not leak into the series handler")
+}
+
+// S1b — the production seam: NO handler in Workers (the boot window — movie
+// goroutine spawns, dequeue hits handler_nil+release), then SetMovieHandler is
+// called AFTER Start (mirrors server.go wiring the MovieWorker post-dispatcher-
+// start). A subsequently-enqueued movie job must drain through the late-bound
+// handler.
+func TestDispatcher_MovieHandler_LateBoundViaSet(t *testing.T) {
+	t.Parallel()
+	seen := make(chan int64, 1)
+	d := NewDispatcher(Workers{MovieWorkers: 1}, quietLogger())
+	ctx := t.Context()
+	d.Start(ctx)
+	defer d.Close()
+
+	d.SetMovieHandler(func(_ context.Context, id int64) error {
+		seen <- id
+		return nil
+	})
+	d.Enqueue(EntityMovie, 42, PriorityHot)
+	select {
+	case id := <-seen:
+		assert.Equal(t, int64(42), id, "late-bound movie handler drains the job")
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for late-bound movie job")
+	}
+}

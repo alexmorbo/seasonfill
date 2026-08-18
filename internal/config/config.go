@@ -146,6 +146,12 @@ type EnrichmentConfig struct {
 	// SEASONFILL_ENRICHMENT_PERSON_WORKERS. Same 0→default floor as above.
 	EnrichmentPersonWorkers int
 
+	// EnrichmentMovieWorkers is the number of concurrent movie-hydration
+	// goroutines the dispatcher spawns (ADR-0021 §S1 Part B — the interactive
+	// movie Hot lane). Default 1. Env: SEASONFILL_ENRICHMENT_MOVIE_WORKERS.
+	// Same 0→default floor as the series/person knobs.
+	EnrichmentMovieWorkers int
+
 	// EnrichmentSeasonConcurrency bounds the per-language parallel
 	// GetSeason fan-out inside the series worker (Story 1096, Fix B).
 	// Default 4 (modestly parallel). Env:
@@ -496,6 +502,7 @@ func FromEnv() (*Bootstrap, error) {
 			// here; the dispatcher/series-worker also defensively clamp at use).
 			EnrichmentSeriesWorkers:     getenvInt("SEASONFILL_ENRICHMENT_SERIES_WORKERS", 2),
 			EnrichmentPersonWorkers:     getenvInt("SEASONFILL_ENRICHMENT_PERSON_WORKERS", 1),
+			EnrichmentMovieWorkers:      getenvInt("SEASONFILL_ENRICHMENT_MOVIE_WORKERS", 1),
 			EnrichmentSeasonConcurrency: getenvInt("SEASONFILL_ENRICHMENT_SEASON_CONCURRENCY", 4),
 			// Story 1097 — background refresh drain levers. batch_size is a
 			// plain getenvInt (0/negative → 50 default); the interval uses the

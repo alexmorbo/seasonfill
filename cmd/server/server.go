@@ -780,7 +780,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		keywordSearchClient = enrichBundle.TMDBHolder
 	}
-	httpServer, instanceMetadataBundle, movieFreshenerHolder := wiring.BuildHTTPServer(
+	httpServer, instanceMetadataBundle, movieFreshenerHolder, movieHotEnqueuerHolder := wiring.BuildHTTPServer(
 		persistence, runtimecfg, auth,
 		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
 		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
@@ -789,6 +789,15 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		keywordSearchClient,
 		notificationBundle.AgentsHandler, log,
 	)
+
+	// S1b (ADR-0021 §S1 Part B) — late-bind the Hot-lane enqueuer. The movie
+	// detail read's async fallback (maybeTriggerHydration) pushes
+	// EntityMovie/PriorityHot jobs onto the dispatcher's interactive lane
+	// (drained by the movie worker goroutines spawned at dispatcher.Start);
+	// the holder no-ops until now. Mirror of the peopleEnqueuerHolder late-bind.
+	if enrichBundle != nil && enrichBundle.Dispatcher != nil && movieHotEnqueuerHolder != nil {
+		movieHotEnqueuerHolder.Set(wiring.NewMovieHotEnqueuerAdapter(enrichBundle.Dispatcher))
+	}
 
 	// F-07: the two static-named cachewatch caches (discover LRU +
 	// instance_metadata bundle) are registered in the cachewatch singleton
@@ -953,6 +962,15 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			// the holder is nil only if BuildMovieDetail was skipped.
 			if movieEnrich.Worker != nil && movieFreshenerHolder != nil {
 				movieFreshenerHolder.Set(movieEnrich.Worker)
+			}
+			// S1b late-bind — wire the movie hydration handler onto the
+			// dispatcher's movie goroutines (spawned at dispatcher.Start with
+			// handler_nil until now). After this, an EntityMovie/PriorityHot job
+			// (from the moviedetail async fallback) drains through
+			// MovieWorker.HandleForced. Same worker pointer the
+			// MovieRefreshScheduler + freshener holder reuse.
+			if movieEnrich.Worker != nil && enrichBundle != nil && enrichBundle.Dispatcher != nil {
+				enrichBundle.Dispatcher.SetMovieHandler(movieEnrich.Worker.HandleForced)
 			}
 			if cfg.Cron.Enabled && movieEnrich.RefreshScheduler != nil {
 				movieRefreshInterval := 30 * time.Minute

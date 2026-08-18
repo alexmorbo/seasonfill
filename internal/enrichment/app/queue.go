@@ -59,7 +59,10 @@ type priorityQueue struct {
 }
 
 // knownKinds is the fixed enum the queue allocates channels for.
-var knownKinds = []EntityKind{EntitySeries, EntityPerson, EntityOMDb}
+// S1b (ADR-0021 §S1 Part B): EntityMovie added so the interactive movie
+// Hot/Cold channel pair + depth gauge are allocated — enqueue(EntityMovie,…)
+// was a silent no-op before (nil chanPair → false).
+var knownKinds = []EntityKind{EntitySeries, EntityPerson, EntityOMDb, EntityMovie}
 
 func newPriorityQueue() *priorityQueue {
 	q := &priorityQueue{
