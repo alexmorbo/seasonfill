@@ -47,6 +47,12 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
+          # Incremental golangci-lint cache corrupted cross-package staticcheck/govet
+          # facts on schema-wide refactors of widely-imported packages; clean analysis
+          # (cache clean) is deterministic and reports 0 issues. Disabling save/restore
+          # makes each run fully deterministic at cost of ~20-40s per lint job.
+          skip-cache: true
+          skip-save-cache: true
 
   unit:
     name: Unit
