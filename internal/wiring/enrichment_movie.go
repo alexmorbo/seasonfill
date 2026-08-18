@@ -35,6 +35,11 @@ type MovieEnrichmentBundle struct {
 	// changes lister + MovieRepository.MarkChangedByTMDBIDs + the dedicated
 	// movie_changes_state cursor). Zero TV edits. nil when construction errored.
 	ChangesPoller *appenrich.ChangesPoller
+	// Worker — the movie TMDB hydration worker. Exposed (S1a) so the late-bind
+	// zone can wire *MovieWorker.HandleForced into the moviedetail read-through
+	// freshener holder. Same pointer the MovieRefreshScheduler drives. nil only
+	// when construction errored (BuildMovieEnrichment returns before this point).
+	Worker *appenrich.MovieWorker
 }
 
 // MovieEnrichmentDeps is the construction surface for BuildMovieEnrichment.
@@ -202,6 +207,7 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 	return &MovieEnrichmentBundle{
 		RefreshScheduler: scheduler,
 		ChangesPoller:    changesPoller,
+		Worker:           worker,
 	}, nil
 }
 

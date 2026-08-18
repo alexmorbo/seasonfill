@@ -120,6 +120,15 @@ type UseCase struct {
 	stale StaleMarker
 	now   func() time.Time
 	log   *slog.Logger
+
+	freshener freshenerPort // nil-OK: unwired → legacy mark-stale-only behavior
+}
+
+// freshenerPort is the synchronous read-through seam the movie detail read
+// consults BEFORE assembling the response. *MovieFreshener satisfies it; nil
+// leaves the read on the pre-S1a mark-stale-only path (existing tests stay green).
+type freshenerPort interface {
+	EnsureFresh(ctx context.Context, canon movie.Canon, lang string) FreshenResult
 }
 
 // New constructs the movie-detail usecase over its four read ports. The on-read
@@ -163,14 +172,45 @@ func (uc *UseCase) WithHydrationTrigger(stale StaleMarker, now func() time.Time,
 	return uc
 }
 
+// WithFreshener enables the S1a synchronous read-through freshener. On a
+// cold/stale movie open the freshener drives MovieWorker.HandleForced within a
+// ~5s budget so the assembled Detail carries fresh ru-overview / cast / recs
+// instead of a stub. nil-OK: unwired leaves the read on the mark-stale-only
+// nudge. Returns the receiver for chaining in the wiring.
+func (uc *UseCase) WithFreshener(f freshenerPort) *UseCase {
+	uc.freshener = f
+	return uc
+}
+
 // Get assembles the detail for a tmdb id. ports.ErrNotFound bubbles when no
 // canon row exists (→ 404). lang selects the movie_i18n row; a missing localized
 // row degrades to canon fields (Degraded=["movie_i18n"]) — never an error.
+//
+// S1a: when a sync freshener is wired, a cold/stale movie is hydrated
+// synchronously (≤SyncTimeout) BEFORE assembly, and the canon is re-read so the
+// hero fields reflect the fresh row. On freshener degrade (timeout/error) the
+// async mark-stale fallback fires and Degraded carries "enrichment".
 func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string) (Detail, error) {
 	canon, err := uc.canon.GetByTMDBID(ctx, tmdbID)
 	if err != nil {
 		return Detail{}, err // ports.ErrNotFound bubbles
 	}
+
+	freshDegraded := false
+	if uc.freshener != nil {
+		res := uc.freshener.EnsureFresh(ctx, canon, lang)
+		switch {
+		case res.Refreshed:
+			// Re-read the now-hydrated canon so hero/title/poster reflect it.
+			// Fail-open: a re-read error keeps the pre-refresh canon.
+			if fresh, rerr := uc.canon.GetByTMDBID(ctx, tmdbID); rerr == nil {
+				canon = fresh
+			}
+		case res.Degraded:
+			freshDegraded = true
+		}
+	}
+
 	d := Detail{Canon: canon, Title: canon.Title, Poster: canon.PosterAsset, Backdrop: canon.BackdropAsset}
 
 	if lang != "" {
@@ -225,7 +265,17 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string) (
 
 	uc.loadTaxonomy(ctx, &d, canon.ID, lang)
 	uc.loadSidebar(ctx, &d, canon.ID)
-	uc.maybeTriggerHydration(ctx, canon)
+
+	// Async fallback: fire the mark-stale nudge when there is NO sync freshener
+	// (pre-S1a legacy behavior, preserved) OR when the sync freshener degraded
+	// (timeout/error) — mirror of the series composer's degraded[] + async path.
+	// (S1b upgrades maybeTriggerHydration to also enqueue EntityMovie/PriorityHot.)
+	if uc.freshener == nil || freshDegraded {
+		uc.maybeTriggerHydration(ctx, canon)
+	}
+	if freshDegraded {
+		d.Degraded = append(d.Degraded, "enrichment")
+	}
 	return d, nil
 }
 

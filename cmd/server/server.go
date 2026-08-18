@@ -780,7 +780,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		keywordSearchClient = enrichBundle.TMDBHolder
 	}
-	httpServer, instanceMetadataBundle := wiring.BuildHTTPServer(
+	httpServer, instanceMetadataBundle, movieFreshenerHolder := wiring.BuildHTTPServer(
 		persistence, runtimecfg, auth,
 		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
 		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
@@ -947,6 +947,13 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			log.WarnContext(rootCtx, "movie enrichment disabled",
 				slog.String("error", merr.Error()))
 		} else {
+			// S1a late-bind — wire MovieWorker.HandleForced into the movie
+			// detail read-through freshener holder, mirroring the SeriesWorker
+			// → SeriesFreshenerHolder.Set at the series late-bind zone. Guarded:
+			// the holder is nil only if BuildMovieDetail was skipped.
+			if movieEnrich.Worker != nil && movieFreshenerHolder != nil {
+				movieFreshenerHolder.Set(movieEnrich.Worker)
+			}
 			if cfg.Cron.Enabled && movieEnrich.RefreshScheduler != nil {
 				movieRefreshInterval := 30 * time.Minute
 				if v := os.Getenv("SEASONFILL_MOVIE_REFRESH_INTERVAL"); v != "" {

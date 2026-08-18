@@ -25,6 +25,10 @@ type MovieDetailBundle struct {
 	OverviewHandler        *mdrest.MovieOverviewHandler        // Ф2.2 movie overview sub-endpoint
 	RatingsHandler         *mdrest.MovieRatingsHandler         // Ф2.3 movie ratings sub-endpoint
 	RecommendationsHandler *mdrest.MovieRecommendationsHandler // Ф2.4 movie recommendations sub-endpoint
+	// FreshenerHolder — S1a read-through freshener. Constructed here WITHOUT a
+	// worker (BuildMovieDetail runs before BuildMovieEnrichment); server.go's
+	// late-bind zone calls FreshenerHolder.Set(movieEnrich.Worker).
+	FreshenerHolder *mdapp.MovieFreshener
 }
 
 // BuildMovieDetail wires the read-only movie-detail aggregate + the movie
@@ -32,6 +36,7 @@ type MovieDetailBundle struct {
 func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *MovieDetailBundle {
 	domainLog := sharedports.DomainLogger(log, "http")
 	movieRepo := enrichpersistence.NewMovieRepository(db)
+	freshener := mdapp.NewMovieFreshener(5*time.Second, time.Now, domainLog)
 	uc := mdapp.New(
 		movieRepo,
 		enrichpersistence.NewMovieI18nReadRepository(db),
@@ -39,6 +44,7 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		catalogpersistence.NewMovieStatesRepository(db),
 	).
 		WithHydrationTrigger(movieRepo, time.Now, domainLog).
+		WithFreshener(freshener).
 		WithTaxonomy(
 			enrichpersistence.NewGenresRepository(db),
 			enrichpersistence.NewKeywordsRepository(db),
@@ -88,5 +94,6 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		OverviewHandler:        overviewHandler,
 		RatingsHandler:         ratingsHandler,
 		RecommendationsHandler: recsHandler,
+		FreshenerHolder:        freshener,
 	}
 }
