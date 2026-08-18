@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
-	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
+	migratepg "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
