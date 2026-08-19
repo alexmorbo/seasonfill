@@ -153,26 +153,24 @@ func (r *MovieI18nReadRepository) TitleLanguage(ctx context.Context, movieID dom
 }
 
 // HasLocalizedTextGap reports whether the (movieID, lang) localized row has a
-// text gap that is DUE for a re-hydration recheck (U-1b on-view heal). A gap is:
-// a movie_i18n row for this (movie_id, language) EXISTS whose title is NULL/empty
-// OR whose overview is NULL/empty, AND whose enriched_at is NULL or strictly older
-// than recheckBefore.
+// text gap that is DUE for a re-hydration attempt (on-view heal). A gap is: a
+// movie_i18n row for this (movie_id, language) EXISTS whose title is NULL/empty
+// OR whose overview is NULL/empty, AND whose movie's enrichment_text_synced_at
+// attempt clock is NULL or strictly older than recheckBefore.
 //
 //   - "row exists" gates out genuinely-untranslated movies (no row for this lang):
 //     TMDB never returned a translation, so there is nothing to heal — returning
 //     false keeps the freshener from firing HandleForced forever (anti-storm).
 //   - "title/overview empty" targets the U-1 empty-title bug (and a stray empty
 //     overview): the value the read ladder would otherwise fall back across langs for.
-//   - "enriched_at NULL or < recheckBefore" bounds the pathological "TMDB has an
-//     overview but no title" case to one recheck per recheckBefore window: after a
-//     HandleForced, UpsertEnriched stamps enriched_at = now, so the gap is suppressed
-//     until now + window even when the title stays empty.
+//   - "enrichment_text_synced_at NULL or < recheckBefore" bounds re-attempts to one
+//     per window. S-HEAL-FIX: this gate keys on the movies attempt clock (advanced by
+//     MarkTextSynced on EVERY HandleForced attempt), NOT movie_i18n.enriched_at, which
+//     the writer bumps unconditionally on a no-title write and so cannot cap the storm.
 //
-// Pure read, dialect-portable (EXISTS + IS NULL/” + timestamp compare, ? binds) so
-// it runs identically on Postgres (prod) and the SQLite test lane. Errors surface to
-// the caller, which fails CLOSED (treats as no-gap) — the background picker is the
-// backstop for a transient read error, and an on-request path must not fire a 5s TMDB
-// hydrate on a flaky read.
+// Pure read, dialect-portable (JOIN + EXISTS-shape + IS NULL/” + timestamp compare,
+// ? binds) so it runs identically on Postgres (prod) and the SQLite test lane. Errors
+// surface to the caller, which fails CLOSED (treats as no-gap).
 func (r *MovieI18nReadRepository) HasLocalizedTextGap(
 	ctx context.Context,
 	movieID domain.MovieID,
@@ -183,8 +181,9 @@ func (r *MovieI18nReadRepository) HasLocalizedTextGap(
 		return false, nil
 	}
 	const q = "SELECT 1 FROM movie_i18n mi " +
+		"JOIN movies m ON m.id = mi.movie_id " +
 		"WHERE mi.movie_id = ? AND mi.language = ? " +
-		"AND (mi.enriched_at IS NULL OR mi.enriched_at < ?) " +
+		"AND (m.enrichment_text_synced_at IS NULL OR m.enrichment_text_synced_at < ?) " +
 		"AND ((mi.title IS NULL OR mi.title = '') OR (mi.overview IS NULL OR mi.overview = '')) " +
 		"LIMIT 1"
 	var hit *int

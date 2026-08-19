@@ -50,9 +50,10 @@ type MovieI18nCoverageReader interface {
 }
 
 // movieTitleGapRecheck bounds how often a still-empty localized row is re-hydrated on
-// view. Reuses the text-section TTL: after a HandleForced stamps movie_i18n.enriched_at,
-// a title TMDB genuinely lacks is rechecked at most once per window (anti-storm).
-const movieTitleGapRecheck = 7 * 24 * time.Hour
+// view. S-HEAL-FIX: keyed on the always-advancing movies.enrichment_text_synced_at
+// attempt clock (see HasLocalizedTextGap), window 6h — kept in sync by contract with
+// the background picker (movie_refresh_query.go) and the mediadetail plugin.
+const movieTitleGapRecheck = 6 * time.Hour
 
 // MovieFreshener is the movie analog of adapters.SeriesFreshenerHolder: a
 // late-bound, singleflight-coalesced read-through freshener. Because movies have

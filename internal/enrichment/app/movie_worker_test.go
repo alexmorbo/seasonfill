@@ -278,6 +278,16 @@ func TestMovieWorker_HandleForced_WritesAllConfiguredLanguages(t *testing.T) {
 			wantLangs:    []string{"en-US"},
 			wantTitles:   map[string]string{"en-US": "Dune: Part Two"},
 		},
+		{
+			name: "ru translation present but blank title skips the ru write (S-HEAL-FIX A)",
+			translations: &tmdb.MovieTranslations{Translations: []tmdb.MovieTranslation{
+				{ISO6391: "en", Data: tmdb.MovieTranslationData{Title: "Dune: Part Two", Overview: "en ov", Tagline: "en tag"}},
+				// TMDB gave a ru overview but a BLANK ru title — the no-progress case.
+				{ISO6391: "ru", Data: tmdb.MovieTranslationData{Title: "", Overview: "ру описание", Tagline: "ру слоган"}},
+			}},
+			wantLangs:  []string{"en-US"}, // ru row skipped: no title-less UpsertEnriched
+			wantTitles: map[string]string{"en-US": "Dune: Part Two"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -324,4 +334,41 @@ func TestMovieWorker_HandleForced_WritesAllConfiguredLanguages(t *testing.T) {
 			assert.Equal(t, domain.MovieID(42), canon.textMarkedID)
 		})
 	}
+}
+
+// TestMovieWorker_HandleForced_TitlelessRuSkipsUpsertKeepsTextStamp is the S-HEAL-FIX
+// writer A assertion in isolation: a ru translation with a BLANK title must NOT trigger
+// UpsertEnriched for ru-RU (so movie_i18n.enriched_at is not advanced on a no-title
+// write), while MarkTextSynced STILL fires (the attempt clock advances every attempt).
+func TestMovieWorker_HandleForced_TitlelessRuSkipsUpsertKeepsTextStamp(t *testing.T) {
+	tmdbClient := &fakeMovieTMDB{resp: &tmdb.MovieResponse{
+		ID:           693134,
+		Title:        "Dune: Part Two", // en-US root
+		Overview:     "en ov",
+		Tagline:      "en tag",
+		PosterPath:   "/p.jpg",
+		BackdropPath: "/b.jpg",
+		Translations: &tmdb.MovieTranslations{Translations: []tmdb.MovieTranslation{
+			{ISO6391: "en", Data: tmdb.MovieTranslationData{Title: "Dune: Part Two", Overview: "en ov", Tagline: "en tag"}},
+			{ISO6391: "ru", Data: tmdb.MovieTranslationData{Title: "", Overview: "ру описание", Tagline: "ру слоган"}},
+		}},
+	}}
+	canon := &fakeMovieCanon{getResp: movieCanonWithTMDB(42, 693134)}
+	i18n := &fakeMovieI18n{}
+	w, err := NewMovieWorker(MovieWorkerDeps{TMDB: tmdbClient, Movies: canon, I18n: i18n})
+	require.NoError(t, err)
+
+	require.NoError(t, w.HandleForced(context.Background(), 42))
+
+	// Only the en-US base row is written; the blank-title ru row is skipped.
+	require.Equal(t, 1, i18n.calls, "exactly one i18n write (en-US); blank ru title skipped")
+	langs := make([]string, 0, len(i18n.writes))
+	for _, wr := range i18n.writes {
+		langs = append(langs, wr.lang)
+	}
+	assert.Equal(t, []string{"en-US"}, langs, "ru-RU must NOT be written on a blank title")
+
+	// Attempt clock STILL advances: MarkTextSynced fired once for this attempt.
+	assert.Equal(t, 1, canon.textMarkCalls, "MarkTextSynced must fire even when ru is skipped")
+	assert.Equal(t, domain.MovieID(42), canon.textMarkedID)
 }

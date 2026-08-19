@@ -20,10 +20,12 @@ type MovieRefreshCandidate struct {
 	Tier     enrichment.RefreshTier
 	SyncedAt *time.Time
 	// Heal mirrors the is_gap computed column: 1 when the movie was selected
-	// because a non-base localized text row is empty AND past the rolling recheck
-	// window. Drives seasonfill_movie_refresh_picked_heal_total. Unlike a one-shot
-	// backfill counter its steady-state rate is the genuinely-untranslatable floor
-	// (movies whose ru title TMDB never provides re-pick once per recheck window).
+	// because a non-base localized text row is empty AND its movies attempt clock
+	// (enrichment_text_synced_at) is NULL or past the rolling heal window (S-HEAL-FIX;
+	// no longer keyed on movie_i18n.enriched_at). Drives
+	// seasonfill_movie_refresh_picked_heal_total. Unlike a one-shot backfill counter
+	// its steady-state rate is the genuinely-untranslatable floor (movies whose ru
+	// title TMDB never provides re-pick once per attempt-clock window).
 	Heal bool
 }
 
@@ -33,14 +35,17 @@ type MovieRefreshCandidate struct {
 // posterGuardCutoff / CHANGED-arm race guard).
 const movieRefreshRaceGuard = 15 * time.Minute
 
-// movieI18nGapRecheck re-declares the on-view movie text plugin's recheck window
-// (movie_text_plugin.go:16 movieTitleGapRecheck, itself mirroring
-// moviedetail/app/freshener.go:55). Kept in sync by contract: it MUST equal the
-// on-view window so the background picker and the on-view freshener share ONE
-// self-healing gap definition (S-HEAL: background and on-view must not diverge).
-// After a HandleForced stamps movie_i18n.enriched_at = now, a still-empty
-// localized row is re-picked at most once per this window (anti-storm).
-const movieI18nGapRecheck = 7 * 24 * time.Hour
+// movieI18nHealAttemptWindow bounds how often the rolling ru-RU text-heal arm
+// re-selects a still-empty localized row. It is keyed on the ALWAYS-ADVANCING
+// movies.enrichment_text_synced_at attempt clock (stamped by MarkTextSynced on
+// every HandleForced attempt), NOT on movie_i18n.enriched_at — which the writer
+// bumps unconditionally even on a no-title write, defeating the old 7d gate
+// (S-HEAL-FIX F-02). MUST equal the on-view window (movie_text_plugin.go /
+// moviedetail/app/freshener.go) so background and on-view share ONE heal
+// definition. After an attempt stamps enrichment_text_synced_at = now, a
+// still-empty row is re-attempted at most once per this window (anti-storm floor
+// cap); a fixable row exits the set the instant a title lands.
+const movieI18nHealAttemptWindow = 6 * time.Hour
 
 // PickMovieRefreshCandidates returns up to `limit` candidates across the two movie
 // tiers, ordered by priority (changed → normal), then gap-first, then staleness
@@ -59,30 +64,30 @@ const movieI18nGapRecheck = 7 * 24 * time.Hour
 //     OR any of enrichment_{cast,keywords,recs,media}_synced_at IS NULL
 //     OR <rolling i18n gap>).
 //
-//     Rolling i18n-gap branch (S-HEAL — replaces the one-shot S3/U-1b guard): the
-//     movie is re-picked when there EXISTS a non-base (locale.SupportedUserLanguages
-//     minus locale.Default(), currently ["ru-RU"]) movie_i18n row that is
-//     (a) empty — NULL/” title OR NULL/” overview — AND (b) DUE for a recheck:
-//     enriched_at IS NULL OR enriched_at < now-movieI18nGapRecheck. This is the
-//     EXACT shape of MovieI18nReadRepository.HasLocalizedTextGap (movie_i18n_read.go:
-//     176-196), so background and on-view heal share one definition:
+//     Rolling i18n-gap branch (S-HEAL / S-HEAL-FIX — replaces the one-shot S3/U-1b
+//     guard): the movie is re-picked when there EXISTS a non-base
+//     (locale.SupportedUserLanguages minus locale.Default(), currently ["ru-RU"])
+//     movie_i18n row that is empty — NULL/” title OR NULL/” overview — AND the movie's
+//     ALWAYS-ADVANCING attempt clock m.enrichment_text_synced_at IS NULL OR
+//     < now-movieI18nHealAttemptWindow (6h). This is the EXACT shape of
+//     MovieI18nReadRepository.HasLocalizedTextGap (movie_i18n_read.go), so background
+//     and on-view heal share one definition:
 //
 //   - "row EXISTS" gates OUT genuinely-untranslated movies (no ru row at all):
 //     TMDB never returned a translation, nothing to heal, so re-fetching is
-//     wasted (movie_worker.go:180-184 skips the row for a missing translation).
+//     wasted (movie_worker.go skips the row for a missing translation).
 //
-//   - "empty title/overview" targets the U-1 empty-title bug (~10,806 movies
+//   - "empty title/overview" targets the U-1 empty-title bug (~10k movies
 //     carry a non-empty ru overview but an empty title) and stray empty overviews.
 //
-//   - "enriched_at NULL or < recheck" makes the branch ROLLING and self-healing:
-//     UpsertEnriched (movie_worker.go:187) advances movie_i18n.enriched_at every
-//     hydrate, so a just-healed-still-empty movie is suppressed for one window,
-//     then re-picked — no per-tick storm, but NOT a one-shot dead end.
-//
-//     NOTE: MarkTextSynced (movie_worker.go:209) still stamps
-//     enrichment_text_synced_at unconditionally. That column is NO LONGER read by
-//     this picker (the rolling clock is movie_i18n.enriched_at); the stamp is left
-//     unchanged because on-read consumers of the coarse text clock still rely on it.
+//   - "enrichment_text_synced_at NULL or < 6h window" makes the branch ROLLING and
+//     self-healing on the ATTEMPT clock, NOT movie_i18n.enriched_at (S-HEAL-FIX F-02:
+//     the writer bumped enriched_at unconditionally even on a no-title write, so the
+//     changed-poller re-armed it faster than the old 7d gate and heal never drained).
+//     MarkTextSynced (movie_worker.go) stamps enrichment_text_synced_at on EVERY
+//     HandleForced attempt, so a just-attempted-still-empty movie is suppressed for one
+//     6h window, then re-picked — no per-tick storm, but NOT a one-shot dead end; a
+//     fixable row lands a title on its first attempt and exits the set entirely.
 //     genres/companies (no stamp column) are intentionally excluded from the OR.
 //
 // R-A02-analog: the NORMAL arm carries `AND NOT (<changed-pending>)` (column refs
@@ -111,7 +116,7 @@ func (r *MovieRepository) PickMovieRefreshCandidates(
 	}
 	normalCutoff := now.UTC().Add(-ttl.Normal)
 	raceCutoff := now.UTC().Add(-movieRefreshRaceGuard)
-	recheckCutoff := now.UTC().Add(-movieI18nGapRecheck)
+	attemptCutoff := now.UTC().Add(-movieI18nHealAttemptWindow)
 
 	// nonBaseLangs — supported UI languages minus the base (currently ["ru-RU"]).
 	// When empty (base is the only UI language) the i18n branch is omitted so the
@@ -124,16 +129,20 @@ func (r *MovieRepository) PickMovieRefreshCandidates(
 		}
 	}
 
-	// gapPredicate — the rolling HasLocalizedTextGap-shaped EXISTS. Two binds per
-	// use: nonBaseLangs (IN (?)) then recheckCutoff (enriched_at < ?). Used TWICE:
-	// as the is_gap CASE column (SELECT list) and as the WHERE OR arm.
-	const gapPredicate = `EXISTS (
+	// gapPredicate — the rolling ru-RU text-heal EXISTS, gated on the ALWAYS-
+	// ADVANCING attempt clock (m.enrichment_text_synced_at) rather than the defeated
+	// movie_i18n.enriched_at (S-HEAL-FIX). Two binds per use: attemptCutoff
+	// (< ?, scalar) then nonBaseLangs (IN (?), slice). Used TWICE: as the is_gap CASE
+	// column (SELECT list) and as the WHERE OR arm. Parenthesised so `... OR (A AND B)`
+	// parses correctly inside the NORMAL WHERE OR-chain.
+	const gapPredicate = `((m.enrichment_text_synced_at IS NULL
+              OR m.enrichment_text_synced_at < ?)
+            AND EXISTS (
               SELECT 1 FROM movie_i18n mi
                WHERE mi.movie_id = m.id
                  AND mi.language IN (?)
-                 AND (mi.enriched_at IS NULL OR mi.enriched_at < ?)
                  AND ((mi.title IS NULL OR mi.title = '')
-                   OR (mi.overview IS NULL OR mi.overview = '')))`
+                   OR (mi.overview IS NULL OR mi.overview = ''))))`
 
 	isGapExpr := "0"
 	i18nWhereFragment := ""
@@ -182,19 +191,19 @@ LIMIT ?
 
 	// Positional binds, left-to-right in sqlStr:
 	//   1. raceCutoff          — CHANGED WHERE race guard (< ?)
-	//   2. nonBaseLangs, recheckCutoff — NORMAL SELECT is_gap CASE (IN (?), < ?)  [i18n only]
+	//   2. attemptCutoff, nonBaseLangs — NORMAL SELECT is_gap CASE (< ?, IN (?))  [i18n only]
 	//   3. normalCutoff        — NORMAL WHERE staleness (< ?)
-	//   4. nonBaseLangs, recheckCutoff — NORMAL WHERE i18n OR (IN (?), < ?)       [i18n only]
+	//   4. attemptCutoff, nonBaseLangs — NORMAL WHERE i18n OR (< ?, IN (?))       [i18n only]
 	//   5. nullSentinel        — ORDER BY sentinel
 	//   6. limit               — LIMIT
 	args := make([]any, 0, 10)
 	args = append(args, raceCutoff)
 	if len(nonBaseLangs) > 0 {
-		args = append(args, nonBaseLangs, recheckCutoff)
+		args = append(args, attemptCutoff, nonBaseLangs)
 	}
 	args = append(args, normalCutoff)
 	if len(nonBaseLangs) > 0 {
-		args = append(args, nonBaseLangs, recheckCutoff)
+		args = append(args, attemptCutoff, nonBaseLangs)
 	}
 	args = append(args, nullSentinel, limit)
 

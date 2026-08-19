@@ -183,6 +183,19 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 					continue
 				}
 				title, overview, tagline = tr.Title, tr.Overview, tr.Tagline
+				// S-HEAL-FIX (A): a non-base translation whose TITLE is blank is a
+				// NO-PROGRESS write. UpsertEnriched would COALESCE-preserve the existing
+				// empty title while UNCONDITIONALLY stamping movie_i18n.enriched_at = now,
+				// defeating the heal clock (F-02) and letting the changed-poller re-arm it
+				// faster than the recheck window. Skip the write entirely: enriched_at
+				// stays frozen, no new overview-present/title-empty row is minted, and the
+				// heal picker (now gated on the always-advancing enrichment_text_synced_at)
+				// keeps re-selecting the row — capped to once per window — until TMDB
+				// finally supplies a ru title. MarkTextSynced below still stamps THIS
+				// attempt, so the attempt clock advances every tick as required.
+				if title == "" {
+					continue
+				}
 			}
 			if err := w.deps.I18n.UpsertEnriched(ctx, canon.ID, lang,
 				title, overview, tagline,

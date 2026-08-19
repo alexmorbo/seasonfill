@@ -10,10 +10,12 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// movieTitleGapRecheck re-declares moviedetail/app's private constant (freshener.go:55):
-// after a HandleForced stamps movie_i18n.enriched_at, a still-empty localized title is
-// rechecked at most once per window (anti-storm). Kept in sync by contract.
-const movieTitleGapRecheck = 7 * 24 * time.Hour
+// movieTitleGapRecheck re-declares moviedetail/app's private constant (freshener.go).
+// S-HEAL-FIX: the on-view heal recency gate now keys on the always-advancing
+// movies.enrichment_text_synced_at attempt clock (see HasLocalizedTextGap), and the
+// window is 6h — kept in sync by contract with the background picker
+// (movie_refresh_query.go movieI18nHealAttemptWindow) and moviedetail/app/freshener.go.
+const movieTitleGapRecheck = 6 * time.Hour
 
 // movieCanonReader reads a movie canon by internal id. *enrichpersistence.MovieRepository.Get satisfies it.
 type movieCanonReader interface {

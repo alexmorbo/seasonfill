@@ -161,9 +161,9 @@ func TestMovieI18nRead_HasLocalizedTextGap(t *testing.T) {
 			ctx := context.Background()
 
 			now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
-			recheckBefore := now.Add(-7 * 24 * time.Hour)
-			old := now.Add(-30 * 24 * time.Hour) // older than the window → due
-			recent := now.Add(-1 * time.Hour)    // inside the window → suppressed
+			recheckBefore := now.Add(-6 * time.Hour) // S-HEAL-FIX window
+			old := now.Add(-30 * time.Hour)          // attempt clock older than window → due
+			recent := now.Add(-1 * time.Hour)        // attempt clock inside window → suppressed
 
 			mk := func(tmdb int) domain.MovieID {
 				tid := domain.TMDBID(tmdb)
@@ -171,33 +171,46 @@ func TestMovieI18nRead_HasLocalizedTextGap(t *testing.T) {
 				require.NoError(t, err)
 				return id
 			}
+			stamp := func(id domain.MovieID, at time.Time) {
+				require.NoError(t, mrepo.MarkTextSynced(ctx, id, at))
+			}
 			s := func(v string) *string { return &v }
+			// seedI18nRow already exists in this file; enriched_at value is irrelevant now.
 
-			// (a) overview present, title NULL, old enriched_at → GAP (the 10,806).
+			// (a) overview present, title NULL, attempt clock OLD → GAP.
 			gapMovie := mk(500)
-			seedI18nRow(t, db, gapMovie, "ru-RU", nil, s("русское описание"), old)
-			// (b) title + overview present → no gap.
+			seedI18nRow(t, db, gapMovie, "ru-RU", nil, s("русское описание"), now)
+			stamp(gapMovie, old)
+			// (b) title + overview present → no gap regardless of clock.
 			healthy := mk(501)
-			seedI18nRow(t, db, healthy, "ru-RU", s("Название"), s("описание"), old)
-			// (c) title empty but enriched_at recent → suppressed (anti-storm recheck bound).
+			seedI18nRow(t, db, healthy, "ru-RU", s("Название"), s("описание"), now)
+			stamp(healthy, old)
+			// (c) title empty but attempt clock RECENT → suppressed (anti-storm).
 			recentGap := mk(502)
-			seedI18nRow(t, db, recentGap, "ru-RU", nil, s("описание"), recent)
+			seedI18nRow(t, db, recentGap, "ru-RU", nil, s("описание"), now)
+			stamp(recentGap, recent)
 			// (d) no ru row at all → genuinely untranslated → no gap.
 			noRow := mk(503)
-			// (e) title = '' (empty string, not NULL) → GAP.
+			// (e) title = '' (empty string), attempt clock OLD → GAP.
 			emptyStr := mk(504)
-			seedI18nRow(t, db, emptyStr, "ru-RU", s(""), s("описание"), old)
+			seedI18nRow(t, db, emptyStr, "ru-RU", s(""), s("описание"), now)
+			stamp(emptyStr, old)
+			// (f) title empty, attempt clock NULL (never attempted) → GAP (NULL is due).
+			nullClock := mk(505)
+			seedI18nRow(t, db, nullClock, "ru-RU", nil, s("описание"), now)
+			// (no stamp → enrichment_text_synced_at stays NULL)
 
 			cases := []struct {
 				name string
 				id   domain.MovieID
 				want bool
 			}{
-				{"overview_set_title_null_old", gapMovie, true},
+				{"overview_set_title_null_old_clock", gapMovie, true},
 				{"healthy", healthy, false},
-				{"recent_enriched_at_suppressed", recentGap, false},
+				{"recent_attempt_clock_suppressed", recentGap, false},
 				{"no_row_untranslated", noRow, false},
 				{"empty_string_title", emptyStr, true},
+				{"null_attempt_clock_due", nullClock, true},
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
@@ -207,7 +220,6 @@ func TestMovieI18nRead_HasLocalizedTextGap(t *testing.T) {
 				})
 			}
 
-			// movie_id 0 / empty lang → false, no error (guard).
 			got, err := repo.HasLocalizedTextGap(ctx, 0, "ru-RU", recheckBefore)
 			require.NoError(t, err)
 			assert.False(t, got)

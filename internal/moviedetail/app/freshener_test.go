@@ -212,7 +212,7 @@ func TestMovieFreshener_TitleGap_TriggersHandleForced(t *testing.T) {
 	assert.True(t, res.Refreshed, "section-fresh movie with a title gap is healed on view")
 	assert.Equal(t, int64(1), r.calls.Load(), "HandleForced fired for the title gap")
 	assert.Equal(t, int64(1), cov.calls.Load(), "coverage reader consulted once")
-	assert.Equal(t, now.Add(-7*24*time.Hour), cov.recorded, "recheck window is 7d")
+	assert.Equal(t, now.Add(-6*time.Hour), cov.recorded, "recheck window is 6h")
 }
 
 // U-1b: section-fresh + ru title present (no gap) → no HandleForced.

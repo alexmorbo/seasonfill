@@ -70,17 +70,25 @@ func markMovieSections(t *testing.T, db *gorm.DB, id domain.MovieID, cast, keywo
 	require.NoError(t, db.Model(&database.MovieModel{}).Where("id = ?", id).UpdateColumns(updates).Error)
 }
 
-// seedMovieI18nAt seeds a movie_i18n row with explicit title/overview (nil → NULL)
-// AND an explicit enriched_at, so a test can place the localized row inside or
-// outside the rolling recheck window (movieI18nGapRecheck). The rolling picker
-// keys off enriched_at, so this is the knob the self-heal / anti-storm tests turn.
-func seedMovieI18nAt(t *testing.T, db *gorm.DB, id domain.MovieID, lang string, title, overview *string, enrichedAt time.Time) {
+// seedMovieI18nRow seeds a movie_i18n row with explicit title/overview (nil → NULL). The
+// heal picker (S-HEAL-FIX) keys recency off movies.enrichment_text_synced_at, NOT this
+// row's enriched_at, so enriched_at is set to `now` here purely to satisfy NOT NULL-free
+// columns; tests turn the anti-storm knob via stampAttempt below.
+func seedMovieI18nRow(t *testing.T, db *gorm.DB, id domain.MovieID, lang string, title, overview *string) {
 	t.Helper()
-	ea := enrichedAt.UTC()
+	n := time.Now().UTC()
 	require.NoError(t, db.Create(&database.MovieI18nModel{
 		MovieID: id, Language: lang, Title: title, Overview: overview,
-		EnrichedAt: &ea, UpdatedAt: ea,
+		EnrichedAt: &n, UpdatedAt: n,
 	}).Error)
+}
+
+// stampAttempt sets movies.enrichment_text_synced_at (the always-advancing heal attempt
+// clock) to the given time, placing the movie inside or outside the 6h heal window.
+func stampAttempt(t *testing.T, db *gorm.DB, id domain.MovieID, at time.Time) {
+	t.Helper()
+	require.NoError(t, db.Model(&database.MovieModel{}).Where("id = ?", id).
+		UpdateColumns(map[string]any{"enrichment_text_synced_at": at.UTC()}).Error)
 }
 
 // TestMovieRepository_PickMovieRefreshCandidates covers the 2-tier picker:
@@ -238,9 +246,9 @@ func TestMovieRepository_PickMovieRefreshCandidates_RollingI18nGap(t *testing.T)
 			ctx := context.Background()
 
 			now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
-			fresh := now.Add(-1 * time.Hour)       // within Normal TTL, no change flag
-			stale := now.Add(-8 * 24 * time.Hour)  // enriched_at older than 7d recheck
-			recent := now.Add(-1 * 24 * time.Hour) // enriched_at within the 7d window
+			fresh := now.Add(-1 * time.Hour)         // within Normal TTL, no change flag
+			oldAttempt := now.Add(-8 * time.Hour)    // attempt clock older than the 6h window
+			recentAttempt := now.Add(-1 * time.Hour) // attempt clock inside the 6h window
 			ttl := enrichment.DefaultRefreshTTL()
 			s := func(v string) *string { return &v }
 			allFresh := func(id domain.MovieID) {
@@ -248,42 +256,44 @@ func TestMovieRepository_PickMovieRefreshCandidates_RollingI18nGap(t *testing.T)
 			}
 
 			// (a) SELF-HEAL: warm-incomplete — ru-RU row with empty TITLE, overview
-			//     present, enriched_at STALE (>7d) → re-picked. THE ~10,806 case.
+			//     present, attempt clock STALE (>6h) → re-picked. THE ~9,944 case.
 			healEmptyTitle := seedMovie(t, db, 700, new(fresh), nil)
 			allFresh(healEmptyTitle)
-			seedMovieI18nAt(t, db, healEmptyTitle, "ru-RU", nil, s("русское описание"), stale)
+			seedMovieI18nRow(t, db, healEmptyTitle, "ru-RU", nil, s("русское описание"))
+			stampAttempt(t, db, healEmptyTitle, oldAttempt)
 
-			// (b) ANTI-STORM (fresh row): SAME shape but enriched_at RECENT (<7d) → NOT
-			//     re-picked (no per-tick storm; UpsertEnriched just advanced the clock).
+			// (b) ANTI-STORM (fresh row): SAME shape but attempt clock RECENT (<6h) → NOT
+			//     re-picked (no per-tick storm; MarkTextSynced just advanced the clock).
 			antiStormFresh := seedMovie(t, db, 701, new(fresh), nil)
 			allFresh(antiStormFresh)
-			seedMovieI18nAt(t, db, antiStormFresh, "ru-RU", nil, s("описание"), recent)
+			seedMovieI18nRow(t, db, antiStormFresh, "ru-RU", nil, s("описание"))
+			stampAttempt(t, db, antiStormFresh, recentAttempt)
 
 			// (c) GATED OUT (no row): genuinely-untranslated — NO ru-RU row at all →
 			//     NOT re-picked (row-exists gate; TMDB has no ru, re-fetch is wasted).
 			untranslated := seedMovie(t, db, 702, new(fresh), nil)
 			allFresh(untranslated)
 
-			// (d) COVERED: ru-RU title AND overview present (non-empty), enriched_at
+			// (d) COVERED: ru-RU title AND overview present (non-empty), attempt clock
 			//     stale → NOT re-picked (no empty field, nothing to heal).
 			covered := seedMovie(t, db, 703, new(fresh), nil)
 			allFresh(covered)
-			seedMovieI18nAt(t, db, covered, "ru-RU", s("Название"), s("описание"), stale)
+			seedMovieI18nRow(t, db, covered, "ru-RU", s("Название"), s("описание"))
+			stampAttempt(t, db, covered, oldAttempt)
 
 			// (e) SELF-HEAL empty OVERVIEW: title present, overview '' (empty string),
-			//     enriched_at stale → re-picked (empty '' treated as missing).
+			//     attempt clock stale → re-picked (empty '' treated as missing).
 			healEmptyOverview := seedMovie(t, db, 704, new(fresh), nil)
 			allFresh(healEmptyOverview)
-			seedMovieI18nAt(t, db, healEmptyOverview, "ru-RU", s("Название"), s(""), stale)
+			seedMovieI18nRow(t, db, healEmptyOverview, "ru-RU", s("Название"), s(""))
+			stampAttempt(t, db, healEmptyOverview, oldAttempt)
 
-			// (f) NULL enriched_at: empty title, enriched_at NULL → re-picked
+			// (f) NULL attempt clock: empty title, enrichment_text_synced_at NULL → re-picked
 			//     (NULL clock is always due).
 			healNullClock := seedMovie(t, db, 705, new(fresh), nil)
 			allFresh(healNullClock)
-			require.NoError(t, db.Create(&database.MovieI18nModel{
-				MovieID: healNullClock, Language: "ru-RU",
-				Title: nil, Overview: s("описание"), EnrichedAt: nil, UpdatedAt: now,
-			}).Error)
+			seedMovieI18nRow(t, db, healNullClock, "ru-RU", nil, s("описание"))
+			// (no stampAttempt → enrichment_text_synced_at stays NULL)
 
 			got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
 			require.NoError(t, err)
@@ -325,23 +335,25 @@ func TestMovieRepository_PickMovieRefreshCandidates_GapOrdering(t *testing.T) {
 			ctx := context.Background()
 
 			now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
-			recentTmdb := now.Add(-1 * time.Hour)     // within TTL
-			oldTmdb := now.Add(-40 * 24 * time.Hour)  // older than Normal TTL (14d)
-			staleI18n := now.Add(-8 * 24 * time.Hour) // enriched_at past the 7d recheck
+			recentTmdb := now.Add(-1 * time.Hour)    // within TTL
+			oldTmdb := now.Add(-40 * 24 * time.Hour) // older than Normal TTL (14d)
+			oldAttempt := now.Add(-8 * time.Hour)    // attempt clock past the 6h heal window
 			ttl := enrichment.DefaultRefreshTTL()
 			s := func(v string) *string { return &v }
 
 			// gapRecent: tmdb FRESH, all sections stamped, ru row empty-title + stale
-			//   enriched_at → picked ONLY via the i18n gap (is_gap=1).
+			//   attempt clock → picked ONLY via the i18n gap (is_gap=1).
 			gapRecent := seedMovie(t, db, 800, new(recentTmdb), nil)
 			markMovieSections(t, db, gapRecent, new(recentTmdb), new(recentTmdb), new(recentTmdb), new(recentTmdb))
-			seedMovieI18nAt(t, db, gapRecent, "ru-RU", nil, s("описание"), staleI18n)
+			seedMovieI18nRow(t, db, gapRecent, "ru-RU", nil, s("описание"))
+			stampAttempt(t, db, gapRecent, oldAttempt)
 
 			// completeOld: tmdb STALE (picked via tmdb-stale OR), full ru coverage →
 			//   is_gap=0. Older synced_at than gapRecent.
 			completeOld := seedMovie(t, db, 801, new(oldTmdb), nil)
 			markMovieSections(t, db, completeOld, new(oldTmdb), new(oldTmdb), new(oldTmdb), new(oldTmdb))
-			seedMovieI18nAt(t, db, completeOld, "ru-RU", s("Название"), s("описание"), staleI18n)
+			seedMovieI18nRow(t, db, completeOld, "ru-RU", s("Название"), s("описание"))
+			stampAttempt(t, db, completeOld, oldAttempt)
 
 			got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
 			require.NoError(t, err)
@@ -352,6 +364,145 @@ func TestMovieRepository_PickMovieRefreshCandidates_GapOrdering(t *testing.T) {
 			assert.True(t, got[0].Heal)
 			assert.Equal(t, completeOld, got[1].MovieID)
 			assert.False(t, got[1].Heal)
+		})
+	}
+}
+
+// TestMovieRepository_PickMovieRefreshCandidates_HealAttemptClock is the S-HEAL-FIX core:
+// the ru-RU text-heal arm re-selects a title-empty/overview-present row keyed on the
+// ALWAYS-ADVANCING movies.enrichment_text_synced_at attempt clock (window 6h), IGNORING
+// movie_i18n.enriched_at recency. Four named sub-assertions: fixable-drains, floor-no-storm,
+// title-fills-exits, series-untouched. Every movie here is tmdb-fresh with all 4 section
+// stamps non-NULL, so ONLY the i18n heal arm can pull it into NORMAL — isolating the
+// predicate under test.
+func TestMovieRepository_PickMovieRefreshCandidates_HealAttemptClock(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			s := func(v string) *string { return &v }
+
+			t.Run("fixable-drains", func(t *testing.T) {
+				db := backend.NewDB(t)
+				repo := NewMovieRepository(db)
+				ctx := context.Background()
+				now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+				fresh := now.Add(-1 * time.Hour)
+				ttl := enrichment.DefaultRefreshTTL()
+
+				// title-empty + overview-present, all sections fresh, attempt clock OLD
+				// (>6h) → SELECTED with Heal=true, EVEN THOUGH the i18n row's enriched_at
+				// is 'now' (recent). Proves enriched_at recency no longer suppresses.
+				id := seedMovie(t, db, 900, new(fresh), nil)
+				markMovieSections(t, db, id, new(fresh), new(fresh), new(fresh), new(fresh))
+				seedMovieI18nRow(t, db, id, "ru-RU", nil, s("русское описание"))
+				stampAttempt(t, db, id, now.Add(-8*time.Hour))
+
+				got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
+				require.NoError(t, err)
+				require.Len(t, got, 1, "the fixable row must be selected; got %+v", got)
+				assert.Equal(t, id, got[0].MovieID)
+				assert.True(t, got[0].Heal, "selected via the heal arm")
+				assert.Equal(t, enrichment.RefreshTierNormal, got[0].Tier)
+
+				// Writer lands the title (simulate a successful attempt): title non-empty
+				// + attempt clock advanced to now → row exits the heal set.
+				require.NoError(t, db.Model(&database.MovieI18nModel{}).
+					Where("movie_id = ? AND language = ?", id, "ru-RU").
+					UpdateColumns(map[string]any{"title": "Название"}).Error)
+				stampAttempt(t, db, id, now)
+
+				got2, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
+				require.NoError(t, err)
+				require.Len(t, got2, 0, "healed row must not be re-selected; got %+v", got2)
+			})
+
+			t.Run("floor-no-storm", func(t *testing.T) {
+				db := backend.NewDB(t)
+				repo := NewMovieRepository(db)
+				ctx := context.Background()
+				now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+				fresh := now.Add(-1 * time.Hour)
+				ttl := enrichment.DefaultRefreshTTL()
+
+				// A genuine floor row: title-empty + overview-EMPTY (TMDB has no ru at
+				// all beyond a stub). Attempt clock stamped to `now` (just attempted).
+				id := seedMovie(t, db, 901, new(fresh), nil)
+				markMovieSections(t, db, id, new(fresh), new(fresh), new(fresh), new(fresh))
+				seedMovieI18nRow(t, db, id, "ru-RU", nil, nil)
+				stampAttempt(t, db, id, now)
+
+				// Immediate second tick (same `now`): attempt clock is inside 6h → the
+				// floor row is NOT re-selected. This is the anti-storm guarantee: the
+				// floor does not consume the batch every tick.
+				got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
+				require.NoError(t, err)
+				require.Len(t, got, 0, "floor row must be suppressed within the window; got %+v", got)
+
+				// >6h later → re-attempted exactly once more (capped, not every tick).
+				later := now.Add(7 * time.Hour)
+				got2, err := repo.PickMovieRefreshCandidates(ctx, later, ttl, 50)
+				require.NoError(t, err)
+				require.Len(t, got2, 1, "floor row re-attempted once the window elapses; got %+v", got2)
+				assert.Equal(t, id, got2[0].MovieID)
+				assert.True(t, got2[0].Heal)
+			})
+
+			t.Run("title-fills-exits", func(t *testing.T) {
+				db := backend.NewDB(t)
+				repo := NewMovieRepository(db)
+				ctx := context.Background()
+				now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+				fresh := now.Add(-1 * time.Hour)
+				ttl := enrichment.DefaultRefreshTTL()
+
+				// Title AND overview present, attempt clock OLD → still NOT selected,
+				// proving the predicate excludes non-empty rows regardless of clock age
+				// (no storm on healthy rows).
+				id := seedMovie(t, db, 902, new(fresh), nil)
+				markMovieSections(t, db, id, new(fresh), new(fresh), new(fresh), new(fresh))
+				seedMovieI18nRow(t, db, id, "ru-RU", s("Название"), s("описание"))
+				stampAttempt(t, db, id, now.Add(-30*24*time.Hour))
+
+				got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
+				require.NoError(t, err)
+				require.Len(t, got, 0, "healthy row must never be selected; got %+v", got)
+			})
+
+			t.Run("series-untouched", func(t *testing.T) {
+				db := backend.NewDB(t)
+				mrepo := NewMovieRepository(db)
+				srepo := NewSeriesRepository(db)
+				ctx := context.Background()
+				now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+				fresh := now.Add(-1 * time.Hour)
+				ttl := enrichment.DefaultRefreshTTL()
+
+				// A movie with a heal gap (selectable) ...
+				mid := seedMovie(t, db, 903, new(fresh), nil)
+				markMovieSections(t, db, mid, new(fresh), new(fresh), new(fresh), new(fresh))
+				seedMovieI18nRow(t, db, mid, "ru-RU", nil, s("описание"))
+				stampAttempt(t, db, mid, now.Add(-8*time.Hour))
+
+				// ... plus a series with the analogous shape. The MOVIE picker reads only
+				// the movies/movie_i18n tables, so it must NEVER surface a series id — a
+				// structural no-series-regression guard. (The series picker + its own
+				// series.enrichment_text_synced_at predicate are untouched by this story;
+				// the full series_refresh_query_test.go suite must remain green.)
+				sid, err := srepo.Upsert(ctx, sampleCanon("heal-isolation"))
+				require.NoError(t, err)
+				require.NotZero(t, sid, "series stub must be seeded (coexists with the movie gap)")
+
+				// The movie picker reads only movies/movie_i18n, so despite a series row
+				// carrying the analogous shape it returns EXACTLY the one movie. (movies
+				// and series live in separate id spaces, so a numeric id compare is not a
+				// valid cross-table guard; the len==1 + Equal(mid) below IS the guard that
+				// no series row leaked into the movie picker's output.)
+				got, err := mrepo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
+				require.NoError(t, err)
+				require.Len(t, got, 1, "only the movie is pickable by the movie picker; got %+v", got)
+				assert.Equal(t, mid, got[0].MovieID, "movie picker must surface only the movie row")
+			})
 		})
 	}
 }
