@@ -8505,6 +8505,14 @@ export type components = {
              * @example Legendary Pictures
              */
             readonly studio?: string;
+            /**
+             * @description SyncedAt is the movie's last successful base TMDB enrichment moment
+             *     (canon.enrichment_tmdb_synced_at). Mirrors the series detail synced-at that
+             *     backs the "synced N ago" footer microcopy. nil = never enriched (cold canon /
+             *     Radarr-only stub) → omitted so the FE MovieSyncFooter renders nothing.
+             * @example 2026-08-17T03:14:00Z
+             */
+            readonly synced_at?: string;
             readonly tagline?: string;
             readonly title?: string;
             readonly tmdb_id?: number;

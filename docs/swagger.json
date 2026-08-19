@@ -2749,6 +2749,11 @@
                         "example": "Legendary Pictures",
                         "type": "string"
                     },
+                    "synced_at": {
+                        "description": "SyncedAt is the movie's last successful base TMDB enrichment moment\n(canon.enrichment_tmdb_synced_at). Mirrors the series detail synced-at that\nbacks the \"synced N ago\" footer microcopy. nil = never enriched (cold canon /\nRadarr-only stub) → omitted so the FE MovieSyncFooter renders nothing.",
+                        "example": "2026-08-17T03:14:00Z",
+                        "type": "string"
+                    },
                     "tagline": {
                         "type": "string"
                     },

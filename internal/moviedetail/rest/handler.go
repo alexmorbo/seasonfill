@@ -104,6 +104,7 @@ func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto
 		Homepage:         d.Canon.Homepage,
 		Budget:           d.Canon.Budget,
 		Revenue:          d.Canon.Revenue,
+		SyncedAt:         d.Canon.EnrichmentTMDBSyncedAt,
 		Degraded:         d.Degraded,
 	}
 	if d.Canon.TMDBID != nil {

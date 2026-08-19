@@ -60,8 +60,13 @@ type MovieDetailResponse struct {
 	Revenue *int64 `json:"revenue,omitempty" example:"451746275"`
 	// Trailer is the single best official trailer. Omitted when the movie has no
 	// trailer row (movie_videos empty). Reuses the shared dto.Trailer shape.
-	Trailer  *Trailer `json:"trailer,omitempty"`
-	Degraded []string `json:"degraded"`
+	Trailer *Trailer `json:"trailer,omitempty"`
+	// SyncedAt is the movie's last successful base TMDB enrichment moment
+	// (canon.enrichment_tmdb_synced_at). Mirrors the series detail synced-at that
+	// backs the "synced N ago" footer microcopy. nil = never enriched (cold canon /
+	// Radarr-only stub) → omitted so the FE MovieSyncFooter renders nothing.
+	SyncedAt *time.Time `json:"synced_at,omitempty" example:"2026-08-17T03:14:00Z"`
+	Degraded []string   `json:"degraded"`
 }
 
 // MovieDetailCompany is one production-company sidebar row (Ф2.5b). name / logo_asset /

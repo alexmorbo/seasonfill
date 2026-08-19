@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -190,12 +191,14 @@ func TestHandler_Get_NotFound(t *testing.T) {
 func TestHandler_Get_MapsMoneyAndIdentityFields(t *testing.T) {
 	t.Parallel()
 	tid := domain.TMDBID(1315772)
+	synced := time.Date(2026, 8, 17, 3, 14, 0, 0, time.UTC)
 	canon := movie.Canon{
 		ID: domain.MovieID(99), TMDBID: &tid, Title: "Flow",
-		OriginalTitle: new("Straume"),
-		Homepage:      new("https://www.dream-well.com/flow"),
-		Budget:        new(int64(85000000)),
-		Revenue:       new(int64(451746275)),
+		OriginalTitle:          new("Straume"),
+		Homepage:               new("https://www.dream-well.com/flow"),
+		Budget:                 new(int64(85000000)),
+		Revenue:                new(int64(451746275)),
+		EnrichmentTMDBSyncedAt: &synced,
 	}
 	h := newTestHandler(canon, nil, nil)
 
@@ -213,6 +216,8 @@ func TestHandler_Get_MapsMoneyAndIdentityFields(t *testing.T) {
 	assert.Equal(t, int64(85000000), *body.Budget)
 	require.NotNil(t, body.Revenue)
 	assert.Equal(t, int64(451746275), *body.Revenue)
+	require.NotNil(t, body.SyncedAt)
+	assert.True(t, synced.Equal(*body.SyncedAt))
 }
 
 func TestHandler_Get_NilMoneyAndIdentityFields_Omitted(t *testing.T) {
@@ -231,6 +236,7 @@ func TestHandler_Get_NilMoneyAndIdentityFields_Omitted(t *testing.T) {
 	assert.NotContains(t, wire, "homepage")
 	assert.NotContains(t, wire, "budget")
 	assert.NotContains(t, wire, "revenue")
+	assert.NotContains(t, wire, "synced_at")
 
 	var body dto.MovieDetailResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
@@ -238,4 +244,5 @@ func TestHandler_Get_NilMoneyAndIdentityFields_Omitted(t *testing.T) {
 	assert.Nil(t, body.Homepage)
 	assert.Nil(t, body.Budget)
 	assert.Nil(t, body.Revenue)
+	assert.Nil(t, body.SyncedAt)
 }
