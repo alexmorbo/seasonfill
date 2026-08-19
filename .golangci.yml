@@ -296,6 +296,14 @@ linters:
         linters:
           - forbidigo
         text: 'slog\.Default'
+      # internal/mediadetail/ inherits the same carve-out — the unified
+      # media-detail engine's Composer and Freshener constructors accept
+      # *slog.Logger and fall back to sharedports.DomainLogger(slog.Default(),
+      # "composer"|"enrichment") when nil (ADR-0022 S1).
+      - path: 'internal/mediadetail/'
+        linters:
+          - forbidigo
+        text: 'slog\.Default'
       # internal/request/ inherits the same carve-out — the request
       # UseCase (app) and Handler (rest) constructors accept *slog.Logger
       # and fall back to sharedports.DomainLogger(slog.Default(),

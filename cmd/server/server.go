@@ -71,6 +71,11 @@ type Server struct {
 	// A sequential server boot in the same process (the cmd/server E2E suite)
 	// otherwise panics on duplicate registration. nil-safe; Close is idempotent.
 	movieDiscoverBundle *wiring.MovieDiscoveryBundle
+	// ADR-0022 S1 — universal MediaDetail engine skeleton. Held so later
+	// stories' late-bind zone registers per-(type,section) plugins into
+	// .Registry + binds .Freshener.SetAsyncFallback, and so Shutdown can Close
+	// the freshener. EMPTY in S1 (no plugins) → zero runtime behavior change.
+	mediaDetailBundle *wiring.MediaDetailBundle
 }
 
 // New wires the server. The `armed` sentinel ensures bus.Close +
@@ -810,6 +815,16 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		movieStubResolverHolder.Set(wiring.NewMovieStubResolverAdapter(enrichBundle.TMDBHolder, persistence.DB, log))
 	}
 
+	// ADR-0022 S1 — construct the universal MediaDetail engine skeleton: an
+	// EMPTY SectionRegistry + the generic Freshener/Composer over it. No plugins
+	// are registered and no route is rewired in S1, so this is inert (zero
+	// runtime behavior change): EnsureFresh returns Fresh, Compose returns
+	// identity-only. Later ADR-0022 stories register per-(type,section) plugins
+	// into mediaDetailBundle.Registry and bind the async fallback HERE, in the
+	// late-bind zone (the dispatcher/repos are in scope). Held on the Server
+	// struct below so this is not a dead local.
+	mediaDetailBundle := wiring.BuildMediaDetail(log)
+
 	// F-07: the two static-named cachewatch caches (discover LRU +
 	// instance_metadata bundle) are registered in the cachewatch singleton
 	// by construction above. If a later boot step (BuildScheduler /
@@ -1082,6 +1097,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		discoverBundle:         discoverBundle,
 		metadataBundle:         instanceMetadataBundle,
 		movieDiscoverBundle:    movieDiscoverBundle,
+		mediaDetailBundle:      mediaDetailBundle,
 	}, nil
 }
 
