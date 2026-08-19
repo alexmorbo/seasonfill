@@ -838,6 +838,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.SeriesWorker != nil && mediaDetailBundle.SeriesForce != nil {
 		mediaDetailBundle.SeriesForce.Set(enrichBundle.SeriesWorker)
 	}
+	// ADR-0022 S3 — late-bind SeriesWorker into the (dormant) series cast plugin's
+	// Refresh; nothing drives the engine with a series MediaID at runtime (F-05).
+	if enrichBundle != nil && enrichBundle.SeriesWorker != nil && mediaDetailBundle.SeriesCastForce != nil {
+		mediaDetailBundle.SeriesCastForce.Set(enrichBundle.SeriesWorker)
+	}
 
 	// F-07: the two static-named cachewatch caches (discover LRU +
 	// instance_metadata bundle) are registered in the cachewatch singleton
@@ -1007,6 +1012,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			// MovieWorker.HandleForced; bind it into the plugin's late-bind holder.
 			if movieEnrich.Worker != nil && mediaDetailBundle.MovieForce != nil {
 				mediaDetailBundle.MovieForce.Set(movieEnrich.Worker)
+			}
+			// ADR-0022 S3 — the engine's (movie,cast) plugin Refresh drives
+			// MovieWorker.RefreshCast (localized cast-name people_texts drain).
+			if movieEnrich.Worker != nil && mediaDetailBundle.MovieCastForce != nil {
+				mediaDetailBundle.MovieCastForce.Set(movieEnrich.Worker)
 			}
 			// S1b late-bind — wire the movie hydration handler onto the
 			// dispatcher's movie goroutines (spawned at dispatcher.Start with

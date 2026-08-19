@@ -32,6 +32,13 @@ type MediaDetailBundle struct {
 	SeriesForce *mdadapters.SeriesAllLangsRefresherHolder
 	// SeriesOverview — dormant/unbound series overview probe (real Probe unreachable).
 	SeriesOverview *mdadapters.SeriesOverviewStalenessHolder
+
+	// MovieCastForce — late-bound movie worker for the movie castPlugin.Refresh.
+	// server.go calls Set(movieEnrich.Worker) at the movie-worker late-bind zone.
+	MovieCastForce *mdadapters.MovieCastRefresherHolder
+	// SeriesCastForce — late-bound SeriesWorker for the (dormant) series castPlugin.Refresh.
+	// server.go calls Set(enrichBundle.SeriesWorker) at the series late-bind zone.
+	SeriesCastForce *mdadapters.SeriesCastRefresherHolder
 }
 
 // BuildMediaDetail assembles the engine and registers the S2a text plugins. db
@@ -59,12 +66,40 @@ func BuildMediaDetail(db *gorm.DB, log *slog.Logger) *MediaDetailBundle {
 	registry.Register(mddomain.MediaTypeMovie, moviePlugin)
 	registry.Register(mddomain.MediaTypeSeries, seriesPlugin)
 
+	// ADR-0022 S3 — cast-name plugins. ONE shared castPlugin per type, driven by an
+	// injected per-type CastPort. The movie one is LIVE (the movie-detail engine open
+	// assesses it alongside the text plugin); the series one is registered but DORMANT
+	// (no runtime code drives the engine with a series MediaID — F-05).
+	movieCastForce := mdadapters.NewMovieCastRefresherHolder()
+	seriesCastForce := mdadapters.NewSeriesCastRefresherHolder()
+
+	movieCastPlugin := mdadapters.NewCastPlugin(
+		mdadapters.NewMovieCastPort(
+			enrichpersistence.NewPeopleTextsRepository(db),
+			enrichpersistence.NewMovieRepository(db),
+			movieCastForce,
+		),
+		locale.Default(),
+	)
+	seriesCastPlugin := mdadapters.NewCastPlugin(
+		mdadapters.NewSeriesCastPort(
+			enrichpersistence.NewPeopleTextsRepository(db),
+			enrichpersistence.NewSeriesRepository(db),
+			seriesCastForce,
+		),
+		locale.Default(),
+	)
+	registry.Register(mddomain.MediaTypeMovie, movieCastPlugin)
+	registry.Register(mddomain.MediaTypeSeries, seriesCastPlugin)
+
 	return &MediaDetailBundle{
-		Registry:       registry,
-		Freshener:      freshener,
-		Composer:       composer,
-		MovieForce:     movieForce,
-		SeriesForce:    seriesForce,
-		SeriesOverview: seriesOverview,
+		Registry:        registry,
+		Freshener:       freshener,
+		Composer:        composer,
+		MovieForce:      movieForce,
+		SeriesForce:     seriesForce,
+		SeriesOverview:  seriesOverview,
+		MovieCastForce:  movieCastForce,
+		SeriesCastForce: seriesCastForce,
 	}
 }

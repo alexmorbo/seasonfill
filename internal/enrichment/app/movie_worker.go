@@ -53,6 +53,12 @@ type MovieWorkerDeps struct {
 	People        PeopleRepo        // nil-OK
 	PersonCredits PersonCreditsPort // nil-OK
 	Tx            Transactor        // nil-OK
+	// PeopleTexts — ADR-0022 S3 movie CAST-NAME drain seam. Writes per-language
+	// person display names (people_texts) from the localized GetMovie(lang) credits
+	// payload, filling the gap writeCast leaves (stubs + person_credits + cast clock,
+	// but NOT localized names). nil-OK: when nil, MovieWorker.RefreshCast is a no-op;
+	// HandleForced is unaffected. Production impl: *enrichpersistence.PeopleTextsRepository.
+	PeopleTexts MoviePeopleTextsPort // nil-OK
 	// Genres / Keywords / Companies — Ф1.1b movie taxonomy trio writers. Each nil-OK:
 	// when nil the worker skips that writer (exact pre-Ф1.1b behavior, so existing
 	// movie_worker_test.go fixtures — which set none — stay green). Gated together with Tx

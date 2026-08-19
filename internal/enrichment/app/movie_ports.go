@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	enrichdomain "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/taxonomy"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -82,6 +83,14 @@ type MovieI18nWriter interface {
 // pre-R-5 behavior).
 type MovieCollectionPopulator interface {
 	PopulateCollection(ctx context.Context, collectionTMDBID int) error
+}
+
+// MoviePeopleTextsPort is the ADR-0022 S3 per-language person-display-name write
+// seam consumed by MovieWorker.RefreshCast. Production impl:
+// *enrichpersistence.PeopleTextsRepository.BatchUpsert. nil-OK on MovieWorkerDeps —
+// when nil, RefreshCast is a no-op (HandleForced's cast writer never wrote people_texts).
+type MoviePeopleTextsPort interface {
+	BatchUpsert(ctx context.Context, texts []people.PersonText) error
 }
 
 // MovieRefreshCandidate mirrors the persistence DTO into the app layer so the

@@ -118,3 +118,46 @@ func (r *PeopleTextsRepository) CastNameCoverage(
 	}
 	return int(coveredCnt), int(totalCnt), nil
 }
+
+// MovieCastNameCoverage returns (covered, total) localized cast-name coverage for
+// a MOVIE — the ADR-0022 S3 mirror of CastNameCoverage. total = distinct person_id
+// credited to the movie via person_credits(media_type='movie',
+// tmdb_media_id=movie.tmdb_id); covered = those with a people_texts row
+// (language == language AND name IS NOT NULL). Returns (0,0,nil) for a movie with no
+// cast (incl. a Radarr orphan with no TMDB id — the JOIN yields no rows). Mirrors
+// CastNameCoverage's two-count shape; the only difference is the movies JOIN and the
+// 'movie' media_type discriminator (writeCast stamps media_type='movie').
+func (r *PeopleTextsRepository) MovieCastNameCoverage(
+	ctx context.Context,
+	movieID domain.MovieID,
+	language string,
+) (covered, total int, err error) {
+	db := dbFromContext(ctx, r.db).WithContext(ctx)
+
+	// "movie" mirrors tmdb.MediaTypeMovie — the media_type the movie cast writer
+	// stamps in person_credits (MapMovieCast → PersonCredit.MediaType).
+	const mediaTypeMovie = "movie"
+	base := func() *gorm.DB {
+		return db.
+			Table("person_credits AS pc").
+			Joins("JOIN movies m ON m.tmdb_id = pc.tmdb_media_id").
+			Where("m.id = ? AND pc.media_type = ?", movieID, mediaTypeMovie)
+	}
+
+	var totalCnt int64
+	if e := base().Distinct("pc.person_id").Count(&totalCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count movie cast persons: %w", e)
+	}
+	if totalCnt == 0 {
+		return 0, 0, nil
+	}
+
+	var coveredCnt int64
+	if e := base().
+		Joins("JOIN people_texts pt ON pt.person_id = pc.person_id AND pt.language = ? AND pt.name IS NOT NULL", language).
+		Distinct("pc.person_id").
+		Count(&coveredCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count people_texts for movie cast: %w", e)
+	}
+	return int(coveredCnt), int(totalCnt), nil
+}

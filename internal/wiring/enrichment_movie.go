@@ -150,6 +150,7 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 		People:        peopleRepo,
 		PersonCredits: personCredits,
 		Tx:            tx,
+		PeopleTexts:   enrichpersistence.NewPeopleTextsRepository(deps.Persistence.DB),
 		Genres:        GenresRepoAdapter{Main: genresRepo, I18n: genresI18n},
 		Keywords:      KeywordsRepoAdapter{Main: keywordsRepo, I18n: keywordsI18n},
 		Companies:     companiesRepo,
