@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -74,16 +75,25 @@ func (h *Handler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, h.toMovieDetailResponse(c.Request.Context(), d))
 }
 
+// heroResolveBudget caps the first-fold hero poster + backdrop synchronous
+// media resolve, mirroring the series skeleton hero (seriesdetail/app/
+// skeleton.go:189). Async Resolve returns nil on a cold miss → placeholder SVG
+// → a blank hero on first open; ResolveSync blocks (within this budget) so the
+// hero paints the real poster/backdrop on the first fold.
+const heroResolveBudget = 1500 * time.Millisecond
+
 func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto.MovieDetailResponse {
 	poster := d.Poster
 	backdrop := d.Backdrop
 	if h.resolver != nil {
-		if hash := h.resolver.Resolve(ctx, d.Poster, "w342", "poster_w342"); hash != nil {
+		syncCtx, cancel := context.WithTimeout(ctx, heroResolveBudget)
+		if hash := h.resolver.ResolveSync(syncCtx, d.Poster, "w342", "poster_w342"); hash != nil {
 			poster = hash
 		}
-		if hash := h.resolver.Resolve(ctx, d.Backdrop, "w780", "backdrop_w780"); hash != nil {
+		if hash := h.resolver.ResolveSync(syncCtx, d.Backdrop, "w780", "backdrop_w780"); hash != nil {
 			backdrop = hash
 		}
+		cancel()
 	}
 	out := dto.MovieDetailResponse{
 		Title:            d.Title,

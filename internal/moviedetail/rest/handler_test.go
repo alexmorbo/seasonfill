@@ -176,6 +176,81 @@ func TestHandler_Get_ResolvesImages(t *testing.T) {
 	})
 }
 
+// TestHandler_Get_HeroResolvesSynchronously is the ADR-0022 S5 guard: the
+// first-fold hero poster (w342) AND backdrop (w780) must resolve SYNCHRONOUSLY
+// (mirroring the series skeleton hero), so a warm store hit paints on the first
+// fold instead of the async-Resolve blank-then-placeholder path.
+func TestHandler_Get_HeroResolvesSynchronously(t *testing.T) {
+	t.Parallel()
+	const (
+		posterHash   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		backdropHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	rawPoster := "/hero_p.jpg"
+	rawBackdrop := "/hero_b.jpg"
+	tid := domain.TMDBID(693134)
+
+	newHandler := func(resolver *media.Resolver) *Handler {
+		canon := movie.Canon{
+			ID: domain.MovieID(42), TMDBID: &tid, Title: "Dune: Part Two",
+			PosterAsset:   &rawPoster,
+			BackdropAsset: &rawBackdrop,
+		}
+		uc := mdapp.New(
+			stubCanon{canon: canon},
+			stubI18n{},
+			stubCollection{},
+			stubMembership{},
+		)
+		return NewHandler(uc, resolver, nil)
+	}
+
+	// (a) WARM hit: the sync lookup returns the stored hash for both hero
+	// sizes, so the response carries them without any async pass.
+	t.Run("warm hit paints resolved hero hash synchronously", func(t *testing.T) {
+		lookup := mdMediaLookupStub{byURL: map[string]string{
+			appmedia.BuildTMDBImageURL("w342", rawPoster):   posterHash,
+			appmedia.BuildTMDBImageURL("w780", rawBackdrop): backdropHash,
+		}}
+		resolver := media.NewResolver(lookup, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+		w := doGet(newHandler(resolver), "693134")
+		require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+		var body dto.MovieDetailResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.NotNil(t, body.Poster)
+		require.NotNil(t, body.Backdrop)
+		assert.Equal(t, posterHash, *body.Poster, "warm hero poster hash must resolve synchronously")
+		assert.Equal(t, backdropHash, *body.Backdrop, "warm hero backdrop hash must resolve synchronously")
+	})
+
+	// (b) COLD path (no fetcher, budget-miss): the handler must fall back
+	// cleanly — no panic, no indefinite block — and return well within a
+	// bounded time. ResolveSync with a nil fetcher takes the eager-hash path,
+	// so the hero carries a deterministic non-raw hash.
+	t.Run("cold miss falls back cleanly within bounded time", func(t *testing.T) {
+		lookup := mdMediaLookupStub{byURL: map[string]string{}} // every lookup misses
+		resolver := media.NewResolver(lookup, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+		done := make(chan *httptest.ResponseRecorder, 1)
+		go func() { done <- doGet(newHandler(resolver), "693134") }()
+
+		select {
+		case w := <-done:
+			require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+			var body dto.MovieDetailResponse
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			// Eager-hash path: a non-nil, non-raw hero poster (never blocks
+			// past the eager fallback with a nil fetcher).
+			require.NotNil(t, body.Poster)
+			assert.NotEqual(t, rawPoster, *body.Poster, "cold miss must not emit the raw path")
+		case <-time.After(5 * time.Second):
+			t.Fatal("handler blocked past the bounded hero-resolve budget")
+		}
+	})
+}
+
 func TestHandler_Get_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(movie.Canon{}, ports.ErrNotFound, nil)
