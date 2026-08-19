@@ -52,9 +52,9 @@ func f13FullPayload() *tmdb.MovieResponse {
 		VoteAverage:   8.2,
 		PosterPath:    "/matrix_poster.jpg",
 		BackdropPath:  "/matrix_backdrop.jpg",
-		Translations: &tmdb.TVTranslations{Translations: []tmdb.TVTranslation{
-			{ISO6391: "en", Data: tmdb.TVTranslationData{Name: "The Matrix", Overview: "en ov", Tagline: "en tag"}},
-			{ISO6391: "ru", Data: tmdb.TVTranslationData{Name: "Матрица", Overview: "ру описание", Tagline: "ру слоган"}},
+		Translations: &tmdb.MovieTranslations{Translations: []tmdb.MovieTranslation{
+			{ISO6391: "en", Data: tmdb.MovieTranslationData{Title: "The Matrix", Overview: "en ov", Tagline: "en tag"}},
+			{ISO6391: "ru", Data: tmdb.MovieTranslationData{Title: "Матрица", Overview: "ру описание", Tagline: "ру слоган"}},
 		}},
 		Credits: &tmdb.MovieCredits{Cast: []tmdb.MovieCastMember{
 			{ID: 6384, Name: "Keanu Reeves", CreditID: "c-neo", Order: 0},
@@ -206,6 +206,15 @@ func TestF1_3_MovieChangesReenrich_Loop_Postgres(t *testing.T) {
 				Select("title").Where("movie_id = ? AND language = ?", seedID, "en-US").
 				Row().Scan(&enTitle))
 			require.Equal(t, "The Matrix", enTitle, "en-US i18n row carries the re-enriched title")
+
+			// U-1 guard: the movie translation mapper must read data.title (movie
+			// shape), so the ru-RU localized title POPULATES from resp.Translations
+			// rather than landing empty (the whole point of the MovieTranslations type).
+			var ruTitle string
+			require.NoError(t, gdb.WithContext(ctx).Table("movie_i18n").
+				Select("title").Where("movie_id = ? AND language = ?", seedID, "ru-RU").
+				Row().Scan(&ruTitle))
+			require.Equal(t, "Матрица", ruTitle, "ru-RU i18n row carries the re-enriched localized title from data.title")
 
 			// 5. Confidence gate — no re-pick churn: synced_at is now newer than
 			// tmdb_changed_at, so the movie falls out of the CHANGED tier and (being
