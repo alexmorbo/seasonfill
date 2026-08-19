@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle, Star, ExternalLink, Clock, Plus, ChevronDown, PlayCircle,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useLanguage } from '@/hooks/useLanguage';
 import { MediaImage } from '@/components/MediaImage';
@@ -15,11 +14,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
-import { StatusBadge } from '@/components/StatusBadge';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
 import { KeywordChips } from '@/components/series-detail/KeywordChips';
-import { CountryName } from '@/components/series-detail/CountryName';
-import { LanguageName } from '@/components/series-detail/LanguageName';
 import { TrailerModal } from '@/components/series-detail/TrailerModal';
 import { useMovie, type MovieDetail, type MovieDetailLibrary } from '@/api/movies';
 import { useMovieOverview } from '@/api/movieOverview';
@@ -29,6 +25,9 @@ import { MovieCastStrip } from '@/components/movies/MovieCastStrip';
 import { MovieRatingsSection } from '@/components/movies/MovieRatingsSection';
 import { MovieRecommendationsRail } from '@/components/movies/MovieRecommendationsRail';
 import { MovieCollectionBlock } from '@/components/movies/MovieCollectionBlock';
+import { MovieSidebar } from '@/components/movies/MovieSidebar';
+import { MovieExternalLinksFooter } from '@/components/movies/MovieExternalLinksFooter';
+import { MovieSyncFooter } from '@/components/movies/MovieSyncFooter';
 import { useAddToRadarrLauncher } from '@/components/movies/add-to-radarr-context';
 import { useInstances } from '@/lib/instances';
 import { buildRadarrMovieHref } from '@/lib/radarrUrl';
@@ -164,104 +163,6 @@ function OpenInRadarrButton({ tmdbId, instanceName }: { tmdbId: number; instance
   );
 }
 
-// MetaRow — one right-rail sidebar row (label + value), mirroring RailCard's
-// RailRow. Local to the page (page-level composition, not a section rebuild).
-function MetaRow({
-  label, value, accent, testId,
-}: {
-  label: string;
-  value: React.ReactNode;
-  accent?: boolean;
-  testId?: string;
-}) {
-  return (
-    <div
-      data-testid={testId}
-      className="flex items-center justify-between gap-3.5 py-[9px] text-[12.5px] border-b border-border-faint last:border-b-0"
-    >
-      <span className="text-tx-muted whitespace-nowrap">{label}</span>
-      <span className={cn(
-        'font-medium text-right min-w-0 inline-flex items-center gap-1.5',
-        accent ? 'text-accent' : 'text-tx-secondary',
-      )}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-// MovieSidebar — the right-rail metadata card, the movie analogue of RailCard.
-// Reuses the series-detail leaves (StatusBadge / CountryName / LanguageName /
-// KeywordChips) and the generic seriesDetail.rail.* labels (no movie-specific
-// rail i18n keys exist).
-function MovieSidebar({ movie }: { movie: MovieDetail }) {
-  const { t } = useTranslation();
-
-  const country = movie.countries?.[0] ?? movie.country;
-  const showStatus = Boolean(movie.status);
-  const showStudio = Boolean(movie.studio);
-  const showCountry = Boolean(country);
-  const showLanguage = Boolean(movie.original_language);
-  const keywords = movie.keywords ?? [];
-  const showKeywords = keywords.length > 0;
-
-  if (!showStatus && !showStudio && !showCountry && !showLanguage && !showKeywords) {
-    return null;
-  }
-
-  return (
-    <div
-      data-testid="movie-detail-sidebar"
-      className={cn(
-        'flex flex-col overflow-hidden rounded-lg border border-white/10 bg-bg-surface/40 backdrop-blur-md',
-        'lg:sticky lg:top-[64px]',
-      )}
-    >
-      <div className="px-4 pt-1 pb-1">
-        {showStatus && (
-          <MetaRow
-            label={t('seriesDetail.rail.status')}
-            testId="movie-detail-sidebar-status"
-            value={<StatusBadge value={movie.status} />}
-          />
-        )}
-        {showStudio && (
-          <MetaRow
-            label={t('seriesDetail.rail.studio')}
-            testId="movie-detail-sidebar-studio"
-            value={<span data-testid="movie-detail-sidebar-studio-value">{movie.studio}</span>}
-          />
-        )}
-        {showCountry && (
-          <MetaRow
-            label={t('seriesDetail.rail.country', { count: 1 })}
-            testId="movie-detail-sidebar-country"
-            value={<CountryName code={country} />}
-          />
-        )}
-        {showLanguage && (
-          <MetaRow
-            label={t('seriesDetail.rail.originalLanguage')}
-            testId="movie-detail-sidebar-language"
-            value={<LanguageName code={movie.original_language} />}
-          />
-        )}
-      </div>
-      {showKeywords && (
-        <div
-          data-testid="movie-detail-sidebar-keywords"
-          className="border-t border-border-faint px-4 py-3.5"
-        >
-          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-tx-faint mb-2.5">
-            {t('seriesDetail.overview.keywords')}
-          </div>
-          <KeywordChips chips={keywords} />
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function MovieDetail() {
   const { t } = useTranslation();
   const { tmdbId: tmdbParam } = useParams();
@@ -319,6 +220,15 @@ export function MovieDetail() {
   const showImdb = typeof movie.imdb_rating === 'number' && movie.imdb_rating > 0;
   const library = movie.library ?? [];
   const genres = movie.genres ?? [];
+
+  // Synced/stale footer — mirror of the SeriesDetail synced footer. The movie
+  // DTO does not yet expose synced_at (S4 shipped the 4 money/identity fields
+  // only); read it forward-compatibly so the footer lights up the moment BE
+  // adds the column. degraded[] IS present on the DTO today.
+  const degraded = movie.degraded ?? [];
+  const tmdbStale = degraded.some((d) => d.startsWith('tmdb'));
+  const omdbStale = degraded.includes('omdb');
+  const syncedAt = (movie as MovieDetail & { synced_at?: string }).synced_at;
 
   // Overview block — base movie.overview paints on first frame (gating query),
   // the localized /overview endpoint refines it once it lands. loading only
@@ -545,6 +455,20 @@ export function MovieDetail() {
 
       {/* Recommendations rail (self-fetches). */}
       <MovieRecommendationsRail tmdbId={movie.tmdb_id ?? tmdbId} />
+
+      {/* External-links footer (movie /movie/ TMDB path + IMDb + homepage). */}
+      <MovieExternalLinksFooter
+        {...(typeof movie.tmdb_id === 'number' ? { tmdbId: movie.tmdb_id } : {})}
+        {...(movie.imdb_id ? { imdbId: movie.imdb_id } : {})}
+        {...(movie.homepage ? { homepage: movie.homepage } : {})}
+      />
+
+      {/* Synced/stale footer (dormant until BE adds synced_at — see S5 note). */}
+      <MovieSyncFooter
+        {...(syncedAt ? { syncedAt } : {})}
+        {...(tmdbStale ? { tmdbStale: true } : {})}
+        {...(omdbStale ? { omdbStale: true } : {})}
+      />
 
       {trailerKey && (
         <TrailerModal

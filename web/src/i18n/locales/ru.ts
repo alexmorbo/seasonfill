@@ -2953,6 +2953,9 @@ export const ru: Translations = {
     meta: {
       runtime: '{{count}} мин',
       released: 'Премьера {{date}}',
+      budget: 'Бюджет',
+      revenue: 'Сборы',
+      originalTitle: 'Оригинальное название',
     },
     library: {
       title: 'В вашей библиотеке',

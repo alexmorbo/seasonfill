@@ -2955,6 +2955,9 @@ export const en = {
     meta: {
       runtime: '{{count}} min',
       released: 'Released {{date}}',
+      budget: 'Budget',
+      revenue: 'Revenue',
+      originalTitle: 'Original title',
     },
     library: {
       title: 'In your library',
