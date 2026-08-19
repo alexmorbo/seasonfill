@@ -153,3 +153,61 @@ func TestDecision_OmitsIntentWhenNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "intent")
 }
+
+func TestMovieDetailResponse_MoneyAndIdentityFields_Present(t *testing.T) {
+	t.Parallel()
+	// Real control-movie values (TMDB 1315772 per ADR-0021 Facts).
+	resp := MovieDetailResponse{
+		TMDBID:        1315772,
+		Title:         "Flow",
+		OriginalTitle: new("Straume"),
+		Homepage:      new("https://www.dream-well.com/flow"),
+		Budget:        new(int64(85000000)),
+		Revenue:       new(int64(451746275)),
+	}
+
+	b, err := json.Marshal(resp)
+	require.NoError(t, err)
+
+	var wire map[string]any
+	require.NoError(t, json.Unmarshal(b, &wire))
+
+	assert.Equal(t, "Straume", wire["original_title"])
+	assert.Equal(t, "https://www.dream-well.com/flow", wire["homepage"])
+	// JSON numbers decode to float64 in a map[string]any.
+	assert.Equal(t, float64(85000000), wire["budget"])
+	assert.Equal(t, float64(451746275), wire["revenue"])
+}
+
+func TestMovieDetailResponse_MoneyAndIdentityFields_OmittedWhenNil(t *testing.T) {
+	t.Parallel()
+	resp := MovieDetailResponse{TMDBID: 1315772, Title: "Flow"}
+
+	b, err := json.Marshal(resp)
+	require.NoError(t, err)
+
+	var wire map[string]any
+	require.NoError(t, json.Unmarshal(b, &wire))
+
+	// omitempty on nil pointers drops the keys entirely.
+	assert.NotContains(t, wire, "original_title")
+	assert.NotContains(t, wire, "homepage")
+	assert.NotContains(t, wire, "budget")
+	assert.NotContains(t, wire, "revenue")
+}
+
+func TestMovieDetailResponse_KnownZeroBudget_PassesThrough(t *testing.T) {
+	t.Parallel()
+	// A non-nil pointer to 0 is a KNOWN "no reported budget" and must survive
+	// omitempty (pointer is non-nil) so the FE can apply its own hide-zero rule.
+	resp := MovieDetailResponse{TMDBID: 1315772, Title: "Flow", Budget: new(int64(0))}
+
+	b, err := json.Marshal(resp)
+	require.NoError(t, err)
+
+	var wire map[string]any
+	require.NoError(t, json.Unmarshal(b, &wire))
+
+	require.Contains(t, wire, "budget", "non-nil pointer to 0 must NOT be omitted")
+	assert.Equal(t, float64(0), wire["budget"])
+}

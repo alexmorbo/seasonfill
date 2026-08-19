@@ -186,3 +186,56 @@ func TestHandler_Get_NotFound(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "MOVIE_NOT_FOUND", body.Code)
 }
+
+func TestHandler_Get_MapsMoneyAndIdentityFields(t *testing.T) {
+	t.Parallel()
+	tid := domain.TMDBID(1315772)
+	canon := movie.Canon{
+		ID: domain.MovieID(99), TMDBID: &tid, Title: "Flow",
+		OriginalTitle: new("Straume"),
+		Homepage:      new("https://www.dream-well.com/flow"),
+		Budget:        new(int64(85000000)),
+		Revenue:       new(int64(451746275)),
+	}
+	h := newTestHandler(canon, nil, nil)
+
+	w := doGet(h, "1315772")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body dto.MovieDetailResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
+	require.NotNil(t, body.OriginalTitle)
+	assert.Equal(t, "Straume", *body.OriginalTitle)
+	require.NotNil(t, body.Homepage)
+	assert.Equal(t, "https://www.dream-well.com/flow", *body.Homepage)
+	require.NotNil(t, body.Budget)
+	assert.Equal(t, int64(85000000), *body.Budget)
+	require.NotNil(t, body.Revenue)
+	assert.Equal(t, int64(451746275), *body.Revenue)
+}
+
+func TestHandler_Get_NilMoneyAndIdentityFields_Omitted(t *testing.T) {
+	t.Parallel()
+	tid := domain.TMDBID(1315772)
+	canon := movie.Canon{ID: domain.MovieID(99), TMDBID: &tid, Title: "Flow"}
+	h := newTestHandler(canon, nil, nil)
+
+	w := doGet(h, "1315772")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Decode into a raw map to assert the keys are absent (omitempty), not just nil.
+	var wire map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &wire))
+	assert.NotContains(t, wire, "original_title")
+	assert.NotContains(t, wire, "homepage")
+	assert.NotContains(t, wire, "budget")
+	assert.NotContains(t, wire, "revenue")
+
+	var body dto.MovieDetailResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Nil(t, body.OriginalTitle)
+	assert.Nil(t, body.Homepage)
+	assert.Nil(t, body.Budget)
+	assert.Nil(t, body.Revenue)
+}

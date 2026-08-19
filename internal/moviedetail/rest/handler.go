@@ -100,6 +100,10 @@ func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto
 		TMDBRating:       d.Canon.TMDBRating,
 		IMDBRating:       d.Canon.IMDBRating,
 		OriginalLanguage: d.Canon.OriginalLanguage,
+		OriginalTitle:    d.Canon.OriginalTitle,
+		Homepage:         d.Canon.Homepage,
+		Budget:           d.Canon.Budget,
+		Revenue:          d.Canon.Revenue,
 		Degraded:         d.Degraded,
 	}
 	if d.Canon.TMDBID != nil {

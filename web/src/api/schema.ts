@@ -8424,6 +8424,13 @@ export type components = {
         };
         readonly "dto.MovieDetailResponse": {
             readonly backdrop?: string;
+            /**
+             * @description Budget is the production budget in whole US dollars (canon.budget). A non-nil pointer
+             *     to 0 is a known "no reported budget" and the FE hides a zero-value money row (ADR §S5);
+             *     nil = unknown and is omitted. Omitted when canon has none.
+             * @example 85000000
+             */
+            readonly budget?: number;
             readonly collection?: components["schemas"]["dto.MovieDetailCollection"];
             /**
              * @description Companies is the full production-company list in join order (position ASC).
@@ -8453,6 +8460,11 @@ export type components = {
              *     had no row). Omitted when the movie has no genres attached yet.
              */
             readonly genres?: readonly components["schemas"]["dto.TaxonomyChip"][];
+            /**
+             * @description Homepage is the movie's official homepage URL from canon. Omitted when canon has none.
+             * @example https://www.dune-movie.com
+             */
+            readonly homepage?: string;
             readonly imdb_id?: string;
             readonly imdb_rating?: number;
             /**
@@ -8467,10 +8479,23 @@ export type components = {
              * @example en
              */
             readonly original_language?: string;
+            /**
+             * @description OriginalTitle is the movie's title in its original language (canon.original_title,
+             *     e.g. "Sen to Chihiro no kamikakushi"). Distinct from the localized/display Title.
+             *     Omitted when canon has none. FE shows it as a subtitle only when it differs from Title.
+             * @example Sen to Chihiro no kamikakushi
+             */
+            readonly original_title?: string;
             readonly overview?: string;
             readonly physical_release_date?: string;
             readonly poster?: string;
             readonly release_date?: string;
+            /**
+             * @description Revenue is the worldwide box-office gross in whole US dollars (canon.revenue). Same
+             *     nil-vs-zero semantics as Budget. Omitted when canon has none.
+             * @example 451746275
+             */
+            readonly revenue?: number;
             readonly runtime_minutes?: number;
             readonly status?: string;
             /**

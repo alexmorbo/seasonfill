@@ -45,6 +45,19 @@ type MovieDetailResponse struct {
 	// OriginalLanguage is the ISO 639-1 code (e.g. "en", "ru") from canon. FE renders
 	// the localized display name via Intl.DisplayNames. Omitted when canon has none.
 	OriginalLanguage *string `json:"original_language,omitempty" example:"en"`
+	// OriginalTitle is the movie's title in its original language (canon.original_title,
+	// e.g. "Sen to Chihiro no kamikakushi"). Distinct from the localized/display Title.
+	// Omitted when canon has none. FE shows it as a subtitle only when it differs from Title.
+	OriginalTitle *string `json:"original_title,omitempty" example:"Sen to Chihiro no kamikakushi"`
+	// Homepage is the movie's official homepage URL from canon. Omitted when canon has none.
+	Homepage *string `json:"homepage,omitempty" example:"https://www.dune-movie.com"`
+	// Budget is the production budget in whole US dollars (canon.budget). A non-nil pointer
+	// to 0 is a known "no reported budget" and the FE hides a zero-value money row (ADR §S5);
+	// nil = unknown and is omitted. Omitted when canon has none.
+	Budget *int64 `json:"budget,omitempty" example:"85000000"`
+	// Revenue is the worldwide box-office gross in whole US dollars (canon.revenue). Same
+	// nil-vs-zero semantics as Budget. Omitted when canon has none.
+	Revenue *int64 `json:"revenue,omitempty" example:"451746275"`
 	// Trailer is the single best official trailer. Omitted when the movie has no
 	// trailer row (movie_videos empty). Reuses the shared dto.Trailer shape.
 	Trailer  *Trailer `json:"trailer,omitempty"`
