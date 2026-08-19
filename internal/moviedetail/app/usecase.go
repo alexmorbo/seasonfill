@@ -124,6 +124,8 @@ type UseCase struct {
 	freshener freshenerPort // nil-OK: unwired → legacy mark-stale-only behavior
 
 	enqueuer EnrichmentEnqueuer // nil-OK: unwired → no Hot-lane enqueue (S1b)
+
+	stubResolver MovieStubResolver // nil-OK: unwired → unknown tmdb still 404 (pre-S2)
 }
 
 // freshenerPort is the synchronous read-through seam the movie detail read
@@ -142,6 +144,19 @@ type freshenerPort interface {
 // locally so moviedetail/app never imports enrichment/app. nil-OK.
 type EnrichmentEnqueuer interface {
 	EnqueueMovieHot(movieID domain.MovieID)
+}
+
+// MovieStubResolver is the S2 stub-create-on-view seam. When GET /movies/:tmdbId
+// misses the canon table, the usecase asks the resolver to validate the tmdb id
+// against TMDB and materialise a minimal seeded stub (identity + movie_i18n) via
+// the SAME discovery seed insert. It returns ports.ErrNotFound (→ 404, no row
+// written) when TMDB has no such movie, so a bogus deep-link never leaves a junk
+// row; any other TMDB error surfaces as-is (→ 500). The production impl is a
+// wiring adapter over the runtime TMDB holder + the discovery movie stub upserter;
+// declared locally so moviedetail/app never imports enrichment / discovery / tmdb.
+// nil-OK: unwired keeps the pre-S2 404.
+type MovieStubResolver interface {
+	EnsureStub(ctx context.Context, tmdbID domain.TMDBID, lang string) error
 }
 
 // New constructs the movie-detail usecase over its four read ports. The on-read
@@ -206,9 +221,25 @@ func (uc *UseCase) WithEnrichmentEnqueuer(e EnrichmentEnqueuer) *UseCase {
 	return uc
 }
 
+// WithStubResolver enables the S2 stub-create-on-view path. On a GET for a tmdb
+// id absent from the canon table, the resolver validates the id against TMDB and
+// inserts a minimal seeded stub (reusing the discovery seed insert) so the read
+// falls through to the S1 freshener / Hot enrichment instead of 404. A bogus id
+// (TMDB not-found) still 404s with no row written. nil-OK: unwired keeps the
+// pre-S2 404. Returns the receiver for chaining in the wiring.
+func (uc *UseCase) WithStubResolver(r MovieStubResolver) *UseCase {
+	uc.stubResolver = r
+	return uc
+}
+
 // Get assembles the detail for a tmdb id. ports.ErrNotFound bubbles when no
 // canon row exists (→ 404). lang selects the movie_i18n row; a missing localized
 // row degrades to canon fields (Degraded=["movie_i18n"]) — never an error.
+//
+// S2: when the canon row is absent and a stub resolver is wired, the tmdb id is
+// validated against TMDB and materialised as a minimal seeded stub (reusing the
+// discovery seed insert) so the read proceeds into the S1 enrichment path instead
+// of 404. A bogus id (TMDB not-found) bubbles ErrNotFound with NO row written.
 //
 // S1a: when a sync freshener is wired, a cold/stale movie is hydrated
 // synchronously (≤SyncTimeout) BEFORE assembly, and the canon is re-read so the
@@ -217,7 +248,22 @@ func (uc *UseCase) WithEnrichmentEnqueuer(e EnrichmentEnqueuer) *UseCase {
 func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string) (Detail, error) {
 	canon, err := uc.canon.GetByTMDBID(ctx, tmdbID)
 	if err != nil {
-		return Detail{}, err // ports.ErrNotFound bubbles
+		// S2 stub-create-on-view: an unknown tmdb id is materialised as a minimal
+		// seeded stub (validated against TMDB) so the read proceeds into the S1
+		// freshener / Hot enrichment instead of 404 — the movie analog of the series
+		// resolve-or-create seam. A bogus id (TMDB not-found) bubbles ErrNotFound with
+		// NO row written, preserving the 404. Unwired (stubResolver nil) or a non-
+		// ErrNotFound load error keeps the pre-S2 behaviour.
+		if !errors.Is(err, ports.ErrNotFound) || uc.stubResolver == nil {
+			return Detail{}, err
+		}
+		if serr := uc.stubResolver.EnsureStub(ctx, tmdbID, lang); serr != nil {
+			return Detail{}, serr // ports.ErrNotFound → 404 (no junk row); else 500
+		}
+		canon, err = uc.canon.GetByTMDBID(ctx, tmdbID)
+		if err != nil {
+			return Detail{}, err // ports.ErrNotFound bubbles (write race lost) → 404
+		}
 	}
 
 	freshDegraded := false

@@ -924,7 +924,7 @@ func BuildHTTPServer(
 	// /notification-agents routes are omitted when absent.
 	notificationAgentsHandler *notifrest.AgentsHandler,
 	log *slog.Logger,
-) (*httpserver.Server, *InstanceMetadataBundle, *mdapp.MovieFreshener, *mdapp.MovieHotEnqueuer) {
+) (*httpserver.Server, *InstanceMetadataBundle, *mdapp.MovieFreshener, *mdapp.MovieHotEnqueuer, *mdapp.MovieStubResolverHolder) {
 	var discoveryHandler *discoveryrest.DiscoveryHandler
 	var discoverHandler *discoveryrest.DiscoverHandler           // story 509 N-2h
 	var movieDiscoverHandler *discoveryrest.MovieDiscoverHandler // Ф6-R-4a L3-1
@@ -1149,5 +1149,5 @@ func BuildHTTPServer(
 		movieDetailBundle.CastETagFreshness,      // Ф2.1 movie ETag adapter
 		log,
 	)
-	return srv, instanceMetadataBundle, movieDetailBundle.FreshenerHolder, movieDetailBundle.HotEnqueuer
+	return srv, instanceMetadataBundle, movieDetailBundle.FreshenerHolder, movieDetailBundle.HotEnqueuer, movieDetailBundle.StubResolverHolder
 }

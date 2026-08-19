@@ -780,7 +780,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		keywordSearchClient = enrichBundle.TMDBHolder
 	}
-	httpServer, instanceMetadataBundle, movieFreshenerHolder, movieHotEnqueuerHolder := wiring.BuildHTTPServer(
+	httpServer, instanceMetadataBundle, movieFreshenerHolder, movieHotEnqueuerHolder, movieStubResolverHolder := wiring.BuildHTTPServer(
 		persistence, runtimecfg, auth,
 		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
 		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
@@ -797,6 +797,17 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// the holder no-ops until now. Mirror of the peopleEnqueuerHolder late-bind.
 	if enrichBundle != nil && enrichBundle.Dispatcher != nil && movieHotEnqueuerHolder != nil {
 		movieHotEnqueuerHolder.Set(wiring.NewMovieHotEnqueuerAdapter(enrichBundle.Dispatcher))
+	}
+
+	// S2 (ADR-0021 §S2) — late-bind the stub-create-on-view resolver. A GET for a
+	// tmdb id absent from the movies canon now validates the id against TMDB and
+	// materialises a minimal seeded stub (reusing the discovery seed insert) so the
+	// read falls through to the S1 freshener / Hot enrichment instead of 404; a
+	// bogus id still 404s with no row written. Needs only the runtime TMDB holder +
+	// DB (not the worker), so it binds here alongside the Hot enqueuer. Unbound →
+	// an unknown tmdb id keeps the pre-S2 404.
+	if enrichBundle != nil && enrichBundle.TMDBHolder != nil && movieStubResolverHolder != nil {
+		movieStubResolverHolder.Set(wiring.NewMovieStubResolverAdapter(enrichBundle.TMDBHolder, persistence.DB, log))
 	}
 
 	// F-07: the two static-named cachewatch caches (discover LRU +

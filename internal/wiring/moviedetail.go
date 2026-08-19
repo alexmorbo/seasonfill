@@ -1,17 +1,22 @@
 package wiring
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"gorm.io/gorm"
 
+	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	mdapp "github.com/alexmorbo/seasonfill/internal/moviedetail/app"
 	mdrest "github.com/alexmorbo/seasonfill/internal/moviedetail/rest"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -35,6 +40,12 @@ type MovieDetailBundle struct {
 	// dispatcher (BuildMovieDetail has no dispatcher in scope); server.go's
 	// late-bind zone calls HotEnqueuer.Set(adapter over enrichBundle.Dispatcher).
 	HotEnqueuer *mdapp.MovieHotEnqueuer
+	// StubResolverHolder — S2 stub-create-on-view resolver holder. Constructed
+	// here WITHOUT a TMDB holder (BuildMovieDetail has no TMDB holder in scope);
+	// server.go's late-bind zone calls StubResolverHolder.Set(adapter over the
+	// runtime TMDB holder + the discovery movie seed insert). Until Set, an
+	// unknown tmdb id keeps the pre-S2 404.
+	StubResolverHolder *mdapp.MovieStubResolverHolder
 }
 
 // BuildMovieDetail wires the read-only movie-detail aggregate + the movie
@@ -44,6 +55,7 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 	movieRepo := enrichpersistence.NewMovieRepository(db)
 	freshener := mdapp.NewMovieFreshener(5*time.Second, time.Now, domainLog)
 	hotEnqueuer := mdapp.NewMovieHotEnqueuer()
+	stubResolverHolder := mdapp.NewMovieStubResolverHolder()
 	uc := mdapp.New(
 		movieRepo,
 		enrichpersistence.NewMovieI18nReadRepository(db),
@@ -53,6 +65,7 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		WithHydrationTrigger(movieRepo, time.Now, domainLog).
 		WithFreshener(freshener).
 		WithEnrichmentEnqueuer(hotEnqueuer).
+		WithStubResolver(stubResolverHolder).
 		WithTaxonomy(
 			enrichpersistence.NewGenresRepository(db),
 			enrichpersistence.NewKeywordsRepository(db),
@@ -104,6 +117,7 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		RecommendationsHandler: recsHandler,
 		FreshenerHolder:        freshener,
 		HotEnqueuer:            hotEnqueuer,
+		StubResolverHolder:     stubResolverHolder,
 	}
 }
 
@@ -126,4 +140,83 @@ func NewMovieHotEnqueuerAdapter(dispatch appenrich.Dispatcher) mdapp.EnrichmentE
 
 func (a movieHotEnqueuerAdapter) EnqueueMovieHot(movieID domain.MovieID) {
 	a.dispatch.Enqueue(appenrich.EntityMovie, int64(movieID), appenrich.PriorityHot)
+}
+
+// ---- S2 stub-create-on-view resolver (moviedetail) ------------------------
+
+// movieDetailStubTMDB is the narrow runtime TMDB lookup the S2 resolver validates
+// against. movieTMDBFromHolder (enrichment_movie.go) satisfies it — Load() per
+// call keeps it swap-safe.
+type movieDetailStubTMDB interface {
+	GetMovie(ctx context.Context, id int64, language string) (*tmdb.MovieResponse, error)
+}
+
+// movieDetailStubWriter is the narrow seed insert the S2 resolver reuses.
+// *movieStubUpserterAdapter (discovery_movie.go) satisfies it — the SAME
+// COALESCE-guarded canon Upsert + movie_i18n seeder the discovery search path
+// uses, so a stub-on-view and a discovery-seed converge on ONE idempotent row.
+type movieDetailStubWriter interface {
+	EnsureMovieStub(ctx context.Context, tmdbID domain.TMDBID, lang, title, originalTitle, originalLanguage string, poster, backdrop *string) (domain.MovieID, error)
+}
+
+// movieStubResolverAdapter satisfies mdapp.MovieStubResolver. It validates the
+// tmdb id against TMDB (GetMovie) and, ONLY when TMDB resolves it, materialises a
+// minimal seeded stub via the discovery seed insert. A TMDB not-found (or an
+// empty payload) maps to ports.ErrNotFound so the moviedetail read keeps its 404
+// and NO junk row is written. Any other TMDB error surfaces as-is (→ 500). The S1
+// worker / freshener then hydrate the fresh stub off-request.
+type movieStubResolverAdapter struct {
+	tmdb   movieDetailStubTMDB
+	writer movieDetailStubWriter
+	log    *slog.Logger
+}
+
+// NewMovieStubResolverAdapter wires the S2 resolver over the runtime TMDB holder
+// + the discovery movie seed insert (COALESCE Upsert + movie_i18n seeder).
+// Returned as the mdapp.MovieStubResolver port so cmd/server can Set it into the
+// MovieStubResolverHolder without importing the concrete adapter. log MUST already
+// carry a domain tag.
+func NewMovieStubResolverAdapter(holder *adapters.TMDBClientHolder, db *gorm.DB, log *slog.Logger) mdapp.MovieStubResolver {
+	return &movieStubResolverAdapter{
+		tmdb: movieTMDBFromHolder{holder: holder},
+		writer: &movieStubUpserterAdapter{
+			movies: enrichpersistence.NewMovieRepository(db),
+			i18n:   enrichpersistence.NewMovieI18nSeeder(db),
+		},
+		log: log,
+	}
+}
+
+// EnsureStub validates tmdbID against TMDB and seeds a minimal stub when it
+// resolves. TMDB not-found / empty payload → ports.ErrNotFound (no row written).
+func (a *movieStubResolverAdapter) EnsureStub(ctx context.Context, tmdbID domain.TMDBID, lang string) error {
+	resp, err := a.tmdb.GetMovie(ctx, int64(tmdbID), lang)
+	if err != nil {
+		if tmdb.IsNotFound(err) {
+			return fmt.Errorf("moviedetail stub: tmdb %d not found: %w", int64(tmdbID), ports.ErrNotFound)
+		}
+		return fmt.Errorf("moviedetail stub: tmdb lookup %d: %w", int64(tmdbID), err)
+	}
+	if resp == nil || resp.Title == "" {
+		return fmt.Errorf("moviedetail stub: tmdb %d empty payload: %w", int64(tmdbID), ports.ErrNotFound)
+	}
+	var poster, backdrop *string
+	if resp.PosterPath != "" {
+		p := resp.PosterPath
+		poster = &p
+	}
+	if resp.BackdropPath != "" {
+		b := resp.BackdropPath
+		backdrop = &b
+	}
+	if _, serr := a.writer.EnsureMovieStub(ctx, tmdbID, lang, resp.Title, resp.OriginalTitle, resp.OriginalLanguage, poster, backdrop); serr != nil {
+		return fmt.Errorf("moviedetail stub: ensure %d: %w", int64(tmdbID), serr)
+	}
+	if a.log != nil {
+		a.log.InfoContext(ctx, "moviedetail.stub_created_on_view",
+			slog.Int64("tmdb_id", int64(tmdbID)),
+			slog.String("lang", lang),
+			slog.String("title", resp.Title))
+	}
+	return nil
 }
