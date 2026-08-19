@@ -42,6 +42,15 @@ function PartCard({ part }: { part: MovieCollectionPartDTO }) {
       data-testid={`movie-collection-part-${tmdbId}`}
       className="flex flex-col gap-1 rounded-md border border-border-subtle bg-bg-surface p-2 transition-colors hover:border-accent"
     >
+      <div className="overflow-hidden rounded-md border border-border-subtle">
+        <MediaImage
+          hash={part.poster ?? null}
+          kind="poster"
+          title={part.title ?? ''}
+          fallback="monogram"
+          data-testid={`movie-collection-part-poster-${tmdbId}`}
+        />
+      </div>
       <span className="truncate text-[13px] font-medium text-tx-primary" title={part.title}>
         {part.title}
         {typeof part.year === 'number' && part.year > 0 && (
@@ -65,14 +74,17 @@ export interface MovieCollectionBlockProps {
   /** Instance to query the collection with + the preferred monitor target
    *  (the movie's first library instance). */
   readonly instance?: string | undefined;
+  /** BCP-47 tag forwarded as `?lang=` so the BE emits localized part titles. */
+  readonly lang?: string | undefined;
 }
 
 export function MovieCollectionBlock({
   tmdbCollectionId,
   instance,
+  lang,
 }: MovieCollectionBlockProps) {
   const { t } = useTranslation();
-  const query = useMovieCollection(tmdbCollectionId, instance);
+  const query = useMovieCollection(tmdbCollectionId, instance, lang);
 
   const instancesQ = useInstances();
   const radarrInstances = useMemo(

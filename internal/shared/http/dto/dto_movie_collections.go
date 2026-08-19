@@ -15,11 +15,12 @@ type MovieCollectionDetail struct {
 }
 
 type MovieCollectionPartDTO struct {
-	MovieID   int64  `json:"movie_id"`
-	TMDBID    int    `json:"tmdb_id"`
-	Title     string `json:"title"`
-	Year      *int   `json:"year"`
-	InLibrary bool   `json:"in_library"`
+	MovieID   int64   `json:"movie_id"`
+	TMDBID    int     `json:"tmdb_id"`
+	Title     string  `json:"title"`
+	Year      *int    `json:"year"`
+	InLibrary bool    `json:"in_library"`
+	Poster    *string `json:"poster"`
 }
 
 // MovieCollectionAddAllRequest is the POST /collections/:id/add-all-missing body.

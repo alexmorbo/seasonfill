@@ -121,11 +121,15 @@ func (r *MovieCollectionsRepository) SetRadarrMonitored(ctx context.Context, tmd
 }
 
 // ListPartsWithMembership projects every canon movie in the collection with its
-// per-instance library membership. LEFT JOIN movie_states on the ACTIVE
+// per-instance library membership + localized title + raw poster. LEFT JOIN
+// movie_i18n on the requested lang yields the localized title
+// (COALESCE(NULLIF(mi.title,”), m.title) → canon fallback when no localized row
+// or an empty localized title). LEFT JOIN movie_states on the ACTIVE
 // (deleted_at IS NULL) row for the given instance; InLibrary = joined row present.
-// Column refs only + two bind params → dialect-portable (Postgres + SQLite).
+// Poster is the raw movies.poster_asset (handler resolves it to a media hash).
+// Column refs only + three bind params → dialect-portable (Postgres + SQLite).
 // Ordered by movies.id ASC. Empty → (nil, nil).
-func (r *MovieCollectionsRepository) ListPartsWithMembership(ctx context.Context, tmdbCollectionID int, instanceName string) ([]ports.MovieCollectionPart, error) {
+func (r *MovieCollectionsRepository) ListPartsWithMembership(ctx context.Context, tmdbCollectionID int, instanceName, lang string) ([]ports.MovieCollectionPart, error) {
 	if tmdbCollectionID == 0 {
 		return nil, nil
 	}
@@ -134,15 +138,20 @@ func (r *MovieCollectionsRepository) ListPartsWithMembership(ctx context.Context
 		TMDBID    *int
 		Title     string
 		Year      *int
+		Poster    *string
 		InLibrary int
 	}
 	const q = `
 SELECT m.id AS movie_id,
        m.tmdb_id AS tmdb_id,
-       m.title AS title,
+       COALESCE(NULLIF(mi.title, ''), m.title) AS title,
        m.year AS year,
+       m.poster_asset AS poster,
        CASE WHEN ms.movie_id IS NOT NULL THEN 1 ELSE 0 END AS in_library
 FROM movies m
+LEFT JOIN movie_i18n mi
+  ON mi.movie_id = m.id
+ AND mi.language = ?
 LEFT JOIN movie_states ms
   ON ms.movie_id = m.id
  AND ms.instance_name = ?
@@ -151,7 +160,7 @@ WHERE m.collection_id = ?
 ORDER BY m.id ASC`
 	var rows []partRow
 	if err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Raw(q, instanceName, tmdbCollectionID).Scan(&rows).Error; err != nil {
+		Raw(q, lang, instanceName, tmdbCollectionID).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list collection parts: %w", err)
 	}
 	if len(rows) == 0 {
@@ -169,6 +178,7 @@ ORDER BY m.id ASC`
 			Title:     row.Title,
 			Year:      row.Year,
 			InLibrary: row.InLibrary != 0,
+			Poster:    row.Poster,
 		})
 	}
 	return out, nil

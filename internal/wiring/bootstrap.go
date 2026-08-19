@@ -979,7 +979,7 @@ func BuildHTTPServer(
 	)
 	sonarrAddUC.WithRequestQueue(requestsBundle.Queue)
 	radarrAddUC.WithRequestQueue(requestsBundle.Queue)
-	movieCollectionsHandler := BuildMovieCollections(persistence.DB, scanBundle.RadarrSync, log)
+	movieCollectionsHandler := BuildMovieCollections(persistence.DB, scanBundle.RadarrSync, seriesDetailBundle.MediaResolver, log)
 	movieCalendarHandler := BuildMovieCalendar(persistence.DB, seriesDetailBundle.MediaResolver, log)
 	// Ф1.4 — one-shot movie re-enrichment backfill trigger (audit F-Ф1-07).
 	// Standalone: the marker's only dep is persistence.DB. Marks every tmdb_id

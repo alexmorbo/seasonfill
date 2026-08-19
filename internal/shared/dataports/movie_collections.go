@@ -10,13 +10,18 @@ import "context"
 // per-instance library membership (Ф6-R-5). TMDBID is 0 when the canon row has no
 // tmdb_id (a Radarr orphan that happens to share a collection_id — cannot be
 // add-to-Radarr'd, so the add-all-missing usecase skips it). InLibrary is true
-// when an ACTIVE movie_states row exists for the queried instance.
+// when an ACTIVE movie_states row exists for the queried instance. Title is the
+// localized title when a movie_i18n row exists for the requested language, else
+// the canon title (U-2). Poster is the RAW canon movies.poster_asset path
+// (nil-able); the REST handler resolves it to a media hash (resolver lives in the
+// handler, not the repo — mirrors moviedetail).
 type MovieCollectionPart struct {
 	MovieID   int64
 	TMDBID    int
 	Title     string
 	Year      *int
 	InLibrary bool
+	Poster    *string
 }
 
 // MovieCollectionsReader is the usecase-layer read port over the collection-parts
@@ -25,9 +30,11 @@ type MovieCollectionPart struct {
 type MovieCollectionsReader interface {
 	// ListPartsWithMembership returns every canon movie whose collection_id equals
 	// tmdbCollectionID, LEFT-JOINed to that instance's ACTIVE movie_states rows
-	// (deleted_at IS NULL) so InLibrary reflects the given instance. Ordered by
+	// (deleted_at IS NULL) so InLibrary reflects the given instance, and
+	// LEFT-JOINed to movie_i18n on lang so Title is localized when present (canon
+	// title fallback). Poster carries the raw movies.poster_asset path. Ordered by
 	// movies.id ASC (deterministic, dialect-portable). Empty → (nil, nil).
-	ListPartsWithMembership(ctx context.Context, tmdbCollectionID int, instanceName string) ([]MovieCollectionPart, error)
+	ListPartsWithMembership(ctx context.Context, tmdbCollectionID int, instanceName, lang string) ([]MovieCollectionPart, error)
 }
 
 // RadarrCollection is the neutral value shape of a Radarr v3 collection resource

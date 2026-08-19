@@ -23,26 +23,30 @@ export type MovieCollectionMonitorRequest =
 
 export const movieCollectionKeys = {
   all: ['movie-collections'] as const,
-  detail: (id: number, instance?: string) =>
-    ['movie-collections', 'detail', id, instance ?? ''] as const,
+  detail: (id: number, instance?: string, lang?: string) =>
+    ['movie-collections', 'detail', id, instance ?? '', lang ?? ''] as const,
 };
 
-// useMovieCollection — GET /collections/:id[?instance=]. Enabled only for a
-// positive collection id.
+// useMovieCollection — GET /collections/:id[?instance=][&lang=]. Enabled only for
+// a positive collection id. lang localizes part titles (canon fallback BE-side)
+// and is threaded into the queryKey so TanStack isolates cache per language.
 export function useMovieCollection(
   id?: number,
   instance?: string,
+  lang?: string,
 ): UseQueryResult<MovieCollectionDetail, ApiError> {
   const enabled = typeof id === 'number' && id > 0;
   return useQuery<MovieCollectionDetail, ApiError>({
     queryKey: enabled
-      ? movieCollectionKeys.detail(id as number, instance)
-      : movieCollectionKeys.detail(0, instance),
-    queryFn: () =>
-      api<MovieCollectionDetail>(
-        `/collections/${id}` +
-          (instance ? `?instance=${encodeURIComponent(instance)}` : ''),
-      ),
+      ? movieCollectionKeys.detail(id as number, instance, lang)
+      : movieCollectionKeys.detail(0, instance, lang),
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (instance) params.set('instance', instance);
+      if (lang) params.set('lang', lang);
+      const qs = params.toString();
+      return api<MovieCollectionDetail>(`/collections/${id}${qs ? `?${qs}` : ''}`);
+    },
     enabled,
     staleTime: 30_000,
     refetchOnWindowFocus: false,

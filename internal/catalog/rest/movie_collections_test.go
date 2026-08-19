@@ -17,9 +17,12 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/moviecollection"
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
+	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
+	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 func collTestLog() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard, nil)) }
@@ -29,7 +32,7 @@ type fakeCollReader struct {
 	err   error
 }
 
-func (f fakeCollReader) ListPartsWithMembership(_ context.Context, _ int, _ string) ([]ports.MovieCollectionPart, error) {
+func (f fakeCollReader) ListPartsWithMembership(_ context.Context, _ int, _, _ string) ([]ports.MovieCollectionPart, error) {
 	return f.parts, f.err
 }
 
@@ -92,7 +95,7 @@ func TestMovieCollections_Get_200(t *testing.T) {
 		{MovieID: 2, TMDBID: 604, Title: "Reloaded", InLibrary: false},
 	}}
 	canon := fakeCanonReader{canon: movie.CollectionCanon{TMDBCollectionID: 2344, Name: "Matrix", Overview: &overview}}
-	h := NewMovieCollectionsHandler(reader, canon, nil, nil, func() string { return "main" }, collTestLog())
+	h := NewMovieCollectionsHandler(reader, canon, nil, nil, func() string { return "main" }, nil, collTestLog())
 	r := buildCollectionsRouter(t, h)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/collections/2344", nil)
@@ -110,7 +113,7 @@ func TestMovieCollections_Get_200(t *testing.T) {
 func TestMovieCollections_Get_404(t *testing.T) {
 	t.Parallel()
 	canon := fakeCanonReader{err: errors.Join(&sharedErrors.MovieNotFoundError{}, ports.ErrNotFound)}
-	h := NewMovieCollectionsHandler(fakeCollReader{}, canon, nil, nil, func() string { return "main" }, collTestLog())
+	h := NewMovieCollectionsHandler(fakeCollReader{}, canon, nil, nil, func() string { return "main" }, nil, collTestLog())
 	r := buildCollectionsRouter(t, h)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/collections/99", nil)
@@ -121,7 +124,7 @@ func TestMovieCollections_Get_404(t *testing.T) {
 
 func TestMovieCollections_Get_400_NoInstance(t *testing.T) {
 	t.Parallel()
-	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, nil, nil, func() string { return "" }, collTestLog())
+	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, nil, nil, func() string { return "" }, nil, collTestLog())
 	r := buildCollectionsRouter(t, h)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/collections/2344", nil)
@@ -132,7 +135,7 @@ func TestMovieCollections_Get_400_NoInstance(t *testing.T) {
 
 func TestMovieCollections_Get_400_BadID(t *testing.T) {
 	t.Parallel()
-	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, nil, nil, func() string { return "main" }, collTestLog())
+	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, nil, nil, func() string { return "main" }, nil, collTestLog())
 	r := buildCollectionsRouter(t, h)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/collections/abc", nil)
@@ -148,7 +151,7 @@ func TestMovieCollections_AddAllMissing_200(t *testing.T) {
 		{MovieID: 2, TMDBID: 604, Title: "Reloaded", InLibrary: false},
 	}}
 	addAll := moviecollection.NewAddMissingUseCase(reader, fakeMovieAdder{}, collTestLog())
-	h := NewMovieCollectionsHandler(reader, fakeCanonReader{}, addAll, nil, func() string { return "main" }, collTestLog())
+	h := NewMovieCollectionsHandler(reader, fakeCanonReader{}, addAll, nil, func() string { return "main" }, nil, collTestLog())
 	r := buildCollectionsRouter(t, h)
 
 	body := `{"instance_name":"main","quality_profile_id":6,"root_folder_path":"/movies"}`
@@ -167,7 +170,7 @@ func TestMovieCollections_AddAllMissing_200(t *testing.T) {
 func TestMovieCollections_AddAllMissing_400(t *testing.T) {
 	t.Parallel()
 	addAll := moviecollection.NewAddMissingUseCase(fakeCollReader{}, fakeMovieAdder{}, collTestLog())
-	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, addAll, nil, func() string { return "main" }, collTestLog())
+	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, addAll, nil, func() string { return "main" }, nil, collTestLog())
 	r := buildCollectionsRouter(t, h)
 
 	body := `{"instance_name":"","quality_profile_id":0,"root_folder_path":""}`
@@ -182,7 +185,7 @@ func TestMovieCollections_Monitor_204(t *testing.T) {
 	t.Parallel()
 	client := fakeRadarrColClient{cols: []ports.RadarrCollection{{ID: 5, TMDBID: 2344, Monitored: false}}}
 	monitor := moviecollection.NewRadarrMonitorUseCase(fakeMonitorLookup{client: client, ok: true}, fakeMonitorStore{}, collTestLog())
-	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, nil, monitor, func() string { return "main" }, collTestLog())
+	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, nil, monitor, func() string { return "main" }, nil, collTestLog())
 	r := buildCollectionsRouter(t, h)
 
 	body := `{"instance_name":"main"}`
@@ -197,7 +200,7 @@ func TestMovieCollections_Monitor_404(t *testing.T) {
 	t.Parallel()
 	client := fakeRadarrColClient{cols: []ports.RadarrCollection{{ID: 5, TMDBID: 9999, Monitored: false}}}
 	monitor := moviecollection.NewRadarrMonitorUseCase(fakeMonitorLookup{client: client, ok: true}, fakeMonitorStore{}, collTestLog())
-	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, nil, monitor, func() string { return "main" }, collTestLog())
+	h := NewMovieCollectionsHandler(fakeCollReader{}, fakeCanonReader{}, nil, monitor, func() string { return "main" }, nil, collTestLog())
 	r := buildCollectionsRouter(t, h)
 
 	body := `{"instance_name":"main"}`
@@ -209,4 +212,56 @@ func TestMovieCollections_Monitor_404(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	assert.Equal(t, "radarr_collection_not_found", out["error"])
+}
+
+// TestMovieCollections_Get_ResolvesPosters is the U-2 regression: the collection
+// header poster AND each part poster must be the resolved sha256 media hash (not
+// the raw TMDB path), and the localized part Title from the reader must flow to
+// the DTO verbatim.
+func TestMovieCollections_Get_ResolvesPosters(t *testing.T) {
+	t.Parallel()
+	const headerHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const partHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	rawHeader := "/coll_header.jpg"
+	rawPart := "/dune_part.jpg"
+
+	canon := fakeCanonReader{canon: movie.CollectionCanon{
+		TMDBCollectionID: 726871, Name: "Dune Collection", PosterAsset: &rawHeader,
+	}}
+	reader := fakeCollReader{parts: []ports.MovieCollectionPart{
+		{MovieID: 1, TMDBID: 438631, Title: "Дюна", Year: new(2021), InLibrary: true, Poster: &rawPart},
+		{MovieID: 2, TMDBID: 693134, Title: "Dune: Part Two", InLibrary: false, Poster: nil},
+	}}
+
+	lookup := movieMediaLookupStub{byURL: map[string]string{
+		appmedia.BuildTMDBImageURL("w342", rawHeader): headerHash,
+		appmedia.BuildTMDBImageURL("w342", rawPart):   partHash,
+	}}
+	resolver := media.NewResolver(lookup, nil, nil, collTestLog())
+
+	h := NewMovieCollectionsHandler(reader, canon, nil, nil, func() string { return "main" }, resolver, collTestLog())
+	r := buildCollectionsRouter(t, h)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/collections/726871?lang=ru-RU", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	var out dto.MovieCollectionDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+
+	// Header poster resolved to the media hash, NOT the raw path.
+	require.NotNil(t, out.Poster)
+	assert.Equal(t, headerHash, *out.Poster)
+	assert.NotEqual(t, rawHeader, *out.Poster)
+
+	require.Len(t, out.Parts, 2)
+	// Part 0: localized title flows through + poster resolved.
+	assert.Equal(t, "Дюна", out.Parts[0].Title)
+	require.NotNil(t, out.Parts[0].Poster)
+	assert.Equal(t, partHash, *out.Parts[0].Poster)
+	// Part 1: nil raw poster stays nil (resolver's nil-path → nil under legacy
+	// flag; test resolver has unifiedResolve off by default).
+	assert.Equal(t, "Dune: Part Two", out.Parts[1].Title)
+	assert.Nil(t, out.Parts[1].Poster)
 }

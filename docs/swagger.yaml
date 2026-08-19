@@ -2039,6 +2039,8 @@ components:
           type: boolean
         movie_id:
           type: integer
+        poster:
+          type: string
         title:
           type: string
         tmdb_id:
@@ -5602,6 +5604,7 @@ paths:
         Collection header + member parts with per-instance library
         membership. instance resolves membership; when omitted and
         exactly one radarr instance is registered it is used, else 400.
+        lang localizes part titles (canon fallback).
       parameters:
       - description: TMDB collection id
         in: path
@@ -5612,6 +5615,11 @@ paths:
       - description: radarr instance for membership
         in: query
         name: instance
+        schema:
+          type: string
+      - description: BCP-47 language tag
+        in: query
+        name: lang
         schema:
           type: string
       responses:

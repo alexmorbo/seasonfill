@@ -1404,12 +1404,15 @@ export type paths = {
          * @description Collection header + member parts with per-instance library
          *     membership. instance resolves membership; when omitted and
          *     exactly one radarr instance is registered it is used, else 400.
+         *     lang localizes part titles (canon fallback).
          */
         readonly get: {
             readonly parameters: {
                 readonly query?: {
                     /** @description radarr instance for membership */
                     readonly instance?: string;
+                    /** @description BCP-47 language tag */
+                    readonly lang?: string;
                 };
                 readonly header?: never;
                 readonly path: {
@@ -8396,6 +8399,7 @@ export type components = {
         readonly "dto.MovieCollectionPartDTO": {
             readonly in_library?: boolean;
             readonly movie_id?: number;
+            readonly poster?: string;
             readonly title?: string;
             readonly tmdb_id?: number;
             readonly year?: number;

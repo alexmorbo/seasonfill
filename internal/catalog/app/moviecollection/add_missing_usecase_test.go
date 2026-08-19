@@ -20,7 +20,7 @@ type fakeReader struct {
 	err   error
 }
 
-func (f *fakeReader) ListPartsWithMembership(_ context.Context, _ int, _ string) ([]ports.MovieCollectionPart, error) {
+func (f *fakeReader) ListPartsWithMembership(_ context.Context, _ int, _, _ string) ([]ports.MovieCollectionPart, error) {
 	return f.parts, f.err
 }
 

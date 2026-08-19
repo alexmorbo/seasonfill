@@ -74,7 +74,7 @@ func (uc *AddMissingUseCase) AddAllMissing(ctx context.Context, req AddMissingRe
 	if req.TMDBCollectionID == 0 {
 		return AddMissingSummary{}, fmt.Errorf("add all missing: tmdb_collection_id must be non-zero")
 	}
-	parts, err := uc.reader.ListPartsWithMembership(ctx, req.TMDBCollectionID, string(req.InstanceName))
+	parts, err := uc.reader.ListPartsWithMembership(ctx, req.TMDBCollectionID, string(req.InstanceName), "")
 	if err != nil {
 		return AddMissingSummary{}, fmt.Errorf("add all missing: list parts: %w", err)
 	}

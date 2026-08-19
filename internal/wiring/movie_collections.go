@@ -40,7 +40,7 @@ func (b movieAdderBridge) Add(ctx context.Context, req moviecollection.AddMovieR
 }
 
 // BuildMovieCollections wires the three collection routes over the R-5 usecases.
-func BuildMovieCollections(db *gorm.DB, radarr *RadarrSyncBundle, log *slog.Logger) *catalogrest.MovieCollectionsHandler {
+func BuildMovieCollections(db *gorm.DB, radarr *RadarrSyncBundle, resolver *media.Resolver, log *slog.Logger) *catalogrest.MovieCollectionsHandler {
 	domainLog := sharedports.DomainLogger(log, "http")
 	repo := enrichpersistence.NewMovieCollectionsRepository(db)
 	addUC := discoapp.NewAddToRadarrUseCase(radarrAddLookup{holder: radarr.RadarrHolder}, domainLog)
@@ -56,7 +56,7 @@ func BuildMovieCollections(db *gorm.DB, radarr *RadarrSyncBundle, log *slog.Logg
 		}
 		return ""
 	}
-	return catalogrest.NewMovieCollectionsHandler(repo, repo, addAll, monitor, defaultInstance, domainLog)
+	return catalogrest.NewMovieCollectionsHandler(repo, repo, addAll, monitor, defaultInstance, resolver, domainLog)
 }
 
 // BuildMovieCalendar wires the read-only movie release calendar over the movies

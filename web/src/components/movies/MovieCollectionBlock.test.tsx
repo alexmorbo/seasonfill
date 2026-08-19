@@ -24,11 +24,14 @@ const origFetch = globalThis.fetch;
 const COLLECTION = {
   tmdb_collection_id: 726871,
   name: 'Dune Collection',
-  poster: null,
+  poster: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   radarr_monitored: false,
   parts: [
-    { tmdb_id: 438631, title: 'Dune', year: 2021, in_library: true, movie_id: 1 },
-    { tmdb_id: 693134, title: 'Dune: Part Two', year: 2024, in_library: false, movie_id: 2 },
+    {
+      tmdb_id: 438631, title: 'Дюна', year: 2021, in_library: true, movie_id: 1,
+      poster: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    },
+    { tmdb_id: 693134, title: 'Dune: Part Two', year: 2024, in_library: false, movie_id: 2, poster: null },
   ],
 };
 const INSTANCES = {
@@ -115,6 +118,18 @@ describe('<MovieCollectionBlock />', () => {
       .toHaveTextContent(i18n.t('movieCollection.part.inLibrary'));
     expect(screen.getByTestId('movie-collection-part-badge-693134'))
       .toHaveTextContent(i18n.t('movieCollection.part.missing'));
+  });
+
+  it('renders the localized part title and a part poster image', async () => {
+    installFetch();
+    renderBlock();
+    // Localized title from the DTO renders verbatim.
+    const part = await screen.findByTestId('movie-collection-part-438631');
+    expect(part).toHaveTextContent('Дюна');
+    // The part carries a poster hash → MediaImage renders an <img> (not the
+    // monogram fallback) inside the part card.
+    const poster = screen.getByTestId('movie-collection-part-poster-438631');
+    expect(poster.querySelector('img')).not.toBeNull();
   });
 
   it('omits the empty year parens when a part has no year but keeps a valued one', async () => {

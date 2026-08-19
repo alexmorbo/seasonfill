@@ -2558,6 +2558,9 @@
                     "movie_id": {
                         "type": "integer"
                     },
+                    "poster": {
+                        "type": "string"
+                    },
                     "title": {
                         "type": "string"
                     },
@@ -7431,7 +7434,7 @@
         },
         "/collections/{tmdb_collection_id}": {
             "get": {
-                "description": "Collection header + member parts with per-instance library\nmembership. instance resolves membership; when omitted and\nexactly one radarr instance is registered it is used, else 400.",
+                "description": "Collection header + member parts with per-instance library\nmembership. instance resolves membership; when omitted and\nexactly one radarr instance is registered it is used, else 400.\nlang localizes part titles (canon fallback).",
                 "parameters": [
                     {
                         "description": "TMDB collection id",
@@ -7446,6 +7449,14 @@
                         "description": "radarr instance for membership",
                         "in": "query",
                         "name": "instance",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "BCP-47 language tag",
+                        "in": "query",
+                        "name": "lang",
                         "schema": {
                             "type": "string"
                         }

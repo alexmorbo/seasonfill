@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
@@ -118,7 +119,7 @@ func TestMovieCollectionsRepository_ListPartsWithMembership(t *testing.T) {
 				TitleSlug: "dune-two-693134", UpdatedAt: deleted, DeletedAt: &deleted,
 			}).Error)
 
-			rows, err := repo.ListPartsWithMembership(ctx, cid, "r1")
+			rows, err := repo.ListPartsWithMembership(ctx, cid, "r1", "")
 			require.NoError(t, err)
 			require.Len(t, rows, 2, "only this collection's parts")
 
@@ -134,7 +135,7 @@ func TestMovieCollectionsRepository_ListPartsWithMembership(t *testing.T) {
 			assert.Equal(t, "Dune", rows[0].Title)
 
 			// A different instance sees zero membership.
-			rows2, err := repo.ListPartsWithMembership(ctx, cid, "r2")
+			rows2, err := repo.ListPartsWithMembership(ctx, cid, "r2", "")
 			require.NoError(t, err)
 			require.Len(t, rows2, 2)
 			for _, r := range rows2 {
@@ -150,9 +151,79 @@ func TestMovieCollectionsRepository_ListPartsWithMembership_Empty(t *testing.T) 
 		t.Run(backend.Name, func(t *testing.T) {
 			t.Parallel()
 			repo := NewMovieCollectionsRepository(backend.NewDB(t))
-			rows, err := repo.ListPartsWithMembership(context.Background(), 111, "r1")
+			rows, err := repo.ListPartsWithMembership(context.Background(), 111, "r1", "")
 			require.NoError(t, err)
 			assert.Nil(t, rows)
+		})
+	}
+}
+
+func TestMovieCollectionsRepository_ListPartsWithMembership_LocalizedTitleAndPoster(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			movieRepo := NewMovieRepository(db)
+			repo := NewMovieCollectionsRepository(db)
+			ctx := context.Background()
+
+			const cid = 726871
+			// p1: canon poster + a ru-RU localized title.
+			p1, err := movieRepo.Upsert(ctx, movie.Canon{
+				TMDBID:       new(domain.TMDBID(438631)),
+				Hydration:    movie.HydrationStub,
+				Title:        "Dune",
+				Year:         new(2021),
+				CollectionID: new(cid),
+				PosterAsset:  new("/dune_p1.jpg"),
+			})
+			require.NoError(t, err)
+			// p2: canon poster, NO localized row → canon title fallback.
+			p2, err := movieRepo.Upsert(ctx, movie.Canon{
+				TMDBID:       new(domain.TMDBID(693134)),
+				Hydration:    movie.HydrationStub,
+				Title:        "Dune: Part Two",
+				CollectionID: new(cid),
+				PosterAsset:  new("/dune_p2.jpg"),
+			})
+			require.NoError(t, err)
+
+			require.NoError(t, db.Create(&database.MovieI18nModel{
+				MovieID: p1, Language: "ru-RU", Title: new("Дюна"),
+				UpdatedAt: time.Now().UTC(),
+			}).Error)
+
+			rows, err := repo.ListPartsWithMembership(ctx, cid, "r1", "ru-RU")
+			require.NoError(t, err)
+			require.Len(t, rows, 2)
+
+			byID := map[int64]ports.MovieCollectionPart{}
+			for _, r := range rows {
+				byID[r.MovieID] = r
+			}
+
+			// p1 → localized title + raw canon poster.
+			g1 := byID[int64(p1)]
+			assert.Equal(t, "Дюна", g1.Title, "localized ru-RU title wins")
+			require.NotNil(t, g1.Poster)
+			assert.Equal(t, "/dune_p1.jpg", *g1.Poster, "raw canon poster path")
+
+			// p2 → canon title fallback (no localized row).
+			g2 := byID[int64(p2)]
+			assert.Equal(t, "Dune: Part Two", g2.Title, "canon title fallback")
+			require.NotNil(t, g2.Poster)
+			assert.Equal(t, "/dune_p2.jpg", *g2.Poster)
+
+			// Empty lang → canon title for everyone (no localized override).
+			rowsNoLang, err := repo.ListPartsWithMembership(ctx, cid, "r1", "")
+			require.NoError(t, err)
+			require.Len(t, rowsNoLang, 2)
+			for _, r := range rowsNoLang {
+				if r.MovieID == int64(p1) {
+					assert.Equal(t, "Dune", r.Title, "empty lang → canon title, not localized")
+				}
+			}
 		})
 	}
 }

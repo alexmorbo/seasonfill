@@ -15,6 +15,7 @@ import (
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // collectionCanonReader reads the collection header row. Production impl:
@@ -27,13 +28,15 @@ type collectionCanonReader interface {
 // MovieCollectionsHandler serves the three collection routes (Ф6-R-6a).
 // defaultInstance returns the sole registered radarr instance name when exactly
 // one exists (used to resolve membership when ?instance= is omitted); ""
-// otherwise.
+// otherwise. resolver rewrites raw TMDB poster paths (header + each part) to
+// sha256 media hashes (nil-OK → raw paths flow through, pre-U-2 behavior).
 type MovieCollectionsHandler struct {
 	reader          ports.MovieCollectionsReader
 	canon           collectionCanonReader
 	addAll          *moviecollection.AddMissingUseCase
 	monitor         *moviecollection.RadarrMonitorUseCase
 	defaultInstance func() string
+	resolver        *media.Resolver
 	log             *slog.Logger
 }
 
@@ -43,6 +46,7 @@ func NewMovieCollectionsHandler(
 	addAll *moviecollection.AddMissingUseCase,
 	monitor *moviecollection.RadarrMonitorUseCase,
 	defaultInstance func() string,
+	resolver *media.Resolver,
 	log *slog.Logger,
 ) *MovieCollectionsHandler {
 	if log == nil {
@@ -54,6 +58,7 @@ func NewMovieCollectionsHandler(
 		addAll:          addAll,
 		monitor:         monitor,
 		defaultInstance: defaultInstance,
+		resolver:        resolver,
 		log:             log,
 	}
 }
@@ -64,10 +69,12 @@ func NewMovieCollectionsHandler(
 // @Description Collection header + member parts with per-instance library
 // @Description membership. instance resolves membership; when omitted and
 // @Description exactly one radarr instance is registered it is used, else 400.
+// @Description lang localizes part titles (canon fallback).
 // @Tags        collections
 // @Produce     json
 // @Param       tmdb_collection_id path int    true  "TMDB collection id"
 // @Param       instance           query string false "radarr instance for membership"
+// @Param       lang               query string false "BCP-47 language tag"
 // @Success     200 {object} dto.MovieCollectionDetail
 // @Failure     400 {object} dto.ErrorResponse
 // @Failure     401 {object} dto.ErrorResponse
@@ -88,29 +95,44 @@ func (h *MovieCollectionsHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: "instance query param required (no single default radarr instance)", Code: "BAD_REQUEST"})
 		return
 	}
-	canon, err := h.canon.GetByTMDBCollectionID(c.Request.Context(), id)
+	lang := strings.TrimSpace(c.Query("lang"))
+	ctx := c.Request.Context()
+	canon, err := h.canon.GetByTMDBCollectionID(ctx, id)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "collection_not_found", Code: "COLLECTION_NOT_FOUND"})
 			return
 		}
-		h.log.ErrorContext(c.Request.Context(), "collection_get_failed", slog.String("error", err.Error()))
+		h.log.ErrorContext(ctx, "collection_get_failed", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "collection unavailable"})
 		return
 	}
-	parts, err := h.reader.ListPartsWithMembership(c.Request.Context(), id, instance)
+	parts, err := h.reader.ListPartsWithMembership(ctx, id, instance, lang)
 	if err != nil {
-		h.log.ErrorContext(c.Request.Context(), "collection_parts_failed", slog.String("error", err.Error()))
+		h.log.ErrorContext(ctx, "collection_parts_failed", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: "collection unavailable"})
 		return
+	}
+	headerPoster := canon.PosterAsset
+	if h.resolver != nil {
+		if hash := h.resolver.Resolve(ctx, canon.PosterAsset, "w342", "poster_w342"); hash != nil {
+			headerPoster = hash
+		}
 	}
 	out := dto.MovieCollectionDetail{
 		TMDBCollectionID: canon.TMDBCollectionID, Name: canon.Name, Overview: canon.Overview,
-		Poster: canon.PosterAsset, RadarrMonitored: canon.RadarrMonitored, Instance: instance,
+		Poster: headerPoster, RadarrMonitored: canon.RadarrMonitored, Instance: instance,
 	}
 	for _, p := range parts {
+		partPoster := p.Poster
+		if h.resolver != nil {
+			if hash := h.resolver.Resolve(ctx, p.Poster, "w342", "poster_w342"); hash != nil {
+				partPoster = hash
+			}
+		}
 		out.Parts = append(out.Parts, dto.MovieCollectionPartDTO{
-			MovieID: p.MovieID, TMDBID: p.TMDBID, Title: p.Title, Year: p.Year, InLibrary: p.InLibrary,
+			MovieID: p.MovieID, TMDBID: p.TMDBID, Title: p.Title, Year: p.Year,
+			InLibrary: p.InLibrary, Poster: partPoster,
 		})
 	}
 	c.JSON(http.StatusOK, out)

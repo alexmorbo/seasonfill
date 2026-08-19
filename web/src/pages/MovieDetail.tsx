@@ -432,6 +432,7 @@ export function MovieDetail() {
           {...(library[0]?.instance_name
             ? { instance: library[0].instance_name }
             : {})}
+          {...(lang ? { lang } : {})}
         />
       )}
 
