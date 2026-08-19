@@ -53,12 +53,16 @@ const movieRefreshRaceGuard = 15 * time.Minute
 //     too), so once processed all 4 are non-NULL → the OR is false → not re-picked.
 //     genres/companies (no stamp column) are intentionally excluded.
 //
-//     i18n-coverage branch (S3): a movie missing a non-empty overview for ANY
-//     non-base UI language (locale.SupportedUserLanguages minus locale.Default(),
-//     currently ["ru-RU"]) is re-picked so the worker retries the translation
-//     fetch — the predicate COUNT(DISTINCT covered) < len(nonBaseLangs) fires as
-//     soon as one non-base language lacks a non-empty overview (accurate for a
-//     future second non-base language; identical to "every" while there is one).
+//     i18n-coverage branch (S3/U-1b): a movie missing a non-empty overview OR a
+//     non-empty TITLE for ANY non-base UI language (locale.SupportedUserLanguages
+//     minus locale.Default(), currently ["ru-RU"]) is re-picked so the worker retries
+//     the translation fetch — each predicate COUNT(DISTINCT covered) < len(nonBaseLangs)
+//     fires as soon as one non-base language lacks the non-empty field (accurate for a
+//     future second non-base language; identical to "every" while there is one). The
+//     TITLE arm (U-1b) heals the ~10,806 legacy movies that carry a non-empty ru-RU
+//     overview but an empty title (the U-1 decode bug); those are activated by MAIN's
+//     one-time `enrichment_text_synced_at = NULL` reset so the guard below lets them
+//     through exactly once.
 //     GUARDED by `enrichment_text_synced_at IS NULL` so it fires AT MOST
 //     ONCE per movie: the worker stamps enrichment_text_synced_at on every
 //     hydration attempt (even when TMDB has no ru translation), flipping the guard
@@ -110,21 +114,30 @@ func (r *MovieRepository) PickMovieRefreshCandidates(
 		}
 	}
 
-	// i18nFragment — the S3 anti-storm OR-branch, appended to the NORMAL arm's OR
-	// block. `enrichment_text_synced_at IS NULL` is the single-re-pick guard: the
-	// worker stamps it on every attempt, so once a movie is refreshed the branch is
-	// false forever regardless of ru availability. Two binds: nonBaseLangs (IN (?),
-	// GORM-expanded) and len(nonBaseLangs) (the coverage threshold).
+	// i18nFragment — the S3/U-1b anti-storm OR-branch, appended to the NORMAL arm's OR
+	// block. `enrichment_text_synced_at IS NULL` is the single-re-pick guard: the worker
+	// stamps it on every attempt, so once a movie is refreshed the branch is false forever
+	// regardless of ru availability. The movie is re-picked when the non-base languages
+	// lack a non-empty OVERVIEW (original S3) OR a non-empty TITLE (U-1b: the ~10,806 have
+	// the overview but an empty title, so the overview-only check missed them). Four binds:
+	// nonBaseLangs + len for the overview subquery, then nonBaseLangs + len for the title
+	// subquery (GORM-expanded IN (?)).
 	i18nFragment := ""
 	if len(nonBaseLangs) > 0 {
 		i18nFragment = `
         OR (m.enrichment_text_synced_at IS NULL
-            AND (SELECT COUNT(DISTINCT mi.language)
-                   FROM movie_i18n mi
-                  WHERE mi.movie_id = m.id
-                    AND mi.language IN (?)
-                    AND mi.overview IS NOT NULL
-                    AND mi.overview <> '') < ?)`
+            AND ((SELECT COUNT(DISTINCT mi.language)
+                    FROM movie_i18n mi
+                   WHERE mi.movie_id = m.id
+                     AND mi.language IN (?)
+                     AND mi.overview IS NOT NULL
+                     AND mi.overview <> '') < ?
+              OR (SELECT COUNT(DISTINCT mi.language)
+                    FROM movie_i18n mi
+                   WHERE mi.movie_id = m.id
+                     AND mi.language IN (?)
+                     AND mi.title IS NOT NULL
+                     AND mi.title <> '') < ?))`
 	}
 
 	const sqlTmpl = `
@@ -164,12 +177,14 @@ LIMIT ?
 
 	// Positional binds, left-to-right in sqlStr: raceCutoff (CHANGED race guard),
 	// normalCutoff (NORMAL staleness), then — ONLY when the i18n branch is present —
-	// nonBaseLangs (IN (?)) + len(nonBaseLangs) (coverage threshold), then
+	// nonBaseLangs (IN (?)) + len(nonBaseLangs) for the OVERVIEW subquery, then
+	// nonBaseLangs (IN (?)) + len(nonBaseLangs) for the TITLE subquery (U-1b), then
 	// nullSentinel (ORDER BY sentinel) and limit.
-	args := make([]any, 0, 6)
+	args := make([]any, 0, 8)
 	args = append(args, raceCutoff, normalCutoff)
 	if len(nonBaseLangs) > 0 {
-		args = append(args, nonBaseLangs, len(nonBaseLangs))
+		// overview subquery: (nonBaseLangs, len); title subquery: (nonBaseLangs, len)
+		args = append(args, nonBaseLangs, len(nonBaseLangs), nonBaseLangs, len(nonBaseLangs))
 	}
 	args = append(args, nullSentinel, limit)
 

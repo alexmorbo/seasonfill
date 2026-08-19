@@ -53,7 +53,8 @@ type MovieDetailBundle struct {
 func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *MovieDetailBundle {
 	domainLog := sharedports.DomainLogger(log, "http")
 	movieRepo := enrichpersistence.NewMovieRepository(db)
-	freshener := mdapp.NewMovieFreshener(5*time.Second, time.Now, domainLog)
+	freshener := mdapp.NewMovieFreshener(5*time.Second, time.Now, domainLog).
+		WithI18nCoverage(enrichpersistence.NewMovieI18nReadRepository(db))
 	hotEnqueuer := mdapp.NewMovieHotEnqueuer()
 	stubResolverHolder := mdapp.NewMovieStubResolverHolder()
 	uc := mdapp.New(

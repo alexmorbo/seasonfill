@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -149,6 +150,49 @@ func (r *MovieI18nReadRepository) TitleLanguage(ctx context.Context, movieID dom
 		}
 	}
 	return out, nil
+}
+
+// HasLocalizedTextGap reports whether the (movieID, lang) localized row has a
+// text gap that is DUE for a re-hydration recheck (U-1b on-view heal). A gap is:
+// a movie_i18n row for this (movie_id, language) EXISTS whose title is NULL/empty
+// OR whose overview is NULL/empty, AND whose enriched_at is NULL or strictly older
+// than recheckBefore.
+//
+//   - "row exists" gates out genuinely-untranslated movies (no row for this lang):
+//     TMDB never returned a translation, so there is nothing to heal — returning
+//     false keeps the freshener from firing HandleForced forever (anti-storm).
+//   - "title/overview empty" targets the U-1 empty-title bug (and a stray empty
+//     overview): the value the read ladder would otherwise fall back across langs for.
+//   - "enriched_at NULL or < recheckBefore" bounds the pathological "TMDB has an
+//     overview but no title" case to one recheck per recheckBefore window: after a
+//     HandleForced, UpsertEnriched stamps enriched_at = now, so the gap is suppressed
+//     until now + window even when the title stays empty.
+//
+// Pure read, dialect-portable (EXISTS + IS NULL/” + timestamp compare, ? binds) so
+// it runs identically on Postgres (prod) and the SQLite test lane. Errors surface to
+// the caller, which fails CLOSED (treats as no-gap) — the background picker is the
+// backstop for a transient read error, and an on-request path must not fire a 5s TMDB
+// hydrate on a flaky read.
+func (r *MovieI18nReadRepository) HasLocalizedTextGap(
+	ctx context.Context,
+	movieID domain.MovieID,
+	lang string,
+	recheckBefore time.Time,
+) (bool, error) {
+	if movieID == 0 || lang == "" {
+		return false, nil
+	}
+	const q = "SELECT 1 FROM movie_i18n mi " +
+		"WHERE mi.movie_id = ? AND mi.language = ? " +
+		"AND (mi.enriched_at IS NULL OR mi.enriched_at < ?) " +
+		"AND ((mi.title IS NULL OR mi.title = '') OR (mi.overview IS NULL OR mi.overview = '')) " +
+		"LIMIT 1"
+	var hit *int
+	if err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Raw(q, int64(movieID), lang, recheckBefore.UTC()).Scan(&hit).Error; err != nil {
+		return false, fmt.Errorf("movie_i18n text gap (movie=%d lang=%s): %w", int64(movieID), lang, err)
+	}
+	return hit != nil, nil
 }
 
 // ListTitlesByTMDBIDsWithFallback maps tmdb_id → localized non-empty title via

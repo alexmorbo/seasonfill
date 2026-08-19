@@ -180,3 +180,84 @@ func TestMovieFreshener_HandleForcedError_Degraded(t *testing.T) {
 	assert.False(t, res.Refreshed)
 	assert.Equal(t, int64(1), r.calls.Load())
 }
+
+// stubCoverage is a scripted MovieI18nCoverageReader. gap is returned as-is; err
+// (when set) exercises the fail-closed branch. recorded captures the recheckBefore
+// passed so a test can assert the 7d window.
+type stubCoverage struct {
+	gap      bool
+	err      error
+	calls    atomic.Int64
+	recorded time.Time
+}
+
+func (s *stubCoverage) HasLocalizedTextGap(_ context.Context, _ domain.MovieID, _ string, recheckBefore time.Time) (bool, error) {
+	s.calls.Add(1)
+	s.recorded = recheckBefore
+	return s.gap, s.err
+}
+
+// U-1b: all 5 section stamps fresh, but the ru row has an empty title → the coverage
+// reader reports a gap → EnsureFresh escalates to a synchronous HandleForced.
+func TestMovieFreshener_TitleGap_TriggersHandleForced(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	r := &blockingRefresher{}
+	cov := &stubCoverage{gap: true}
+	f := NewMovieFreshener(5*time.Second, fixedClock(now), discardLog()).WithI18nCoverage(cov)
+	f.Set(r)
+
+	res := f.EnsureFresh(context.Background(), freshCanon(now), "ru-RU")
+
+	assert.True(t, res.Refreshed, "section-fresh movie with a title gap is healed on view")
+	assert.Equal(t, int64(1), r.calls.Load(), "HandleForced fired for the title gap")
+	assert.Equal(t, int64(1), cov.calls.Load(), "coverage reader consulted once")
+	assert.Equal(t, now.Add(-7*24*time.Hour), cov.recorded, "recheck window is 7d")
+}
+
+// U-1b: section-fresh + ru title present (no gap) → no HandleForced.
+func TestMovieFreshener_NoTitleGap_NoOp(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	r := &blockingRefresher{}
+	cov := &stubCoverage{gap: false}
+	f := NewMovieFreshener(5*time.Second, fixedClock(now), discardLog()).WithI18nCoverage(cov)
+	f.Set(r)
+
+	res := f.EnsureFresh(context.Background(), freshCanon(now), "ru-RU")
+
+	assert.True(t, res.Fresh, "no gap → Fresh")
+	assert.Equal(t, int64(0), r.calls.Load(), "HandleForced NOT called when the row is healthy")
+}
+
+// U-1b: base language (en-US) is never gap-checked (it is the source of the ladder).
+func TestMovieFreshener_BaseLang_SkipsCoverage(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	r := &blockingRefresher{}
+	cov := &stubCoverage{gap: true} // would trigger if consulted
+	f := NewMovieFreshener(5*time.Second, fixedClock(now), discardLog()).WithI18nCoverage(cov)
+	f.Set(r)
+
+	res := f.EnsureFresh(context.Background(), freshCanon(now), "en-US")
+
+	assert.True(t, res.Fresh, "base lang skips the coverage read")
+	assert.Equal(t, int64(0), cov.calls.Load(), "coverage reader NOT consulted for base lang")
+	assert.Equal(t, int64(0), r.calls.Load())
+}
+
+// U-1b: a coverage read error fails CLOSED (treated as Fresh) so a flaky read never
+// fires a 5s TMDB hydrate on the request path.
+func TestMovieFreshener_CoverageError_FailsClosed(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	r := &blockingRefresher{}
+	cov := &stubCoverage{gap: true, err: errors.New("db down")}
+	f := NewMovieFreshener(5*time.Second, fixedClock(now), discardLog()).WithI18nCoverage(cov)
+	f.Set(r)
+
+	res := f.EnsureFresh(context.Background(), freshCanon(now), "ru-RU")
+
+	assert.True(t, res.Fresh, "read error → Fresh (fail closed)")
+	assert.Equal(t, int64(0), r.calls.Load(), "no HandleForced on a coverage read error")
+}

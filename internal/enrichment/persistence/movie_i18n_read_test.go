@@ -2,14 +2,17 @@ package persistence
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
+	database "github.com/alexmorbo/seasonfill/internal/shared/db"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/testhelpers"
 )
@@ -131,6 +134,83 @@ func TestMovieI18nRead_ListTitles_RuTitleWithEmptyOverview(t *testing.T) {
 			titles, err := reader.ListTitlesByTMDBIDsWithFallback(ctx, []int{2001}, "ru-RU")
 			require.NoError(t, err)
 			assert.Equal(t, "Русский", titles[2001], "list must show ru-RU title regardless of empty ru-RU overview")
+		})
+	}
+}
+
+func seedI18nRow(t *testing.T, db *gorm.DB, id domain.MovieID, lang string, title, overview *string, enrichedAt time.Time) {
+	t.Helper()
+	require.NoError(t, db.Create(&database.MovieI18nModel{
+		MovieID:    id,
+		Language:   lang,
+		Title:      title,
+		Overview:   overview,
+		EnrichedAt: &enrichedAt,
+		UpdatedAt:  enrichedAt,
+	}).Error)
+}
+
+func TestMovieI18nRead_HasLocalizedTextGap(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewMovieI18nReadRepository(db)
+			mrepo := NewMovieRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+			recheckBefore := now.Add(-7 * 24 * time.Hour)
+			old := now.Add(-30 * 24 * time.Hour) // older than the window → due
+			recent := now.Add(-1 * time.Hour)    // inside the window → suppressed
+
+			mk := func(tmdb int) domain.MovieID {
+				tid := domain.TMDBID(tmdb)
+				id, err := mrepo.Upsert(ctx, movie.Canon{TMDBID: &tid, Title: fmt.Sprintf("m%d", tmdb), Hydration: movie.HydrationStub})
+				require.NoError(t, err)
+				return id
+			}
+			s := func(v string) *string { return &v }
+
+			// (a) overview present, title NULL, old enriched_at → GAP (the 10,806).
+			gapMovie := mk(500)
+			seedI18nRow(t, db, gapMovie, "ru-RU", nil, s("русское описание"), old)
+			// (b) title + overview present → no gap.
+			healthy := mk(501)
+			seedI18nRow(t, db, healthy, "ru-RU", s("Название"), s("описание"), old)
+			// (c) title empty but enriched_at recent → suppressed (anti-storm recheck bound).
+			recentGap := mk(502)
+			seedI18nRow(t, db, recentGap, "ru-RU", nil, s("описание"), recent)
+			// (d) no ru row at all → genuinely untranslated → no gap.
+			noRow := mk(503)
+			// (e) title = '' (empty string, not NULL) → GAP.
+			emptyStr := mk(504)
+			seedI18nRow(t, db, emptyStr, "ru-RU", s(""), s("описание"), old)
+
+			cases := []struct {
+				name string
+				id   domain.MovieID
+				want bool
+			}{
+				{"overview_set_title_null_old", gapMovie, true},
+				{"healthy", healthy, false},
+				{"recent_enriched_at_suppressed", recentGap, false},
+				{"no_row_untranslated", noRow, false},
+				{"empty_string_title", emptyStr, true},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					got, err := repo.HasLocalizedTextGap(ctx, tc.id, "ru-RU", recheckBefore)
+					require.NoError(t, err)
+					assert.Equal(t, tc.want, got)
+				})
+			}
+
+			// movie_id 0 / empty lang → false, no error (guard).
+			got, err := repo.HasLocalizedTextGap(ctx, 0, "ru-RU", recheckBefore)
+			require.NoError(t, err)
+			assert.False(t, got)
 		})
 	}
 }

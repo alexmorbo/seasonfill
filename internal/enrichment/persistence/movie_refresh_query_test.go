@@ -86,6 +86,16 @@ func seedMovieI18n(t *testing.T, db *gorm.DB, id domain.MovieID, lang string, ov
 	}).Error)
 }
 
+// seedMovieI18nFull seeds a movie_i18n row with explicit title + overview (nil → NULL).
+func seedMovieI18nFull(t *testing.T, db *gorm.DB, id domain.MovieID, lang string, title, overview *string) {
+	t.Helper()
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&database.MovieI18nModel{
+		MovieID: id, Language: lang, Title: title, Overview: overview,
+		EnrichedAt: &now, UpdatedAt: now,
+	}).Error)
+}
+
 // TestMovieRepository_PickMovieRefreshCandidates covers the 2-tier picker:
 // CHANGED before NORMAL, NULL-sync first within a tier, the 15m race guard
 // excluding a just-stamped changed movie, anti-double-pick (a changed+stale
@@ -254,10 +264,12 @@ func TestMovieRepository_PickMovieRefreshCandidates_I18nCoverage(t *testing.T) {
 			noRu := seedMovie(t, db, 400, new(fresh), nil)
 			allSectionsFresh(noRu)
 
-			// (b) text NULL + ru-RU overview present (non-empty) → NOT picked (covered).
+			// (b) text NULL + ru-RU title AND overview present (non-empty) → NOT picked
+			//     (fully covered). The title must be seeded too now that the U-1b title
+			//     branch also re-picks on a missing non-empty ru title.
 			hasRu := seedMovie(t, db, 401, new(fresh), nil)
 			allSectionsFresh(hasRu)
-			seedMovieI18n(t, db, hasRu, "ru-RU", new("русское описание"))
+			seedMovieI18nFull(t, db, hasRu, "ru-RU", new("Название"), new("русское описание"))
 
 			// (c) text STAMPED (non-NULL) + still no ru overview → NOT picked.
 			//     THE anti-storm case: TMDB genuinely has no ru, the worker stamped
@@ -300,6 +312,63 @@ func TestMovieRepository_PickMovieRefreshCandidates_I18nCoverage(t *testing.T) {
 
 			// Exactly the two uncovered movies are pickable.
 			require.Len(t, got, 2, "only noRu + emptyRu are pickable; got %+v", got)
+		})
+	}
+}
+
+func TestMovieRepository_PickMovieRefreshCandidates_TitleCoverage(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewMovieRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+			fresh := now.Add(-1 * time.Hour)
+			ttl := enrichment.DefaultRefreshTTL()
+			s := func(v string) *string { return &v }
+			allFresh := func(id domain.MovieID) { markMovieSections(t, db, id, new(fresh), new(fresh), new(fresh), new(fresh)) }
+
+			// (a) THE 10,806: text NULL, ru overview present, ru TITLE empty → PICKED.
+			emptyTitle := seedMovie(t, db, 600, new(fresh), nil)
+			allFresh(emptyTitle)
+			seedMovieI18nFull(t, db, emptyTitle, "ru-RU", nil, s("русское описание"))
+
+			// (b) text NULL, ru title AND overview present → NOT picked (fully covered).
+			covered := seedMovie(t, db, 601, new(fresh), nil)
+			allFresh(covered)
+			seedMovieI18nFull(t, db, covered, "ru-RU", s("Название"), s("описание"))
+
+			// (c) ANTI-STORM: text SET, ru title empty, overview present → NOT picked forever.
+			stamped := seedMovie(t, db, 602, new(fresh), nil)
+			allFresh(stamped)
+			seedMovieI18nFull(t, db, stamped, "ru-RU", nil, s("описание"))
+			require.NoError(t, repo.MarkTextSynced(ctx, stamped, fresh))
+
+			// (d) text NULL, ru title = '' (empty string) → PICKED (empty treated as missing).
+			emptyStr := seedMovie(t, db, 603, new(fresh), nil)
+			allFresh(emptyStr)
+			seedMovieI18nFull(t, db, emptyStr, "ru-RU", s(""), s("описание"))
+
+			got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
+			require.NoError(t, err)
+			ids := map[domain.MovieID]enrichment.RefreshTier{}
+			for _, c := range got {
+				ids[c.MovieID] = c.Tier
+			}
+
+			_, ok := ids[emptyTitle]
+			assert.True(t, ok, "empty-title + text NULL must be re-picked; got %+v", got)
+			_, ok = ids[covered]
+			assert.False(t, ok, "fully-covered movie must NOT be picked")
+			_, ok = ids[stamped]
+			assert.False(t, ok, "text-stamped movie must NOT be re-picked (anti-storm)")
+			_, ok = ids[emptyStr]
+			assert.True(t, ok, "empty-string title must be re-picked")
+
+			require.Len(t, got, 2, "only emptyTitle + emptyStr pickable; got %+v", got)
 		})
 	}
 }
