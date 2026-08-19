@@ -255,15 +255,15 @@ func TestMovieWorker_HandleForced_WritesAllConfiguredLanguages(t *testing.T) {
 
 	cases := []struct {
 		name         string
-		translations *tmdb.TVTranslations
+		translations *tmdb.MovieTranslations
 		wantLangs    []string          // langs expected to be written, in order
 		wantTitles   map[string]string // lang -> expected title
 	}{
 		{
 			name: "ru translation present writes en-US and ru-RU",
-			translations: &tmdb.TVTranslations{Translations: []tmdb.TVTranslation{
-				{ISO6391: "en", Data: tmdb.TVTranslationData{Name: "Dune: Part Two", Overview: "en ov", Tagline: "en tag"}},
-				{ISO6391: "ru", Data: tmdb.TVTranslationData{Name: "Дюна: Часть вторая", Overview: "ру описание", Tagline: "ру слоган"}},
+			translations: &tmdb.MovieTranslations{Translations: []tmdb.MovieTranslation{
+				{ISO6391: "en", Data: tmdb.MovieTranslationData{Title: "Dune: Part Two", Overview: "en ov", Tagline: "en tag"}},
+				{ISO6391: "ru", Data: tmdb.MovieTranslationData{Title: "Дюна: Часть вторая", Overview: "ру описание", Tagline: "ру слоган"}},
 			}},
 			wantLangs: []string{"en-US", "ru-RU"},
 			wantTitles: map[string]string{
@@ -273,7 +273,7 @@ func TestMovieWorker_HandleForced_WritesAllConfiguredLanguages(t *testing.T) {
 		},
 		{
 			name:         "no ru translation writes en-US only",
-			translations: &tmdb.TVTranslations{Translations: []tmdb.TVTranslation{}},
+			translations: &tmdb.MovieTranslations{Translations: []tmdb.MovieTranslation{}},
 			wantLangs:    []string{"en-US"},
 			wantTitles:   map[string]string{"en-US": "Dune: Part Two"},
 		},

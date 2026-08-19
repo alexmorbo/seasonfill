@@ -2,8 +2,10 @@ package tmdb
 
 // movie_types.go — raw JSON shapes for GET /movie/{id} (Ф6-R-4a L3-2). Movie
 // analog of tv_types.go; do NOT touch tv_types.go. The detail response reuses
-// TVImages + TVTranslations (structurally identical poster/backdrop + localized
-// name/overview/tagline embeds) rather than duplicating them.
+// TVImages (structurally identical poster/backdrop embed) but carries its OWN
+// MovieTranslations: a movie translation's localized title is keyed "title",
+// whereas a TV translation's is "name" — reusing TVTranslations silently dropped
+// every localized movie title.
 
 // MovieResponse is the raw JSON shape of GET /movie/{id} with
 // append_to_response=external_ids,release_dates,images,translations. All
@@ -42,7 +44,7 @@ type MovieResponse struct {
 	ExternalIDs  *MovieExternalIDs  `json:"external_ids"`
 	ReleaseDates *MovieReleaseDates `json:"release_dates"`
 	Images       *TVImages          `json:"images"`       // reused: posters/backdrops
-	Translations *TVTranslations    `json:"translations"` // reused: localized name/overview/tagline
+	Translations *MovieTranslations `json:"translations"` // movie shape: data.title (NOT data.name like TV)
 	// Credits — Ф1.1a movie cast writer. FLAT credits (append_to_response=credits):
 	// cast[*] carries a 0-based `order` billing index (0 = lead). Crew is deferred
 	// to Ф1.1b, so only Cast is decoded here.
@@ -56,6 +58,34 @@ type MovieResponse struct {
 	// /movie videos.results[*] is structurally identical to /tv's.
 	Recommendations *MovieRecommendations `json:"recommendations"`
 	Videos          *TVVideos             `json:"videos"`
+}
+
+// MovieTranslations — append_to_response=translations sub-resource on GET
+// /movie/{id}. STRUCTURALLY DISTINCT from TVTranslations on purpose: a movie
+// translation's data.title is keyed "title", a TV translation's is "name". Do
+// NOT collapse this back into TVTranslations — that mismatch left every localized
+// movie title NULL (movie_i18n.title empty for all non-base languages).
+type MovieTranslations struct {
+	Translations []MovieTranslation `json:"translations"`
+}
+
+// MovieTranslation is one row of translations.translations[*]. ISO6391 is the
+// bare 2-letter language code (matched against shortLang(userTag)); Data holds
+// the localised text fields.
+type MovieTranslation struct {
+	ISO6391  string               `json:"iso_639_1"`
+	ISO31661 string               `json:"iso_3166_1"`
+	Data     MovieTranslationData `json:"data"`
+}
+
+// MovieTranslationData is the `data` object inside a MovieTranslation. The
+// localized title arrives under "title" (the TV shape uses "name") — this key is
+// the whole reason a dedicated movie type exists.
+type MovieTranslationData struct {
+	Title    string `json:"title"`
+	Overview string `json:"overview"`
+	Tagline  string `json:"tagline"`
+	Homepage string `json:"homepage"`
 }
 
 // MovieRecommendations mirrors the /movie/{id} recommendations sub-resource (Ф1.1c). Each

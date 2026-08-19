@@ -176,7 +176,7 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 					// COALESCE writer never creates an all-empty row.
 					continue
 				}
-				title, overview, tagline = tr.Name, tr.Overview, tr.Tagline
+				title, overview, tagline = tr.Title, tr.Overview, tr.Tagline
 			}
 			if err := w.deps.I18n.UpsertEnriched(ctx, canon.ID, lang,
 				title, overview, tagline,
@@ -350,9 +350,10 @@ func (w *MovieWorker) writeCast(ctx context.Context, movieID domain.MovieID, res
 // movieTranslationsByLang indexes append_to_response=translations by bare
 // 2-letter language code (shortLang) → localized text fields. Mirrors the
 // PersonWorker translation index (person_worker.go:192-198). Empty map when the
-// movie carries no translations sub-resource.
-func movieTranslationsByLang(resp *tmdb.MovieResponse) map[string]tmdb.TVTranslationData {
-	out := map[string]tmdb.TVTranslationData{}
+// movie carries no translations sub-resource. Note the movie-specific
+// MovieTranslationData (data.title), NOT the TV data.name shape.
+func movieTranslationsByLang(resp *tmdb.MovieResponse) map[string]tmdb.MovieTranslationData {
+	out := map[string]tmdb.MovieTranslationData{}
 	if resp == nil || resp.Translations == nil {
 		return out
 	}
