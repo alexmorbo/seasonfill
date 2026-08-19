@@ -2933,6 +2933,7 @@ export const ru: Translations = {
     addAllResult: 'Добавлено {{added}}, уже есть {{already}}, ошибок {{failed}}',
   },
   movieDetail: {
+    back: 'Фильмы',
     errors: {
       invalidParams: 'Неверный фильм',
       loadFailedTitle: 'Не удалось загрузить фильм',

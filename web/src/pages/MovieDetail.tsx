@@ -1,12 +1,11 @@
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  AlertTriangle, Star, ExternalLink, Clock, Plus, ChevronDown, PlayCircle,
+  AlertTriangle, Star, ExternalLink, Clock, Plus, ChevronDown, ChevronLeft, PlayCircle,
 } from 'lucide-react';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import { useLanguage } from '@/hooks/useLanguage';
-import { MediaImage } from '@/components/MediaImage';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,8 +14,10 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
-import { KeywordChips } from '@/components/series-detail/KeywordChips';
+import { DegradedChip } from '@/components/series-detail/DegradedChip';
 import { TrailerModal } from '@/components/series-detail/TrailerModal';
+import { MonogramFallback } from '@/components/MonogramFallback';
+import { mediaUrl, aggregateDegraded } from '@/api/series';
 import { useMovie, type MovieDetail, type MovieDetailLibrary } from '@/api/movies';
 import { useMovieOverview } from '@/api/movieOverview';
 import { useMovieCast } from '@/api/movieCast';
@@ -191,7 +192,7 @@ export function MovieDetail() {
 
   if (query.isPending) {
     return (
-      <div className="flex flex-col gap-4" data-testid="movie-detail-loading">
+      <div className="flex flex-col gap-4 px-[36px] lg:px-[36px]" data-testid="movie-detail-loading">
         <div className="flex gap-5">
           <Skeleton className="h-[300px] w-[200px] shrink-0 rounded-lg" />
           <div className="flex flex-1 flex-col gap-3">
@@ -229,6 +230,19 @@ export function MovieDetail() {
   const tmdbStale = degraded.some((d) => d.startsWith('tmdb'));
   const omdbStale = degraded.includes('omdb');
   const syncedAt = (movie as MovieDetail & { synced_at?: string }).synced_at;
+  // F-04 — reuse the series DegradedChip. aggregateDegraded narrows the movie
+  // `degraded: string[]` to the known `DegradedSource[]` union (drops any
+  // movie-only token the chip can't label; `omdb` is in the known set).
+  const degradedSources = aggregateDegraded(degraded);
+
+  // Hero art — raw <img> via the shared media resolver, mirroring SeriesHero so
+  // the .sd-backdrop-layer / .sd-poster fill rules apply cleanly.
+  const backdropSrc = mediaUrl(movie.backdrop);
+  const posterSrc = mediaUrl(movie.poster);
+  const originalTitle =
+    movie.original_title && movie.original_title !== movie.title
+      ? movie.original_title
+      : undefined;
 
   // Overview block — base movie.overview paints on first frame (gating query),
   // the localized /overview endpoint refines it once it lands. loading only
@@ -250,150 +264,206 @@ export function MovieDetail() {
       : undefined;
 
   return (
-    <div className="flex flex-col gap-6" data-testid="movie-detail-page">
-      {/* Hero */}
-      <div className="relative overflow-hidden rounded-xl border border-border-subtle">
-        {movie.backdrop && (
-          <div className="absolute inset-0" aria-hidden="true">
-            <MediaImage
-              hash={movie.backdrop}
-              kind="backdrop"
-              title={movie.title ?? ''}
-              fallback="svg"
-              aspectRatio="aspect-auto"
-              className="absolute inset-0 opacity-30"
+    <div
+      className="sd-real -mt-5 flex flex-col gap-5 px-[36px] lg:px-[36px]"
+      data-testid="movie-detail-page"
+    >
+      {/* Hero — full-bleed backdrop, mirrors SeriesHero (S9a′). Movies never
+          carry a Sonarr-only fallback, so data-fallback is always "none". */}
+      <section
+        data-testid="movie-detail-hero"
+        className="sd-hero-bleed"
+        data-fallback="none"
+      >
+        {/* In-hero back-link — glass chip, top-left. */}
+        <Link to="/movies" className="sd-back-link" data-testid="movie-hero-back-link">
+          <span className="inline-flex items-center gap-1">
+            <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('movieDetail.back')}
+          </span>
+        </Link>
+
+        {/* Backdrop layer — full-bleed, masked. */}
+        <div className="sd-backdrop-layer" aria-hidden="true" data-testid="movie-hero-backdrop-layer">
+          {backdropSrc ? (
+            <img
+              src={backdropSrc}
+              alt=""
+              loading="eager"
+              decoding="async"
+              data-testid="movie-hero-backdrop"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-bg-base via-bg-base/80 to-bg-base/40" />
-          </div>
-        )}
+          ) : (
+            <MonogramFallback title={movie.title ?? ''} kind="backdrop" />
+          )}
+        </div>
 
-        <div className="relative flex flex-col gap-5 p-5 sm:flex-row">
-          <div className="w-[180px] shrink-0">
-            <MediaImage
-              hash={movie.poster ?? null}
-              kind="poster"
-              title={movie.title ?? ''}
-              fallback="monogram"
-              className="rounded-lg border border-border-subtle"
-              data-testid="movie-detail-poster"
-            />
-          </div>
+        {/* Scrim — gradient over backdrop for text legibility. */}
+        <div className="sd-scrim-layer" aria-hidden="true" data-testid="movie-hero-scrim" />
 
-          <div className="flex flex-1 flex-col gap-3">
-            <div>
-              <h1
-                data-testid="movie-detail-title"
-                className="text-2xl font-semibold text-tx-primary"
-              >
-                {movie.title}
-                {typeof movie.year === 'number' && movie.year > 0 && (
-                  <span className="ml-2 text-tx-muted tabular-nums">({movie.year})</span>
-                )}
-              </h1>
-              {movie.tagline && (
-                <p
-                  data-testid="movie-detail-tagline"
-                  className="mt-1 text-[14px] italic text-tx-muted"
-                >
-                  {movie.tagline}
-                </p>
-              )}
-            </div>
-
-            {genres.length > 0 && (
-              <KeywordChips chips={genres} className="mt-0.5" />
+        {/* Inner content. */}
+        <div className="sd-hero-inner">
+          {/* Poster (left column, full-height, bottom-aligned). */}
+          <div
+            className="sd-poster border border-border-subtle bg-bg-surface-2 shadow-lg"
+            data-testid="movie-detail-poster"
+          >
+            {posterSrc ? (
+              <img src={posterSrc} alt="" aria-hidden="true" className="w-full h-full object-cover" />
+            ) : (
+              <MonogramFallback title={movie.title ?? ''} kind="poster" />
             )}
+          </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-[13px] text-tx-secondary">
-              {typeof movie.runtime_minutes === 'number' && movie.runtime_minutes > 0 && (
-                <span
-                  data-testid="movie-detail-runtime"
-                  className="inline-flex items-center gap-1"
+          {/* Right column. */}
+          <div className="sd-hero-right">
+            <div className="sd-hero-cols">
+              <div className="sd-hmeta flex flex-col gap-3 text-white">
+                <h1
+                  data-testid="movie-detail-title"
+                  className="text-[26px] md:text-[32px] font-bold tracking-tight text-white leading-tight"
                 >
-                  <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('movieDetail.meta.runtime', { count: movie.runtime_minutes })}
-                </span>
-              )}
-              {movie.release_date && (
-                <span data-testid="movie-detail-released">
-                  {t('movieDetail.meta.released', { date: formatDate(movie.release_date, 'date') })}
-                </span>
-              )}
-            </div>
+                  {movie.title}
+                  {typeof movie.year === 'number' && movie.year > 0 && (
+                    <span className="ml-2 font-normal text-white/60 tabular-nums">({movie.year})</span>
+                  )}
+                </h1>
 
-            {/* Ratings row (compact, mirrors SeriesHero ★). The richer
-                MovieRatingsSection renders below in the main column. */}
-            {(showTmdb || showImdb) && (
-              <div
-                className="flex flex-wrap items-center gap-4"
-                data-testid="movie-detail-ratings"
-              >
-                {showTmdb && (
-                  <span
-                    className="inline-flex items-center gap-1.5 text-[13px]"
-                    data-testid="movie-detail-rating-tmdb"
-                  >
-                    <Star className="h-4 w-4 text-warn" fill="currentColor" aria-hidden="true" />
-                    <span className="font-semibold tabular-nums text-tx-primary">
-                      {(movie.tmdb_rating as number).toFixed(1)}
-                    </span>
-                    <span className="text-tx-faint">{t('movieDetail.ratings.tmdb')}</span>
-                  </span>
+                {originalTitle && (
+                  <div className="text-[13px] text-white/65 -mt-1">{originalTitle}</div>
                 )}
-                {showImdb && (
-                  <span
-                    className="inline-flex items-center gap-1.5 text-[13px]"
-                    data-testid="movie-detail-rating-imdb"
+                {movie.tagline && (
+                  <p
+                    data-testid="movie-detail-tagline"
+                    className="italic text-[14px] text-white/80 -mt-1"
                   >
-                    <span className="font-semibold tabular-nums text-tx-primary">
-                      {(movie.imdb_rating as number).toFixed(1)}
+                    {movie.tagline}
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[12.5px] text-white/85">
+                  {typeof movie.runtime_minutes === 'number' && movie.runtime_minutes > 0 && (
+                    <span
+                      data-testid="movie-detail-runtime"
+                      className="inline-flex items-center gap-1"
+                    >
+                      <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t('movieDetail.meta.runtime', { count: movie.runtime_minutes })}
                     </span>
-                    {movie.imdb_id ? (
-                      <a
-                        href={`https://www.imdb.com/title/${movie.imdb_id}/`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-0.5 text-tx-faint hover:text-accent"
-                        data-testid="movie-detail-imdb-link"
+                  )}
+                  {movie.release_date && (
+                    <>
+                      {typeof movie.runtime_minutes === 'number' && movie.runtime_minutes > 0 && (
+                        <span aria-hidden="true" className="w-1 h-1 rounded-full bg-white/40" />
+                      )}
+                      <span data-testid="movie-detail-released">
+                        {t('movieDetail.meta.released', { date: formatDate(movie.release_date, 'date') })}
+                      </span>
+                    </>
+                  )}
+                  {genres.length > 0 && (
+                    <>
+                      <span aria-hidden="true" className="w-1 h-1 rounded-full bg-white/40" />
+                      <span className="inline-flex flex-wrap gap-1.5">
+                        {genres.slice(0, 5).map((g) => (
+                          <span
+                            key={g.id ?? g.name}
+                            className="rounded-md bg-white/[0.10] border border-white/15 px-1.5 py-0.5 text-[11px]"
+                          >
+                            {g.name}
+                          </span>
+                        ))}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* Ratings row (compact, white ★ on the scrim — mirrors RatingDuo
+                    styling but keeps the movie-only IMDb deep-link). The richer
+                    MovieRatingsSection renders below in the main column. */}
+                {(showTmdb || showImdb) && (
+                  <div
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px]"
+                    data-testid="movie-detail-ratings"
+                  >
+                    {showTmdb && (
+                      <span
+                        className="inline-flex items-center gap-1.5"
+                        data-testid="movie-detail-rating-tmdb"
                       >
-                        {t('movieDetail.ratings.imdb')}
-                        <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                      </a>
-                    ) : (
-                      <span className="text-tx-faint">{t('movieDetail.ratings.imdb')}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-white/60">
+                          {t('movieDetail.ratings.tmdb')}
+                        </span>
+                        <Star className="h-3.5 w-3.5 text-warn" fill="currentColor" aria-hidden="true" />
+                        <span className="font-semibold tabular-nums text-white">
+                          {(movie.tmdb_rating as number).toFixed(1)}
+                        </span>
+                      </span>
                     )}
-                  </span>
+                    {showImdb && (
+                      <span
+                        className="inline-flex items-center gap-1.5"
+                        data-testid="movie-detail-rating-imdb"
+                      >
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-white/60">
+                          {t('movieDetail.ratings.imdb')}
+                        </span>
+                        <Star className="h-3.5 w-3.5 text-warn" fill="currentColor" aria-hidden="true" />
+                        <span className="font-semibold tabular-nums text-white">
+                          {(movie.imdb_rating as number).toFixed(1)}
+                        </span>
+                        {movie.imdb_id && (
+                          <a
+                            href={`https://www.imdb.com/title/${movie.imdb_id}/`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center text-white/55 hover:text-white"
+                            aria-label={t('movieDetail.ratings.imdb')}
+                            data-testid="movie-detail-imdb-link"
+                          >
+                            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                          </a>
+                        )}
+                      </span>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
 
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {typeof movie.tmdb_id === 'number' && movie.tmdb_id > 0 && (
-                library.length > 0 && library[0]?.instance_name ? (
-                  <OpenInRadarrButton
-                    tmdbId={movie.tmdb_id}
-                    instanceName={library[0].instance_name}
-                  />
-                ) : (
-                  <AddToRadarrSplitButton title={movie.title ?? ''} tmdbId={movie.tmdb_id} />
-                )
-              )}
-              {trailerKey && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  data-testid="movie-detail-trailer-button"
-                  onClick={() => setTrailerOpen(true)}
-                >
-                  <PlayCircle className="h-4 w-4" aria-hidden="true" />
-                  {t('seriesDetail.hero.trailer')}
-                </Button>
-              )}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {typeof movie.tmdb_id === 'number' && movie.tmdb_id > 0 && (
+                    library.length > 0 && library[0]?.instance_name ? (
+                      <OpenInRadarrButton
+                        tmdbId={movie.tmdb_id}
+                        instanceName={library[0].instance_name}
+                      />
+                    ) : (
+                      <AddToRadarrSplitButton title={movie.title ?? ''} tmdbId={movie.tmdb_id} />
+                    )
+                  )}
+                  {trailerKey && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      data-testid="movie-detail-trailer-button"
+                      onClick={() => setTrailerOpen(true)}
+                    >
+                      <PlayCircle className="h-4 w-4" aria-hidden="true" />
+                      {t('seriesDetail.hero.trailer')}
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
+
+      {degradedSources.length > 0 && (
+        <div className="-mt-2 flex justify-end">
+          <DegradedChip sources={degradedSources} />
+        </div>
+      )}
 
       {/* Main content + right rail (series-parity OverviewGrid). */}
       <OverviewGrid

@@ -2935,6 +2935,7 @@ export const en = {
     addAllResult: 'Added {{added}}, {{already}} already present, {{failed}} failed',
   },
   movieDetail: {
+    back: 'Movies',
     errors: {
       invalidParams: 'Invalid movie',
       loadFailedTitle: 'Failed to load movie',
