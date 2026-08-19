@@ -70,6 +70,22 @@ func markMovieSections(t *testing.T, db *gorm.DB, id domain.MovieID, cast, keywo
 	require.NoError(t, db.Model(&database.MovieModel{}).Where("id = ?", id).UpdateColumns(updates).Error)
 }
 
+// seedMovieI18n inserts one movie_i18n row for the given movie/language. A nil
+// overview leaves the column NULL (the "TMDB had no translation" state); a
+// non-nil pointer to "" seeds an empty-string overview (the "row exists but blank"
+// state). Both are treated as MISSING coverage by the S3 picker predicate.
+func seedMovieI18n(t *testing.T, db *gorm.DB, id domain.MovieID, lang string, overview *string) {
+	t.Helper()
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&database.MovieI18nModel{
+		MovieID:    id,
+		Language:   lang,
+		Overview:   overview,
+		EnrichedAt: &now,
+		UpdatedAt:  now,
+	}).Error)
+}
+
 // TestMovieRepository_PickMovieRefreshCandidates covers the 2-tier picker:
 // CHANGED before NORMAL, NULL-sync first within a tier, the 15m race guard
 // excluding a just-stamped changed movie, anti-double-pick (a changed+stale
@@ -103,6 +119,11 @@ func TestMovieRepository_PickMovieRefreshCandidates(t *testing.T) {
 			// their tmdb-path grounds (race guard / TTL) exactly as before.
 			markMovieSections(t, db, rg, new(recent), new(recent), new(recent), new(recent))
 			markMovieSections(t, db, nf, new(now), new(now), new(now), new(now))
+			// S3: both are text-attempted (enrichment_text_synced_at non-NULL) so the new
+			// i18n-coverage OR does NOT re-pick them — they stay excluded on their
+			// tmdb-path grounds (race guard / TTL), isolating this test to those grounds.
+			require.NoError(t, repo.MarkTextSynced(ctx, rg, recent))
+			require.NoError(t, repo.MarkTextSynced(ctx, nf, now))
 
 			// tmdbless: a Radarr orphan (tmdb_id NULL) → NEVER picked.
 			_, err := repo.Upsert(ctx, movie.Canon{Title: "orphan", Hydration: movie.HydrationStub})
@@ -171,6 +192,11 @@ func TestMovieRepository_PickMovieRefreshCandidates_NullSectionBackfill(t *testi
 			emptyStamped := seedMovie(t, db, 302, new(fresh), nil)
 			markMovieSections(t, db, emptyStamped, new(fresh), new(fresh), new(fresh), new(fresh))
 
+			// S3: both excluded fixtures are text-attempted, so the new i18n-coverage OR
+			// does not re-pick them — this test stays scoped to the NULL-section predicate.
+			require.NoError(t, repo.MarkTextSynced(ctx, fullStamped, fresh))
+			require.NoError(t, repo.MarkTextSynced(ctx, emptyStamped, fresh))
+
 			got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
 			require.NoError(t, err)
 
@@ -194,6 +220,86 @@ func TestMovieRepository_PickMovieRefreshCandidates_NullSectionBackfill(t *testi
 
 			// Negative-space guard: with only these 3 seeded, exactly one is pickable.
 			require.Len(t, got, 1, "only the NULL-section movie is pickable; got %+v", got)
+		})
+	}
+}
+
+// TestMovieRepository_PickMovieRefreshCandidates_I18nCoverage covers S3: the
+// NORMAL-arm i18n-coverage branch re-picks a movie missing a non-empty non-base
+// (ru-RU) overview, guarded by enrichment_text_synced_at IS NULL so it fires at
+// most once (anti-storm). All movies here are tmdb-fresh with all 4 section stamps
+// non-NULL, so ONLY the i18n branch can pull them into the NORMAL tier — isolating
+// the predicate under test.
+func TestMovieRepository_PickMovieRefreshCandidates_I18nCoverage(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewMovieRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+			fresh := now.Add(-1 * time.Hour) // within Normal TTL (14d), no change flag
+			ttl := enrichment.DefaultRefreshTTL()
+
+			// Every movie is tmdb-fresh + all 4 sections stamped, so the tmdb/section
+			// ORs are all false — only the S3 i18n branch can pick a movie here.
+			allSectionsFresh := func(id domain.MovieID) {
+				markMovieSections(t, db, id, new(fresh), new(fresh), new(fresh), new(fresh))
+			}
+
+			// (a) text NULL + NO ru-RU overview row → PICKED (missing coverage).
+			//     The movie-558449 hole: enriched before the S3 text writer existed.
+			noRu := seedMovie(t, db, 400, new(fresh), nil)
+			allSectionsFresh(noRu)
+
+			// (b) text NULL + ru-RU overview present (non-empty) → NOT picked (covered).
+			hasRu := seedMovie(t, db, 401, new(fresh), nil)
+			allSectionsFresh(hasRu)
+			seedMovieI18n(t, db, hasRu, "ru-RU", new("русское описание"))
+
+			// (c) text STAMPED (non-NULL) + still no ru overview → NOT picked.
+			//     THE anti-storm case: TMDB genuinely has no ru, the worker stamped
+			//     text-synced on its one attempt, so the movie is never re-picked.
+			stampedNoRu := seedMovie(t, db, 402, new(fresh), nil)
+			allSectionsFresh(stampedNoRu)
+			require.NoError(t, repo.MarkTextSynced(ctx, stampedNoRu, fresh))
+
+			// (d) text NULL + ru-RU row exists but overview = '' (empty) → PICKED
+			//     (empty string treated as missing, same as no row).
+			emptyRu := seedMovie(t, db, 403, new(fresh), nil)
+			allSectionsFresh(emptyRu)
+			seedMovieI18n(t, db, emptyRu, "ru-RU", new(""))
+
+			got, err := repo.PickMovieRefreshCandidates(ctx, now, ttl, 50)
+			require.NoError(t, err)
+
+			ids := map[domain.MovieID]enrichment.RefreshTier{}
+			for _, c := range got {
+				ids[c.MovieID] = c.Tier
+			}
+
+			// (a) picked, NORMAL tier.
+			tier, ok := ids[noRu]
+			require.True(t, ok, "movie with no ru overview + text NULL must be re-picked; got %+v", got)
+			assert.Equal(t, enrichment.RefreshTierNormal, tier)
+
+			// (b) covered → absent.
+			_, ok = ids[hasRu]
+			assert.False(t, ok, "movie with a non-empty ru overview must NOT be picked")
+
+			// (c) anti-storm: stamped + no ru → absent.
+			_, ok = ids[stampedNoRu]
+			assert.False(t, ok, "text-stamped movie must NOT be re-picked even with no ru (anti-storm)")
+
+			// (d) empty-string overview → treated as missing → picked.
+			tier, ok = ids[emptyRu]
+			require.True(t, ok, "movie with an empty ru overview must be re-picked; got %+v", got)
+			assert.Equal(t, enrichment.RefreshTierNormal, tier)
+
+			// Exactly the two uncovered movies are pickable.
+			require.Len(t, got, 2, "only noRu + emptyRu are pickable; got %+v", got)
 		})
 	}
 }

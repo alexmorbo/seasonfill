@@ -184,6 +184,25 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 				return fmt.Errorf("movie worker: upsert i18n %d (%s): %w", canon.ID, lang, err)
 			}
 		}
+		// Stamp text-synced on the attempt, unconditionally — even when every
+		// non-base language above was `continue`d because TMDB carried no
+		// translation. This is the anti-storm guarantee for the i18n-coverage
+		// picker branch (movie_refresh_query.go): enrichment_text_synced_at flips
+		// non-NULL after ONE refresh, so a movie whose ru overview TMDB never
+		// provides is re-picked once, not every tick (mirror of writeCast "stamp
+		// even for empty → stops re-firing", above at writeCast).
+		//
+		// Anti-storm coupling: the picker's i18n-coverage branch treats a NULL
+		// enrichment_text_synced_at as "not yet attempted", so it MUST be stamped
+		// on every hydration attempt or a no-ru movie storms the picker every
+		// tick. The stamp sits inside this `I18n != nil` guard on purpose and is
+		// safe because production ALWAYS wires a non-nil I18n writer
+		// (internal/wiring/enrichment_movie.go) — the guard is nil only in tests
+		// that opt out of i18n (and thus never exercise the coverage branch). Do
+		// not restructure the stamp out of this guard.
+		if err := w.deps.Movies.MarkTextSynced(ctx, canon.ID, now); err != nil {
+			return fmt.Errorf("movie worker: mark text synced %d: %w", canon.ID, err)
+		}
 	}
 
 	if err := w.deps.Movies.MarkTMDBSynced(ctx, canon.ID, now); err != nil {

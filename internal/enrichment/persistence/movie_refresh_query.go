@@ -7,6 +7,7 @@ import (
 
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
+	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 )
 
 // MovieRefreshCandidate is one row of the movie tiered picker. Tier labels the
@@ -31,15 +32,18 @@ const movieRefreshRaceGuard = 15 * time.Minute
 // staleness ascending (NULL first, then oldest first).
 //
 // Tier semantics:
+//
 //   - CHANGED (tier 0): tmdb_id IS NOT NULL AND tmdb_changed_at marks the movie
 //     as changed-pending, PLUS a 15m mid-Handle race guard. Because the CHANGED
 //     arm is STANDALONE (no sibling OR clause catches a NULL sync), the race
 //     guard is written `(enrichment_tmdb_synced_at IS NULL OR
 //     enrichment_tmdb_synced_at < ?)` — a never-synced changed movie (NULL) must
 //     still be picked (a bare `< ?` would evaluate NULL < ts = false forever).
+//
 //   - NORMAL (tier 3): tmdb_id IS NOT NULL AND NOT changed-pending AND
 //     (enrichment_tmdb_synced_at IS NULL OR enrichment_tmdb_synced_at < now-ttl
-//     OR any of enrichment_{cast,keywords,recs,media}_synced_at IS NULL).
+//     OR any of enrichment_{cast,keywords,recs,media}_synced_at IS NULL
+//     OR <i18n-coverage gap>).
 //     ttl is enrichment.RefreshTTL.Normal (reused domain type; Hot/Followed/Cold
 //     are ignored — movies have a single non-changed staleness tier for R-4a).
 //     The NULL-section OR re-picks a movie whose CANON was TMDB-enriched before
@@ -47,8 +51,21 @@ const movieRefreshRaceGuard = 15 * time.Minute
 //     its cast/keywords/recs/media sections get filled. Churn-safe: the movie
 //     worker stamps all 4 sections atomically per Handle (empty sections stamped
 //     too), so once processed all 4 are non-NULL → the OR is false → not re-picked.
-//     enrichment_text_synced_at (no movie writer) and genres/companies (no stamp
-//     column) are intentionally excluded.
+//     genres/companies (no stamp column) are intentionally excluded.
+//
+//     i18n-coverage branch (S3): a movie missing a non-empty overview for ANY
+//     non-base UI language (locale.SupportedUserLanguages minus locale.Default(),
+//     currently ["ru-RU"]) is re-picked so the worker retries the translation
+//     fetch — the predicate COUNT(DISTINCT covered) < len(nonBaseLangs) fires as
+//     soon as one non-base language lacks a non-empty overview (accurate for a
+//     future second non-base language; identical to "every" while there is one).
+//     GUARDED by `enrichment_text_synced_at IS NULL` so it fires AT MOST
+//     ONCE per movie: the worker stamps enrichment_text_synced_at on every
+//     hydration attempt (even when TMDB has no ru translation), flipping the guard
+//     non-NULL — so a movie whose ru overview TMDB never provides is NOT re-picked
+//     every tick (anti-storm; mirror of the writeCast "stamp even for empty →
+//     stops re-firing" precedent). The non-base language set is passed as a bind
+//     (`IN (?)`, GORM-expanded); when it is empty the branch is omitted entirely.
 //
 // R-A02-analog: the NORMAL arm carries an anti-predicate `AND NOT (<changed-
 // pending>)` (column refs only, zero new bind params) so a changed+stale movie
@@ -59,7 +76,8 @@ const movieRefreshRaceGuard = 15 * time.Minute
 //
 // Portable across Postgres + SQLite: literal '1970-01-01' NULL sentinel,
 // plain column-vs-column compares (enrichment_tmdb_synced_at < tmdb_changed_at),
-// no casts, no JSON aggregation.
+// and the i18n branch uses only COUNT(DISTINCT), a scalar subquery, IN (?) and
+// `overview <> ”` — all valid on both engines. No casts, no JSON aggregation.
 //
 // NOTE (R-4a scope): unlike the series picker this arm carries NO
 // enrichment_errors terminal-failure guard. Movies are far fewer and the movie
@@ -78,6 +96,36 @@ func (r *MovieRepository) PickMovieRefreshCandidates(
 	}
 	normalCutoff := now.UTC().Add(-ttl.Normal)
 	raceCutoff := now.UTC().Add(-movieRefreshRaceGuard)
+
+	// nonBaseLangs — supported UI languages minus the base (currently ["ru-RU"]).
+	// The i18n-coverage branch re-picks a movie whose overview is missing/empty for
+	// ANY one of these (COUNT(DISTINCT covered) < len(nonBaseLangs) — fires as soon
+	// as one lacks a non-empty overview). When empty (base is the only UI language)
+	// the branch is omitted so the query stays valid.
+	baseLang := locale.Default()
+	nonBaseLangs := make([]string, 0, len(locale.SupportedUserLanguages))
+	for _, l := range locale.SupportedUserLanguages {
+		if l != baseLang {
+			nonBaseLangs = append(nonBaseLangs, l)
+		}
+	}
+
+	// i18nFragment — the S3 anti-storm OR-branch, appended to the NORMAL arm's OR
+	// block. `enrichment_text_synced_at IS NULL` is the single-re-pick guard: the
+	// worker stamps it on every attempt, so once a movie is refreshed the branch is
+	// false forever regardless of ru availability. Two binds: nonBaseLangs (IN (?),
+	// GORM-expanded) and len(nonBaseLangs) (the coverage threshold).
+	i18nFragment := ""
+	if len(nonBaseLangs) > 0 {
+		i18nFragment = `
+        OR (m.enrichment_text_synced_at IS NULL
+            AND (SELECT COUNT(DISTINCT mi.language)
+                   FROM movie_i18n mi
+                  WHERE mi.movie_id = m.id
+                    AND mi.language IN (?)
+                    AND mi.overview IS NOT NULL
+                    AND mi.overview <> '') < ?)`
+	}
 
 	const sqlTmpl = `
 SELECT * FROM (
@@ -104,14 +152,26 @@ SELECT * FROM (
         OR m.enrichment_cast_synced_at IS NULL
         OR m.enrichment_keywords_synced_at IS NULL
         OR m.enrichment_recs_synced_at IS NULL
-        OR m.enrichment_media_synced_at IS NULL)
+        OR m.enrichment_media_synced_at IS NULL%s)
 ) u
 ORDER BY u.tier ASC,
          COALESCE(u.synced_at, ?) ASC,
          u.movie_id ASC
 LIMIT ?
 `
+	sqlStr := fmt.Sprintf(sqlTmpl, i18nFragment)
 	nullSentinel := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Positional binds, left-to-right in sqlStr: raceCutoff (CHANGED race guard),
+	// normalCutoff (NORMAL staleness), then — ONLY when the i18n branch is present —
+	// nonBaseLangs (IN (?)) + len(nonBaseLangs) (coverage threshold), then
+	// nullSentinel (ORDER BY sentinel) and limit.
+	args := make([]any, 0, 6)
+	args = append(args, raceCutoff, normalCutoff)
+	if len(nonBaseLangs) > 0 {
+		args = append(args, nonBaseLangs, len(nonBaseLangs))
+	}
+	args = append(args, nullSentinel, limit)
 
 	type row struct {
 		MovieID  domain.MovieID `gorm:"column:movie_id"`
@@ -120,12 +180,7 @@ LIMIT ?
 	}
 	var rows []row
 	err := dbFromContext(ctx, r.db).WithContext(ctx).
-		Raw(sqlTmpl,
-			raceCutoff,   // CHANGED tier-0 15m race guard
-			normalCutoff, // NORMAL tier-3 staleness cutoff
-			nullSentinel, // NULL synced_at ordering sentinel
-			limit,
-		).Scan(&rows).Error
+		Raw(sqlStr, args...).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("pick movie refresh candidates: %w", err)
 	}

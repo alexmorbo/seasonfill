@@ -35,6 +35,15 @@ type MovieCanonRepo interface {
 	Get(ctx context.Context, id domain.MovieID) (movie.Canon, error)
 	Upsert(ctx context.Context, c movie.Canon) (domain.MovieID, error)
 	MarkTMDBSynced(ctx context.Context, id domain.MovieID, now time.Time) error
+	// MarkTextSynced stamps movies.enrichment_text_synced_at = now on a movie
+	// text-hydration attempt (S3). The worker calls it UNCONDITIONALLY after the
+	// per-language movie_i18n fan-out — even when TMDB had no non-base translation
+	// and every non-base language was skipped. This is the anti-storm guarantee for
+	// the i18n-coverage picker branch (movie_refresh_query.go): the stamp flips
+	// non-NULL after exactly one refresh, so a movie with no available ru overview
+	// is re-picked once, not forever (mirror of writeCast "stamp even for empty →
+	// stops re-firing", movie_worker.go:322-328).
+	MarkTextSynced(ctx context.Context, id domain.MovieID, now time.Time) error
 	// MarkCastSynced stamps movies.enrichment_cast_synced_at = now on a successful
 	// cast write (Ф1.1a). Called inside the cast-write tx so the clock and the
 	// person_credits rows commit atomically.

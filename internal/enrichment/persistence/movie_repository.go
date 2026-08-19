@@ -238,6 +238,26 @@ func (r *MovieRepository) MarkTMDBSynced(ctx context.Context, id domain.MovieID,
 	return nil
 }
 
+// MarkTextSynced stamps movies.enrichment_text_synced_at = now (S3). Single-column
+// stamp; mirrors MarkCastSynced / SeriesRepository.MarkTextSynced. Called by
+// MovieWorker.HandleForced AFTER the per-language movie_i18n fan-out, on every
+// hydration attempt (even when TMDB has no non-base translation) — the anti-storm
+// stamp that stops the i18n-coverage picker branch (movie_refresh_query.go) from
+// re-picking a movie whose ru overview TMDB never provides. The COALESCE on the
+// Upsert path (movieUpsertAssignments) keeps a concurrent Radarr scan from blanking
+// this stamp back to NULL.
+func (r *MovieRepository) MarkTextSynced(ctx context.Context, id domain.MovieID, now time.Time) error {
+	if id == 0 {
+		return fmt.Errorf("mark movie text synced: movie_id must be non-zero")
+	}
+	err := dbFromContext(ctx, r.db).WithContext(ctx).Table("movies").Where("id = ?", id).
+		Updates(map[string]any{"enrichment_text_synced_at": now.UTC(), "updated_at": now.UTC()}).Error
+	if err != nil {
+		return fmt.Errorf("mark movie text synced: %w", err)
+	}
+	return nil
+}
+
 // MarkOMDBSynced stamps movies.enrichment_omdb_synced_at = now. Same shape
 // as MarkTMDBSynced.
 func (r *MovieRepository) MarkOMDBSynced(ctx context.Context, id domain.MovieID, now time.Time) error {

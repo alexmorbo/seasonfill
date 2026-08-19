@@ -48,6 +48,9 @@ type fakeMovieCanon struct {
 	stubIDByTMDB   map[int64]domain.MovieID // optional UpsertStub id override (self-ref test)
 	mediaMarkCalls int
 	recsMarkCalls  int
+	// S3 text stamp capture.
+	textMarkCalls int
+	textMarkedID  domain.MovieID
 }
 
 func (f *fakeMovieCanon) UpsertStub(_ context.Context, c movie.Canon) (domain.MovieID, error) {
@@ -96,6 +99,12 @@ func (f *fakeMovieCanon) MarkCastSynced(_ context.Context, id domain.MovieID, _ 
 func (f *fakeMovieCanon) MarkKeywordsSynced(_ context.Context, id domain.MovieID, _ time.Time) error {
 	f.keywordsMarkCalls++
 	f.keywordsMarkedID = id
+	return nil
+}
+
+func (f *fakeMovieCanon) MarkTextSynced(_ context.Context, id domain.MovieID, _ time.Time) error {
+	f.textMarkCalls++
+	f.textMarkedID = id
 	return nil
 }
 
@@ -191,6 +200,10 @@ func TestMovieWorker_HandleForced_HydratesStubToFull(t *testing.T) {
 	// freshness stamp.
 	require.Equal(t, 1, canonRepo.markCalls)
 	assert.Equal(t, domain.MovieID(7), canonRepo.markedID)
+
+	// S3: text-synced stamped on the hydration attempt.
+	assert.Equal(t, 1, canonRepo.textMarkCalls)
+	assert.Equal(t, domain.MovieID(7), canonRepo.textMarkedID)
 }
 
 // TestMovieWorker_HandleForced_NilTMDBSkips asserts a tmdb-less movie is a clean
@@ -301,6 +314,13 @@ func TestMovieWorker_HandleForced_WritesAllConfiguredLanguages(t *testing.T) {
 					assert.Equal(t, want, wr.title, "title for %s", wr.lang)
 				}
 			}
+
+			// S3 anti-storm: text-synced is stamped ONCE per attempt regardless of
+			// whether TMDB carried a non-base (ru) translation — so a movie with no
+			// ru overview is re-picked once, not forever.
+			assert.Equal(t, 1, canon.textMarkCalls,
+				"MarkTextSynced must fire on every hydration attempt, incl. no-ru")
+			assert.Equal(t, domain.MovieID(42), canon.textMarkedID)
 		})
 	}
 }
