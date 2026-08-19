@@ -116,7 +116,8 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		enrichpersistence.NewMovieRecommendationsRepository(db),
 		movieRepo,
 		movieI18nRead,
-	)
+	).
+		WithFreshener(engineFreshener)
 	recsHandler := mdrest.NewMovieRecommendationsHandler(recsUC, resolver, domainLog)
 	return &MovieDetailBundle{
 		Handler:                mdrest.NewHandler(uc, resolver, domainLog),

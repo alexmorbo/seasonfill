@@ -70,6 +70,15 @@ type RecommendationsUseCase struct {
 	recs   MovieRecsReader
 	movies MovieCanonBatchReader
 	titles MovieRecTitleLocalizer
+
+	// freshener — ADR-0022 S4 (F-02a) synchronous engine read-through. On a
+	// ?lang= recs GET the usecase drives the engine freshener for (movie, lang)
+	// BEFORE reading the localized titles, so the recs plugin's
+	// RefreshRecommendations writes the ru-RU rec titles and the SAME request
+	// serves them (visible win, no cold EN flash). nil-OK: unwired leaves the
+	// read on the pre-S4 path (canon/existing-i18n only). Reuses the SAME
+	// *MovieEngineFreshener instance the movie-detail usecase consults.
+	freshener freshenerPort
 }
 
 // NewRecommendationsUseCase constructs the usecase. In the live wiring canon and
@@ -85,6 +94,15 @@ func NewRecommendationsUseCase(
 	titles MovieRecTitleLocalizer,
 ) *RecommendationsUseCase {
 	return &RecommendationsUseCase{canon: canon, recs: recs, movies: movies, titles: titles}
+}
+
+// WithFreshener enables the S4 synchronous read-through freshen (F-02a). On a
+// ?lang= recs GET the usecase drives the engine for (movie, lang) so the recs
+// plugin localizes rec titles within the request. nil-OK. Returns the receiver
+// for chaining in the wiring.
+func (uc *RecommendationsUseCase) WithFreshener(f freshenerPort) *RecommendationsUseCase {
+	uc.freshener = f
+	return uc
 }
 
 // Get returns the paginated recs page for a tmdb id. ports.ErrNotFound bubbles
@@ -128,6 +146,17 @@ func (uc *RecommendationsUseCase) Get(
 		MovieID:  base.ID,
 		Items:    []MovieRecommendationItem{},
 		Degraded: []string{},
+	}
+
+	// F-02a — synchronous engine freshen so a ?lang= recs GET serves localized rec
+	// titles on THIS request. The engine recs plugin (recheck-gated, singleflight-
+	// coalesced) drives RefreshRecommendations which writes movie_i18n rec titles the
+	// localizeTitles read below then picks up. Empty lang skips (internal callers get
+	// canon EN). Failure is NON-blocking: the read degrades to whatever titles are on
+	// disk (this usecase carries no logger — the engine logs its own errors; mirror of
+	// the silent local-read degrade branches below).
+	if uc.freshener != nil && lang != "" {
+		_ = uc.freshener.EnsureFresh(ctx, base, lang)
 	}
 
 	ids, err := uc.recs.ListByMovie(ctx, base.ID)

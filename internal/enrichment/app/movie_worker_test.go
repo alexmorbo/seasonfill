@@ -109,6 +109,7 @@ func (f *fakeMovieCanon) MarkTextSynced(_ context.Context, id domain.MovieID, _ 
 }
 
 type movieI18nWrite struct {
+	movieID  domain.MovieID
 	lang     string
 	title    string
 	overview string
@@ -134,7 +135,7 @@ func (f *fakeMovieI18n) UpsertEnriched(_ context.Context, movieID domain.MovieID
 	f.title = title
 	f.overview = overview
 	f.tagline = tagline
-	f.writes = append(f.writes, movieI18nWrite{lang, title, overview, tagline, poster, backdrop})
+	f.writes = append(f.writes, movieI18nWrite{movieID, lang, title, overview, tagline, poster, backdrop})
 	return nil
 }
 

@@ -254,3 +254,39 @@ func (r *MovieI18nReadRepository) ListTitlesByTMDBIDsWithFallback(
 	}
 	return out, nil
 }
+
+// MovieRecsCoverage returns (covered, total) localized rec-title coverage for a
+// MOVIE — the ADR-0022 S4 mirror of SeriesTextsRepository.RecommendationsCoverage.
+// total = distinct recommended_movie_id in movie_recommendations for movieID;
+// covered = those with a movie_i18n row (language == language AND title IS NOT NULL).
+// Returns (0,0,nil) when the parent has no recommendations rows (cold-boot / never-
+// enriched-recs movie) — the recsPlugin then reads total==0 as "no_recs" (fresh).
+// No fallback ladder: the plugin asks "is THIS lang present", not "anything from the
+// fallback chain" (mirror of the series coverage semantics).
+func (r *MovieI18nReadRepository) MovieRecsCoverage(
+	ctx context.Context,
+	movieID domain.MovieID,
+	language string,
+) (covered, total int, err error) {
+	var totalCnt int64
+	if e := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("movie_recommendations").
+		Where("movie_id = ?", movieID).
+		Distinct("recommended_movie_id").
+		Count(&totalCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count movie_recommendations: %w", e)
+	}
+	if totalCnt == 0 {
+		return 0, 0, nil
+	}
+	var coveredCnt int64
+	if e := dbFromContext(ctx, r.db).WithContext(ctx).
+		Table("movie_recommendations AS mr").
+		Joins("JOIN movie_i18n mi ON mi.movie_id = mr.recommended_movie_id AND mi.language = ? AND mi.title IS NOT NULL", language).
+		Where("mr.movie_id = ?", movieID).
+		Distinct("mr.recommended_movie_id").
+		Count(&coveredCnt).Error; e != nil {
+		return 0, 0, fmt.Errorf("count movie_i18n for recommendations: %w", e)
+	}
+	return int(coveredCnt), int(totalCnt), nil
+}
