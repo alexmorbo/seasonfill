@@ -4504,6 +4504,8 @@ export type paths = {
                     readonly limit?: number;
                     /** @description page offset (>=0, default 0) */
                     readonly offset?: number;
+                    /** @description BCP-47 language tag for localized rec titles (e.g. ru-RU) */
+                    readonly lang?: string;
                 };
                 readonly header?: never;
                 readonly path: {

@@ -106,6 +106,7 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		movieRepo,
 		enrichpersistence.NewMovieRecommendationsRepository(db),
 		movieRepo,
+		movieI18nRead,
 	)
 	recsHandler := mdrest.NewMovieRecommendationsHandler(recsUC, resolver, domainLog)
 	return &MovieDetailBundle{

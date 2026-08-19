@@ -60,8 +60,8 @@ func TestF24MovieRecommendations_ReadPath(t *testing.T) {
 			// position = input index.
 			require.NoError(t, recsRepo.Set(ctx, baseID, []domain.MovieID{id606, id604, id605}))
 
-			uc := mdapp.NewRecommendationsUseCase(movieRepo, recsRepo, movieRepo)
-			page, err := uc.Get(ctx, baseTID, 20, 0)
+			uc := mdapp.NewRecommendationsUseCase(movieRepo, recsRepo, movieRepo, nil)
+			page, err := uc.Get(ctx, baseTID, "", 20, 0)
 			require.NoError(t, err)
 			require.Len(t, page.Items, 3)
 			assert.Equal(t, 3, page.TotalCount)
@@ -82,7 +82,7 @@ func TestF24MovieRecommendations_ReadPath(t *testing.T) {
 			assert.Equal(t, 2003, *page.Items[1].Canon.Year)
 
 			// Pagination window.
-			pageLim, err := uc.Get(ctx, baseTID, 2, 0)
+			pageLim, err := uc.Get(ctx, baseTID, "", 2, 0)
 			require.NoError(t, err)
 			assert.Len(t, pageLim.Items, 2)
 			assert.True(t, pageLim.HasMore)
@@ -91,7 +91,7 @@ func TestF24MovieRecommendations_ReadPath(t *testing.T) {
 			otherTID := domain.TMDBID(700)
 			_, err = movieRepo.Upsert(ctx, movie.Canon{TMDBID: &otherTID, Hydration: movie.HydrationFull, Title: "Solo"})
 			require.NoError(t, err)
-			pageEmpty, err := uc.Get(ctx, otherTID, 20, 0)
+			pageEmpty, err := uc.Get(ctx, otherTID, "", 20, 0)
 			require.NoError(t, err)
 			assert.Empty(t, pageEmpty.Items)
 			assert.Equal(t, 0, pageEmpty.TotalCount)

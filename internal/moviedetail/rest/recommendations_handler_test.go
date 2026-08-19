@@ -43,7 +43,11 @@ func (s stubBatch) ListByIDs(_ context.Context, _ []domain.MovieID) ([]movie.Can
 func tid(v int) *domain.TMDBID { p := domain.TMDBID(v); return &p }
 
 func newRecsRouter(canon mdapp.CanonReader, recs mdapp.MovieRecsReader, batch mdapp.MovieCanonBatchReader) *gin.Engine {
-	uc := mdapp.NewRecommendationsUseCase(canon, recs, batch)
+	return newRecsRouterLang(canon, recs, batch, nil)
+}
+
+func newRecsRouterLang(canon mdapp.CanonReader, recs mdapp.MovieRecsReader, batch mdapp.MovieCanonBatchReader, titles mdapp.MovieRecTitleLocalizer) *gin.Engine {
+	uc := mdapp.NewRecommendationsUseCase(canon, recs, batch, titles)
 	// nil resolver → raw poster paths flow through unchanged (asserted below).
 	h := mdrest.NewMovieRecommendationsHandler(uc, nil, nil)
 	gin.SetMode(gin.TestMode)
@@ -91,4 +95,31 @@ func TestMovieRecommendationsHandler_BadLimit(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/movies/603/recommendations?limit=999", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// stubRecTitleLocalizer is a stub mdapp.MovieRecTitleLocalizer for the handler test.
+type stubRecTitleLocalizer struct{ titles map[int]string }
+
+func (s stubRecTitleLocalizer) ListTitlesByTMDBIDsWithFallback(_ context.Context, _ []int, _ string) (map[int]string, error) {
+	return s.titles, nil
+}
+
+func TestMovieRecommendationsHandler_LangLocalizesTitle(t *testing.T) {
+	base := movie.Canon{ID: 1, TMDBID: tid(603)}
+	r := newRecsRouterLang(
+		stubCanon{canon: base},
+		stubRecs{ids: []domain.MovieID{40}},
+		stubBatch{canons: []movie.Canon{{ID: 40, TMDBID: tid(604), Title: "Reloaded"}}},
+		stubRecTitleLocalizer{titles: map[int]string{604: "Перезагрузка"}},
+	)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/movies/603/recommendations?lang=ru-RU", nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp dto.MovieRecommendationsResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 1)
+	assert.Equal(t, "Перезагрузка", resp.Items[0].Title, "?lang=ru-RU → localized rec title in body")
 }

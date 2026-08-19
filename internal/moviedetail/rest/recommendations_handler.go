@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -41,6 +42,7 @@ func NewMovieRecommendationsHandler(uc *mdapp.RecommendationsUseCase, resolver *
 // @Param       tmdb_id path      int    true  "TMDB movie id"
 // @Param       limit   query     int    false "page size (1..50, default 20)"
 // @Param       offset  query     int    false "page offset (>=0, default 0)"
+// @Param       lang    query     string false "BCP-47 language tag for localized rec titles (e.g. ru-RU)"
 // @Success     200     {object}  dto.MovieRecommendationsResponse
 // @Failure     400     {object}  dto.ErrorResponse
 // @Failure     401     {object}  dto.ErrorResponse
@@ -67,7 +69,12 @@ func (h *MovieRecommendationsHandler) Get(c *gin.Context) {
 		return
 	}
 
-	page, err := h.uc.Get(c.Request.Context(), domain.TMDBID(id), limit, offset)
+	// Story U-3 — thread ?lang= so rec card titles come out localized. Empty /
+	// language-less requests keep canon EN (the usecase skips localization on an
+	// empty lang). Mirrors MovieCastHandler / MovieOverviewHandler.
+	lang := strings.TrimSpace(c.Query("lang"))
+
+	page, err := h.uc.Get(c.Request.Context(), domain.TMDBID(id), lang, limit, offset)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "movie_not_found", Code: "MOVIE_NOT_FOUND"})

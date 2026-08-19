@@ -10940,6 +10940,14 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "description": "BCP-47 language tag for localized rec titles (e.g. ru-RU)",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
