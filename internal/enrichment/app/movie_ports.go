@@ -98,6 +98,10 @@ type MoviePeopleTextsPort interface {
 type MovieRefreshCandidate struct {
 	MovieID int64
 	Tier    enrichdomain.RefreshTier
+	// Heal mirrors the persistence is_gap column: true when the picker selected
+	// this movie via the S-HEAL rolling i18n-gap branch. Drives
+	// seasonfill_movie_refresh_picked_heal_total.
+	Heal bool
 }
 
 // MovieRefreshPicker is the movie tiered picker port the MovieRefreshScheduler
@@ -124,6 +128,11 @@ type MovieRefreshMetrics interface {
 	IncRefresh(tier enrichdomain.RefreshTier, result string)
 	ObserveBatchSize(n int)
 	ObserveTickDuration(d time.Duration)
+	// IncRefreshPickedHeal ticks once per candidate the picker selected via the
+	// S-HEAL rolling i18n-gap branch. Its steady-state rate is the genuinely-
+	// untranslatable floor (movies whose ru title TMDB never provides re-pick once
+	// per movieI18nGapRecheck window forever).
+	IncRefreshPickedHeal()
 }
 
 // noopMovieRefreshMetrics is the zero-value default so an unconfigured metrics
@@ -133,6 +142,7 @@ type noopMovieRefreshMetrics struct{}
 func (noopMovieRefreshMetrics) IncRefresh(enrichdomain.RefreshTier, string) {}
 func (noopMovieRefreshMetrics) ObserveBatchSize(int)                        {}
 func (noopMovieRefreshMetrics) ObserveTickDuration(time.Duration)           {}
+func (noopMovieRefreshMetrics) IncRefreshPickedHeal()                       {}
 
 // MovieGenresWriter is the movie genre taxonomy write surface (Ф1.1b): seed the shared
 // `genres` dict by tmdb_id (Upsert → local id), seed the base-lang genres_i18n row

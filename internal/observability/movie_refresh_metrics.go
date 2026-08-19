@@ -38,3 +38,13 @@ func (m *MovieRefreshMetrics) ObserveBatchSize(n int) {
 func (m *MovieRefreshMetrics) ObserveTickDuration(d time.Duration) {
 	metrics.GetOrCreateHistogram(`seasonfill_movie_refresh_tick_seconds`).Update(d.Seconds())
 }
+
+// IncRefreshPickedHeal ticks once per candidate the movie picker selected via the
+// S-HEAL rolling i18n-gap branch (a non-base localized row empty AND past the
+// recheck window). No labels — one process-wide counter. rate() reads "movie i18n
+// heal picks per tick"; unlike a one-shot backfill it does NOT flatten to ~0
+// because genuinely-untranslatable movies re-pick once per recheck window. Mirror
+// of EnrichmentRefreshMetrics.IncRefreshPickedHeal.
+func (m *MovieRefreshMetrics) IncRefreshPickedHeal() {
+	metrics.GetOrCreateCounter(`seasonfill_movie_refresh_picked_heal_total`).Inc()
+}

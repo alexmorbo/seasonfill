@@ -284,6 +284,7 @@ func (a movieRefreshPickerAdapter) PickMovieRefreshCandidates(
 		out = append(out, appenrich.MovieRefreshCandidate{
 			MovieID: int64(r.MovieID),
 			Tier:    r.Tier,
+			Heal:    r.Heal,
 		})
 	}
 	return out, nil

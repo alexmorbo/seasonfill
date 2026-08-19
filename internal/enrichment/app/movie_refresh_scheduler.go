@@ -101,14 +101,24 @@ func (s *MovieRefreshScheduler) Tick(ctx context.Context) {
 	}
 
 	changed := 0
+	heal := 0
 	for _, c := range candidates {
 		if c.Tier == enrichdomain.RefreshTierChanged {
 			changed++
+		}
+		if c.Heal {
+			heal++
+			s.deps.Metrics.IncRefreshPickedHeal()
+			s.deps.Logger.InfoContext(ctx, "enrichment.movie_refresh.picked",
+				slog.Int64("movie_id", c.MovieID),
+				slog.String("reason", "heal"),
+			)
 		}
 	}
 	s.deps.Logger.InfoContext(ctx, "enrichment.movie_refresh.tick.start",
 		slog.Int("batch_size", len(candidates)),
 		slog.Int("changed", changed),
+		slog.Int("heal", heal),
 	)
 
 	var (

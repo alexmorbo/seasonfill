@@ -74,3 +74,40 @@ func TestNewMovieRefreshScheduler_RequiresPorts(t *testing.T) {
 	_, err = NewMovieRefreshScheduler(MovieRefreshSchedulerDeps{Picker: &fakeMoviePicker{}})
 	require.Error(t, err)
 }
+
+type recMovieRefreshMetrics struct {
+	mu   sync.Mutex
+	heal int
+}
+
+func (r *recMovieRefreshMetrics) IncRefresh(enrichdomain.RefreshTier, string) {}
+func (r *recMovieRefreshMetrics) ObserveBatchSize(int)                        {}
+func (r *recMovieRefreshMetrics) ObserveTickDuration(time.Duration)           {}
+func (r *recMovieRefreshMetrics) IncRefreshPickedHeal() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.heal++
+}
+
+// TestMovieRefreshScheduler_HealMetricTicksPerCandidate asserts IncRefreshPickedHeal
+// fires exactly once per Heal candidate (mirror of the series scheduler test).
+func TestMovieRefreshScheduler_HealMetricTicksPerCandidate(t *testing.T) {
+	picker := &fakeMoviePicker{rows: []MovieRefreshCandidate{
+		{MovieID: 10, Tier: enrichdomain.RefreshTierChanged, Heal: false},
+		{MovieID: 20, Tier: enrichdomain.RefreshTierNormal, Heal: true},
+		{MovieID: 30, Tier: enrichdomain.RefreshTierNormal, Heal: false},
+		{MovieID: 40, Tier: enrichdomain.RefreshTierNormal, Heal: true},
+	}}
+	worker := &recordingMovieRefresher{}
+	m := &recMovieRefreshMetrics{}
+
+	s, err := NewMovieRefreshScheduler(MovieRefreshSchedulerDeps{
+		Picker: picker, Worker: worker, Metrics: m,
+	})
+	require.NoError(t, err)
+
+	s.Tick(context.Background())
+
+	assert.Equal(t, []int64{10, 20, 30, 40}, worker.seen, "every candidate still hydrated")
+	assert.Equal(t, 2, m.heal, "one tick per heal candidate")
+}
