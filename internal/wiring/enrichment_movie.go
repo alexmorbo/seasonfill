@@ -117,6 +117,7 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 		TMDB:        movieCollectionTMDBFromHolder{holder: deps.TMDBHolder},
 		Collections: movieCollections,
 		Movies:      movies,
+		Resolver:    resolver,
 		BaseLang:    tmdb.DefaultLanguage,
 		Logger:      deps.Log,
 	})

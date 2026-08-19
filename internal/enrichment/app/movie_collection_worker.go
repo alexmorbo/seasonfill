@@ -36,8 +36,13 @@ type MovieCollectionWorkerDeps struct {
 	TMDB        CollectionTMDBClient
 	Collections MovieCollectionUpserter
 	Movies      MovieCanonRepo
-	BaseLang    string
-	Logger      *slog.Logger
+	// Resolver pre-warms the collection header + part poster/backdrop raw paths
+	// into media_assets at populate time (mirror of the movie worker), so the
+	// read has stable sha256 handles instead of returning a pending sentinel on
+	// first miss. Nil-OK / optional: nil skips the warm side-effect entirely.
+	Resolver MediaResolver
+	BaseLang string
+	Logger   *slog.Logger
 }
 
 // MovieCollectionWorker satisfies MovieCollectionPopulator.
@@ -84,13 +89,30 @@ func (w *MovieCollectionWorker) PopulateCollection(ctx context.Context, collecti
 		return fmt.Errorf("populate collection %d: nil response", collectionTMDBID)
 	}
 
-	if err := w.deps.Collections.UpsertCollection(ctx, tmdb.MapCollectionToCanon(resp)); err != nil {
+	headerCanon := tmdb.MapCollectionToCanon(resp)
+	if err := w.deps.Collections.UpsertCollection(ctx, headerCanon); err != nil {
 		return fmt.Errorf("populate collection %d: upsert collection: %w", collectionTMDBID, err)
+	}
+
+	// Media pre-warm side-effect (nil-OK): mint media_assets pending rows for the
+	// collection header + each part poster so the read has stable sha256 handles
+	// instead of a pending sentinel on first miss. Fire-and-forget (Resolve never
+	// errors); never alters the errs/return behavior below.
+	if w.deps.Resolver != nil {
+		if headerCanon.PosterAsset != nil {
+			_ = w.deps.Resolver.Resolve(ctx, headerCanon.PosterAsset, "w342", "poster_w342")
+		}
+		if headerCanon.BackdropAsset != nil {
+			_ = w.deps.Resolver.Resolve(ctx, headerCanon.BackdropAsset, "w1280", "backdrop_w1280")
+		}
 	}
 
 	var errs []error
 	parts := tmdb.MapCollectionPartsToCanon(resp)
 	for _, p := range parts {
+		if w.deps.Resolver != nil && p.PosterAsset != nil {
+			_ = w.deps.Resolver.Resolve(ctx, p.PosterAsset, "w342", "poster_w342")
+		}
 		if _, perr := w.deps.Movies.Upsert(ctx, p); perr != nil {
 			tid := 0
 			if p.TMDBID != nil {

@@ -67,6 +67,97 @@ func collectionRespFixture() *tmdb.CollectionResponse {
 	}
 }
 
+// collectionRespWithArtworkFixture carries a header poster + backdrop and two
+// parts each with a poster path, to exercise the media pre-warm side-effect.
+func collectionRespWithArtworkFixture() *tmdb.CollectionResponse {
+	return &tmdb.CollectionResponse{
+		ID: 726871, Name: "Dune Collection", Overview: "Epic saga.",
+		PosterPath: "/coll_p.jpg", BackdropPath: "/coll_b.jpg",
+		Parts: []tmdb.CollectionPart{
+			{ID: 438631, Title: "Dune", ReleaseDate: "2021-10-22", VoteAverage: 7.8, PosterPath: "/dune1_p.jpg"},
+			{ID: 693134, Title: "Dune: Part Two", ReleaseDate: "2024-02-27", VoteAverage: 8.2, PosterPath: "/dune2_p.jpg"},
+		},
+	}
+}
+
+// warmCall records a single Resolve invocation for warm-assertion.
+type warmCall struct {
+	raw  string
+	size string
+	kind string
+}
+
+// recordingResolver records every Resolve (raw path deref, size, kind) tuple.
+type recordingResolver struct {
+	calls []warmCall
+}
+
+func (r *recordingResolver) Resolve(_ context.Context, rawPath *string, size, kind string) *string {
+	raw := ""
+	if rawPath != nil {
+		raw = *rawPath
+	}
+	r.calls = append(r.calls, warmCall{raw: raw, size: size, kind: kind})
+	return nil
+}
+
+func (r *recordingResolver) contains(raw, size, kind string) bool {
+	for _, c := range r.calls {
+		if c.raw == raw && c.size == size && c.kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPopulateCollection_WarmsHeaderAndPartPosters(t *testing.T) {
+	ftmdb := &fakeCollectionTMDB{resp: collectionRespWithArtworkFixture()}
+	fups := &fakeCollectionUpserter{}
+	movies := &recordingMovieCanon{}
+	resolver := &recordingResolver{}
+
+	w, err := NewMovieCollectionWorker(MovieCollectionWorkerDeps{
+		TMDB: ftmdb, Collections: fups, Movies: movies, Resolver: resolver,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, w.PopulateCollection(context.Background(), 726871))
+
+	// Warm side-effect: header poster + backdrop + each part poster.
+	assert.True(t, resolver.contains("/coll_p.jpg", "w342", "poster_w342"), "header poster warmed")
+	assert.True(t, resolver.contains("/coll_b.jpg", "w1280", "backdrop_w1280"), "header backdrop warmed")
+	assert.True(t, resolver.contains("/dune1_p.jpg", "w342", "poster_w342"), "part 1 poster warmed")
+	assert.True(t, resolver.contains("/dune2_p.jpg", "w342", "poster_w342"), "part 2 poster warmed")
+
+	// Existing upsert behavior is unchanged.
+	require.Equal(t, 1, fups.calls)
+	assert.Equal(t, 726871, fups.upserted.TMDBCollectionID)
+	require.Len(t, movies.upserts, 2)
+	for _, u := range movies.upserts {
+		require.NotNil(t, u.CollectionID)
+		assert.Equal(t, 726871, *u.CollectionID)
+		assert.Equal(t, movie.HydrationStub, u.Hydration)
+	}
+}
+
+func TestPopulateCollection_NilResolverNoWarmSafe(t *testing.T) {
+	ftmdb := &fakeCollectionTMDB{resp: collectionRespWithArtworkFixture()}
+	fups := &fakeCollectionUpserter{}
+	movies := &recordingMovieCanon{}
+
+	w, err := NewMovieCollectionWorker(MovieCollectionWorkerDeps{
+		TMDB: ftmdb, Collections: fups, Movies: movies, // Resolver nil
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, w.PopulateCollection(context.Background(), 726871))
+
+	// Same upsert behavior with no Resolver — safe no-op, no panic.
+	require.Equal(t, 1, fups.calls)
+	assert.Equal(t, 726871, fups.upserted.TMDBCollectionID)
+	require.Len(t, movies.upserts, 2)
+}
+
 func TestMovieCollectionWorker_PopulateCollection_HappyPath(t *testing.T) {
 	ftmdb := &fakeCollectionTMDB{resp: collectionRespFixture()}
 	fups := &fakeCollectionUpserter{}
