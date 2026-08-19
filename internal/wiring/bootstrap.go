@@ -23,6 +23,7 @@ import (
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	enrichrest "github.com/alexmorbo/seasonfill/internal/enrichment/rest"
+	mdadapters "github.com/alexmorbo/seasonfill/internal/mediadetail/adapters"
 	mdapp "github.com/alexmorbo/seasonfill/internal/moviedetail/app"
 	notifpersistence "github.com/alexmorbo/seasonfill/internal/notification/persistence"
 	notifrest "github.com/alexmorbo/seasonfill/internal/notification/rest"
@@ -924,7 +925,7 @@ func BuildHTTPServer(
 	// /notification-agents routes are omitted when absent.
 	notificationAgentsHandler *notifrest.AgentsHandler,
 	log *slog.Logger,
-) (*httpserver.Server, *InstanceMetadataBundle, *mdapp.MovieFreshener, *mdapp.MovieHotEnqueuer, *mdapp.MovieStubResolverHolder) {
+) (*httpserver.Server, *InstanceMetadataBundle, *mdapp.MovieFreshener, *mdapp.MovieHotEnqueuer, *mdapp.MovieStubResolverHolder, *mdadapters.MovieEngineFreshener) {
 	var discoveryHandler *discoveryrest.DiscoveryHandler
 	var discoverHandler *discoveryrest.DiscoverHandler           // story 509 N-2h
 	var movieDiscoverHandler *discoveryrest.MovieDiscoverHandler // Ф6-R-4a L3-1
@@ -1149,5 +1150,5 @@ func BuildHTTPServer(
 		movieDetailBundle.CastETagFreshness,      // Ф2.1 movie ETag adapter
 		log,
 	)
-	return srv, instanceMetadataBundle, movieDetailBundle.FreshenerHolder, movieDetailBundle.HotEnqueuer, movieDetailBundle.StubResolverHolder
+	return srv, instanceMetadataBundle, movieDetailBundle.FreshenerHolder, movieDetailBundle.HotEnqueuer, movieDetailBundle.StubResolverHolder, movieDetailBundle.EngineFreshener
 }

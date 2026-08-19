@@ -785,7 +785,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		keywordSearchClient = enrichBundle.TMDBHolder
 	}
-	httpServer, instanceMetadataBundle, movieFreshenerHolder, movieHotEnqueuerHolder, movieStubResolverHolder := wiring.BuildHTTPServer(
+	httpServer, instanceMetadataBundle, movieFreshenerHolder, movieHotEnqueuerHolder, movieStubResolverHolder, movieEngineFreshener := wiring.BuildHTTPServer(
 		persistence, runtimecfg, auth,
 		sonarrBundle, watchdogBundle, scanBundle, webhookBundle,
 		instanceBundle, regrabBundle, torrentsyncBundle, extSvcBundle,
@@ -823,7 +823,21 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// into mediaDetailBundle.Registry and bind the async fallback HERE, in the
 	// late-bind zone (the dispatcher/repos are in scope). Held on the Server
 	// struct below so this is not a dead local.
-	mediaDetailBundle := wiring.BuildMediaDetail(log)
+	mediaDetailBundle := wiring.BuildMediaDetail(persistence.DB, log)
+
+	// ADR-0022 S2a — REPLACE the movie-text driver: bind the universal engine
+	// Freshener into the adapter the movie usecase consults via freshenerPort, so a
+	// movie detail open now freshens through the registered (movie,text) plugin
+	// (→ the SAME MovieWorker.HandleForced, coalesced) instead of the legacy
+	// *MovieFreshener. Exactly one driver; no double-fetch.
+	if movieEngineFreshener != nil {
+		movieEngineFreshener.Set(mediaDetailBundle.Freshener)
+	}
+	// Late-bind SeriesWorker into the (dormant) series text plugin's Refresh; the
+	// series live path is untouched, this only completes the registration.
+	if enrichBundle != nil && enrichBundle.SeriesWorker != nil && mediaDetailBundle.SeriesForce != nil {
+		mediaDetailBundle.SeriesForce.Set(enrichBundle.SeriesWorker)
+	}
 
 	// F-07: the two static-named cachewatch caches (discover LRU +
 	// instance_metadata bundle) are registered in the cachewatch singleton
@@ -988,6 +1002,11 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 			// the holder is nil only if BuildMovieDetail was skipped.
 			if movieEnrich.Worker != nil && movieFreshenerHolder != nil {
 				movieFreshenerHolder.Set(movieEnrich.Worker)
+			}
+			// ADR-0022 S2a — the engine's (movie,text) plugin Refresh drives the SAME
+			// MovieWorker.HandleForced; bind it into the plugin's late-bind holder.
+			if movieEnrich.Worker != nil && mediaDetailBundle.MovieForce != nil {
+				mediaDetailBundle.MovieForce.Set(movieEnrich.Worker)
 			}
 			// S1b late-bind — wire the movie hydration handler onto the
 			// dispatcher's movie goroutines (spawned at dispatcher.Start with

@@ -13,6 +13,7 @@ import (
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
+	mdadapters "github.com/alexmorbo/seasonfill/internal/mediadetail/adapters"
 	mdapp "github.com/alexmorbo/seasonfill/internal/moviedetail/app"
 	mdrest "github.com/alexmorbo/seasonfill/internal/moviedetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
@@ -46,6 +47,10 @@ type MovieDetailBundle struct {
 	// runtime TMDB holder + the discovery movie seed insert). Until Set, an
 	// unknown tmdb id keeps the pre-S2 404.
 	StubResolverHolder *mdapp.MovieStubResolverHolder
+	// EngineFreshener — ADR-0022 S2a: the engine-backed freshenerPort REPLACING the
+	// raw *MovieFreshener as the movie-text driver. Late-bound with the engine in
+	// server.go after BuildMediaDetail.
+	EngineFreshener *mdadapters.MovieEngineFreshener
 }
 
 // BuildMovieDetail wires the read-only movie-detail aggregate + the movie
@@ -53,8 +58,12 @@ type MovieDetailBundle struct {
 func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *MovieDetailBundle {
 	domainLog := sharedports.DomainLogger(log, "http")
 	movieRepo := enrichpersistence.NewMovieRepository(db)
+	// Keep the legacy freshener constructed (still returned as FreshenerHolder for
+	// the movie-worker late-bind reuse; unused-for-text — cleanup story), and add
+	// the engine-backed adapter that REPLACES it as the usecase driver.
 	freshener := mdapp.NewMovieFreshener(5*time.Second, time.Now, domainLog).
 		WithI18nCoverage(enrichpersistence.NewMovieI18nReadRepository(db))
+	engineFreshener := mdadapters.NewMovieEngineFreshener()
 	hotEnqueuer := mdapp.NewMovieHotEnqueuer()
 	stubResolverHolder := mdapp.NewMovieStubResolverHolder()
 	uc := mdapp.New(
@@ -64,7 +73,7 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		catalogpersistence.NewMovieStatesRepository(db),
 	).
 		WithHydrationTrigger(movieRepo, time.Now, domainLog).
-		WithFreshener(freshener).
+		WithFreshener(engineFreshener).
 		WithEnrichmentEnqueuer(hotEnqueuer).
 		WithStubResolver(stubResolverHolder).
 		WithTaxonomy(
@@ -118,6 +127,7 @@ func BuildMovieDetail(db *gorm.DB, resolver *media.Resolver, log *slog.Logger) *
 		RatingsHandler:         ratingsHandler,
 		RecommendationsHandler: recsHandler,
 		FreshenerHolder:        freshener,
+		EngineFreshener:        engineFreshener,
 		HotEnqueuer:            hotEnqueuer,
 		StubResolverHolder:     stubResolverHolder,
 	}
