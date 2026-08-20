@@ -522,7 +522,7 @@ export const en = {
   },
   shell: {
     brand: {
-      sub: 'Sonarr controller',
+      sub: 'media controller',
     },
     webhook: {
       ok: 'Webhooks: {{count}}',
@@ -565,10 +565,10 @@ export const en = {
     enter: 'Enter the application',
     brand: {
       subtitle: {
-        forms: 'Sonarr controller · homelab',
-        oidc: 'Sonarr controller · homelab',
-        none: 'Sonarr controller · homelab',
-        loading: 'Sonarr controller · homelab',
+        forms: 'media controller · homelab',
+        oidc: 'media controller · homelab',
+        none: 'media controller · homelab',
+        loading: 'media controller · homelab',
       },
     },
     mode: {
@@ -612,8 +612,8 @@ export const en = {
       scanFailed: 'Failed to start scan: {{error}}',
     },
     firstRun: {
-      title: 'Add your first Sonarr instance',
-      body: "Seasonfill watches your Sonarr servers and grabs the episodes Sonarr misses — incomplete packs, deleted torrents. Connect your first instance to begin.",
+      title: 'Add your first instance',
+      body: "Seasonfill watches your servers and grabs what they miss — incomplete packs, deleted torrents. Connect your first instance to begin.",
       step1: { title: 'Connect Sonarr', body: "URL + API key — we'll verify connectivity right away." },
       step2: { title: 'Install webhook', body: 'Seasonfill registers itself in Sonarr Connect automatically.' },
       step3: { title: 'Run the first scan', body: "We'll find series with gaps and grab the missing episodes." },
@@ -700,7 +700,7 @@ export const en = {
     },
   },
   instances: {
-    title: 'Sonarr instances',
+    title: 'Instances',
     subtitle: 'Sonarr instances connected to Seasonfill.',
     type: { sonarr: 'Sonarr', radarr: 'Radarr' },
     loadFailed: 'Failed to load instances',
@@ -790,14 +790,14 @@ export const en = {
     add: { ghost: 'Add instance' },
     empty: {
       title: 'No instances configured yet',
-      body: 'Connect a Sonarr server so Seasonfill can monitor missing episodes and back-fill incomplete season packs. Typical setup is 1–3 instances (homelab + 4k).',
+      body: 'Connect an instance so Seasonfill can monitor what is missing and back-fill incomplete packs. Typical setup is 1–3 instances (homelab + 4k).',
       step1: {
-        title: 'Connect Sonarr',
+        title: 'Connect instance',
         body: 'URL + API key — we verify the connection immediately.',
       },
       step2: {
         title: 'Install webhook',
-        body: 'Seasonfill registers itself in Sonarr Connect automatically.',
+        body: 'Seasonfill registers itself in Connect automatically.',
       },
       step3: {
         title: 'Configure qBittorrent / Watchdog',
@@ -1686,7 +1686,7 @@ export const en = {
       },
       form: {
         editTitle: 'Edit instance',
-        createTitle: 'Add Sonarr instance',
+        createTitle: 'Add {{arr}} instance',
         srCreateDescription: 'Create a new Sonarr instance.',
         srEditDescription: 'Edit the {{name}} Sonarr instance configuration.',
         tabs: { connection: 'Connection', behavior: 'Behavior', performance: 'Performance', advanced: 'Advanced', watchdog: 'Watchdog' },
@@ -1735,7 +1735,7 @@ export const en = {
         sectionSearch: 'Search filters', sectionLimits: 'Limits',
         rateLimitRpmLabel: 'Rate limit', rateLimitRpmSuffix: 'req/min',
         rateLimitBurstLabel: 'Rate limit burst',
-        scanMaxSeriesLabel: 'Max series per scan', scanMaxSeriesHint: '0 = no cap.',
+        scanMaxSeriesLabel: 'Max items per scan', scanMaxSeriesHint: '0 = no cap.',
         maxGrabsPerScanLabel: 'Max grabs per scan',
         originBonusLabel: 'Origin bonus',
         indexerPriorityLabel: 'Use indexer priority',
@@ -1781,7 +1781,7 @@ export const en = {
           origin_bonus: 'Origin bonus',
           rate_limit_rpm: 'Rate limit (RPM)',
           rate_limit_burst: 'Rate limit burst',
-          scan_max_series: 'Scan max series',
+          scan_max_series: 'Scan max items',
           max_grabs_per_scan: 'Max grabs per scan',
           cooldown_series_after_grab: 'Series cooldown after grab',
           cooldown_guid_after_failed_grab: 'GUID cooldown after failed grab',
@@ -1857,9 +1857,9 @@ export const en = {
           namePlaceholder: 'e.g. homelab-4k',
           urlPlaceholder: 'http://sonarr-4k:80',
           apiKeyPlaceholder: 'paste Sonarr API key',
-          webhookTitle: 'Webhook → Sonarr',
+          webhookTitle: 'Webhook → {{arr}}',
           webhookCreatePill: 'will be installed automatically',
-          webhookAutoInstallTitle: 'Auto-install in Sonarr Connect',
+          webhookAutoInstallTitle: 'Auto-install in {{arr}} Connect',
           webhookAutoInstallHint: 'Seasonfill will register itself on save.',
           webhookOverrideLabel: 'Override base URL',
           webhookOverridePlaceholder: 'http://seasonfill:8080',
@@ -1891,7 +1891,7 @@ export const en = {
         header: {
           editSub: '{{name}} · {{url}}',
           editSubLoading: '{{name}} · loading…',
-          createSub: 'New Sonarr server',
+          createSub: 'New {{arr}} server',
         },
         saveFailedSectionFmt: 'Save failed — please fix errors in the {{section}} section',
         saveFailedConnectionSection: 'Save failed — check errors in the Connection section',
@@ -1900,7 +1900,7 @@ export const en = {
     integrations: {
       webhooks: {
         section: 'Webhook health',
-        subtitle: 'Per-instance Sonarr → Connect → Webhook reconciler status.',
+        subtitle: 'Per-instance Connect → Webhook reconciler status.',
         installed: 'installed',
         error: 'error',
         missing: 'missing',
@@ -1926,7 +1926,7 @@ export const en = {
       },
       guidRewrites: {
         section: 'Tracker link rewrites',
-        subtitle: 'Substitutions applied to internal URLs that Sonarr stores in the release GUID.',
+        subtitle: 'Substitutions applied to internal URLs stored in the release GUID.',
         hint: 'Replacements run in order as plain substring substitutions. Use them to rewrite internal cluster URLs to the public tracker URL.',
         empty: 'No rewrites configured — "Open on tracker" links will only appear when the stored GUID is already public.',
         fromLabel: 'Replace',

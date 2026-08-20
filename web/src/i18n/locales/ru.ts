@@ -524,7 +524,7 @@ export const ru: Translations = {
   },
   shell: {
     brand: {
-      sub: 'контроллер Sonarr',
+      sub: 'медиа-контроллер',
     },
     webhook: {
       ok: 'Вебхуки: {{count}}',
@@ -567,10 +567,10 @@ export const ru: Translations = {
     enter: 'Войти в систему',
     brand: {
       subtitle: {
-        forms: 'контроллер Sonarr · homelab',
-        oidc: 'контроллер Sonarr · homelab',
-        none: 'контроллер Sonarr · homelab',
-        loading: 'контроллер Sonarr · homelab',
+        forms: 'медиа-контроллер · homelab',
+        oidc: 'медиа-контроллер · homelab',
+        none: 'медиа-контроллер · homelab',
+        loading: 'медиа-контроллер · homelab',
       },
     },
     mode: {
@@ -614,8 +614,8 @@ export const ru: Translations = {
       scanFailed: 'Не удалось запустить скан: {{error}}',
     },
     firstRun: {
-      title: 'Добавьте первый Sonarr-инстанс',
-      body: 'Seasonfill следит за вашими Sonarr-серверами и до-качивает пропущенные эпизоды — то, что Sonarr делает плохо: неполные паки, снятые с раздачи торренты. Подключите первый инстанс, чтобы начать.',
+      title: 'Добавьте первый инстанс',
+      body: 'Seasonfill следит за вашими серверами и докачивает то, что они пропустили — неполные паки, снятые с раздачи торренты. Подключите первый инстанс, чтобы начать.',
       step1: { title: 'Подключить Sonarr', body: 'URL + API-ключ — проверим связь сразу.' },
       step2: { title: 'Установить webhook', body: 'Seasonfill пропишет себя в Sonarr Connect автоматически.' },
       step3: { title: 'Запустить первый скан', body: 'Найдём сериалы с пропусками и до-качаем.' },
@@ -702,7 +702,7 @@ export const ru: Translations = {
     },
   },
   instances: {
-    title: 'Инстансы Sonarr',
+    title: 'Инстансы',
     subtitle: 'Подключённые к Seasonfill серверы Sonarr.',
     type: { sonarr: 'Sonarr', radarr: 'Radarr' },
     loadFailed: 'Не удалось загрузить инстансы',
@@ -792,14 +792,14 @@ export const ru: Translations = {
     add: { ghost: 'Добавить инстанс' },
     empty: {
       title: 'Пока нет ни одного инстанса',
-      body: 'Подключите Sonarr-сервер, чтобы Seasonfill начал следить за пропущенными эпизодами и докачивать неполные паки. Обычно это 1–3 инстанса (homelab + 4k).',
+      body: 'Подключите инстанс, чтобы Seasonfill начал следить за пропущенным и докачивать неполные паки. Обычно это 1–3 инстанса (homelab + 4k).',
       step1: {
-        title: 'Подключить Sonarr',
+        title: 'Подключить инстанс',
         body: 'URL + API-ключ — проверим связь сразу.',
       },
       step2: {
         title: 'Установить webhook',
-        body: 'Seasonfill пропишет себя в Sonarr Connect автоматически.',
+        body: 'Seasonfill пропишет себя в Connect автоматически.',
       },
       step3: {
         title: 'Настроить qBittorrent / Watchdog',
@@ -1691,7 +1691,7 @@ export const ru: Translations = {
       },
       form: {
         editTitle: 'Изменить инстанс',
-        createTitle: 'Добавить инстанс Sonarr',
+        createTitle: 'Добавить инстанс {{arr}}',
         srCreateDescription: 'Создать новый инстанс Sonarr.',
         srEditDescription: 'Изменить конфигурацию инстанса Sonarr «{{name}}».',
         tabs: { connection: 'Подключение', behavior: 'Поведение', performance: 'Производительность', advanced: 'Расширенные', watchdog: 'Watchdog' },
@@ -1743,7 +1743,7 @@ export const ru: Translations = {
         sectionSearch: 'Фильтры поиска', sectionLimits: 'Лимиты',
         rateLimitRpmLabel: 'Rate limit', rateLimitRpmSuffix: 'req/min',
         rateLimitBurstLabel: 'Burst',
-        scanMaxSeriesLabel: 'Макс. сериалов за скан', scanMaxSeriesHint: '0 — без ограничения.',
+        scanMaxSeriesLabel: 'Макс. элементов за скан', scanMaxSeriesHint: '0 — без ограничения.',
         maxGrabsPerScanLabel: 'Макс. захватов за скан',
         originBonusLabel: 'Бонус origin',
         indexerPriorityLabel: 'Учитывать приоритет индексера',
@@ -1789,7 +1789,7 @@ export const ru: Translations = {
           origin_bonus: 'Бонус по источнику',
           rate_limit_rpm: 'Лимит запросов (RPM)',
           rate_limit_burst: 'Всплеск лимита запросов',
-          scan_max_series: 'Макс. сериалов при сканировании',
+          scan_max_series: 'Макс. элементов при сканировании',
           max_grabs_per_scan: 'Макс. захватов за сканирование',
           cooldown_series_after_grab: 'Кулдаун сериала после захвата',
           cooldown_guid_after_failed_grab: 'Кулдаун GUID после неудачного захвата',
@@ -1865,9 +1865,9 @@ export const ru: Translations = {
           namePlaceholder: 'напр. homelab-4k',
           urlPlaceholder: 'http://sonarr-4k:80',
           apiKeyPlaceholder: 'вставьте API-ключ Sonarr',
-          webhookTitle: 'Webhook → Sonarr',
+          webhookTitle: 'Webhook → {{arr}}',
           webhookCreatePill: 'установится автоматически',
-          webhookAutoInstallTitle: 'Авто-установка в Sonarr Connect',
+          webhookAutoInstallTitle: 'Авто-установка в {{arr}} Connect',
           webhookAutoInstallHint: 'seasonfill сам пропишет себя при сохранении',
           webhookOverrideLabel: 'Override base URL',
           webhookOverridePlaceholder: 'http://seasonfill:8080',
@@ -1899,7 +1899,7 @@ export const ru: Translations = {
         header: {
           editSub: '{{name}} · {{url}}',
           editSubLoading: '{{name}} · загрузка…',
-          createSub: 'новый Sonarr-сервер',
+          createSub: 'новый {{arr}}-сервер',
         },
         saveFailedSectionFmt: 'Не удалось сохранить — исправьте ошибки в секции «{{section}}»',
         saveFailedConnectionSection: 'Не удалось сохранить — есть ошибки в секции «Подключение»',
@@ -1908,7 +1908,7 @@ export const ru: Translations = {
     integrations: {
       webhooks: {
         section: 'Здоровье вебхуков',
-        subtitle: 'Состояние reconciler-а Sonarr → Connect → Webhook по инстансам.',
+        subtitle: 'Состояние reconciler-а Connect → Webhook по инстансам.',
         installed: 'установлен',
         error: 'ошибка',
         missing: 'отсутствует',
@@ -1934,7 +1934,7 @@ export const ru: Translations = {
       },
       guidRewrites: {
         section: 'Замены трекер-ссылок',
-        subtitle: 'Подстановки для внутренних URL’ов, которые Sonarr сохраняет в GUID релиза.',
+        subtitle: 'Подстановки для внутренних URL’ов, которые сохраняются в GUID релиза.',
         hint: 'Замены применяются по порядку как простая подстрока. Используются для подмены внутренних URL’ов на публичные трекерные.',
         empty: 'Замены не настроены — ссылки «Открыть на трекере» будут показываться, только если GUID и так публичный.',
         fromLabel: 'Заменить',

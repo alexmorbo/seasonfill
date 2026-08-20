@@ -644,6 +644,16 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
     });
   });
 
+  describe('A3a — type-aware create-mode chrome', () => {
+    it('dialog title switches to Radarr wording when the type segmented control is set to Radarr', async () => {
+      const user = userEvent.setup();
+      render(wrap(<InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />));
+      expect(screen.getByRole('heading', { name: /Sonarr/i })).toBeInTheDocument();
+      await user.click(screen.getByRole('radio', { name: /radarr/i }));
+      expect(screen.getByRole('heading', { name: /Radarr/i })).toBeInTheDocument();
+    });
+  });
+
   describe('ADR-0009 S7 — Add-to-Sonarr default dropdowns', () => {
     // (a) after a successful Test the pickers populate from
     // /admin/instances/metadata.

@@ -11,9 +11,12 @@ function makeQc() { return new QueryClient({ defaultOptions: { queries: { retry:
 
 function Harness({
   installEnabled = true, mode = 'edit' as 'edit' | 'create',
-}: { installEnabled?: boolean; mode?: 'edit' | 'create' }) {
+  type = 'sonarr' as 'sonarr' | 'radarr',
+}: { installEnabled?: boolean; mode?: 'edit' | 'create'; type?: 'sonarr' | 'radarr' }) {
   const qc = makeQc();
-  const { control, register } = useForm({ defaultValues: FORM_DEFAULTS as Record<string, unknown> });
+  const { control, register } = useForm({
+    defaultValues: { ...FORM_DEFAULTS, type } as Record<string, unknown>,
+  });
   return (
     <QueryClientProvider client={qc}>
       <I18nextProvider i18n={i18n}>
@@ -52,5 +55,11 @@ describe('<WebhookSubCard />', () => {
   it('hides the override-url input when install switch is off', () => {
     render(<Harness installEnabled={false} />);
     expect(screen.queryByLabelText(/override base url|override base/i)).toBeNull();
+  });
+
+  it('A3a: webhook title/auto-install title read Radarr for a radarr-typed form', () => {
+    render(<Harness type="radarr" />);
+    expect(screen.getByTestId('webhook-subcard')).toHaveTextContent(/Webhook → Radarr/);
+    expect(screen.getByTestId('webhook-subcard')).toHaveTextContent(/Radarr Connect/);
   });
 });

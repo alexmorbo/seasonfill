@@ -114,7 +114,7 @@ describe('<Dashboard />', () => {
     expect(
       await screen.findByTestId('dashboard-first-run'),
     ).toBeInTheDocument();
-    expect(screen.getByText(/add your first sonarr instance/i)).toBeInTheDocument();
+    expect(screen.getByText(/add your first instance/i)).toBeInTheDocument();
     expect(screen.getByTestId('first-run-cta-add')).toBeInTheDocument();
     expect(screen.getByTestId('first-run-cta-help')).toBeInTheDocument();
     expect(screen.queryByTestId('dashboard-rail')).toBeNull();

@@ -1,4 +1,4 @@
-import { Controller, type Control } from 'react-hook-form';
+import { Controller, useWatch, type Control } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,11 @@ export function WebhookSubCard({
 }: WebhookSubCardProps) {
   const { t } = useTranslation();
   const isEdit = mode === 'edit';
+  const arrType = (useWatch({
+    control,
+    name: 'type',
+  }) ?? 'sonarr') as 'sonarr' | 'radarr';
+  const arrLabel = t(`instances.type.${arrType === 'radarr' ? 'radarr' : 'sonarr'}`);
   return (
     <div
       data-testid="webhook-subcard"
@@ -32,7 +37,7 @@ export function WebhookSubCard({
     >
       <div className="flex items-center gap-2.5">
         <span className="text-[12.5px] font-semibold flex-1">
-          {t('settings.instances.form.connection.webhookTitle')}
+          {t('settings.instances.form.connection.webhookTitle', { arr: arrLabel })}
         </span>
         {isEdit && instanceName ? (
           <WebhookStatusBadge name={instanceName} />
@@ -49,7 +54,7 @@ export function WebhookSubCard({
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col gap-0.5">
           <span className="text-[13px] font-[550]">
-            {t('settings.instances.form.connection.webhookAutoInstallTitle')}
+            {t('settings.instances.form.connection.webhookAutoInstallTitle', { arr: arrLabel })}
           </span>
           <span className="text-[11.5px] text-tx-muted">
             {t('settings.instances.form.connection.webhookAutoInstallHint')}

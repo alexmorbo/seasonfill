@@ -6,9 +6,9 @@ import i18n from '@/i18n';
 import { TuningSection } from '../TuningSection';
 import { FORM_DEFAULTS } from '@/components/settings/instance-form-helpers';
 
-function Harness() {
+function Harness({ type = 'sonarr' as 'sonarr' | 'radarr' } = {}) {
   const { control, register, formState } = useForm<Record<string, unknown>>({
-    defaultValues: FORM_DEFAULTS as Record<string, unknown>,
+    defaultValues: { ...FORM_DEFAULTS, type } as Record<string, unknown>,
   });
   return (
     <I18nextProvider i18n={i18n}>
@@ -41,5 +41,10 @@ describe('<TuningSection />', () => {
   it('renders the skip-anime toggle row', () => {
     render(<Harness />);
     expect(screen.getByRole('switch', { name: /anime|аниме/i })).toBeInTheDocument();
+  });
+
+  it('A3a: hides the skip-anime toggle row for radarr instances', () => {
+    render(<Harness type="radarr" />);
+    expect(screen.queryByRole('switch', { name: /anime|аниме/i })).toBeNull();
   });
 });

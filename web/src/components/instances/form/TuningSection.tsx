@@ -1,4 +1,5 @@
 import type { Control, FieldErrors, UseFormRegister } from 'react-hook-form';
+import { useWatch } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { Controller } from 'react-hook-form';
 import { Label } from '@/components/ui/label';
@@ -36,6 +37,16 @@ export function TuningSection({
 }: TuningSectionProps) {
   void register;
   const { t } = useTranslation();
+  // A3a: correct-by-construction — do not render, not merely disable.
+  // search_skip_anime/skip_specials/require_all_aired are TV-only
+  // concepts; skip_specials & require_all_aired have no UI control at
+  // all today (dead fields, still round-tripped via zod defaults —
+  // see story Non-goals), so only the live skip-anime block needs a
+  // guard.
+  const arrType = (useWatch({
+    control,
+    name: 'type',
+  }) ?? 'sonarr') as 'sonarr' | 'radarr';
   return (
     <div className="flex flex-col gap-4" data-testid="tuning-section">
       {/* ADR-0009 S7 — Add-to-Sonarr defaults. Enabled only after a
@@ -241,29 +252,31 @@ export function TuningSection({
         />
       </div>
 
-      {/* Skip-anime field-row */}
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div className="flex flex-col gap-0.5">
-          <span id="search-skip-anime-label" className="text-[13px] font-[550]">
-            {t('settings.instances.form.skipAnimeLabel')}
-          </span>
-          <span className="text-[11.5px] text-tx-muted">
-            {t('settings.instances.form.skipAnimeHint')}
-          </span>
+      {/* Skip-anime field-row — TV-only, hidden for radarr instances. */}
+      {arrType !== 'radarr' && (
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="flex flex-col gap-0.5">
+            <span id="search-skip-anime-label" className="text-[13px] font-[550]">
+              {t('settings.instances.form.skipAnimeLabel')}
+            </span>
+            <span className="text-[11.5px] text-tx-muted">
+              {t('settings.instances.form.skipAnimeHint')}
+            </span>
+          </div>
+          <Controller
+            control={control}
+            name="search_skip_anime"
+            render={({ field }) => (
+              <Switch
+                id="search-skip-anime"
+                aria-labelledby="search-skip-anime-label"
+                checked={Boolean(field.value)}
+                onCheckedChange={(v) => field.onChange(v)}
+              />
+            )}
+          />
         </div>
-        <Controller
-          control={control}
-          name="search_skip_anime"
-          render={({ field }) => (
-            <Switch
-              id="search-skip-anime"
-              aria-labelledby="search-skip-anime-label"
-              checked={Boolean(field.value)}
-              onCheckedChange={(v) => field.onChange(v)}
-            />
-          )}
-        />
-      </div>
+      )}
 
       {/* Advanced sub-block */}
       <div

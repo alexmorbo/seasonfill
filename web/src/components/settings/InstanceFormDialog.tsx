@@ -371,6 +371,14 @@ export function InstanceFormDialog({
     name: 'webhook_install_enabled',
     defaultValue: true,
   });
+  // A3a: type-aware form chrome. `type` is immutable after create
+  // (PromotedControls locks it in edit mode), but create-mode still
+  // needs the live value as the operator flips the segmented control.
+  const arrType = (useWatch({
+    control,
+    name: 'type',
+  }) ?? 'sonarr') as 'sonarr' | 'radarr';
+  const arrLabel = t(`instances.type.${arrType === 'radarr' ? 'radarr' : 'sonarr'}`);
 
   // Reset the open-transition gate whenever the dialog closes. Next
   // open-transition will be allowed to seed openSections exactly once.
@@ -593,7 +601,7 @@ export function InstanceFormDialog({
 
   const title = isEdit
     ? t('settings.instances.form.editTitle')
-    : t('settings.instances.form.createTitle');
+    : t('settings.instances.form.createTitle', { arr: arrLabel });
   // Subtitle MUST NOT fall back to createSub while in edit mode — even
   // if `detail` is still loading. See Story 074 root cause: the
   // operator deep-linking via `?edit=<name>` would otherwise read
@@ -607,7 +615,7 @@ export function InstanceFormDialog({
         })
       : t('settings.instances.form.header.editSubLoading', { name: initial.name });
   } else {
-    subtitle = t('settings.instances.form.header.createSub');
+    subtitle = t('settings.instances.form.header.createSub', { arr: arrLabel });
   }
 
   return (
