@@ -40,7 +40,7 @@ import {
   effectiveRatingScore,
   resolveSeriesHeroActionData,
 } from '@/components/media-detail/adapters/seriesHeroVM';
-import { SeriesRecommendationsRail } from '@/components/media-detail/adapters/SeriesRecommendationsRail';
+import { RecommendationsCarousel } from '@/components/series-detail/RecommendationsCarousel';
 import { toSeriesVM } from './toSeriesVM';
 
 export function SeriesDetail() {
@@ -425,7 +425,7 @@ export function SeriesDetail() {
           heroExtras={heroExtras}
           belowGrid={belowGrid}
           recommendationsSlot={
-            <SeriesRecommendationsRail
+            <RecommendationsCarousel
               seriesId={seriesId}
               {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
             />
