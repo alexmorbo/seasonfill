@@ -155,6 +155,10 @@ describe('<MovieDetail />', () => {
     expect(screen.getByTestId('movie-library-row-radarr')).toBeInTheDocument();
     expect(screen.getByTestId('movie-library-monitored')).toBeInTheDocument();
     expect(screen.getByTestId('movie-library-hasfile')).toBeInTheDocument();
+    // The on-disk strip now lives at the bottom of the hero, not in a
+    // separate below-hero section.
+    expect(screen.queryByTestId('movie-detail-library')).toBeNull();
+    expect(screen.getByTestId('movie-hero-library-strip')).toBeInTheDocument();
   });
 
   it('renders quality/codec chip only when has_file and quality are present', async () => {
@@ -299,7 +303,11 @@ describe('<MovieDetail />', () => {
     spyFetch({ ...movie(), library: [] });
     renderRoute('/movies/438631');
 
-    expect(await screen.findByTestId('movie-detail-library-empty')).toBeInTheDocument();
+    const empty = await screen.findByTestId('movie-detail-library-empty');
+    expect(empty).toBeInTheDocument();
+    // Lives inside the hero bottom strip, not a below-hero section.
+    expect(screen.getByTestId('movie-hero')).toContainElement(empty);
+    expect(screen.queryByTestId('movie-detail-library')).toBeNull();
   });
 
   it('renders the invalid-param branch for a non-numeric id', async () => {

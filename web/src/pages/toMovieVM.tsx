@@ -1,13 +1,10 @@
-import type { ReactNode } from 'react';
 import type { TFunction } from 'i18next';
-import { useTranslation } from 'react-i18next';
-import { Badge } from '@/components/ui/badge';
 import { CountryName } from '@/components/series-detail/CountryName';
 import { LanguageName } from '@/components/series-detail/LanguageName';
 import { PremiereDate } from '@/components/series-detail/PremiereDate';
 import { formatMoney, isMoneyPresent } from '@/lib/money';
 import type { CastMember, DegradedSource } from '@/api/series';
-import type { MovieDetail, MovieDetailLibrary } from '@/api/movies';
+import type { MovieDetail } from '@/api/movies';
 import type { MovieCastMember } from '@/api/movieCast';
 import type { MovieOverviewResponse } from '@/api/movieOverview';
 import type {
@@ -61,11 +58,15 @@ export interface ToMovieVMParams {
 // toMovieVM — ADR-0022 Wave-2 Story C. Builds the FULL `MediaDetailVM` the
 // real `<MovieDetail>` page renders via `<MediaDetail>`. Mirrors the pre-
 // wave-2 inline JSX field-for-field; `belowGrid` has no movie equivalent
-// (series-only mid-page sections). `collection.node` now renders ONLY the
-// "Library membership" section — the collection block itself moved into the
-// hero-right slot as a compact `CollectionHeroCard` (see `MovieDetail.tsx`'s
-// `heroExtras.nextCard`, mirroring how series places `NextEpisodeCard`
-// there), so it's no longer part of this below-hero fragment.
+// (series-only mid-page sections). `collection` is left unset — the
+// collection block lives in the hero-right slot as a compact
+// `CollectionHeroCard` (see `MovieDetail.tsx`'s `heroExtras.nextCard`,
+// mirroring how series places `NextEpisodeCard` there), and the on-disk
+// "library membership" info that used to render below the hero as its own
+// section now lives in the hero-bottom `MovieHeroLibraryStrip` (see
+// `MovieDetail.tsx`'s `heroExtras.bottomStrip`, mirroring series'
+// `HeroLibraryStrip`) — so there's nothing left for `collection.node` to
+// render.
 export function toMovieVM(p: ToMovieVMParams): MediaDetailVM {
   const { t, lang, tmdbId, movie, ov } = p;
 
@@ -169,7 +170,6 @@ export function toMovieVM(p: ToMovieVMParams): MediaDetailVM {
       renderCard: () => null,
     },
 
-    collection: { node: buildCollectionSection(movie, t) },
     externalLinks: undefined,
     overview: {
       label: t('movieDetail.overview.label'),
@@ -355,78 +355,4 @@ function buildMovieSidebarFacts(movie: MovieDetail, t: TFunction): readonly Medi
   }
 
   return facts;
-}
-
-// LibraryRow — verbatim from the pre-wave-2 `MovieDetail.tsx` local
-// component, relocated here because it's now composed INTO
-// `vm.collection.node` by `buildCollectionSection` below. This file's
-// primary export (`toMovieVM`) is not a component, hence the disable below
-// (same pattern as `RatingDuo.tsx`'s `humanizeVotes`).
-// eslint-disable-next-line react-refresh/only-export-components
-function LibraryRow({ row }: { row: MovieDetailLibrary }) {
-  const { t } = useTranslation();
-  return (
-    <div
-      data-testid={`movie-library-row-${row.instance_name ?? 'unknown'}`}
-      className="flex flex-wrap items-center gap-2 rounded-md border border-border-subtle bg-bg-surface px-3 py-2"
-    >
-      <span className="text-[13px] font-medium text-tx-primary">
-        {row.instance_name}
-      </span>
-      {row.monitored && (
-        <Badge variant="accent" data-testid="movie-library-monitored">
-          {t('movieDetail.library.monitored')}
-        </Badge>
-      )}
-      {row.has_file && (
-        <Badge variant="ok" data-testid="movie-library-hasfile">
-          {t('movieDetail.library.hasFile')}
-        </Badge>
-      )}
-      {row.availability && (
-        <span className="text-[12px] text-tx-muted">{row.availability}</span>
-      )}
-      {row.has_file && row.quality && (
-        <span className="text-[12px] text-tx-muted" data-testid="movie-library-quality">
-          {row.quality}
-        </span>
-      )}
-      {row.has_file && row.quality && (row.video_codec || row.audio_codec) && (
-        <span className="text-[12px] text-tx-faint" data-testid="movie-library-codec">
-          {[row.video_codec, row.audio_codec].filter(Boolean).join(' · ')}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// "Library membership" section — the collection block that used to precede
-// it here moved to the hero-right `CollectionHeroCard` slot (see
-// `MovieDetail.tsx`).
-function buildCollectionSection(
-  movie: MovieDetail,
-  t: TFunction,
-): ReactNode {
-  const library = movie.library ?? [];
-
-  return (
-    <>
-      <section data-testid="movie-detail-library">
-        <h2 className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-tx-faint">
-          {t('movieDetail.library.title')}
-        </h2>
-        {library.length === 0 ? (
-          <p className="text-[13px] text-tx-muted" data-testid="movie-detail-library-empty">
-            {t('movieDetail.library.empty')}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {library.map((row) => (
-              <LibraryRow key={row.instance_name ?? row.radarr_movie_id} row={row} />
-            ))}
-          </div>
-        )}
-      </section>
-    </>
-  );
 }

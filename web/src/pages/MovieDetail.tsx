@@ -21,6 +21,7 @@ import { MovieRecommendationsRail } from '@/components/movies/MovieRecommendatio
 import { MovieExternalLinksFooter } from '@/components/movies/MovieExternalLinksFooter';
 import { MovieSyncFooter } from '@/components/movies/MovieSyncFooter';
 import { CollectionHeroCard } from '@/components/movies/CollectionHeroCard';
+import { MovieHeroLibraryStrip } from '@/components/movies/MovieHeroLibraryStrip';
 import { useAddToRadarrLauncher } from '@/components/movies/add-to-radarr-context';
 import { useInstances } from '@/lib/instances';
 import { buildRadarrMovieHref } from '@/lib/radarrUrl';
@@ -249,17 +250,25 @@ export function MovieDetail() {
   // is empty unless the movie belongs to a TMDB collection.
   const collectionId = movie.collection?.tmdb_collection_id;
   const hasCollection = typeof collectionId === 'number' && collectionId > 0;
-  const heroExtras = hasCollection
-    ? {
-        nextCard: (
-          <CollectionHeroCard
-            tmdbCollectionId={collectionId}
-            {...(library[0]?.instance_name ? { instance: library[0].instance_name } : {})}
-            {...(lang ? { lang } : {})}
-          />
-        ),
-      }
-    : undefined;
+  // Bottom-of-hero on-disk strip — always rendered (even for the
+  // not-in-any-library case) so movies show a consistent "НА ДИСКЕ" area at
+  // the bottom of the hero scrim, mirroring `SeriesDetail.tsx`'s
+  // `heroExtras.bottomStrip` (`HeroLibraryStrip`). `heroExtras` therefore
+  // never falls back to bare `undefined` anymore.
+  const heroExtras = {
+    ...(hasCollection
+      ? {
+          nextCard: (
+            <CollectionHeroCard
+              tmdbCollectionId={collectionId}
+              {...(library[0]?.instance_name ? { instance: library[0].instance_name } : {})}
+              {...(lang ? { lang } : {})}
+            />
+          ),
+        }
+      : {}),
+    bottomStrip: <MovieHeroLibraryStrip library={library} />,
+  };
 
   const vm = toMovieVM({
     t,
