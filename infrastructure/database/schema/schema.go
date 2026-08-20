@@ -398,6 +398,15 @@ func Schema(d Dialect) *atlasschema.Schema {
 		addDiscoveryBlocklist(s, d)
 	}
 
+	// ADR-0022 Wave-3 — followed_movies watchlist (migration 000063), the
+	// movie mirror of followed_series. FKs movie_id → movies(id) CASCADE and
+	// user_id → users(id) CASCADE; composite PK (user_id, movie_id). users is
+	// a hard dependency — skip alongside auth (mirrors followed_series).
+	// Appended last: nothing splits a later migration off it.
+	if os.Getenv("ATLAS_SCHEMA_SKIP_AUTH") == "" {
+		addFollowedMovies(s, d)
+	}
+
 	return s
 }
 
@@ -596,6 +605,46 @@ func buildFollowedSeriesTable(d Dialect, seriesTable, usersTable *atlasschema.Ta
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 			atlasschema.NewForeignKey("followed_series_user_id_fkey").
+				AddColumns(userID).
+				SetRefTable(usersTable).
+				AddRefColumns(parentRefCol(usersTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// addFollowedMovies appends followed_movies to s — the movie mirror of
+// followed_series (ADR-0022 Wave-3, migration 000063). FK movie_id → movies
+// CASCADE and user_id → users CASCADE; composite PK (user_id, movie_id).
+// users is a hard dependency, so the caller is guarded by
+// ATLAS_SCHEMA_SKIP_AUTH in Schema(d).
+func addFollowedMovies(s *atlasschema.Schema, d Dialect) {
+	movies := mustTable(s, "movies")
+	users := mustTable(s, "users")
+	s.AddTables(buildFollowedMoviesTable(d, movies, users))
+}
+
+// buildFollowedMoviesTable returns followed_movies — 3 cols, byte-for-byte
+// structural mirror of followed_series with movie_id in place of series_id.
+// Composite PK (user_id, movie_id): one watchlist row per (user, canon movie).
+// Two CASCADE FKs: movie_id → movies(id) (dead once the canon is GC'd),
+// user_id → users(id) (dead once the owner is deleted).
+func buildFollowedMoviesTable(d Dialect, moviesTable, usersTable *atlasschema.Table) *atlasschema.Table {
+	userID := fkColumn(d, "user_id", false /* not null */)
+	movieID := fkColumn(d, "movie_id", false /* not null */)
+	createdAt := timestampColumn(d, "created_at", true /* withDefault */, true /* notNull */)
+
+	return atlasschema.NewTable("followed_movies").
+		AddColumns(userID, movieID, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(userID, movieID)).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("followed_movies_movie_id_fkey").
+				AddColumns(movieID).
+				SetRefTable(moviesTable).
+				AddRefColumns(parentRefCol(moviesTable)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+			atlasschema.NewForeignKey("followed_movies_user_id_fkey").
 				AddColumns(userID).
 				SetRefTable(usersTable).
 				AddRefColumns(parentRefCol(usersTable)).

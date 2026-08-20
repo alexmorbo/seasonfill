@@ -377,6 +377,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
 		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
+		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		lg)
 }
 
@@ -471,6 +472,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
 		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
+		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		lg)
 }
 
@@ -572,6 +574,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
 		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
+		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		lg)
 }
 
@@ -820,6 +823,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
 		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
+		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

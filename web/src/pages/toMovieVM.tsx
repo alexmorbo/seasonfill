@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import { CountryName } from '@/components/series-detail/CountryName';
 import { LanguageName } from '@/components/series-detail/LanguageName';
@@ -41,6 +42,14 @@ export interface ToMovieVMParams {
   // resolution needs `useInstances`/`useAddToRadarrLauncher`, hooks this
   // adapter does not call).
   readonly actions: readonly MediaAction[];
+
+  // Follow/watchlist toggle — `<FollowButton mediaType="movie" tmdbId={…}/>`,
+  // already resolved by the page (same "resolved by the page" pattern the
+  // `actions` param above and `toSeriesVM`'s `heroActions.followButton` use;
+  // `MediaHero` renders it verbatim via `heroActions.followButton`,
+  // positioned analogously to the series hero's follow button — right after
+  // the trailer button).
+  readonly followButton?: ReactNode;
 
   // Cast.
   readonly cast: readonly MovieCastMember[] | undefined;
@@ -140,7 +149,7 @@ export function toMovieVM(p: ToMovieVMParams): MediaDetailVM {
       addItems: [],
       onAddToSonarr: () => {},
       onAddToInstance: () => {},
-      followButton: undefined,
+      followButton: p.followButton,
     },
 
     sidebarFacts: buildMovieSidebarFacts(movie, t),

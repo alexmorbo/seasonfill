@@ -1065,6 +1065,20 @@ func BuildHTTPServer(
 	if err != nil {
 		panic("BuildHTTPServer: wire follow bundle: " + err.Error())
 	}
+	// ADR-0022 Wave-3 — movie follow/watchlist bundle. Reuses the enrichment
+	// movie reader (GetByTMDBID) + the moviedetail HotEnqueuer holder (the same
+	// instance the detail read enrolls through), so following a movie kicks the
+	// Hot lane exactly like opening its card does.
+	movieFollowBundle, err := NewMovieFollowBundle(
+		persistence.DB,
+		enrichpersistence.NewMovieRepository(persistence.DB),
+		movieDetailBundle.HotEnqueuer,
+		auth.AdminRepo,
+		log,
+	)
+	if err != nil {
+		panic("BuildHTTPServer: wire movie follow bundle: " + err.Error())
+	}
 	srv := httpserver.NewServer(
 		runtimecfg.ServeConfig.HTTP,
 		scanBundle.ScanUC,
@@ -1148,6 +1162,7 @@ func BuildHTTPServer(
 		movieDetailBundle.RatingsHandler,         // Ф2.3 movie ratings sub-endpoint
 		movieDetailBundle.RecommendationsHandler, // Ф2.4 movie recommendations sub-endpoint
 		movieDetailBundle.CastETagFreshness,      // Ф2.1 movie ETag adapter
+		movieFollowBundle.Handler,                // ADR-0022 Wave-3 movie follow
 		log,
 	)
 	return srv, instanceMetadataBundle, movieDetailBundle.FreshenerHolder, movieDetailBundle.HotEnqueuer, movieDetailBundle.StubResolverHolder, movieDetailBundle.EngineFreshener

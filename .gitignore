@@ -57,3 +57,6 @@ web/.eslintcache
 
 # Claude Code workspace
 .claude/
+
+# graphify knowledge-graph output
+graphify-out/

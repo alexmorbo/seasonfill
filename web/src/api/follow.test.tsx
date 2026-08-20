@@ -5,7 +5,11 @@ import {
   followSeries,
   unfollowSeries,
   useFollowedIds,
+  followMovie,
+  unfollowMovie,
+  useFollowedMovieIds,
   type FollowListResponse,
+  type FollowedMovieListResponse,
 } from './follow';
 
 const mockApi = vi.fn();
@@ -66,6 +70,53 @@ describe('follow api client', () => {
   it('useFollowedIds is empty for an empty watchlist', async () => {
     mockApi.mockResolvedValueOnce({ items: [] } satisfies FollowListResponse);
     const { result } = renderHook(() => useFollowedIds('en-US'), {
+      wrapper: wrapper(),
+    });
+    // starts empty, resolves to empty
+    expect(result.current.size).toBe(0);
+    await waitFor(() => expect(mockApi).toHaveBeenCalled());
+    expect(result.current.size).toBe(0);
+  });
+});
+
+describe('movie follow api client', () => {
+  beforeEach(() => mockApi.mockReset());
+
+  it('followMovie POSTs /follow/movies with the tmdb_id body', async () => {
+    mockApi.mockResolvedValueOnce(undefined);
+    await followMovie(550);
+    expect(mockApi).toHaveBeenCalledWith('/follow/movies', {
+      method: 'POST',
+      body: { tmdb_id: 550 },
+    });
+  });
+
+  it('unfollowMovie DELETEs /follow/movies/:tmdb_id', async () => {
+    mockApi.mockResolvedValueOnce(undefined);
+    await unfollowMovie(550);
+    expect(mockApi).toHaveBeenCalledWith('/follow/movies/550', { method: 'DELETE' });
+  });
+
+  it('useFollowedMovieIds derives a Set of followed tmdb_ids', async () => {
+    const resp: FollowedMovieListResponse = {
+      items: [
+        { tmdb_id: 550, title: 'Fight Club' },
+        { tmdb_id: 27205, title: 'Inception' },
+      ],
+    };
+    mockApi.mockResolvedValueOnce(resp);
+    const { result } = renderHook(() => useFollowedMovieIds('en-US'), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(result.current.size).toBe(2));
+    expect(result.current.has(550)).toBe(true);
+    expect(result.current.has(27205)).toBe(true);
+    expect(result.current.has(999)).toBe(false);
+  });
+
+  it('useFollowedMovieIds is empty for an empty watchlist', async () => {
+    mockApi.mockResolvedValueOnce({ items: [] } satisfies FollowedMovieListResponse);
+    const { result } = renderHook(() => useFollowedMovieIds('en-US'), {
       wrapper: wrapper(),
     });
     // starts empty, resolves to empty

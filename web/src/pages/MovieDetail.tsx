@@ -27,6 +27,7 @@ import { useInstances } from '@/lib/instances';
 import { buildRadarrMovieHref } from '@/lib/radarrUrl';
 import { MediaDetail } from '@/components/media-detail';
 import type { MediaAction } from '@/components/media-detail/view-model';
+import { FollowButton } from '@/components/follow/FollowButton';
 import { toMovieVM } from './toMovieVM';
 
 function parseTmdbId(raw: string | undefined): number | null {
@@ -244,6 +245,13 @@ export function MovieDetail() {
         }]
       : [];
 
+  // Follow/watchlist hero button — mirrors `SeriesHero`'s
+  // `<FollowButton seriesId={seriesId}/>` (resolved here, same "resolved by
+  // the page" pattern the radarr `actions` above use), keyed by TMDB id
+  // since the movie API surface is TMDB-keyed throughout.
+  const followButtonId = movie.tmdb_id ?? tmdbId;
+  const followButton = <FollowButton mediaType="movie" tmdbId={followButtonId} />;
+
   // Hero-right compact collection card — the same `.sd-next-wrap` slot the
   // series hero fills with `NextEpisodeCard` (see `SeriesDetail.tsx`'s
   // `heroExtras.nextCard`). Movies have no next-episode concept, so the slot
@@ -285,6 +293,7 @@ export function MovieDetail() {
     rated: ratingsQ.data?.rated,
     awards: ratingsQ.data?.awards,
     actions,
+    followButton,
     cast: castQ.data?.cast,
     castServedLang: castQ.data?.served_language,
     overviewText,

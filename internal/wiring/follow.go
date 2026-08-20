@@ -33,3 +33,27 @@ func NewFollowBundle(
 	}
 	return FollowBundle{Handler: followrest.NewFollowHandler(uc, users, log)}, nil
 }
+
+// MovieFollowBundle carries the movie-follow feature's wired handler.
+type MovieFollowBundle struct {
+	Handler *followrest.MovieFollowHandler
+}
+
+// NewMovieFollowBundle builds the movie follow use case + handler (ADR-0022
+// Wave-3, the movie mirror of NewFollowBundle). movieReader is the enrichment
+// MovieRepository (GetByTMDBID); enricher is the SAME MovieHotEnqueuer holder
+// the movie-detail read enrolls through (nil-OK).
+func NewMovieFollowBundle(
+	db *gorm.DB,
+	movieReader followapp.MovieReader,
+	enricher followapp.MovieEnricher,
+	users ports.UserRepository,
+	log *slog.Logger,
+) (MovieFollowBundle, error) {
+	repo := followpersistence.NewFollowedMoviesRepository(db)
+	uc, err := followapp.NewMovieFollowUseCase(movieReader, repo, enricher, log)
+	if err != nil {
+		return MovieFollowBundle{}, err
+	}
+	return MovieFollowBundle{Handler: followrest.NewMovieFollowHandler(uc, users, log)}, nil
+}

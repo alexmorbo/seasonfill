@@ -2449,6 +2449,178 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/follow/movies": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List followed movies (watchlist)
+         * @description Returns the caller's movie follow/watchlist as minimal cards,
+         *     newest first. The FE derives per-movie follow-state from the
+         *     returned tmdb_ids.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: {
+                    /** @description Preferred language tag (e.g. ru-RU); falls back to en-US then canon */
+                    readonly lang?: string;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.followedMovieListResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        /**
+         * Follow a movie (watchlist)
+         * @description Adds the movie to the caller's follow/watchlist and kicks the
+         *     Hot enrichment lane. Idempotent — following an already-followed
+         *     movie returns 200. The movie must already exist as canon
+         *     (opening GET /movies/{tmdb_id} creates the stub).
+         */
+        readonly post: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            /** @description {\ */
+            readonly requestBody: {
+                readonly content: {
+                    readonly "application/json": Record<string, never> | components["schemas"]["rest.movieFollowRequest"];
+                };
+            };
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.OKResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/follow/movies/{tmdb_id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        /**
+         * Unfollow a movie
+         * @description Removes the movie from the caller's follow/watchlist.
+         *     Idempotent — unfollowing a non-followed movie returns 200.
+         */
+        readonly delete: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB movie id */
+                    readonly tmdb_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.OKResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/grabs": {
         readonly parameters: {
             readonly query?: never;
@@ -10006,6 +10178,23 @@ export type components = {
             /** @example 2011 */
             readonly year?: number;
         };
+        readonly "rest.followedMovieItemResponse": {
+            /** @example 2026-08-20T12:00:00Z */
+            readonly followed_at?: string;
+            /** @example 42 */
+            readonly movie_id?: number;
+            /** @example /abc.jpg */
+            readonly poster_asset?: string;
+            /** @example Fight Club */
+            readonly title?: string;
+            /** @example 550 */
+            readonly tmdb_id?: number;
+            /** @example 1999 */
+            readonly year?: number;
+        };
+        readonly "rest.followedMovieListResponse": {
+            readonly items?: readonly components["schemas"]["rest.followedMovieItemResponse"][];
+        };
         readonly "rest.icsRevokeResponse": {
             /** @example 1 */
             readonly epoch?: number;
@@ -10024,6 +10213,9 @@ export type components = {
             readonly searched?: boolean;
             readonly season_number?: number;
             readonly series_id?: number;
+        };
+        readonly "rest.movieFollowRequest": {
+            readonly tmdb_id?: number;
         };
         readonly "rest.movieReenrichResponse": {
             /** @example 411 */

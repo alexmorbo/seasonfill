@@ -177,6 +177,10 @@ func NewServer(
 	// Ф2.1 — per-section movie freshness reader for the movie ETag middleware.
 	// nil-OK: the middleware is a pass-through when nil.
 	movieEtagFreshness SectionSyncedAtReader,
+	// ADR-0022 Wave-3 — movie follow/watchlist handler (the movie mirror of
+	// followHandler). nil-OK: the /follow/movies routes are omitted when the
+	// handler is absent (minimal/test wirings).
+	movieFollowHandler *followrest.MovieFollowHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -436,6 +440,15 @@ func NewServer(
 			guarded.POST("/follow", followHandler.Post)
 			guarded.DELETE("/follow/:series_id", followHandler.Delete)
 			guarded.GET("/follow", followHandler.List)
+		}
+		// ADR-0022 Wave-3 — movie follow/watchlist, TMDB-keyed like the rest of
+		// the movie surface. The static `movies` segment wins over the sibling
+		// `:series_id` wildcard on the DELETE tree (gin resolves static first),
+		// so the series routes above keep their exact behaviour. nil-OK.
+		if movieFollowHandler != nil {
+			guarded.POST("/follow/movies", movieFollowHandler.Post)
+			guarded.DELETE("/follow/movies/:tmdb_id", movieFollowHandler.Delete)
+			guarded.GET("/follow/movies", movieFollowHandler.List)
 		}
 		// Ф8-U-2 — request-workflow. GET is authenticated (own vs all scoping is
 		// handler-side, driven by the caller's manage_requests/admin). approve/deny

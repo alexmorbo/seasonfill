@@ -278,9 +278,9 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// Ф6-R-4a adds movie_changes_state → 71.
 			// Ф8-U-1 adds user_instance_access → 72.
 			// Ф8-U-2 adds requests → 73.
-			// Ф0.3 adds movie genres/keywords/recommendations/companies/videos → 78.
-			if len(s.Tables) != 78 {
-				t.Errorf("Schema(%s) tables = %d, want 78 (after Ф0.3 movie tables)", d, len(s.Tables))
+			// Ф0.3 adds movie genres/keywords/recommendations/companies/videos → 78; ADR-0022 Wave-3 adds followed_movies → 79.
+			if len(s.Tables) != 79 {
+				t.Errorf("Schema(%s) tables = %d, want 79 (after ADR-0022 Wave-3 followed_movies)", d, len(s.Tables))
 			}
 		})
 	}

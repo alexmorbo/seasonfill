@@ -76,3 +76,87 @@ export function useUnfollowSeries() {
       toast.error(i18n.t('toasts.unfollowFailed', { error: err.message })),
   });
 }
+
+// --- movies (mirror of the series follow surface above) ------------------
+//
+// Same react-query conventions as the series hooks (shared `api()` fetch
+// helper, same query-key-array / invalidate-on-mutate / toast-on-settle
+// shape). Kept as a distinct query key (`['follow', 'movies']`) so the
+// series watchlist query and the movie watchlist query never collide or
+// invalidate each other.
+
+export type FollowedMovieListResponse =
+  components['schemas']['rest.followedMovieListResponse'];
+export type FollowedMovieItem =
+  components['schemas']['rest.followedMovieItemResponse'];
+
+const FOLLOW_MOVIES_KEY = ['follow', 'movies'] as const;
+
+// --- reads ---------------------------------------------------------------
+
+export async function listFollowedMovies(
+  lang?: string,
+): Promise<FollowedMovieListResponse> {
+  const qs = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+  return api<FollowedMovieListResponse>(`/follow/movies${qs}`);
+}
+
+// useFollowedMovies returns the full movie watchlist.
+export function useFollowedMovies(lang?: string) {
+  return useQuery({
+    queryKey: [...FOLLOW_MOVIES_KEY, lang ?? 'en-US'],
+    queryFn: () => listFollowedMovies(lang),
+    staleTime: 60_000,
+  });
+}
+
+// useFollowedMovieIds derives a Set<number> of followed TMDB movie ids for
+// O(1) button/badge membership checks. Shares the same query cache as
+// useFollowedMovies.
+export function useFollowedMovieIds(lang?: string): Set<number> {
+  const { data } = useFollowedMovies(lang);
+  return new Set(
+    (data?.items ?? [])
+      .map((i) => i.tmdb_id)
+      .filter((id): id is number => typeof id === 'number'),
+  );
+}
+
+// --- writes --------------------------------------------------------------
+
+export async function followMovie(tmdbId: number): Promise<void> {
+  await api<void>(`/follow/movies`, {
+    method: 'POST',
+    body: { tmdb_id: tmdbId },
+  });
+}
+
+export async function unfollowMovie(tmdbId: number): Promise<void> {
+  await api<void>(`/follow/movies/${tmdbId}`, { method: 'DELETE' });
+}
+
+export function useFollowMovie() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, { tmdbId: number }>({
+    mutationFn: ({ tmdbId }) => followMovie(tmdbId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: FOLLOW_MOVIES_KEY });
+      toast.success(i18n.t('toasts.followed'));
+    },
+    onError: (err) =>
+      toast.error(i18n.t('toasts.followFailed', { error: err.message })),
+  });
+}
+
+export function useUnfollowMovie() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, { tmdbId: number }>({
+    mutationFn: ({ tmdbId }) => unfollowMovie(tmdbId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: FOLLOW_MOVIES_KEY });
+      toast.success(i18n.t('toasts.unfollowed'));
+    },
+    onError: (err) =>
+      toast.error(i18n.t('toasts.unfollowFailed', { error: err.message })),
+  });
+}

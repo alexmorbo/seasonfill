@@ -70,5 +70,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // movieRatingsHandler (Ф2.3) — nil-OK, /movies/:tmdb_id/ratings route omitted
 		nil, // movieRecommendationsHandler (Ф2.4) — nil-OK, /movies/:tmdb_id/recommendations route omitted
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
+		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		logger)
 }
