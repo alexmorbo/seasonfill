@@ -26,17 +26,36 @@ describe('<CompactHero />', () => {
     expect(counts).toHaveTextContent('25 crew members');
   });
 
-  it('handles missing optional fields', () => {
+  it('handles missing optional title/poster/year fields', () => {
     r(<CompactHero
       title={undefined}
       posterAsset={undefined}
-      status={undefined}
+      status="continuing"
       yearStart={undefined}
       yearEnd={undefined}
       castCount={0}
       crewCount={0}
     />);
     expect(screen.getByTestId('cast-compact-hero')).toBeInTheDocument();
-    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', 'unknown');
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', 'continuing');
+  });
+
+  // Movie usage (no series status vocabulary, no crew list) — `status` and
+  // `crewCount` are omitted entirely rather than fed 'unknown'/0, so the
+  // status pill and the "· N crew" segment are hidden instead of rendering
+  // a misleading "Unknown" / "0 crew".
+  it('hides the status pill and crew count when status/crewCount are omitted', () => {
+    r(<CompactHero
+      title="Dune"
+      posterAsset={undefined}
+      yearStart={undefined}
+      yearEnd={undefined}
+      castCount={12}
+    />);
+    expect(screen.getByTestId('cast-page-title')).toHaveTextContent('Dune');
+    expect(screen.queryByTestId('status-pill')).toBeNull();
+    const counts = screen.getByTestId('cast-counts');
+    expect(counts).toHaveTextContent('12 cast members');
+    expect(counts.textContent).not.toContain('crew');
   });
 });

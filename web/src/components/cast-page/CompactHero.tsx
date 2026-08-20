@@ -6,11 +6,15 @@ import { StatusPill } from '@/components/series-detail/StatusPill';
 export interface CompactHeroProps {
   readonly title: string | undefined;
   readonly posterAsset: string | undefined;
-  readonly status: string | undefined;
+  // Movies have no TMDB status/crew vocabulary on this page (movie statuses
+  // use a different i18n map than the series-only parseStatus()/StatusPill
+  // vocabulary, and movies have no crew list here) — both undefined hides
+  // the corresponding segment instead of misrendering "Unknown" / "0 crew".
+  readonly status?: string | undefined;
   readonly yearStart: number | undefined;
   readonly yearEnd: number | undefined;
   readonly castCount: number;
-  readonly crewCount: number;
+  readonly crewCount?: number | undefined;
   readonly className?: string | undefined;
 }
 
@@ -34,7 +38,7 @@ export function CompactHero({
 }: CompactHeroProps) {
   const { t } = useTranslation();
   const poster = mediaUrl(posterAsset);
-  const parsed = parseStatus(status);
+  const parsed = status !== undefined ? parseStatus(status) : undefined;
   const years = formatYearRange(yearStart, yearEnd);
 
   return (
@@ -71,12 +75,16 @@ export function CompactHero({
           {years && (
             <span className="text-[12px] text-tx-muted tabular-nums">{years}</span>
           )}
-          <StatusPill status={parsed} />
+          {parsed !== undefined && <StatusPill status={parsed} />}
         </div>
         <div className="text-[11.5px] text-tx-faint tabular-nums" data-testid="cast-counts">
           <span>{t('seriesDetail.castPage.counts.cast', { count: castCount })}</span>
-          <span aria-hidden="true"> · </span>
-          <span>{t('seriesDetail.castPage.counts.crew', { count: crewCount })}</span>
+          {crewCount !== undefined && (
+            <>
+              <span aria-hidden="true"> · </span>
+              <span>{t('seriesDetail.castPage.counts.crew', { count: crewCount })}</span>
+            </>
+          )}
         </div>
       </div>
     </header>

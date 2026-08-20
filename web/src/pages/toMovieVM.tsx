@@ -148,7 +148,7 @@ export function toMovieVM(p: ToMovieVMParams): MediaDetailVM {
 
     cast: {
       members: toMovieCastMembers(p.cast),
-      href: undefined,
+      href: `/movies/${movie.tmdb_id ?? tmdbId}/cast`,
       mediaId: movie.tmdb_id ?? tmdbId,
       limit: 8,
       loading: undefined,

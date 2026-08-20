@@ -32,6 +32,7 @@ import { SeriesDetail } from '@/pages/SeriesDetail';
 import { SeriesCast } from '@/pages/SeriesCast';
 import { Movies } from '@/pages/Movies';
 import { MovieDetail } from '@/pages/MovieDetail';
+import { MovieCast } from '@/pages/MovieCast';
 import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
 import { DiscoveryPage } from '@/pages/DiscoveryPage';
@@ -59,6 +60,7 @@ export const router = createBrowserRouter([
       { path: '/series/:instance/:id/cast', element: <LegacySeriesRedirect kind="cast" /> },
       { path: '/movies',          element: <Movies /> },
       { path: '/movies/:tmdbId',  element: <MovieDetail /> },
+      { path: '/movies/:tmdbId/cast', element: <MovieCast /> },
       { path: '/person/:tmdbId',            element: <Person /> },
       { path: '/discovery', element: <DiscoveryPage /> },
       // /requests is admin-only. The <Requests /> page self-gates on

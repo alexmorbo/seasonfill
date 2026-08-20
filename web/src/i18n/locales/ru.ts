@@ -2976,6 +2976,20 @@ export const ru: Translations = {
       viewAll: 'Все',
       loading: 'Загрузка актёров…',
     },
+    castPage: {
+      pageTitle: 'Актёры',
+      searchPlaceholder: 'Поиск по имени или роли…',
+      searchClear: 'Очистить поиск',
+      sort: {
+        label: 'Сортировка',
+        credit: 'По порядку в титрах',
+        name: 'По имени А-Я',
+      },
+      empty: {
+        cast: 'Нет данных об актёрах.',
+        search: 'По запросу «{{query}}» ничего не найдено.',
+      },
+    },
     status: {
       released: 'Вышел',
       planned: 'Запланирован',

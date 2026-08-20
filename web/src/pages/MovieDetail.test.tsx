@@ -167,6 +167,10 @@ describe('<MovieDetail />', () => {
     // Cast strip (prop-driven, fed by useMovieCast).
     expect(await screen.findByTestId('cast-strip')).toBeInTheDocument();
     expect(screen.getByTestId('cast-strip-name')).toHaveTextContent('Timothée Chalamet');
+    // View-all link — routes to the new full movie-cast page.
+    const viewAll = screen.getByTestId('cast-strip-view-all');
+    expect(viewAll).toBeInTheDocument();
+    expect(viewAll.getAttribute('href')).toBe('/movies/438631/cast');
     // Ratings section (fed by useMovieRatings, now owned by the page).
     expect(await screen.findByTestId('ratings-section')).toBeInTheDocument();
     expect(screen.getByTestId('ratings-awards')).toHaveTextContent('Won 6 Oscars');

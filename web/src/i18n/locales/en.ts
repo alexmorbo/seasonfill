@@ -2978,6 +2978,20 @@ export const en = {
       viewAll: 'View all',
       loading: 'Loading cast…',
     },
+    castPage: {
+      pageTitle: 'Cast',
+      searchPlaceholder: 'Search by name or character…',
+      searchClear: 'Clear search',
+      sort: {
+        label: 'Sort',
+        credit: 'By billing order',
+        name: 'By name (A–Z)',
+      },
+      empty: {
+        cast: 'No cast data available.',
+        search: 'No results match "{{query}}".',
+      },
+    },
     status: {
       released: 'Released',
       planned: 'Planned',
