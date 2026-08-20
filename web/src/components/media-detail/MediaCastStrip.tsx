@@ -9,7 +9,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 export interface MediaCastStripProps {
   // Story 495 / N-1e §A3: rendered URL is composed by the adapter so the
   // routing concern stays in the page/adapter that owns the URL shape.
-  readonly castHref: string;
+  // Undefined (movie, wave-2 C) → the "view all" link is omitted entirely.
+  readonly castHref?: string | undefined;
   // Kept as `seriesId` (not `mediaId`) — U-4 §3.4: the loading section emits
   // `data-series-id`, which must stay byte-identical to the current series
   // card's loading DOM. Renaming would change that attribute's origin prop.
@@ -96,14 +97,16 @@ export function MediaCastStrip({
         >
           {t('seriesDetail.cast.label')}
         </h2>
-        <Link
-          to={castHref}
-          data-testid="cast-strip-view-all"
-          className="shrink-0 inline-flex items-center gap-1 text-[12.5px] text-tx-muted hover:text-tx-primary transition-colors"
-        >
-          {t('seriesDetail.cast.viewAll')}
-          <ArrowRight className="w-[13px] h-[13px]" aria-hidden="true" />
-        </Link>
+        {castHref && (
+          <Link
+            to={castHref}
+            data-testid="cast-strip-view-all"
+            className="shrink-0 inline-flex items-center gap-1 text-[12.5px] text-tx-muted hover:text-tx-primary transition-colors"
+          >
+            {t('seriesDetail.cast.viewAll')}
+            <ArrowRight className="w-[13px] h-[13px]" aria-hidden="true" />
+          </Link>
+        )}
       </div>
 
       <div

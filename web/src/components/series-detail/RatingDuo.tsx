@@ -1,4 +1,4 @@
-import { Star } from 'lucide-react';
+import { Star, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { RatingScore } from '@/api/series';
@@ -8,6 +8,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 export interface RatingDuoProps {
   readonly tmdb?: RatingScore | undefined;
   readonly imdb?: RatingScore | undefined;
+  // Movie-only IMDb deep-link icon, rendered after the IMDb score when
+  // present (ADR-0022 Wave-2 Story C, Decision A). Series never passes
+  // this — the icon simply never renders for series.
+  readonly imdbHref?: string | undefined;
   readonly tmdbStaleAt?: string | undefined;
   readonly imdbStaleAt?: string | undefined;
   // Story 495 / N-1e (B-20): render an IMDb skeleton chip while OMDb
@@ -29,7 +33,9 @@ function ratingValid(r: RatingScore | undefined): r is RatingScore {
   return Boolean(r) && typeof r?.score === 'number' && r.score > 0;
 }
 
-export function RatingDuo({ tmdb, imdb, tmdbStaleAt, imdbStaleAt, imdbLoading, className }: RatingDuoProps) {
+export function RatingDuo({
+  tmdb, imdb, imdbHref, tmdbStaleAt, imdbStaleAt, imdbLoading, className,
+}: RatingDuoProps) {
   const { t } = useTranslation();
   const showTmdb = ratingValid(tmdb);
   const showImdb = ratingValid(imdb);
@@ -61,6 +67,18 @@ export function RatingDuo({ tmdb, imdb, tmdbStaleAt, imdbStaleAt, imdbLoading, c
             <span className="text-tx-faint tabular-nums">· {humanizeVotes(imdb!.votes)}</span>
           )}
           {imdbStaleAt && <StaleBadge asOf={imdbStaleAt} source="omdb" />}
+          {imdbHref && (
+            <a
+              href={imdbHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center text-tx-faint hover:text-tx-primary"
+              aria-label={t('seriesDetail.ratings.imdb')}
+              data-testid="imdb-external-link"
+            >
+              <ExternalLink className="w-3 h-3" aria-hidden="true" />
+            </a>
+          )}
         </span>
       )}
       {showImdbLoading && (

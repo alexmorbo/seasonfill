@@ -32,6 +32,9 @@ export interface MediaRating {
 export interface MediaRatings {
   readonly tmdb?: RatingScore | undefined;   // effective (live-deduped) hero ★
   readonly imdb?: RatingScore | undefined;
+  // Movie-only IMDb deep-link, rendered by RatingDuo after the IMDb score
+  // when present. Series never sets this — the icon is a no-op for series.
+  readonly imdbHref?: string | undefined;
   readonly tmdbStaleAt?: string | undefined;
   readonly imdbStaleAt?: string | undefined;
   readonly imdbLoading?: boolean | undefined;
@@ -103,7 +106,9 @@ export interface MediaKeyword {
 /** Cast block. */
 export interface MediaCast {
   readonly members: readonly CastMember[];
-  readonly href: string;             // "view all" link (series: /series/:id/cast)
+  // "view all" link (series: /series/:id/cast). Undefined for movie (U-4
+  // wave-2 C — no dedicated cast page yet) — MediaCastStrip hides the link.
+  readonly href?: string | undefined;
   // U-4 §3.4: `MediaCastStrip`'s loading-section emits `data-series-id`,
   // which must stay byte-identical to the current series card's loading
   // DOM — so this stays a plain numeric id, fed straight into that prop.

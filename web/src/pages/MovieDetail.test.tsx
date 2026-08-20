@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -30,7 +30,7 @@ function movie() {
     tagline: 'Beyond fear, destiny awaits.',
     status: 'Released',
     runtime_minutes: 155,
-    release_date: '2021-10-22',
+    release_date: '2021-10-22T00:00:00Z',
     overview: 'Paul Atreides arrives on Arrakis.',
     tmdb_rating: 8.1,
     imdb_rating: 8.0,
@@ -141,17 +141,17 @@ describe('<MovieDetail />', () => {
     renderRoute('/movies/438631');
 
     expect(await screen.findByTestId('movie-detail-page')).toBeInTheDocument();
-    expect(screen.getByTestId('movie-detail-title')).toHaveTextContent('Dune');
-    expect(screen.getByTestId('movie-detail-tagline')).toHaveTextContent('destiny awaits');
-    expect(screen.getByTestId('movie-detail-rating-tmdb')).toHaveTextContent('8.1');
-    expect(screen.getByTestId('movie-detail-rating-imdb')).toHaveTextContent('8.0');
-    expect(screen.getByTestId('movie-detail-imdb-link')).toHaveAttribute(
+    expect(screen.getByTestId('hero-title')).toHaveTextContent('Dune');
+    expect(screen.getByText('Beyond fear, destiny awaits.')).toBeInTheDocument();
+    expect(screen.getByTestId('rating-tmdb')).toHaveTextContent('8.1');
+    expect(screen.getByTestId('rating-imdb')).toHaveTextContent('8.0');
+    expect(screen.getByTestId('imdb-external-link')).toHaveAttribute(
       'href',
       'https://www.imdb.com/title/tt1160419/',
     );
     // Overview text paints from the base movie DTO on the first frame (the
     // localized /overview endpoint only refines it).
-    expect(screen.getByTestId('movie-detail-overview')).toHaveTextContent('Arrakis');
+    expect(screen.getByTestId('overview-text')).toHaveTextContent('Arrakis');
     expect(screen.getByTestId('movie-library-row-radarr')).toBeInTheDocument();
     expect(screen.getByTestId('movie-library-monitored')).toBeInTheDocument();
     expect(screen.getByTestId('movie-library-hasfile')).toBeInTheDocument();
@@ -162,14 +162,14 @@ describe('<MovieDetail />', () => {
     renderRoute('/movies/438631');
 
     expect(await screen.findByTestId('movie-detail-page')).toBeInTheDocument();
-    // Overview block (prop-driven, fed by the page).
-    expect(await screen.findByTestId('movie-overview-block')).toBeInTheDocument();
+    // Overview block (shared MediaDetail overview text, fed by the page).
+    expect(await screen.findByTestId('overview-text')).toBeInTheDocument();
     // Cast strip (prop-driven, fed by useMovieCast).
-    expect(await screen.findByTestId('movie-cast-strip')).toBeInTheDocument();
-    expect(screen.getByTestId('movie-cast-strip-name')).toHaveTextContent('Timothée Chalamet');
-    // Ratings section (self-fetches /ratings).
-    expect(await screen.findByTestId('movie-ratings-section')).toBeInTheDocument();
-    expect(screen.getByTestId('movie-ratings-awards')).toHaveTextContent('Won 6 Oscars');
+    expect(await screen.findByTestId('cast-strip')).toBeInTheDocument();
+    expect(screen.getByTestId('cast-strip-name')).toHaveTextContent('Timothée Chalamet');
+    // Ratings section (fed by useMovieRatings, now owned by the page).
+    expect(await screen.findByTestId('ratings-section')).toBeInTheDocument();
+    expect(screen.getByTestId('ratings-awards')).toHaveTextContent('Won 6 Oscars');
     // Recommendations rail (self-fetches /recommendations).
     expect(await screen.findByTestId('movie-recommendations')).toBeInTheDocument();
   });
@@ -178,21 +178,20 @@ describe('<MovieDetail />', () => {
     routedFetch();
     renderRoute('/movies/438631');
 
-    expect(await screen.findByTestId('movie-detail-sidebar')).toBeInTheDocument();
-    expect(screen.getByTestId('movie-detail-sidebar-status')).toHaveTextContent('Released');
-    expect(screen.getByTestId('movie-detail-sidebar-studio-value')).toHaveTextContent('Legendary Pictures');
-    expect(screen.getByTestId('movie-detail-sidebar-country')).toBeInTheDocument();
-    expect(screen.getByTestId('movie-detail-sidebar-language')).toBeInTheDocument();
-    expect(screen.getByTestId('movie-detail-sidebar-keywords')).toBeInTheDocument();
-    // Genre chips render in the hero (KeywordChips leaf).
-    expect(screen.getAllByTestId('keyword-chip').length).toBeGreaterThan(0);
+    expect(await screen.findByTestId('rail-card')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-row-status')).toHaveTextContent('Released');
+    expect(screen.getByTestId('rail-row-studio-value')).toHaveTextContent('Legendary Pictures');
+    expect(screen.getByTestId('rail-row-countries')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-row-original-language')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-keywords')).toBeInTheDocument();
+    expect(within(screen.getByTestId('rail-keywords')).getByText('desert')).toBeInTheDocument();
   });
 
   it('opens the trailer modal from the hero trailer button', async () => {
     routedFetch();
     renderRoute('/movies/438631');
 
-    const btn = await screen.findByTestId('movie-detail-trailer-button');
+    const btn = await screen.findByTestId('hero-action-trailer');
     expect(screen.queryByTestId('trailer-modal-iframe')).toBeNull();
     btn.click();
     await waitFor(() => {
@@ -279,13 +278,22 @@ describe('<MovieDetail />', () => {
     );
   });
 
-  it('formats the hero release date instead of printing raw ISO', async () => {
+  it('formats the sidebar premiere date instead of printing the raw ISO date', async () => {
+    // Decision B (ADR-0022 Wave-2 Story C) — the hero release-date display
+    // is REPLACED by a `rail-row-premiere-date` sidebar fact, rendered via
+    // the shared `<PremiereDate>` leaf. The BE marshals `Released` as a
+    // full RFC3339 timestamp (dto_movie_detail.go's `*time.Time`), so this
+    // fixture uses the REAL wire shape — `toMovieVM` must truncate it to a
+    // calendar date before handing it to `<PremiereDate>`.
     spyFetch({ ...movie(), release_date: '2024-11-13T00:00:00Z' });
     renderRoute('/movies/438631');
 
-    const released = await screen.findByTestId('movie-detail-released');
-    expect(released.textContent ?? '').not.toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(released).toHaveTextContent('2024');
+    const premiereRow = await screen.findByTestId('rail-row-premiere-date');
+    expect(premiereRow.textContent ?? '').not.toBe('2024-11-13T00:00:00Z');
+    // `<PremiereDate>` renders a locale-formatted calendar date (not the
+    // raw wire timestamp) — assert both date components it must preserve.
+    expect(premiereRow).toHaveTextContent('2024');
+    expect(premiereRow).toHaveTextContent(/13/);
   });
 
   it('omits the collection block when the movie has no collection', async () => {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -41,6 +41,7 @@ export type MediaHeroVM = Pick<
   | 'backdropAsset'
   | 'backdropLoadingLabel'
   | 'ratings'
+  | 'actions'
   | 'trailer'
   | 'heroActions'
 >;
@@ -188,6 +189,7 @@ export function MediaHero({ vm, heroExtras }: MediaHeroProps) {
                 <RatingDuo
                   {...(vm.ratings.tmdb ? { tmdb: vm.ratings.tmdb } : {})}
                   {...(vm.ratings.imdb ? { imdb: vm.ratings.imdb } : {})}
+                  {...(vm.ratings.imdbHref ? { imdbHref: vm.ratings.imdbHref } : {})}
                   {...(vm.ratings.imdbStaleAt ? { imdbStaleAt: vm.ratings.imdbStaleAt } : {})}
                   {...(vm.ratings.imdbLoading ? { imdbLoading: true } : {})}
                 />
@@ -272,6 +274,9 @@ export function MediaHero({ vm, heroExtras }: MediaHeroProps) {
                     )}
                   </div>
                 )}
+                {vm.type === 'movie' && vm.actions.map((a) => (
+                  <Fragment key={a.id}>{a.node}</Fragment>
+                ))}
                 {showTrailer && trailerKey && (
                   <Button
                     size="sm"
@@ -283,13 +288,17 @@ export function MediaHero({ vm, heroExtras }: MediaHeroProps) {
                   </Button>
                 )}
                 {heroActions.followButton}
-                <Button variant="outline" size="sm" data-testid="hero-action-monitored" disabled>
-                  <BookmarkCheck className="w-3.5 h-3.5" aria-hidden="true" />
-                  {t('seriesDetail.hero.monitored')}
-                </Button>
-                <Button variant="ghost" size="icon" aria-label={t('common.actions')} disabled>
-                  <Ellipsis className="w-4 h-4" aria-hidden="true" />
-                </Button>
+                {vm.type === 'series' && (
+                  <>
+                    <Button variant="outline" size="sm" data-testid="hero-action-monitored" disabled>
+                      <BookmarkCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                      {t('seriesDetail.hero.monitored')}
+                    </Button>
+                    <Button variant="ghost" size="icon" aria-label={t('common.actions')} disabled>
+                      <Ellipsis className="w-4 h-4" aria-hidden="true" />
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
 

@@ -79,6 +79,11 @@ export function buildSeriesHeroCore({
   return {
     type: 'series',
     sonarrOnly,
+    // U-4 wave-2 C: `actions` (movie-only hero action nodes) is always
+    // empty for series — `MediaHero` only reads it under `vm.type ===
+    // 'movie'`, so this is a structural no-op, present just to satisfy
+    // `MediaHeroVM`.
+    actions: [],
     localizedTitle: title,
     ...(originalTitle ? { originalTitle } : {}),
     ...(tagline ? { tagline } : {}),
