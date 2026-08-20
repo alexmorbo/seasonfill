@@ -141,26 +141,39 @@ function OpenInRadarrButton({ tmdbId, instanceName }: { tmdbId: number; instance
   }, [instancesQ.data, instanceName]);
   const href = publicUrl ? buildRadarrMovieHref(publicUrl, tmdbId) : undefined;
 
-  return (
-    <Button
-      asChild={Boolean(href)}
-      variant="outline"
-      size="sm"
-      disabled={!href}
-      data-testid="movie-detail-open-in-radarr"
-    >
-      {href ? (
+  if (href) {
+    return (
+      <Button asChild variant="outline" size="sm" data-testid="movie-detail-open-in-radarr">
         <a href={href} target="_blank" rel="noopener noreferrer">
           <ExternalLink className="h-4 w-4" aria-hidden="true" />
           {t('common.openInRadarr')}
         </a>
-      ) : (
-        <span>
-          <ExternalLink className="h-4 w-4" aria-hidden="true" />
-          {t('common.openInRadarr')}
-        </span>
-      )}
-    </Button>
+      </Button>
+    );
+  }
+
+  // Disabled state: the movie is already held by a radarr instance, but the
+  // instance has no operator-configured public_url so we can't build a deep
+  // link. Kept visible+disabled (parity with the series "Open in Sonarr"
+  // hero slot) rather than hidden, but a `title` explains why it doesn't do
+  // anything instead of silently doing nothing. The `title` lives on the
+  // outer wrapper, not the disabled <button> itself: the button's own
+  // `disabled:pointer-events-none` styling would make the browser treat it
+  // as un-hoverable and never show a native tooltip.
+  const disabledReason = t('movies.open.noPublicUrl');
+  return (
+    <span title={disabledReason} className="inline-flex">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled
+        className="disabled:cursor-not-allowed"
+        data-testid="movie-detail-open-in-radarr"
+      >
+        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+        {t('common.openInRadarr')}
+      </Button>
+    </span>
   );
 }
 

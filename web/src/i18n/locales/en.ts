@@ -2919,6 +2919,9 @@ export const en = {
         radarr_unreachable: 'Radarr unreachable',
       },
     },
+    open: {
+      noPublicUrl: 'Radarr public URL is not configured',
+    },
   },
   movieCard: {
     open: 'Open {{title}}',

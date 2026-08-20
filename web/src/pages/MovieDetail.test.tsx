@@ -256,6 +256,29 @@ describe('<MovieDetail />', () => {
     expect(screen.queryByTestId('movie-detail-add-to-radarr-primary')).toBeNull();
   });
 
+  it('explains the disabled Open-in-Radarr CTA when the instance has no public_url', async () => {
+    // The instances roster resolves, but the holding radarr instance has no
+    // operator-configured public_url — no deep link can be built.
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/v1/admin/instances')) {
+        return json({ instances: [{ name: 'radarr', type: 'radarr', public_url: null }] });
+      }
+      return json(movie());
+    }) as typeof fetch;
+    renderRoute('/movies/438631');
+
+    const open = await screen.findByTestId('movie-detail-open-in-radarr');
+    await waitFor(() => {
+      expect(open.tagName).toBe('BUTTON');
+      expect(open).toBeDisabled();
+    });
+    expect(open.closest('span')).toHaveAttribute(
+      'title',
+      'Radarr public URL is not configured',
+    );
+  });
+
   it('formats the hero release date instead of printing raw ISO', async () => {
     spyFetch({ ...movie(), release_date: '2024-11-13T00:00:00Z' });
     renderRoute('/movies/438631');

@@ -2917,6 +2917,9 @@ export const ru: Translations = {
         radarr_unreachable: 'Radarr недоступен',
       },
     },
+    open: {
+      noPublicUrl: 'Публичный URL Radarr не настроен',
+    },
   },
   movieCard: {
     open: 'Открыть {{title}}',
