@@ -36,6 +36,14 @@ export interface MediaImageProps {
   readonly fallback: MediaImageFallback;
   readonly className?: string;
   readonly aspectRatio?: string;
+  /** Skip native lazy-loading for always-above-the-fold images (hero-area
+   *  thumbnails). Chromium's `loading="lazy"` intersection heuristic can
+   *  get stuck and never fire for small images inside a container whose
+   *  geometry isn't finalized at insertion time (e.g. a card mounted async
+   *  inside a `backdrop-filter` glass shell) — `MediaHero`'s own poster and
+   *  backdrop `<img>`s are eager-by-default for the same reason. Defaults
+   *  to false (unchanged lazy behavior) for every other caller. */
+  readonly eager?: boolean;
   readonly 'data-testid'?: string;
 }
 
@@ -79,6 +87,7 @@ export function MediaImage({
   fallback,
   className,
   aspectRatio,
+  eager,
   ...rest
 }: MediaImageProps) {
   const [errored, setErrored] = useState(false);
@@ -108,7 +117,7 @@ export function MediaImage({
           src={src}
           alt=""
           aria-hidden="true"
-          loading="lazy"
+          loading={eager ? 'eager' : 'lazy'}
           decoding="async"
           onError={() => setErrored(true)}
           className="absolute inset-0 z-[1] h-full w-full object-cover"

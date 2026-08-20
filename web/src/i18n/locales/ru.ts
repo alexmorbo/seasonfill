@@ -2966,6 +2966,13 @@ export const ru: Translations = {
       monitored: 'Отслеживается',
       hasFile: 'Загружено',
       empty: 'Нет ни в одной библиотеке.',
+      availability: {
+        released: 'Вышел',
+        announced: 'Анонсирован',
+        inCinemas: 'В кинотеатрах',
+        preDb: 'Ожидается',
+        deleted: 'Удалён',
+      },
     },
     recommendations: {
       label: 'Вам может понравиться',

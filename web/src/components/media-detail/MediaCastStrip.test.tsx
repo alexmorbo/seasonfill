@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
@@ -14,44 +14,48 @@ function wrap(ui: React.ReactElement) {
   );
 }
 
-const sample = [
+const sample: CastMember[] = [
   { person_id: 1, tmdb_person_id: 1001, name: 'Joel Kinnaman', character_name: 'Ed Baldwin', profile_asset: 'h1' },
   { person_id: 2, tmdb_person_id: 1002, name: 'Krys Marshall', character_name: 'Danielle Poole' },
   { person_id: 3, tmdb_person_id: 1003, name: 'Wrenn Schmidt', character_name: 'Margo Madison', profile_asset: 'h3' },
 ];
 
 describe('MediaCastStrip', () => {
+  let savedLang: string;
+  beforeEach(() => { savedLang = i18n.resolvedLanguage ?? 'en'; });
+  afterEach(async () => { await i18n.changeLanguage(savedLang); });
+
   it('returns null when cast is empty', () => {
     const { container } = render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={[]} />));
     expect(container.firstChild).toBeNull();
   });
 
   it('renders one card per cast member up to limit', () => {
-    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={sample as unknown as typeof sample} limit={2} />));
+    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={sample} limit={2} />));
     expect(screen.getAllByTestId('cast-strip-card')).toHaveLength(2);
   });
 
   it('renders the avatar with image when profile_asset is set', () => {
-    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[0]] as unknown as typeof sample} />));
+    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[0]!]} />));
     const av = screen.getByTestId('cast-strip-avatar');
     expect(av.querySelector('img')).toBeTruthy();
   });
 
   it('renders the monogram fallback when profile_asset is missing', () => {
-    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[1]] as unknown as typeof sample} />));
+    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[1]!]} />));
     const av = screen.getByTestId('cast-strip-avatar');
     expect(av.querySelector('img')).toBeFalsy();
     expect(av.textContent).toBeTruthy();
   });
 
   it('renders name + character labels', () => {
-    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[0]] as unknown as typeof sample} />));
+    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={[sample[0]!]} />));
     expect(screen.getByTestId('cast-strip-name').textContent).toMatch(/Joel/);
     expect(screen.getByTestId('cast-strip-character').textContent).toMatch(/Ed Baldwin/);
   });
 
   it('view-all link points to the cast subpage', () => {
-    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={sample as unknown as typeof sample} />));
+    render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={sample} />));
     const link = screen.getByTestId('cast-strip-view-all');
     expect(link.getAttribute('href')).toBe('/series/369/cast');
   });
@@ -124,5 +128,38 @@ describe('MediaCastStrip', () => {
   it('returns null (not skeleton) when tmdbPersonDegraded is false and cast is empty', () => {
     const { container } = render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={[]} tmdbPersonDegraded={false} />));
     expect(container.firstChild).toBeNull();
+  });
+
+  describe('servedLang badge (movie EN-fallback signal)', () => {
+    it('renders the badge when servedLang differs from the active UI language', async () => {
+      await i18n.changeLanguage('ru');
+      render(wrap(
+        <MediaCastStrip
+          castHref="/movies/550/cast"
+          seriesId={550}
+          cast={sample}
+          servedLang="en"
+        />,
+      ));
+      expect(screen.getByTestId('cast-lang-fallback')).toBeInTheDocument();
+    });
+
+    it('omits the badge when servedLang matches the active UI language', async () => {
+      await i18n.changeLanguage('en');
+      render(wrap(
+        <MediaCastStrip
+          castHref="/movies/550/cast"
+          seriesId={550}
+          cast={sample}
+          servedLang="en"
+        />,
+      ));
+      expect(screen.queryByTestId('cast-lang-fallback')).toBeNull();
+    });
+
+    it('omits the badge when servedLang is undefined (series shape — regression)', () => {
+      render(wrap(<MediaCastStrip castHref="/series/369/cast" seriesId={369} cast={sample} />));
+      expect(screen.queryByTestId('cast-lang-fallback')).toBeNull();
+    });
   });
 });

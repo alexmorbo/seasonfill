@@ -1,7 +1,27 @@
 import { Inbox } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { cn } from '@/lib/utils';
 import type { MovieDetailLibrary } from '@/api/movies';
+
+// Radarr's raw `minimumAvailability` enum (case varies) mapped onto our
+// `movieDetail.library.availability.*` i18n keys. `predb`/`tba` both map to
+// `preDb` — Radarr's older builds spell the pre-database state `tba`.
+const AVAILABILITY_KEYS: Record<string, string> = {
+  released: 'released',
+  announced: 'announced',
+  incinemas: 'inCinemas',
+  predb: 'preDb',
+  tba: 'preDb',
+  deleted: 'deleted',
+};
+
+function availabilityLabel(t: TFunction, raw: string): string {
+  const key = AVAILABILITY_KEYS[raw.toLowerCase()];
+  return key
+    ? t(`movieDetail.library.availability.${key}`, { defaultValue: raw })
+    : raw;
+}
 
 export interface MovieHeroLibraryStripProps {
   readonly library: readonly MovieDetailLibrary[];
@@ -48,7 +68,7 @@ function MovieLibraryRow({ row }: { row: MovieDetailLibrary }) {
         </span>
       )}
       {row.availability && (
-        <span className="text-[12px] text-white/70">{row.availability}</span>
+        <span className="text-[12px] text-white/70">{availabilityLabel(t, row.availability)}</span>
       )}
       {row.has_file && row.quality && (
         <span data-testid="movie-library-quality" className={cn(chipBase, 'font-mono tabular-nums')}>

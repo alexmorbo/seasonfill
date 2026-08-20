@@ -115,7 +115,10 @@ export interface MediaCast {
   readonly mediaId: number;
   readonly limit?: number | undefined;
   readonly loading?: boolean | undefined;   // degraded skeleton
-  readonly servedLang?: string | undefined; // castServedLang — reserved for a future EN badge; unused in U-4 render
+  // castServedLang — drives `MediaCastStrip`'s "EN fallback" badge (movie
+  // only; series' `toSeriesVM.tsx` never sets this, so it's always
+  // undefined for series, keeping the series cast strip DOM unchanged).
+  readonly servedLang?: string | undefined;
 }
 
 /** Overview block (localized text + language-fallback signal). */

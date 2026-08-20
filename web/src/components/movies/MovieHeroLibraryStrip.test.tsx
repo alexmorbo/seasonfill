@@ -24,7 +24,19 @@ describe('MovieHeroLibraryStrip', () => {
     expect(screen.getByTestId('movie-library-row-radarr')).toBeInTheDocument();
     expect(screen.getByTestId('movie-library-monitored')).toBeInTheDocument();
     expect(screen.getByTestId('movie-library-hasfile')).toBeInTheDocument();
+    expect(screen.getByText('Released')).toBeInTheDocument();
     expect(screen.queryByTestId('movie-detail-library-empty')).toBeNull();
+  });
+
+  it('localizes the availability label case-insensitively and falls back to the raw value when unmapped', () => {
+    const library: MovieDetailLibrary[] = [
+      { instance_name: 'radarr', monitored: true, has_file: true, availability: 'inCinemas' },
+      { instance_name: 'radarr-4k', monitored: false, has_file: false, availability: 'someUnknownState' },
+    ];
+    render(withI18n(<MovieHeroLibraryStrip library={library} />));
+
+    expect(screen.getByText('In cinemas')).toBeInTheDocument();
+    expect(screen.getByText('someUnknownState')).toBeInTheDocument();
   });
 
   it('renders quality/codec chips only when has_file and quality are present', () => {

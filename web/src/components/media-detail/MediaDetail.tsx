@@ -100,6 +100,7 @@ export function MediaDetail({ vm, heroExtras, belowGrid, recommendationsSlot }: 
                   cast={vm.cast.members}
                   {...(vm.cast.limit ? { limit: vm.cast.limit } : {})}
                   {...(vm.cast.loading ? { tmdbPersonDegraded: true } : {})}
+                  {...(vm.cast.servedLang ? { servedLang: vm.cast.servedLang } : {})}
                 />
               )}
               {/* Canonical ratings surface (SWR /ratings) — TMDB ★, IMDb,

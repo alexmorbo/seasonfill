@@ -9,7 +9,7 @@ export type FollowListResponse =
 export type FollowedItem =
   components['schemas']['rest.followedItemResponse'];
 
-const FOLLOW_KEY = ['follow'] as const;
+export const FOLLOW_KEY = ['follow'] as const;
 
 // --- reads ---------------------------------------------------------------
 
@@ -81,16 +81,19 @@ export function useUnfollowSeries() {
 //
 // Same react-query conventions as the series hooks (shared `api()` fetch
 // helper, same query-key-array / invalidate-on-mutate / toast-on-settle
-// shape). Kept as a distinct query key (`['follow', 'movies']`) so the
-// series watchlist query and the movie watchlist query never collide or
-// invalidate each other.
+// shape). Kept as a DISJOINT top-level query key (`['follow-movies']`, not
+// nested under `'follow'`) so the series watchlist query and the movie
+// watchlist query never collide or invalidate each other — TanStack Query's
+// `invalidateQueries` does a prefix match by default, so a nested
+// `['follow', 'movies']` key would have been invalidated by any
+// `invalidateQueries({ queryKey: ['follow'] })` call from the series hooks.
 
 export type FollowedMovieListResponse =
   components['schemas']['rest.followedMovieListResponse'];
 export type FollowedMovieItem =
   components['schemas']['rest.followedMovieItemResponse'];
 
-const FOLLOW_MOVIES_KEY = ['follow', 'movies'] as const;
+export const FOLLOW_MOVIES_KEY = ['follow-movies'] as const;
 
 // --- reads ---------------------------------------------------------------
 

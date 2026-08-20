@@ -7,10 +7,8 @@
 // (EnableNativeMonitor); there is no un-monitor path server-side, so the Switch
 // is disabled once already monitored — it can only be flipped on.
 
-import { useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { toast } from 'sonner';
 import { MediaImage } from '@/components/MediaImage';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,12 +23,8 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { RadarrTargetFields } from './RadarrTargetFields';
-import {
-  useMovieCollection, useAddAllMissing, useSetCollectionMonitor,
-  type MovieCollectionPartDTO,
-} from '@/api/movieCollections';
-import { useInstances } from '@/lib/instances';
-import type { MinimumAvailability } from '@/api/addToRadarr';
+import { type MovieCollectionPartDTO } from '@/api/movieCollections';
+import { useCollectionCardState } from '@/hooks/useCollectionCardState';
 
 function PartCard({ part }: { part: MovieCollectionPartDTO }) {
   const { t } = useTranslation();
@@ -84,38 +78,13 @@ export function MovieCollectionBlock({
   lang,
 }: MovieCollectionBlockProps) {
   const { t } = useTranslation();
-  const query = useMovieCollection(tmdbCollectionId, instance, lang);
-
-  const instancesQ = useInstances();
-  const radarrInstances = useMemo(
-    () => (instancesQ.data?.instances ?? []).filter(
-      (i) => Boolean(i.name) && (i.type ?? 'sonarr') === 'radarr',
-    ),
-    [instancesQ.data],
-  );
-
-  // Monitor target: the movie's library instance, else the first radarr one.
-  const monitorInstance = instance || radarrInstances[0]?.name || '';
-
-  const monitorMut = useSetCollectionMonitor();
-  const addAllMut = useAddAllMissing();
-
-  // Add-all dialog field state.
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [explicitInstance, setExplicitInstance] = useState('');
-  const effectiveInstance = explicitInstance || (radarrInstances[0]?.name ?? '');
-  const [qualityProfileId, setQualityProfileId] = useState('');
-  const [rootFolderPath, setRootFolderPath] = useState('');
-  const [minimumAvailability, setMinimumAvailability] =
-    useState<MinimumAvailability>('released');
-  const [searchOnAdd, setSearchOnAdd] = useState(true);
-
-  function handleInstanceChange(next: string) {
-    if (!next) return;
-    setExplicitInstance(next);
-    setQualityProfileId('');
-    setRootFolderPath('');
-  }
+  const {
+    query, collection, monitored, monitorInstance, monitorMut, handleMonitorToggle,
+    radarrInstances, dialogOpen, setDialogOpen, effectiveInstance,
+    qualityProfileId, setQualityProfileId, rootFolderPath, setRootFolderPath,
+    minimumAvailability, setMinimumAvailability, searchOnAdd, setSearchOnAdd,
+    handleInstanceChange, canSubmitAddAll, handleAddAll, addAllMut,
+  } = useCollectionCardState({ tmdbCollectionId, instance, lang });
 
   if (query.isPending) {
     return (
@@ -126,56 +95,9 @@ export function MovieCollectionBlock({
     );
   }
   // A broken collection panel must not break the page.
-  if (query.isError || !query.data) return null;
+  if (query.isError || !collection) return null;
 
-  const collection = query.data;
   const parts = collection.parts ?? [];
-  const monitored = collection.radarr_monitored === true;
-
-  function handleMonitorToggle(checked: boolean) {
-    // Enable-only endpoint: ignore the off transition (unreachable while the
-    // Switch is disabled-once-on, but guard anyway).
-    if (!checked || monitored || !monitorInstance) return;
-    monitorMut.mutate(
-      { collectionId: tmdbCollectionId, body: { instance_name: monitorInstance } },
-      {
-        onError: () => toast.error(t('movies.add.errors.unknown')),
-      },
-    );
-  }
-
-  const canSubmitAddAll = Boolean(
-    effectiveInstance && qualityProfileId && rootFolderPath && !addAllMut.isPending,
-  );
-
-  function handleAddAll(e: FormEvent) {
-    e.preventDefault();
-    if (!canSubmitAddAll) return;
-    addAllMut.mutate(
-      {
-        collectionId: tmdbCollectionId,
-        body: {
-          instance_name: effectiveInstance,
-          quality_profile_id: Number(qualityProfileId),
-          root_folder_path: rootFolderPath,
-          minimum_availability: minimumAvailability,
-          monitored: true,
-          search_on_add: searchOnAdd,
-        },
-      },
-      {
-        onSuccess: (res) => {
-          toast.success(t('movieCollection.addAllResult', {
-            added: res.added ?? 0,
-            already: res.already_present ?? 0,
-            failed: res.failed ?? 0,
-          }));
-          setDialogOpen(false);
-        },
-        onError: () => toast.error(t('movies.add.errors.unknown')),
-      },
-    );
-  }
 
   return (
     <section data-testid="movie-collection-block" className="flex flex-col gap-3">

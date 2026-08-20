@@ -8,6 +8,8 @@ import {
   followMovie,
   unfollowMovie,
   useFollowedMovieIds,
+  FOLLOW_KEY,
+  FOLLOW_MOVIES_KEY,
   type FollowListResponse,
   type FollowedMovieListResponse,
 } from './follow';
@@ -123,5 +125,35 @@ describe('movie follow api client', () => {
     expect(result.current.size).toBe(0);
     await waitFor(() => expect(mockApi).toHaveBeenCalled());
     expect(result.current.size).toBe(0);
+  });
+
+  it('does not prefix-collide with the series follow query key on invalidation', () => {
+    // Regression for the TanStack Query prefix-match hazard: invalidating
+    // the series FOLLOW_KEY must NOT invalidate the movie
+    // FOLLOW_MOVIES_KEY (and vice versa), because the two key spaces are
+    // no longer nested under a shared 'follow' prefix. This test imports
+    // the actual key constants (rather than hardcoding literals) so that
+    // reverting FOLLOW_MOVIES_KEY back to the old nested ['follow',
+    // 'movies'] shape makes this test fail.
+    const qc = new QueryClient();
+    qc.setQueryData(
+      [...FOLLOW_KEY, 'en-US'],
+      { items: [] } satisfies FollowListResponse,
+    );
+    qc.setQueryData(
+      [...FOLLOW_MOVIES_KEY, 'en-US'],
+      { items: [] } satisfies FollowedMovieListResponse,
+    );
+
+    qc.invalidateQueries({ queryKey: FOLLOW_KEY });
+    expect(qc.getQueryState([...FOLLOW_KEY, 'en-US'])?.isInvalidated).toBe(true);
+    expect(
+      qc.getQueryState([...FOLLOW_MOVIES_KEY, 'en-US'])?.isInvalidated,
+    ).toBe(false);
+
+    qc.invalidateQueries({ queryKey: FOLLOW_MOVIES_KEY });
+    expect(
+      qc.getQueryState([...FOLLOW_MOVIES_KEY, 'en-US'])?.isInvalidated,
+    ).toBe(true);
   });
 });

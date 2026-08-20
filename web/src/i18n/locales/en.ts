@@ -2968,6 +2968,13 @@ export const en = {
       monitored: 'Monitored',
       hasFile: 'Downloaded',
       empty: 'Not in any library.',
+      availability: {
+        released: 'Released',
+        announced: 'Announced',
+        inCinemas: 'In cinemas',
+        preDb: 'Pre-DB',
+        deleted: 'Deleted',
+      },
     },
     recommendations: {
       label: 'You might also like',

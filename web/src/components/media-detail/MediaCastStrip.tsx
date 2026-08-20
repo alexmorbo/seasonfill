@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { mediaUrl, type CastMember } from '@/api/series';
 import { MonogramFallback } from '@/components/MonogramFallback';
 import { Skeleton } from '@/components/ui/skeleton';
+import { LanguageFallbackTag } from '@/components/series-detail/LanguageFallbackTag';
 
 export interface MediaCastStripProps {
   // Story 495 / N-1e §A3: rendered URL is composed by the adapter so the
@@ -21,10 +22,15 @@ export interface MediaCastStripProps {
   // Story 495 / N-1e (B-20): when true AND cast is empty, render a
   // skeleton row + loading label instead of returning null.
   readonly tmdbPersonDegraded?: boolean | undefined;
+  // BCP-47 tag the cast list was actually served in (movie only — series
+  // never sets this, see `toSeriesVM.tsx`). Drives an "EN fallback" badge
+  // next to the heading via `LanguageFallbackTag`, which self-hides when
+  // undefined or already matching the active UI language.
+  readonly servedLang?: string | undefined;
 }
 
 export function MediaCastStrip({
-  castHref, seriesId, cast, limit = 8, className, tmdbPersonDegraded,
+  castHref, seriesId, cast, limit = 8, className, tmdbPersonDegraded, servedLang,
 }: MediaCastStripProps) {
   const { t } = useTranslation();
   // W19-5 (#1075): the preview shows the *main* cast — actors in the most
@@ -97,6 +103,11 @@ export function MediaCastStrip({
         >
           {t('seriesDetail.cast.label')}
         </h2>
+        <LanguageFallbackTag
+          contentLang={servedLang}
+          testid="cast-lang-fallback"
+          className="shrink-0 mr-auto"
+        />
         {castHref && (
           <Link
             to={castHref}

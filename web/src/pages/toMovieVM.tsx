@@ -161,9 +161,7 @@ export function toMovieVM(p: ToMovieVMParams): MediaDetailVM {
       mediaId: movie.tmdb_id ?? tmdbId,
       limit: 8,
       loading: undefined,
-      // TODO wave-3: cast.servedLang is reserved for a future EN badge and
-      // currently unread by MediaCastStrip, so the movie cast strip's old
-      // LanguageFallbackTag ("served in EN") signal is silently dropped.
+      // Drives MediaCastStrip's "EN fallback" badge (see view-model.ts).
       servedLang: p.castServedLang,
     },
 
