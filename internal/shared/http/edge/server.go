@@ -245,8 +245,30 @@ func NewServer(
 	webhookHandler := catalogrest.NewWebhookHandler(webhookInbox, webhookTxr, webhookPoke, instanceReg, logger)
 	// Ф6-R-4b: Radarr Connect webhook handler — enqueues into the SAME durable
 	// inbox as the Sonarr handler; the drainer routes the row to the radarr
-	// map+process by arr_instance.type. Reuses the identical inbox/txr/poke/reg.
-	radarrWebhookHandler := catalogrest.NewRadarrWebhookHandler(webhookInbox, webhookTxr, webhookPoke, instanceReg, logger)
+	// map+process by arr_instance.type. Reuses the identical inbox/txr/poke.
+	//
+	// ADR-0023 A1: reg MUST be radarr-aware. instanceReg is the sonarr-scoped
+	// registry and never holds radarr rows, so every Radarr webhook (including
+	// Radarr's install-time Test POST) 404'd with radarr_webhook_unknown_instance
+	// and the Connect install stuck at installed:false. The guard only tests key
+	// PRESENCE (radarr_webhook.go:50), so projecting the radarr instance names
+	// onto zero-value scan.Instance values is sufficient — no field copy, no new
+	// NewServer parameter, no adapter. Load is called per-request, so the
+	// projection stays reload-aware. radarrConfigLookup nil (minimal/test
+	// wirings) → Load nil → accept-any, matching the pre-A1 behaviour of an
+	// unpopulated registry.
+	radarrWebhookReg := catalogrest.InstanceRegistry{}
+	if radarrConfigLookup != nil {
+		radarrWebhookReg.Load = func() map[string]scan.Instance {
+			radarrInstances := radarrConfigLookup.Load()
+			out := make(map[string]scan.Instance, len(radarrInstances))
+			for name := range radarrInstances {
+				out[name] = scan.Instance{}
+			}
+			return out
+		}
+	}
+	radarrWebhookHandler := catalogrest.NewRadarrWebhookHandler(webhookInbox, webhookTxr, webhookPoke, radarrWebhookReg, logger)
 	grabHandler := grabrest.NewGrabHandler(decisionRepo, grabRepo, cooldownRepo, grabUC, instanceReg, logger)
 
 	r.GET("/healthz", healthHandler.Live)

@@ -30,9 +30,9 @@ type RadarrWebhookHandler struct {
 }
 
 // NewRadarrWebhookHandler wires the durable-inbox enqueue path for Radarr. reg
-// mirrors the sonarr handler: reg.Load nil = "accept any" (R-4b — no radarr
-// instance is registered in the sonarr snapshot yet; R-6 wires a radarr-aware
-// registry). poke may be nil (guarded).
+// mirrors the sonarr handler but MUST be the radarr-aware registry (edge.NewServer
+// projects radarrConfigLookup's instance names into it — ADR-0023 A1); reg.Load
+// nil = "accept any" for minimal/test wirings. poke may be nil (guarded).
 func NewRadarrWebhookHandler(inbox ports.WebhookInboxRepository, txr ports.Transactor, poke func(), reg InstanceRegistry, logger *slog.Logger) *RadarrWebhookHandler {
 	if logger == nil {
 		logger = slog.Default()
