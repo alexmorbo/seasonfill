@@ -475,6 +475,9 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance, radarr
 	// straight through; nil stays nil when the instance isn't in the registry.
 	var defaultQualityProfileID *int
 	var defaultRootFolderPath *string
+	// ADR-0023 A3b — radarr-only add-movie default, carried so the
+	// Add-to-Radarr modal seeds without a second GET.
+	var defaultMinimumAvailability *string
 	if inst, ok := instMap[s.Name]; ok {
 		if m := inst.Config.Mode; m != "" {
 			mode = m
@@ -485,6 +488,7 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance, radarr
 		}
 		defaultQualityProfileID = inst.Config.DefaultQualityProfileID
 		defaultRootFolderPath = inst.Config.DefaultRootFolderPath
+		defaultMinimumAvailability = inst.Config.DefaultMinimumAvailability
 	} else if inst, ok := radarrMap[s.Name]; ok {
 		// Ф6-R-6b Gap 2a: radarr instances live in a separate holder (the
 		// sonarr registry excludes them). Resolve their config the same way.
@@ -498,14 +502,16 @@ func snapshotToDTO(s instance.Snapshot, instMap map[string]scan.Instance, radarr
 		}
 		defaultQualityProfileID = inst.Config.DefaultQualityProfileID
 		defaultRootFolderPath = inst.Config.DefaultRootFolderPath
+		defaultMinimumAvailability = inst.Config.DefaultMinimumAvailability
 	}
 	return dto.Instance{
 		Name: s.Name, Type: instType, URL: url, PublicURL: publicURL,
 		Mode: mode, Health: string(s.Health),
 		LastCheckAt: lastCheckAt, LastError: s.LastError,
-		TransitionsCount:        s.TransitionsCount,
-		DefaultQualityProfileID: defaultQualityProfileID,
-		DefaultRootFolderPath:   defaultRootFolderPath,
+		TransitionsCount:           s.TransitionsCount,
+		DefaultQualityProfileID:    defaultQualityProfileID,
+		DefaultRootFolderPath:      defaultRootFolderPath,
+		DefaultMinimumAvailability: defaultMinimumAvailability,
 	}
 }
 

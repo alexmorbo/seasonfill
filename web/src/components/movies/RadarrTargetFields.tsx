@@ -68,10 +68,22 @@ export function RadarrTargetFields({
   // switch re-seeds cleanly.
   const seededQpForRef = useRef<string | null>(null);
   const seededRfForRef = useRef<string | null>(null);
+  // ADR-0023 A3b — the instance's stored minimumAvailability default. Seeded
+  // per-instance like QP/RF, but with no metadata dependency (fixed enum), so
+  // it fires as soon as the instance is known.
+  const seededMinAvailForRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!effectiveInstance) return;
     const inst = radarrInstances.find((i) => i.name === effectiveInstance);
+
+    if (seededMinAvailForRef.current !== effectiveInstance) {
+      seededMinAvailForRef.current = effectiveInstance;
+      const defMa = inst?.default_minimum_availability;
+      if (defMa === 'announced' || defMa === 'inCinemas' || defMa === 'released') {
+        onMinimumAvailabilityChange(defMa);
+      }
+    }
 
     if (seededQpForRef.current !== effectiveInstance && qpQ.data) {
       seededQpForRef.current = effectiveInstance;
@@ -96,7 +108,7 @@ export function RadarrTargetFields({
     }
   }, [
     effectiveInstance, radarrInstances, qpQ.data, rfQ.data,
-    onQualityProfileChange, onRootFolderChange,
+    onQualityProfileChange, onRootFolderChange, onMinimumAvailabilityChange,
   ]);
 
   return (

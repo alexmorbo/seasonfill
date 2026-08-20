@@ -357,6 +357,14 @@ func (u *UseCase) publish(ctx context.Context) error {
 // the ability to see THEIR value round-trip. The HTTP layer treats
 // zero as "use default" by omitting the field at DTO serialization,
 // not by writing 0.
+// radarrMinimumAvailabilityValues is Radarr's v3 minimumAvailability enum, in
+// Radarr's own (case-sensitive) wire spelling. ADR-0023 A3b.
+var radarrMinimumAvailabilityValues = map[string]struct{}{
+	"announced": {},
+	"inCinemas": {},
+	"released":  {},
+}
+
 func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 	if !nameRE.MatchString(s.Name) {
 		return newValidationErr("name", "INVALID_INSTANCE_NAME",
@@ -474,6 +482,18 @@ func validate(s runtime.InstanceSnapshot, requireAPIKey bool) error {
 		return newValidationErr("default_quality_profile_id",
 			"INVALID_INSTANCE_DEFAULT_QUALITY_PROFILE_ID",
 			"default_quality_profile_id must be >= 0")
+	}
+	// ADR-0023 A3b — radarr-only default minimumAvailability. nil = unset (the
+	// add-movie path then falls through to Radarr's own default, "released").
+	// A non-nil value must be one of Radarr's three v3 enum spellings; unlike
+	// the two ADR-0009 S6 soft hints above this is a closed set, so a typo is
+	// rejected at save time rather than silently rejected by Radarr on add.
+	if s.DefaultMinimumAvailability != nil {
+		if _, ok := radarrMinimumAvailabilityValues[*s.DefaultMinimumAvailability]; !ok {
+			return newValidationErr("default_minimum_availability",
+				"INVALID_INSTANCE_DEFAULT_MINIMUM_AVAILABILITY",
+				"default_minimum_availability must be one of: announced, inCinemas, released")
+		}
 	}
 	return nil
 }

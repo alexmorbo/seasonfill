@@ -43,7 +43,8 @@ func (b movieAdderBridge) Add(ctx context.Context, req moviecollection.AddMovieR
 func BuildMovieCollections(db *gorm.DB, radarr *RadarrSyncBundle, resolver *media.Resolver, log *slog.Logger) *catalogrest.MovieCollectionsHandler {
 	domainLog := sharedports.DomainLogger(log, "http")
 	repo := enrichpersistence.NewMovieCollectionsRepository(db)
-	addUC := discoapp.NewAddToRadarrUseCase(radarrAddLookup{holder: radarr.RadarrHolder}, domainLog)
+	addUC := discoapp.NewAddToRadarrUseCase(radarrAddLookup{holder: radarr.RadarrHolder}, domainLog).
+		WithInstanceDefaults(radarrDefaultsLookup{holder: radarr.RadarrHolder})
 	addAll := moviecollection.NewAddMissingUseCase(repo, movieAdderBridge{uc: addUC}, domainLog)
 	monitor := moviecollection.NewRadarrMonitorUseCase(radarrCollectionLookup{holder: radarr.RadarrHolder}, repo, domainLog)
 	defaultInstance := func() string {

@@ -466,6 +466,7 @@ func snapshotToSettingsModel(s runtime.InstanceSnapshot) database.SonarrInstance
 		ScanSkipHandledSeasons:        s.ScanSkipHandledSeasons,
 		DefaultQualityProfileID:       s.DefaultQualityProfileID,
 		DefaultRootFolderPath:         s.DefaultRootFolderPath,
+		DefaultMinimumAvailability:    s.DefaultMinimumAvailability,
 	}
 }
 
@@ -552,6 +553,7 @@ func modelToSnapshot(
 	snap.ScanSkipHandledSeasons = settings.ScanSkipHandledSeasons
 	snap.DefaultQualityProfileID = settings.DefaultQualityProfileID
 	snap.DefaultRootFolderPath = settings.DefaultRootFolderPath
+	snap.DefaultMinimumAvailability = settings.DefaultMinimumAvailability
 	return snap, nil
 }
 

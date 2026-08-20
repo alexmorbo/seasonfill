@@ -824,6 +824,77 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
     });
   });
 
+  describe('ADR-0023 A3b — Radarr default minimumAvailability', () => {
+    it('renders only for radarr instances', async () => {
+      const user = userEvent.setup();
+      render(wrap(<InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />));
+      await screen.findByTestId('connection-section');
+      await user.click(screen.getByRole('radio', { name: /radarr/i }));
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      expect(await screen.findByTestId('tuning-default-minavail')).toBeInTheDocument();
+      await user.click(screen.getByRole('radio', { name: /sonarr/i }));
+      expect(screen.queryByTestId('tuning-default-minavail')).not.toBeInTheDocument();
+    });
+
+    it('sends the picked value in the create POST', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({ capture });
+      const user = userEvent.setup();
+      render(wrap(<InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />));
+      await screen.findByTestId('connection-section');
+      await user.type(screen.getByLabelText(/^name$/i), 'newradarr');
+      await user.click(screen.getByRole('radio', { name: /radarr/i }));
+      const url = screen.getByLabelText(/^url$/i) as HTMLInputElement;
+      await user.clear(url);
+      await user.type(url, 'http://radarr:80');
+      await user.type(screen.getByLabelText(/api key/i), 'KEY');
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      const picker = await screen.findByTestId('tuning-default-minavail');
+      await user.click(within(picker).getByRole('radio', { name: /in cinemas|в кинотеатрах/i }));
+      await user.click(screen.getByTestId('dirty-footer-save'));
+      await waitFor(() => {
+        const post = capture.calls.find(
+          (c) => c.method === 'POST' && c.url.endsWith('/instances'),
+        );
+        expect(post).toBeTruthy();
+        const body = post!.body as Record<string, unknown>;
+        expect(body.default_minimum_availability).toBe('inCinemas');
+      });
+    });
+
+    // wipe-guard: no BE COALESCE on this column (see plan deviation #1) —
+    // an untouched edit must still re-send the seeded stored value, or a
+    // save that only touches an unrelated field would silently clear it.
+    it('re-sends the stored default on an untouched edit (wipe guard)', async () => {
+      const capture = { calls: [] as FetchCall[] };
+      setupFetch({
+        capture,
+        homelabBody: { type: 'radarr', default_minimum_availability: 'announced' },
+      });
+      const user = userEvent.setup();
+      render(wrap(
+        <InstanceFormDialog open onOpenChange={vi.fn()} mode="edit" initial={{ name: 'homelab' }} />,
+      ));
+      await screen.findByTestId('connection-section');
+      await user.click(await screen.findByText(/tuning|тюнинг|поведение/i));
+      await screen.findByTestId('tuning-default-minavail');
+      // Touch an unrelated field only — never the minAvailability picker.
+      const timeoutInput = document.getElementById('inst-timeout') as HTMLInputElement;
+      await user.clear(timeoutInput);
+      await user.type(timeoutInput, '42');
+      await user.tab();
+      await user.click(screen.getByTestId('dirty-footer-save'));
+      await waitFor(() => {
+        const put = capture.calls.find(
+          (c) => c.method === 'PUT' && c.url.endsWith('/instances/homelab'),
+        );
+        expect(put).toBeTruthy();
+        const body = put!.body as Record<string, unknown>;
+        expect(body.default_minimum_availability).toBe('announced');
+      });
+    });
+  });
+
   describe('ADR-0010 S2 — edit-mode auto-metadata-probe', () => {
     const metadataPosts = (calls: FetchCall[]) =>
       calls.filter(

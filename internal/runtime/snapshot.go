@@ -194,6 +194,13 @@ type InstanceSnapshot struct {
 	// Soft hint; re-validated (incl. Accessible) against the live Sonarr
 	// root-folder list at read time.
 	DefaultRootFolderPath *string
+	// DefaultMinimumAvailability is the per-instance Radarr default
+	// `minimumAvailability` applied when seasonfill adds a movie (ADR-0023 A3b).
+	// nil = unset → the Radarr client's own default ("released") wins. Values are
+	// Radarr's v3 enum spellings: "announced" | "inCinemas" | "released".
+	// Radarr-only: sonarr instances leave it nil (the form does not render the
+	// control for type='sonarr').
+	DefaultMinimumAvailability *string
 }
 
 // UIURL returns the URL the browser should link to (D64). If PublicURL

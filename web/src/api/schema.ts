@@ -7933,6 +7933,13 @@ export type components = {
         };
         readonly "dto.Instance": {
             /**
+             * @description DefaultMinimumAvailability — ADR-0023 A3b. Radarr-only add-movie default
+             *     ("announced" | "inCinemas" | "released"); carried here so the Add-to-Radarr
+             *     modal seeds it without a second GET. omitempty: nil = no default set.
+             * @example released
+             */
+            readonly default_minimum_availability?: string;
+            /**
              * @description DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6. Carried on
              *     the list DTO so the Add-to-Sonarr modal can pre-fill defaults for the chosen
              *     instance without a second GET. omitempty: nil pointer = no default set.
@@ -7994,6 +8001,14 @@ export type components = {
             /** @example abcd... */
             readonly api_key?: string;
             readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            /**
+             * @description DefaultMinimumAvailability — ADR-0023 A3b radarr-only add-movie default.
+             *     Optional pointer: omitted/null = clear/leave-unset. Unlike the two hints
+             *     above this IS strictly validated (closed Radarr enum) —
+             *     INVALID_INSTANCE_DEFAULT_MINIMUM_AVAILABILITY on anything else.
+             * @example released
+             */
+            readonly default_minimum_availability?: string;
             /**
              * @description DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
              *     defaults. Optional pointers: omitted/null = clear/leave-unset. Soft hints —
@@ -8074,6 +8089,14 @@ export type components = {
             /** @example *** */
             readonly api_key?: string;
             readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            /**
+             * @description DefaultMinimumAvailability — ADR-0023 A3b. Radarr-only add-movie default
+             *     ("announced" | "inCinemas" | "released"). Always emitted; `null` when
+             *     unset, so the form can seed-and-round-trip it (the PUT path has no
+             *     COALESCE guard — see the FE valuesToPayload contract).
+             * @example released
+             */
+            readonly default_minimum_availability?: string;
             /**
              * @description DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
              *     defaults. Always emitted; JSON `null` when no default is stored. Mirror
@@ -8228,6 +8251,14 @@ export type components = {
             /** @example abcd... */
             readonly api_key?: string;
             readonly cooldown?: components["schemas"]["dto.InstanceCooldown"];
+            /**
+             * @description DefaultMinimumAvailability — ADR-0023 A3b radarr-only add-movie default.
+             *     Optional pointer: omitted/null = clear/leave-unset. Unlike the two hints
+             *     above this IS strictly validated (closed Radarr enum) —
+             *     INVALID_INSTANCE_DEFAULT_MINIMUM_AVAILABILITY on anything else.
+             * @example released
+             */
+            readonly default_minimum_availability?: string;
             /**
              * @description DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
              *     defaults. Optional pointers: omitted/null = clear/leave-unset. Soft hints —

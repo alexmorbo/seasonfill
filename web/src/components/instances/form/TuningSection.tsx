@@ -60,7 +60,9 @@ export function TuningSection({
           round-trips the original id (no COALESCE guard on the BE PUT). */}
       <div className="flex flex-col gap-3.5" data-testid="tuning-defaults">
         <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-tx-faint">
-          {t('settings.instances.form.tuning.defaultsHeading')}
+          {t('settings.instances.form.tuning.defaultsHeading', {
+            arr: t(`instances.type.${arrType === 'radarr' ? 'radarr' : 'sonarr'}`),
+          })}
         </span>
         {!metadataReady && (
           <p className="text-[11.5px] text-tx-muted" data-testid="tuning-defaults-hint">
@@ -151,6 +153,40 @@ export function TuningSection({
             />
           </div>
         </div>
+
+        {/* ADR-0023 A3b — radarr-only default minimumAvailability. NOT gated on
+            metadataReady: unlike the QP/RF pickers this is a fixed Radarr enum,
+            not a per-instance list, so no Test round-trip is required. Gated by
+            render (not `disabled`) — correct-by-construction, same rule as the
+            skip-anime row below. */}
+        {arrType === 'radarr' && (
+          <div className="flex flex-col gap-1.5" data-testid="tuning-default-minavail">
+            <Label htmlFor="inst-default-minavail">
+              {t('settings.instances.form.tuning.defaultMinAvailabilityLabel')}
+            </Label>
+            <Controller
+              control={control}
+              name="default_minimum_availability"
+              render={({ field }) => (
+                <SegmentedField
+                  id="inst-default-minavail"
+                  value={(field.value as string | null) ?? ''}
+                  onChange={(v) => field.onChange(v)}
+                  ariaLabel={t('settings.instances.form.tuning.defaultMinAvailabilityLabel')}
+                  maxWidth={360}
+                  options={[
+                    { value: 'announced', label: t('movies.add.minAvail.announced') },
+                    { value: 'inCinemas', label: t('movies.add.minAvail.inCinemas') },
+                    { value: 'released',  label: t('movies.add.minAvail.released') },
+                  ]}
+                />
+              )}
+            />
+            <p className="text-[11.5px] text-tx-muted">
+              {t('settings.instances.form.tuning.defaultMinAvailabilityHint')}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Cooldown segmented */}

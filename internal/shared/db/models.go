@@ -414,9 +414,15 @@ type SonarrInstanceSettingsModel struct {
 	ScanSkipHandledSeasons        bool    `gorm:"column:scan_skip_handled_seasons;not null"`
 	// DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
 	// defaults. Nullable; NULL = no default set. Mirror PublicURL pointer style.
-	DefaultQualityProfileID *int      `gorm:"column:default_quality_profile_id"`
-	DefaultRootFolderPath   *string   `gorm:"column:default_root_folder_path;type:text"`
-	UpdatedAt               time.Time `gorm:"column:updated_at;not null"`
+	DefaultQualityProfileID *int    `gorm:"column:default_quality_profile_id"`
+	DefaultRootFolderPath   *string `gorm:"column:default_root_folder_path;type:text"`
+	// DefaultMinimumAvailability — ADR-0023 A3b radarr-only add-movie default
+	// ('announced' | 'inCinemas' | 'released'). NULL = unset → Radarr's own
+	// default ("released") applies at add time. This table backs BOTH arr kinds
+	// (the radarr_instance_settings twin is currently read-only/unused), so the
+	// column lives here even though only radarr instances populate it.
+	DefaultMinimumAvailability *string   `gorm:"column:default_minimum_availability;type:text"`
+	UpdatedAt                  time.Time `gorm:"column:updated_at;not null"`
 }
 
 func (SonarrInstanceSettingsModel) TableName() string { return "sonarr_instance_settings" }
@@ -462,6 +468,7 @@ type RadarrInstanceSettingsModel struct {
 	ScanSkipHandledSeasons        bool      `gorm:"column:scan_skip_handled_seasons;not null"`
 	DefaultQualityProfileID       *int      `gorm:"column:default_quality_profile_id"`
 	DefaultRootFolderPath         *string   `gorm:"column:default_root_folder_path;type:text"`
+	DefaultMinimumAvailability    *string   `gorm:"column:default_minimum_availability;type:text"`
 	UpdatedAt                     time.Time `gorm:"column:updated_at;not null"`
 }
 

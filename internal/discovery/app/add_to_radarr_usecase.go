@@ -19,6 +19,17 @@ type AddRadarrInstanceLookup interface {
 	Lookup(name string) (client ports.RadarrClient, ok bool)
 }
 
+// AddRadarrInstanceDefaults resolves an instance's stored per-instance Radarr
+// defaults (ADR-0023 A3b). Optional seam — a nil resolver disables default
+// resolution and every add falls through to the client default ("released").
+// Kept separate from AddRadarrInstanceLookup so existing test fakes of that
+// interface stay valid.
+type AddRadarrInstanceDefaults interface {
+	// MinimumAvailability returns the instance's stored default and true when
+	// one is set; ("", false) when the instance is unknown or has no default.
+	MinimumAvailability(instance string) (string, bool)
+}
+
 // AddMovieRequest is the add-to-Radarr use-case input. MinimumAvailability is
 // a per-add override — "" defers to the client default ("released", ADR-0018
 // Q3). R-3 keeps the movie add-flow tag-less; user-tag parity is deferred to
@@ -53,8 +64,9 @@ type AddMovieResult struct {
 // case is exercised via unit tests only.
 type AddToRadarrUseCase struct {
 	lookup   AddRadarrInstanceLookup
-	users    CurrentUserResolver // nil-OK — set via WithCurrentUserResolver
-	requests RequestQueue        // nil-OK — set via WithRequestQueue
+	users    CurrentUserResolver       // nil-OK — set via WithCurrentUserResolver
+	requests RequestQueue              // nil-OK — set via WithRequestQueue
+	defaults AddRadarrInstanceDefaults // nil-OK — set via WithInstanceDefaults
 	log      *slog.Logger
 }
 
@@ -83,14 +95,27 @@ func (uc *AddToRadarrUseCase) WithRequestQueue(q RequestQueue) *AddToRadarrUseCa
 	return uc
 }
 
+// WithInstanceDefaults wires the ADR-0023 A3b per-instance default resolver.
+// nil-OK: absent resolver means an add with an empty per-add value falls
+// through to the Radarr client default ("released").
+func (uc *AddToRadarrUseCase) WithInstanceDefaults(d AddRadarrInstanceDefaults) *AddToRadarrUseCase {
+	uc.defaults = d
+	return uc
+}
+
 // Add executes the add-to-Radarr flow:
 //
 //  1. Lookup the per-instance Radarr client; 404 instance_not_found on miss.
+//
 //  2. GET /api/v3/movie/lookup?term=tmdb:{id} to resolve title/slug/year/images
 //     (Radarr rejects POST /api/v3/movie without them). Empty result → 404.
+//
 //  3. POST /api/v3/movie. A duplicate tmdbId (Radarr 400 MovieExistsValidator)
 //     is treated as an idempotent success (AlreadyAdded=true), not an error.
 //     Network/other failures → 502 radarr_unreachable.
+//
+//     minimumAvailability resolution: per-add value → instance default
+//     (ADR-0023 A3b) → Radarr client default "released".
 func (uc *AddToRadarrUseCase) Add(ctx context.Context, req AddMovieRequest) (AddMovieResult, error) {
 	client, ok := uc.lookup.Lookup(string(req.InstanceName))
 	if !ok {
@@ -116,12 +141,26 @@ func (uc *AddToRadarrUseCase) Add(ctx context.Context, req AddMovieRequest) (Add
 		}
 	}
 
+	// ADR-0023 A3b — three-tier minimumAvailability resolution:
+	//   1. the per-add value from the request (explicit operator choice), else
+	//   2. the instance's stored default_minimum_availability, else
+	//   3. "" → the Radarr client substitutes its own default ("released").
+	// Resolved AFTER the request gate on purpose: a queued request snapshots the
+	// raw req, so an approval replayed days later picks up the default in force
+	// at approval time rather than a frozen copy.
+	minAvail := strings.TrimSpace(req.MinimumAvailability)
+	if minAvail == "" && uc.defaults != nil {
+		if v, ok := uc.defaults.MinimumAvailability(string(req.InstanceName)); ok {
+			minAvail = strings.TrimSpace(v)
+		}
+	}
+
 	payload := ports.AddMoviePayload{
 		TMDBID:              req.TMDBID,
 		QualityProfileID:    req.QualityProfileID,
 		RootFolderPath:      req.RootFolderPath,
 		Monitored:           req.Monitored,
-		MinimumAvailability: req.MinimumAvailability, // client defaults "" → "released"
+		MinimumAvailability: minAvail, // client defaults "" → "released"
 		SearchOnAdd:         req.SearchOnAdd,
 	}
 

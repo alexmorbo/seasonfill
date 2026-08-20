@@ -1,5 +1,19 @@
 export type DryRunChoice = 'auto' | 'on' | 'off';
 
+// ADR-0023 A3b — Radarr's v3 minimumAvailability enum, in Radarr's own
+// case-sensitive wire spelling. Shared by the instance form's zod schema and
+// the detail→form seeding coercion.
+export const MIN_AVAILABILITY_VALUES = ['announced', 'inCinemas', 'released'] as const;
+export type MinAvailabilityValue = (typeof MIN_AVAILABILITY_VALUES)[number];
+
+export function coerceMinAvailability(
+  v: string | null | undefined,
+): MinAvailabilityValue | null {
+  return (MIN_AVAILABILITY_VALUES as readonly string[]).includes(v ?? '')
+    ? (v as MinAvailabilityValue)
+    : null;
+}
+
 export function dryRunFromWire(v: boolean | undefined | null): DryRunChoice {
   if (v === true) return 'on';
   if (v === false) return 'off';
@@ -60,6 +74,10 @@ export const FORM_DEFAULTS = {
   // dropdowns only become editable after a successful in-dialog Test.
   default_quality_profile_id: null as number | null,
   default_root_folder_path: null as string | null,
+  // ADR-0023 A3b: radarr-only add-movie default. null = not set → omitted on
+  // the wire → Radarr's own default ("released") applies at add time. The
+  // control is only rendered for type='radarr'.
+  default_minimum_availability: null as MinAvailabilityValue | null,
 };
 
 // 057b1: qBittorrent / Watchdog defaults lifted from the old

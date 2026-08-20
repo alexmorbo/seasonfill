@@ -16,7 +16,8 @@ import (
 // handler so bootstrap can attach the request queue to the same pointer.
 func BuildDiscoveryAddToRadarr(radarr *RadarrSyncBundle, users discoapp.CurrentUserResolver, log *slog.Logger) (*discoveryrest.AddToRadarrHandler, *discoapp.AddToRadarrUseCase) {
 	domainLog := sharedports.DomainLogger(log, "discovery")
-	uc := discoapp.NewAddToRadarrUseCase(radarrAddLookup{holder: radarr.RadarrHolder}, domainLog)
+	uc := discoapp.NewAddToRadarrUseCase(radarrAddLookup{holder: radarr.RadarrHolder}, domainLog).
+		WithInstanceDefaults(radarrDefaultsLookup{holder: radarr.RadarrHolder})
 	if users != nil {
 		uc = uc.WithCurrentUserResolver(users)
 	}

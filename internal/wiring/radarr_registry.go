@@ -24,6 +24,25 @@ func (l radarrAddLookup) Lookup(name string) (ports.RadarrClient, bool) {
 
 var _ discoapp.AddRadarrInstanceLookup = radarrAddLookup{}
 
+// radarrDefaultsLookup adapts the radarr holder into
+// discoapp.AddRadarrInstanceDefaults (ADR-0023 A3b). The stored per-instance
+// default lives on the runtime snapshot the holder already carries, so the add
+// path needs no DB round-trip; a config PUT republishes the holder, so the
+// value is never stale.
+type radarrDefaultsLookup struct {
+	holder *adapters.RadarrInstanceMapHolder
+}
+
+func (l radarrDefaultsLookup) MinimumAvailability(name string) (string, bool) {
+	inst, ok := l.holder.Load()[name]
+	if !ok || inst.Config.DefaultMinimumAvailability == nil {
+		return "", false
+	}
+	return *inst.Config.DefaultMinimumAvailability, true
+}
+
+var _ discoapp.AddRadarrInstanceDefaults = radarrDefaultsLookup{}
+
 // radarrCollectionLookup adapts the radarr holder into
 // moviecollection.RadarrCollectionInstanceLookup. The collection methods
 // (GetCollections/PutCollection) live on the concrete *radarr.Client, so this

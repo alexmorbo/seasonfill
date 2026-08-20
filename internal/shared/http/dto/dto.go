@@ -108,6 +108,10 @@ type Instance struct {
 	// instance without a second GET. omitempty: nil pointer = no default set.
 	DefaultQualityProfileID *int    `json:"default_quality_profile_id,omitempty" example:"1"`
 	DefaultRootFolderPath   *string `json:"default_root_folder_path,omitempty" example:"/tv"`
+	// DefaultMinimumAvailability — ADR-0023 A3b. Radarr-only add-movie default
+	// ("announced" | "inCinemas" | "released"); carried here so the Add-to-Radarr
+	// modal seeds it without a second GET. omitempty: nil = no default set.
+	DefaultMinimumAvailability *string `json:"default_minimum_availability,omitempty" example:"released"`
 }
 
 // InstanceList — body of GET /instances.
@@ -428,9 +432,14 @@ type InstanceDetail struct {
 	// DefaultQualityProfileID / DefaultRootFolderPath — ADR-0009 S6 Add-to-Sonarr
 	// defaults. Always emitted; JSON `null` when no default is stored. Mirror
 	// PublicURL (no omitempty — a stable key so the SPA can branch on null).
-	DefaultQualityProfileID *int      `json:"default_quality_profile_id" example:"1"`
-	DefaultRootFolderPath   *string   `json:"default_root_folder_path" example:"/tv"`
-	UpdatedAt               time.Time `json:"updated_at"`
+	DefaultQualityProfileID *int    `json:"default_quality_profile_id" example:"1"`
+	DefaultRootFolderPath   *string `json:"default_root_folder_path" example:"/tv"`
+	// DefaultMinimumAvailability — ADR-0023 A3b. Radarr-only add-movie default
+	// ("announced" | "inCinemas" | "released"). Always emitted; `null` when
+	// unset, so the form can seed-and-round-trip it (the PUT path has no
+	// COALESCE guard — see the FE valuesToPayload contract).
+	DefaultMinimumAvailability *string   `json:"default_minimum_availability" example:"released"`
+	UpdatedAt                  time.Time `json:"updated_at"`
 }
 
 type InstanceTags struct {
@@ -533,6 +542,11 @@ type InstanceCreateRequest struct {
 	// or a stale root-folder path (re-validated in the UI against live Sonarr).
 	DefaultQualityProfileID *int    `json:"default_quality_profile_id,omitempty" example:"1"`
 	DefaultRootFolderPath   *string `json:"default_root_folder_path,omitempty" example:"/tv"`
+	// DefaultMinimumAvailability — ADR-0023 A3b radarr-only add-movie default.
+	// Optional pointer: omitted/null = clear/leave-unset. Unlike the two hints
+	// above this IS strictly validated (closed Radarr enum) —
+	// INVALID_INSTANCE_DEFAULT_MINIMUM_AVAILABILITY on anything else.
+	DefaultMinimumAvailability *string `json:"default_minimum_availability,omitempty" example:"released"`
 }
 
 // InstanceUpdateRequest — body of PUT /api/v1/instances/:name.

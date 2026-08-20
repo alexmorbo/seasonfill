@@ -1,4 +1,4 @@
-h1:F1A2sdThCRdNmifbP0VD3biqwF2Q7OwfsVa/Vtr5ACA=
+h1:vSWId9jnwNV36OFvfaWCMwp8Ij3+EpZ0Iv/s7tlZTC4=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -125,3 +125,5 @@ h1:F1A2sdThCRdNmifbP0VD3biqwF2Q7OwfsVa/Vtr5ACA=
 000062_movie_states_quality_codec.up.sql h1:0/LosXYrdlTG3X2dVNItlwADxMyTgWrQ0zaCddcwjCc=
 000063_followed_movies.down.sql h1:N1ab0i4zfZF0/PBGdmvtcZjaj4NoC2MvOwPx23u8ubo=
 000063_followed_movies.up.sql h1:QUgmmxsfoxRwghOGwY1ytVmAcXe/Dk8Z6gk7PW/L6FU=
+000064_instance_default_minimum_availability.down.sql h1:yAN+okMiiZS9HK3ZnrhyhkHkyNvUPB+MQ6c0sUfF+ug=
+000064_instance_default_minimum_availability.up.sql h1:gkNo8BLW4UaVOrAaXAovc9l/Rl3ja3LlGt82gbbZsJA=

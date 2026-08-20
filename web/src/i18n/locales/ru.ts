@@ -1863,8 +1863,8 @@ export const ru: Translations = {
         // === 057a2 added ===
         connection: {
           namePlaceholder: 'напр. homelab-4k',
-          urlPlaceholder: 'http://sonarr-4k:80',
-          apiKeyPlaceholder: 'вставьте API-ключ Sonarr',
+          urlPlaceholder: 'http://{{arrSlug}}-4k:80',
+          apiKeyPlaceholder: 'вставьте API-ключ {{arr}}',
           webhookTitle: 'Webhook → {{arr}}',
           webhookCreatePill: 'установится автоматически',
           webhookAutoInstallTitle: 'Авто-установка в {{arr}} Connect',
@@ -1880,13 +1880,15 @@ export const ru: Translations = {
           tagsExcludeLabel: 'Tags exclude',
           tagsExcludePlaceholder: '—',
           advancedHeading: 'Advanced',
-          defaultsHeading: 'Дефолты Add-to-Sonarr',
+          defaultsHeading: 'Дефолты Add-to-{{arr}}',
           defaultsNeedTestHint: 'Проверьте соединение, чтобы подгрузить профили качества и корневые папки.',
           defaultsLoading: 'Загрузка…',
           defaultQualityProfileLabel: 'Дефолтный профиль качества',
           defaultQualityProfilePlaceholder: 'Без дефолта',
           defaultRootFolderLabel: 'Дефолтная корневая папка',
           defaultRootFolderPlaceholder: 'Без дефолта',
+          defaultMinAvailabilityLabel: 'Минимальная доступность по умолчанию',
+          defaultMinAvailabilityHint: 'Применяется при добавлении фильма в Radarr. Без выбора — Radarr использует «Вышел» (released).',
         },
         // === 057a4 added ===
         sections: {

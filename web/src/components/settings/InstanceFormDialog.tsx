@@ -33,7 +33,8 @@ import {
   type QbitSettingsUpsertRequest,
 } from '@/api/qbit';
 import {
-  FORM_DEFAULTS, WATCHDOG_DEFAULTS,
+  FORM_DEFAULTS, WATCHDOG_DEFAULTS, MIN_AVAILABILITY_VALUES,
+  coerceMinAvailability,
   dryRunFromWire, dryRunToWire, type DryRunChoice,
 } from './instance-form-helpers';
 import { WatchdogSection } from '@/components/instances/form/WatchdogSection';
@@ -155,6 +156,8 @@ const baseShape = {
   health_recheck_network_sec: int(10, 86400, 'health_recheck_network'),
   default_quality_profile_id: z.number().int().nullable(),
   default_root_folder_path: z.string().nullable(),
+  // ADR-0023 A3b — radarr-only; null = unset (BE falls back to "released").
+  default_minimum_availability: z.enum(MIN_AVAILABILITY_VALUES).nullable(),
 };
 
 const qbitShape = {
@@ -254,6 +257,7 @@ function formFromDetail(d: InstanceDetail): Omit<FormValues, keyof typeof WATCHD
     health_recheck_network_sec: d.health_check?.recheck_network_sec ?? FORM_DEFAULTS.health_recheck_network_sec,
     default_quality_profile_id: d.default_quality_profile_id ?? null,
     default_root_folder_path: d.default_root_folder_path ?? null,
+    default_minimum_availability: coerceMinAvailability(d.default_minimum_availability),
   };
 }
 
@@ -319,6 +323,13 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
   const rf = (v.default_root_folder_path ?? '').trim();
   if (rf !== '') {
     out = { ...out, default_root_folder_path: rf };
+  }
+  // ADR-0023 A3b: radarr-only default. Same omit-when-null contract as the two
+  // fields above — the seeded value is re-emitted on an untouched edit, which
+  // is what protects a stored default from being wiped (the BE PUT writes the
+  // full settings row and has no COALESCE guard).
+  if (v.default_minimum_availability != null) {
+    out = { ...out, default_minimum_availability: v.default_minimum_availability };
   }
   return out;
 }
@@ -659,6 +670,7 @@ export function InstanceFormDialog({
                 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
                 errors={errors as unknown as any}
                 mode={mode}
+                arrType={arrType}
                 instanceName={initial?.name ?? undefined}
                 installEnabled={Boolean(webhookInstallEnabled)}
                 uiUrlHint={uiUrlHint}

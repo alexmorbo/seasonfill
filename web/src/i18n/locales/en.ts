@@ -1855,8 +1855,8 @@ export const en = {
         // === 057a2 added ===
         connection: {
           namePlaceholder: 'e.g. homelab-4k',
-          urlPlaceholder: 'http://sonarr-4k:80',
-          apiKeyPlaceholder: 'paste Sonarr API key',
+          urlPlaceholder: 'http://{{arrSlug}}-4k:80',
+          apiKeyPlaceholder: 'paste {{arr}} API key',
           webhookTitle: 'Webhook → {{arr}}',
           webhookCreatePill: 'will be installed automatically',
           webhookAutoInstallTitle: 'Auto-install in {{arr}} Connect',
@@ -1872,13 +1872,15 @@ export const en = {
           tagsExcludeLabel: 'Tags exclude',
           tagsExcludePlaceholder: '—',
           advancedHeading: 'Advanced',
-          defaultsHeading: 'Add-to-Sonarr defaults',
+          defaultsHeading: 'Add-to-{{arr}} defaults',
           defaultsNeedTestHint: 'Test the connection to load quality profiles and root folders.',
           defaultsLoading: 'Loading…',
           defaultQualityProfileLabel: 'Default quality profile',
           defaultQualityProfilePlaceholder: 'No default',
           defaultRootFolderLabel: 'Default root folder',
           defaultRootFolderPlaceholder: 'No default',
+          defaultMinAvailabilityLabel: 'Default minimum availability',
+          defaultMinAvailabilityHint: 'Applied when a movie is added to Radarr. With nothing selected Radarr uses "Released".',
         },
         // === 057a4 added ===
         sections: {

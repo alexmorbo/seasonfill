@@ -3202,6 +3202,10 @@ func buildSonarrInstanceSettingsTable(d Dialect, sonarrInstance *atlasschema.Tab
 	// mirror public_url / webhook_url_override nullable-column style).
 	defaultQualityProfileID := atlasschema.NewNullIntColumn("default_quality_profile_id", "integer")
 	defaultRootFolderPath := atlasschema.NewNullStringColumn("default_root_folder_path", "text")
+	// ADR-0023 A3b — per-instance Radarr default minimumAvailability
+	// ('announced' | 'inCinemas' | 'released'). Plain nullable text, no CHECK:
+	// validation is app-layer (instance.validate), matching cooldown_mode.
+	defaultMinimumAvailability := atlasschema.NewNullStringColumn("default_minimum_availability", "text")
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
 	return atlasschema.NewTable("sonarr_instance_settings").
@@ -3221,6 +3225,7 @@ func buildSonarrInstanceSettingsTable(d Dialect, sonarrInstance *atlasschema.Tab
 			publicURL, webhookInstallEnabled, webhookURLOverride,
 			parseOnGrabEnabled, scanSkipHandledSeasons,
 			defaultQualityProfileID, defaultRootFolderPath,
+			defaultMinimumAvailability,
 			updatedAt,
 		).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName)).
@@ -3301,6 +3306,8 @@ func buildRadarrInstanceSettingsTable(d Dialect, arrInstance *atlasschema.Table)
 		SetNull(false).SetDefault(&atlasschema.Literal{V: "true"})
 	defaultQualityProfileID := atlasschema.NewNullIntColumn("default_quality_profile_id", "integer")
 	defaultRootFolderPath := atlasschema.NewNullStringColumn("default_root_folder_path", "text")
+	// ADR-0023 A3b — kept byte-identical with the sonarr sibling (R-1 design).
+	defaultMinimumAvailability := atlasschema.NewNullStringColumn("default_minimum_availability", "text")
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
 	return atlasschema.NewTable("radarr_instance_settings").
@@ -3320,6 +3327,7 @@ func buildRadarrInstanceSettingsTable(d Dialect, arrInstance *atlasschema.Table)
 			publicURL, webhookInstallEnabled, webhookURLOverride,
 			parseOnGrabEnabled, scanSkipHandledSeasons,
 			defaultQualityProfileID, defaultRootFolderPath,
+			defaultMinimumAvailability,
 			updatedAt,
 		).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName)).

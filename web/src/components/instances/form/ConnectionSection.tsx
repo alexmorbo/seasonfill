@@ -17,6 +17,10 @@ export interface ConnectionSectionProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly errors: FieldErrors<any>;
   readonly mode: 'create' | 'edit';
+  // A3a follow-up: placeholders are arr-aware ("http://radarr-4k:80" /
+  // "paste Radarr API key"). Create-mode watches the live segmented control;
+  // edit-mode gets the immutable stored type.
+  readonly arrType: 'sonarr' | 'radarr';
   readonly instanceName: string | undefined;
   readonly installEnabled: boolean;
   readonly uiUrlHint: string | undefined;
@@ -29,11 +33,15 @@ export interface ConnectionSectionProps {
 // NOTE: Mode + Dry-run are NOT here — they live in <PromotedControls>
 // at the top of the dialog body, per design HTML (`.promo` block).
 export function ConnectionSection({
-  control, register, errors, mode, instanceName, installEnabled,
+  control, register, errors, mode, arrType, instanceName, installEnabled,
   uiUrlHint, onTest, testing, probeResult, tValidationError,
 }: ConnectionSectionProps) {
   const { t } = useTranslation();
   const isEdit = mode === 'edit';
+  // A3a follow-up: reuse the dialog's arr-label convention (instances.type.*)
+  // rather than inventing a second one. `arrSlug` feeds the URL example host.
+  const arrSlug = arrType === 'radarr' ? 'radarr' : 'sonarr';
+  const arrLabel = t(`instances.type.${arrSlug}`);
   return (
     <div className="flex flex-col gap-4" data-testid="connection-section">
       {/*
@@ -74,7 +82,7 @@ export function ConnectionSection({
             id="inst-url"
             type="url"
             className="font-mono"
-            placeholder={t('settings.instances.form.connection.urlPlaceholder')}
+            placeholder={t('settings.instances.form.connection.urlPlaceholder', { arrSlug })}
             aria-invalid={Boolean(errors.url) || undefined}
             {...register('url')}
           />
@@ -147,7 +155,7 @@ export function ConnectionSection({
             placeholder={
               isEdit
                 ? t('settings.instances.form.apiKeyKeepPlaceholder')
-                : t('settings.instances.form.connection.apiKeyPlaceholder')
+                : t('settings.instances.form.connection.apiKeyPlaceholder', { arr: arrLabel })
             }
             aria-invalid={Boolean(errors.api_key) || undefined}
             {...register('api_key')}

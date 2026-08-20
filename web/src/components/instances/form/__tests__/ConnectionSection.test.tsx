@@ -10,10 +10,12 @@ import { FORM_DEFAULTS } from '@/components/settings/instance-form-helpers';
 
 function Harness({
   mode = 'create' as 'create' | 'edit',
+  arrType = 'sonarr' as 'sonarr' | 'radarr',
   uiUrlHint,
   onTest = vi.fn(),
 }: {
   mode?: 'create' | 'edit';
+  arrType?: 'sonarr' | 'radarr';
   uiUrlHint?: string;
   onTest?: () => void;
 }) {
@@ -29,6 +31,7 @@ function Harness({
           register={register}
           errors={formState.errors}
           mode={mode}
+          arrType={arrType}
           instanceName={mode === 'edit' ? 'homelab' : undefined}
           installEnabled
           uiUrlHint={uiUrlHint}
