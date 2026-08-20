@@ -20,6 +20,7 @@ import { useMovieRatings } from '@/api/movieRatings';
 import { MovieRecommendationsRail } from '@/components/movies/MovieRecommendationsRail';
 import { MovieExternalLinksFooter } from '@/components/movies/MovieExternalLinksFooter';
 import { MovieSyncFooter } from '@/components/movies/MovieSyncFooter';
+import { CollectionHeroCard } from '@/components/movies/CollectionHeroCard';
 import { useAddToRadarrLauncher } from '@/components/movies/add-to-radarr-context';
 import { useInstances } from '@/lib/instances';
 import { buildRadarrMovieHref } from '@/lib/radarrUrl';
@@ -242,6 +243,24 @@ export function MovieDetail() {
         }]
       : [];
 
+  // Hero-right compact collection card — the same `.sd-next-wrap` slot the
+  // series hero fills with `NextEpisodeCard` (see `SeriesDetail.tsx`'s
+  // `heroExtras.nextCard`). Movies have no next-episode concept, so the slot
+  // is empty unless the movie belongs to a TMDB collection.
+  const collectionId = movie.collection?.tmdb_collection_id;
+  const hasCollection = typeof collectionId === 'number' && collectionId > 0;
+  const heroExtras = hasCollection
+    ? {
+        nextCard: (
+          <CollectionHeroCard
+            tmdbCollectionId={collectionId}
+            {...(library[0]?.instance_name ? { instance: library[0].instance_name } : {})}
+            {...(lang ? { lang } : {})}
+          />
+        ),
+      }
+    : undefined;
+
   const vm = toMovieVM({
     t,
     lang,
@@ -271,6 +290,7 @@ export function MovieDetail() {
     >
       <MediaDetail
         vm={vm}
+        heroExtras={heroExtras}
         recommendationsSlot={<MovieRecommendationsRail tmdbId={movie.tmdb_id ?? tmdbId} />}
       />
 

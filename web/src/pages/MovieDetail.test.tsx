@@ -355,15 +355,17 @@ describe('<MovieDetail />', () => {
     expect(premiereRow).toHaveTextContent(/13/);
   });
 
-  it('omits the collection block when the movie has no collection', async () => {
+  it('omits the hero collection card when the movie has no collection', async () => {
     spyFetch(movie());
     renderRoute('/movies/438631');
 
     expect(await screen.findByTestId('movie-detail-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('hero-next-wrap')).toBeNull();
+    expect(screen.queryByTestId('movie-collection-hero-card')).toBeNull();
     expect(screen.queryByTestId('movie-collection-block')).toBeNull();
   });
 
-  it('renders the collection block only when collection.tmdb_collection_id is present', async () => {
+  it('renders the compact hero collection card only when collection.tmdb_collection_id is present', async () => {
     // Route the movie detail vs the collection detail vs instances by URL.
     globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -384,7 +386,15 @@ describe('<MovieDetail />', () => {
     }) as typeof fetch;
     renderRoute('/movies/438631');
 
-    expect(await screen.findByTestId('movie-collection-block')).toBeInTheDocument();
-    expect(screen.getByTestId('movie-collection-name')).toHaveTextContent('Dune Collection');
+    const nextWrap = await screen.findByTestId('hero-next-wrap');
+    const card = await screen.findByTestId('movie-collection-hero-card');
+    expect(nextWrap).toContainElement(card);
+    expect(screen.getByTestId('movie-collection-hero-name')).toHaveTextContent('Dune Collection');
+    expect(screen.getByTestId('movie-collection-hero-poster')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-collection-hero-toggle')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-collection-hero-add-all'))
+      .toHaveTextContent(i18n.t('movieCollection.addAll'));
+    // No wide below-hero block anymore.
+    expect(screen.queryByTestId('movie-collection-block')).toBeNull();
   });
 });

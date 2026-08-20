@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { CountryName } from '@/components/series-detail/CountryName';
 import { LanguageName } from '@/components/series-detail/LanguageName';
 import { PremiereDate } from '@/components/series-detail/PremiereDate';
-import { MovieCollectionBlock } from '@/components/movies/MovieCollectionBlock';
 import { formatMoney, isMoneyPresent } from '@/lib/money';
 import type { CastMember, DegradedSource } from '@/api/series';
 import type { MovieDetail, MovieDetailLibrary } from '@/api/movies';
@@ -62,11 +61,11 @@ export interface ToMovieVMParams {
 // toMovieVM — ADR-0022 Wave-2 Story C. Builds the FULL `MediaDetailVM` the
 // real `<MovieDetail>` page renders via `<MediaDetail>`. Mirrors the pre-
 // wave-2 inline JSX field-for-field; `belowGrid` has no movie equivalent
-// (series-only mid-page sections), and `collection.node` BUNDLES the
-// MovieCollectionBlock + "Library membership" section together (as a single
-// fragment) so their visual order — collection block, then library section,
-// immediately after the overview grid — is preserved without needing a
-// second scaffold slot.
+// (series-only mid-page sections). `collection.node` now renders ONLY the
+// "Library membership" section — the collection block itself moved into the
+// hero-right slot as a compact `CollectionHeroCard` (see `MovieDetail.tsx`'s
+// `heroExtras.nextCard`, mirroring how series places `NextEpisodeCard`
+// there), so it's no longer part of this below-hero fragment.
 export function toMovieVM(p: ToMovieVMParams): MediaDetailVM {
   const { t, lang, tmdbId, movie, ov } = p;
 
@@ -170,7 +169,7 @@ export function toMovieVM(p: ToMovieVMParams): MediaDetailVM {
       renderCard: () => null,
     },
 
-    collection: { node: buildCollectionSection(movie, t, lang) },
+    collection: { node: buildCollectionSection(movie, t) },
     externalLinks: undefined,
     overview: {
       label: t('movieDetail.overview.label'),
@@ -391,30 +390,17 @@ function LibraryRow({ row }: { row: MovieDetailLibrary }) {
   );
 }
 
-// Decision B (bundled) — `MovieCollectionBlock` + the "Library membership"
-// section, rendered as ONE fragment so `vm.collection.node` preserves the
-// exact old visual order (collection block, then library section,
-// immediately after the overview grid) without needing a second
-// `MediaDetail` slot.
+// "Library membership" section — the collection block that used to precede
+// it here moved to the hero-right `CollectionHeroCard` slot (see
+// `MovieDetail.tsx`).
 function buildCollectionSection(
   movie: MovieDetail,
   t: TFunction,
-  lang: string | undefined,
 ): ReactNode {
   const library = movie.library ?? [];
-  const collectionId = movie.collection?.tmdb_collection_id;
-  const hasCollection = typeof collectionId === 'number' && collectionId > 0;
 
   return (
     <>
-      {hasCollection && (
-        <MovieCollectionBlock
-          tmdbCollectionId={collectionId}
-          {...(library[0]?.instance_name ? { instance: library[0].instance_name } : {})}
-          {...(lang ? { lang } : {})}
-        />
-      )}
-
       <section data-testid="movie-detail-library">
         <h2 className="mb-1.5 text-[13px] font-semibold uppercase tracking-wide text-tx-faint">
           {t('movieDetail.library.title')}

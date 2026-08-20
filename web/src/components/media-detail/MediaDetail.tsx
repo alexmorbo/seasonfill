@@ -18,7 +18,8 @@ import type { MediaDetailVM } from './view-model';
 export interface MediaDetailProps {
   readonly vm: MediaDetailVM;
   /** Section slots owned by the type-specific adapter (series: next-episode
-   *  card + library strip; movie: nothing in U-4). */
+   *  card + library strip; movie: compact collection card in `nextCard`
+   *  when the movie belongs to a TMDB collection, else omitted). */
   readonly heroExtras?: MediaHeroProps['heroExtras'];
   /** Series-only sections (RecentStrip + Torrents + SeasonsAccordion) that
    *  render between the overview grid and the collection/recommendations
