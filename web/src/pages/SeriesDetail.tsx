@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useSetPageTitle } from '@/components/shell/page-title-context';
 import {
   useSeries,
@@ -23,22 +22,26 @@ import { useSeriesLibrary, useSeriesLibraryMonitoredByInstance } from '@/api/ser
 import { useInstances } from '@/lib/instances';
 import { useInstanceFilter } from '@/lib/instance-filter-context-internal';
 import { useSeriesRatings } from '@/api/seriesRatings';
-import { SeriesHero } from '@/components/series-detail/SeriesHero';
-import type { AddToSonarrTarget } from '@/components/discovery/add-to-sonarr-context';
-import { DegradedChip } from '@/components/series-detail/DegradedChip';
-import { OverviewGrid } from '@/components/series-detail/OverviewGrid';
-import { RailCard } from '@/components/series-detail/RailCard';
-import { CastStrip } from '@/components/series-detail/CastStrip';
-import { RatingsSection } from '@/components/series-detail/RatingsSection';
+import {
+  useAddToSonarrLauncher,
+  type AddToSonarrTarget,
+} from '@/components/discovery/add-to-sonarr-context';
 import { RecentStrip } from '@/components/series-detail/RecentStrip';
 import { SeriesDetailSkeleton } from '@/components/series-detail/SeriesDetailSkeleton';
 import { StaleBadge } from '@/components/series-detail/StaleBadge';
 import { SeasonsAccordion } from '@/components/series-detail/SeasonsAccordion';
-import { RecommendationsCarousel } from '@/components/series-detail/RecommendationsCarousel';
-import { ExternalLinksFooter } from '@/components/series-detail/ExternalLinksFooter';
-import { LanguageFallbackTag } from '@/components/series-detail/LanguageFallbackTag';
+import { NextEpisodeCard } from '@/components/series-detail/NextEpisodeCard';
+import { HeroLibraryStrip } from '@/components/series-detail/HeroLibraryStrip';
+import { FollowButton } from '@/components/follow/FollowButton';
 import { TorrentsSection } from '@/components/torrents/TorrentsSection';
-import { useFormatDate } from '@/lib/timezone';
+import { MediaDetail } from '@/components/media-detail';
+import type { MediaHeroActions } from '@/components/media-detail/view-model';
+import {
+  effectiveRatingScore,
+  resolveSeriesHeroActionData,
+} from '@/components/media-detail/adapters/seriesHeroVM';
+import { SeriesRecommendationsRail } from '@/components/media-detail/adapters/SeriesRecommendationsRail';
+import { toSeriesVM } from './toSeriesVM';
 
 export function SeriesDetail() {
   const { t, i18n } = useTranslation();
@@ -48,7 +51,6 @@ export function SeriesDetail() {
   const { id } = useParams<{ id: string }>();
   const seriesId = id ? Number(id) : undefined;
   const lang = i18n.resolvedLanguage;
-  const fmt = useFormatDate();
   const torrentsRef = useRef<HTMLDivElement | null>(null);
 
   // C3b (story 968): GET /series/:id now serves seriesdetail.SkeletonDTO
@@ -70,6 +72,9 @@ export function SeriesDetail() {
   const instances = useInstances().data?.instances ?? [];
   const sidebarFilter = useInstanceFilter().filter;
   const defaultSeasonInstance = sidebarFilter ?? primaryInstance ?? instances[0]?.name;
+  // U-4 sub-step B — hero split-button "Add to Sonarr" launcher, resolved
+  // into `heroActions` below (moved out of the old inline `<SeriesHero>`).
+  const { openAddToSonarr } = useAddToSonarrLauncher();
 
   // Hero view-model composed from skeleton hero + sidebar.
   const hero = useMemo(
@@ -181,6 +186,15 @@ export function SeriesDetail() {
     enabled: typeof seriesId === 'number' && seriesId > 0,
     pollWhileDegraded: true,
   });
+  // U-4 §9 R1 fix — the recommendations RAIL's own (visibility-gated) query
+  // + sentinel ref hook is now owned by `<SeriesRecommendationsRail>` itself
+  // (rendered below via `MediaDetail`'s `recommendationsSlot`), NOT called
+  // here at the page's top level — calling it here ran the hook's one-shot
+  // `useIsSectionVisible` effect BEFORE the success branch (and its
+  // sentinel) ever mounted, so the IntersectionObserver was never attached
+  // and the rail silently never fetched/rendered in a real browser. `recsQ`
+  // above (the page-wide shadow query feeding the degraded chip) is
+  // distinct and UNCHANGED by this fix.
 
   // #1064 — shadow the shared /ratings query at the page level so the hero's
   // ratings stale/loading SIGNALS read the SAME source of truth as its ★
@@ -194,6 +208,12 @@ export function SeriesDetail() {
   const tmdbRatingStale = ratingSources?.tmdb === 'revalidating';
   const omdbRatingStale = ratingSources?.omdb === 'revalidating';
   const omdbRatingPending = ratingSources?.omdb === 'pending';
+  // U-4 sub-step B — #1059 dedup hoisted to the page level (this is now the
+  // SOLE production render path for the hero; `SeriesHero.tsx` keeps its own
+  // copy only for its direct-render test — §3.7 / §7 R3). Same shared
+  // /ratings query as above ⇒ no extra fetch.
+  const tmdbScore = effectiveRatingScore(ratingsQ.data?.tmdb_rating, ratingsQ.data?.tmdb_votes, hero?.tmdb_rating);
+  const imdbScore = effectiveRatingScore(ratingsQ.data?.imdb_rating, ratingsQ.data?.imdb_votes, hero?.imdb_rating);
 
   // Story 531 / C3b — aggregate degraded[] across the parent /series skeleton
   // and the /overview, /recommendations, /cast, /seasons per-section hooks.
@@ -267,9 +287,6 @@ export function SeriesDetail() {
   // Story 495 / N-1e §C2: per-section degraded UX.
   const overviewEmpty = !overviewData?.overview;
   const overviewLoading = overviewQ.isLoading || (overviewEmpty && tmdbSeriesDegraded);
-  const castEmpty = cast.length === 0;
-  const castLoading = castEmpty && tmdbPersonDegraded;
-  const showCastSection = !sonarrOnly && (!castEmpty || castLoading);
   const seasonsEmpty = seasons.length === 0;
   const seasonsLoading = seasonsEmpty && (tmdbSeasonDegraded || tmdbSeriesDegraded);
   // #1064 — hero IMDb loading chip keys off /ratings (omdb `pending` = value
@@ -281,6 +298,112 @@ export function SeriesDetail() {
 
   // Build the cast href once so CastStrip stays URL-agnostic (Story 495 §A3).
   const castHref = `/series/${seriesId}/cast`;
+
+  // U-4 sub-step B — hero split-button data (instance/href resolution moved
+  // out of the old inline `<SeriesHero>`; same logic now lives in the
+  // shared `resolveSeriesHeroActionData` helper — see `SeriesHero.tsx`'s
+  // adapter for the byte-identical direct-render counterpart).
+  const actionData = resolveSeriesHeroActionData({
+    instance: primaryInstance,
+    title: hero?.title ?? '',
+    ...(libraryQ.data?.title_slug ? { titleSlug: libraryQ.data.title_slug } : {}),
+    inLibraryInstances: skeleton?.in_library_instances ?? [],
+    allInstances: instances,
+    hasAddToSonarrTarget: Boolean(addToSonarrTarget),
+  });
+  const heroActions: MediaHeroActions = {
+    backHref: '/series',
+    backLabel: t('seriesDetail.back'),
+    ...(actionData.sonarrHref ? { sonarrHref: actionData.sonarrHref } : {}),
+    showAddToSonarr: actionData.showAddToSonarr,
+    showCaret: actionData.showCaret,
+    openItems: actionData.openItems,
+    addItems: actionData.addItems,
+    onAddToSonarr: () => {
+      if (addToSonarrTarget) openAddToSonarr(addToSonarrTarget);
+    },
+    onAddToInstance: (name: string) => {
+      if (addToSonarrTarget) openAddToSonarr({ ...addToSonarrTarget, instanceName: name });
+    },
+    followButton: <FollowButton seriesId={seriesId} />,
+  };
+
+  const heroExtras = {
+    nextCard: (
+      <NextEpisodeCard
+        variant="glass"
+        status={status}
+        {...(hero?.next_episode ? { nextEpisode: hero.next_episode } : {})}
+        {...(hero?.year_end ? { yearEnd: hero.year_end } : {})}
+      />
+    ),
+    bottomStrip: (
+      <HeroLibraryStrip
+        tone={sonarrOnly ? 'light' : 'dark'}
+        {...(library ? { library } : {})}
+        {...(download ? { download } : {})}
+        onDownloadClick={scrollToTorrents}
+      />
+    ),
+  };
+
+  const belowGrid = (
+    <>
+      <RecentStrip {...(recent ? { recent } : {})} />
+
+      <div ref={torrentsRef}>
+        <TorrentsSection instance={primaryInstance ?? ''} seriesId={seriesId} />
+      </div>
+
+      <SeasonsAccordion
+        seriesId={seriesId}
+        seasons={seasons}
+        {...(lang ? { lang } : {})}
+        {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
+        {...(seasonsLoading ? { tmdbSeasonLoading: true } : {})}
+        {...(librarySeasons ? { librarySeasons } : {})}
+        {...(defaultSeasonInstance ? { defaultInstance: defaultSeasonInstance } : {})}
+        inLibraryInstances={skeleton?.in_library_instances ?? []}
+        monitoredByInstance={monitoredByInstance}
+        title={hero?.title ?? ''}
+        {...(skeleton?.external_links?.tvdb_id !== undefined ? { tvdbId: skeleton.external_links.tvdb_id } : {})}
+        {...(skeleton?.external_links?.tmdb_id !== undefined ? { tmdbId: skeleton.external_links.tmdb_id } : {})}
+      />
+    </>
+  );
+
+  const vm = toSeriesVM({
+    seriesId,
+    t,
+    lang,
+    hero,
+    status,
+    tmdbSeriesDegraded,
+    tmdbScore,
+    imdbScore,
+    tmdbStaleAt,
+    imdbStaleAt,
+    imdbLoading,
+    sectionTmdbRating: ratingsQ.data?.tmdb_rating,
+    sectionTmdbVotes: ratingsQ.data?.tmdb_votes,
+    sectionImdbRating: ratingsQ.data?.imdb_rating,
+    sectionImdbVotes: ratingsQ.data?.imdb_votes,
+    rated: ratingsQ.data?.rated,
+    awards: ratingsQ.data?.awards,
+    heroActions,
+    overviewText: overviewLoading
+      ? t('seriesDetail.degraded.overview.loading')
+      : (overviewData?.overview || t('seriesDetail.overview.empty')),
+    overviewContentLang: overviewData?.language,
+    overviewLoading,
+    castHref,
+    cast,
+    tmdbPersonDegraded,
+    keywords: overviewData?.keywords ?? [],
+    externalLinks: skeleton?.external_links,
+    syncedAt,
+    degraded: aggregatedDegraded,
+  });
 
   return (
     <div className="sd-real -mt-5 flex flex-col gap-5 px-[36px] lg:px-[36px]">
@@ -297,132 +420,17 @@ export function SeriesDetail() {
       )}
 
       {detail.isSuccess && skeleton && (
-        <>
-          <SeriesHero
-            instance={primaryInstance}
-            inLibraryInstances={skeleton.in_library_instances ?? []}
-            seriesId={seriesId}
-            hero={hero}
-            {...(library ? { library } : {})}
-            {...(libraryQ.data?.title_slug ? { titleSlug: libraryQ.data.title_slug } : {})}
-            {...(download ? { download } : {})}
-            {...(tmdbStaleAt ? { tmdbStaleAt } : {})}
-            {...(imdbStaleAt ? { imdbStaleAt } : {})}
-            {...(tmdbSeriesDegraded ? { tmdbSeriesDegraded: true } : {})}
-            {...(imdbLoading ? { imdbLoading: true } : {})}
-            {...(addToSonarrTarget ? { addToSonarrTarget } : {})}
-            onScrollToTorrents={scrollToTorrents}
-          />
-
-          {aggregatedDegraded.length > 0 && (
-            <div className="-mt-2 flex justify-end">
-              <DegradedChip sources={aggregatedDegraded} />
-            </div>
-          )}
-
-          <section
-            data-testid="overview-section"
-            className="relative z-[2] rounded-md"
-          >
-            <OverviewGrid
-              left={
-                <>
-                  <div className="flex flex-col gap-3 min-w-0">
-                    <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wide text-tx-faint [text-shadow:0_1px_2px_oklch(0_0_0/.55)]">
-                      {t('seriesDetail.overview.label')}
-                      <LanguageFallbackTag
-                        contentLang={overviewData?.language}
-                        {...(lang ? { requestedLang: lang } : {})}
-                        testid="overview-lang-fallback"
-                      />
-                    </div>
-                    {overviewLoading && (
-                      <div
-                        data-testid="overview-skeleton"
-                        className="flex flex-col gap-1.5 max-w-[64ch]"
-                      >
-                        <Skeleton className="h-3 w-full" />
-                        <Skeleton className="h-3 w-[92%]" />
-                        <Skeleton className="h-3 w-[78%]" />
-                      </div>
-                    )}
-                    <p
-                      data-testid="overview-text"
-                      className="text-[13.5px] leading-relaxed text-tx-primary whitespace-pre-line max-w-[64ch] [text-shadow:0_1px_2px_oklch(0_0_0/.55)]"
-                    >
-                      {overviewLoading
-                        ? t('seriesDetail.degraded.overview.loading')
-                        : (overviewData?.overview || t('seriesDetail.overview.empty'))}
-                    </p>
-                  </div>
-                  {showCastSection && (
-                    <CastStrip
-                      castHref={castHref}
-                      seriesId={seriesId}
-                      cast={cast}
-                      {...(tmdbPersonDegraded ? { tmdbPersonDegraded: true } : {})}
-                    />
-                  )}
-                  {/* Canonical ratings surface (SWR /ratings) — TMDB ★, IMDb,
-                      OMDb content-rating + awards. Self-hides when no source
-                      carries a value. The hero ★ reads this SAME /ratings query
-                      (react-query dedup) so the two never show divergent
-                      numbers (#1059); #1064 unifies the rest of the hero ratings
-                      surface on it too — the hero's tmdb/omdb StaleBadges and the
-                      IMDb loading chip now read /ratings.sources
-                      (fresh/revalidating/pending), NOT degraded[]. degraded[]
-                      still drives the section-level content-loading signals
-                      (overview/seasons/cast skeletons, backdrop plate). */}
-                  <RatingsSection seriesId={seriesId} />
-                </>
-              }
-              right={
-                <RailCard
-                  status={status}
-                  hero={hero}
-                  omdbDegraded={omdbDegraded}
-                  {...(overviewData?.keywords ? { keywords: overviewData.keywords } : {})}
-                />
-              }
+        <MediaDetail
+          vm={vm}
+          heroExtras={heroExtras}
+          belowGrid={belowGrid}
+          recommendationsSlot={
+            <SeriesRecommendationsRail
+              seriesId={seriesId}
+              {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
             />
-          </section>
-
-          <RecentStrip {...(recent ? { recent } : {})} />
-
-          <div ref={torrentsRef}>
-            <TorrentsSection instance={primaryInstance ?? ''} seriesId={seriesId} />
-          </div>
-
-          <SeasonsAccordion
-            seriesId={seriesId}
-            seasons={seasons}
-            {...(lang ? { lang } : {})}
-            {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
-            {...(seasonsLoading ? { tmdbSeasonLoading: true } : {})}
-            {...(librarySeasons ? { librarySeasons } : {})}
-            {...(defaultSeasonInstance ? { defaultInstance: defaultSeasonInstance } : {})}
-            inLibraryInstances={skeleton.in_library_instances ?? []}
-            monitoredByInstance={monitoredByInstance}
-            title={hero?.title ?? ''}
-            {...(skeleton.external_links?.tvdb_id !== undefined ? { tvdbId: skeleton.external_links.tvdb_id } : {})}
-            {...(skeleton.external_links?.tmdb_id !== undefined ? { tmdbId: skeleton.external_links.tmdb_id } : {})}
-          />
-
-          <RecommendationsCarousel
-            seriesId={seriesId}
-            {...(tmdbStaleSlot ? { staleBadge: tmdbStaleSlot } : {})}
-          />
-
-          <ExternalLinksFooter links={skeleton.external_links} />
-
-          {syncedAt && (
-            <div className="flex items-center justify-end gap-2 text-[11px] text-tx-faint pt-1">
-              <span>{t('seriesDetail.synced', { time: fmt(syncedAt, 'datetime') })}</span>
-              {tmdbSeriesDegraded && <StaleBadge asOf={syncedAt} source="tmdb" />}
-              {omdbDegraded && <StaleBadge asOf={syncedAt} source="omdb" />}
-            </div>
-          )}
-        </>
+          }
+        />
       )}
     </div>
   );

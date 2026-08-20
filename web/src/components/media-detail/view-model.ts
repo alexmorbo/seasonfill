@@ -38,6 +38,16 @@ export interface MediaRatings {
   // Ratings-SECTION surface (under cast). OMDb content-rating + awards.
   readonly rated?: string | undefined;       // OMDb content-rating (e.g. "TV-MA")
   readonly awards?: string | undefined;
+  // U-4 sub-step B — the ratings-SECTION's own tmdb/imdb numbers are a
+  // DISTINCT resolution from the hero's `tmdb`/`imdb` above: the hero
+  // falls back to the skeleton rating for instant first paint (#1059),
+  // while the section (mirrors the old data-only `RatingsSection`) shows
+  // nothing until the live /ratings query resolves. Keeping them separate
+  // preserves that byte-identical timing.
+  readonly sectionTmdbRating?: number | undefined;
+  readonly sectionTmdbVotes?: number | undefined;
+  readonly sectionImdbRating?: number | undefined;
+  readonly sectionImdbVotes?: number | undefined;
 }
 
 /** A hero action button. `kind:'node'` passes a ready-made element (FollowButton, split-menu). */
@@ -45,6 +55,34 @@ export interface MediaAction {
   readonly id: string;
   readonly kind: 'node';
   readonly node: ReactNode;
+}
+
+/** One "open in <instance>" / "add to <instance>" hero split-menu row. */
+export interface MediaHeroMenuItem {
+  readonly name: string;
+  readonly href?: string | undefined;
+}
+
+/**
+ * U-4 sub-step B — the hero's split-button + follow/monitored/ellipsis row.
+ * The instance/href RESOLUTION (publicUrlByName, openItems/addItems,
+ * showCaret) lives in the series/movie adapter; `MediaHero` only renders
+ * the already-resolved data (§3.1 "Chosen approach" — keeps the
+ * `hero-menu-*` / `hero-action-caret` DOM byte-identical without flattening
+ * into a generic `MediaAction[]`, which stays reserved for simpler U-6
+ * movie buttons).
+ */
+export interface MediaHeroActions {
+  readonly backHref: string;
+  readonly backLabel: string;              // already i18n-resolved by the adapter
+  readonly sonarrHref?: string | undefined;
+  readonly showAddToSonarr: boolean;
+  readonly showCaret: boolean;
+  readonly openItems: readonly MediaHeroMenuItem[];
+  readonly addItems: readonly string[];
+  readonly onAddToSonarr: () => void;
+  readonly onAddToInstance: (name: string) => void;
+  readonly followButton: ReactNode;        // <FollowButton seriesId=…/> (series); undefined for movie in U-4
 }
 
 /** One sidebar (rail) fact row — REPLACES RailCard's hard-coded series rows. */
@@ -66,6 +104,10 @@ export interface MediaKeyword {
 export interface MediaCast {
   readonly members: readonly CastMember[];
   readonly href: string;             // "view all" link (series: /series/:id/cast)
+  // U-4 §3.4: `MediaCastStrip`'s loading-section emits `data-series-id`,
+  // which must stay byte-identical to the current series card's loading
+  // DOM — so this stays a plain numeric id, fed straight into that prop.
+  readonly mediaId: number;
   readonly limit?: number | undefined;
   readonly loading?: boolean | undefined;   // degraded skeleton
   readonly servedLang?: string | undefined; // castServedLang — reserved for a future EN badge; unused in U-4 render
@@ -136,6 +178,9 @@ export interface MediaDetailVM {
   // Hero actions (split menu + trailer + follow + monitored + ellipsis, prebuilt)
   readonly actions: readonly MediaAction[];
   readonly trailer?: MediaTrailer | undefined;
+  // U-4 sub-step B — resolved split-button/back-link/follow-button data
+  // for `MediaHero`'s action row (see `MediaHeroActions` above).
+  readonly heroActions: MediaHeroActions;
 
   // Sidebar / rail
   readonly sidebarFacts: readonly MediaFact[];

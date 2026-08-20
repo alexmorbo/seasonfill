@@ -1,6 +1,9 @@
 export { MediaDetail } from './MediaDetail';
 export type { MediaDetailProps } from './MediaDetail';
 
+export { MediaHero } from './MediaHero';
+export type { MediaHeroProps, MediaHeroVM } from './MediaHero';
+
 export type {
   MediaType,
   MediaStatusToken,
@@ -8,6 +11,8 @@ export type {
   MediaRating,
   MediaRatings,
   MediaAction,
+  MediaHeroMenuItem,
+  MediaHeroActions,
   MediaFact,
   MediaKeyword,
   MediaCast,
