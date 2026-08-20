@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Pencil, Play, RefreshCw, Trash2, ExternalLink, Loader2 } from 'lucide-react';
 import type { Instance } from '@/lib/instances';
-import { useInstanceCounters } from '@/lib/counters';
+import { useCountersAggregate } from '@/lib/api/counters';
 import { useMissing } from '@/lib/missing';
 import { useWebhookStatus } from '@/lib/webhook-status';
 import { useQbitSettings } from '@/lib/qbit-settings';
@@ -35,8 +35,10 @@ export interface InstanceHeroProps {
 export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: InstanceHeroProps) {
   const { t } = useTranslation();
   const name = instance.name ?? '';
-  const c24 = useInstanceCounters(name, '24h');
-  const c7 = useInstanceCounters(name, '7d');
+  const c24 = useCountersAggregate('24h');
+  const c7 = useCountersAggregate('7d');
+  const row24 = c24.data?.items.find((i) => i.instance_name === name);
+  const row7 = c7.data?.items.find((i) => i.instance_name === name);
   const missing = useMissing(name);
   const webhook = useWebhookStatus(name);
   const qbit = useQbitSettings(name);
@@ -58,7 +60,7 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
   // danger accent — same border treatment, different colour token.
   const warn = kind === 'warning';
   const flips = instance.transitions_count ?? 0;
-  const sparkData = (c7.data?.sparkline ?? []).map((b) => b.grabs);
+  const sparkData = (row7?.sparkline ?? []).map((b) => b.grabs);
   const sonarrHref = pickPublicHref(instance.public_url, instance.url);
 
   return (
@@ -184,9 +186,9 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
             <Skeleton className="h-12 w-32" />
           ) : (
             <InstanceStatsBlock
-              grabs={c24.data?.totals.grabs ?? 0}
-              imports={c24.data?.totals.imports ?? 0}
-              fails={c24.data?.totals.fails ?? 0}
+              grabs={row24?.totals.grabs ?? 0}
+              imports={row24?.totals.imports ?? 0}
+              fails={row24?.totals.fails ?? 0}
               windowLabelKey="instances.hero.stats.24h.label"
             />
           )}
@@ -194,9 +196,9 @@ export function InstanceHero({ instance, onEdit, onRecheck, onDelete }: Instance
             <Skeleton className="h-12 w-32" />
           ) : (
             <InstanceStatsBlock
-              grabs={c7.data?.totals.grabs ?? 0}
-              imports={c7.data?.totals.imports ?? 0}
-              fails={c7.data?.totals.fails ?? 0}
+              grabs={row7?.totals.grabs ?? 0}
+              imports={row7?.totals.imports ?? 0}
+              fails={row7?.totals.fails ?? 0}
               windowLabelKey="instances.hero.stats.7d.label"
               separator
             />

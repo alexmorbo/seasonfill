@@ -24,25 +24,29 @@ beforeEach(() => {
     const url = String(input);
     if (url.endsWith('/counters?window=24h')) {
       return new Response(JSON.stringify({
-        instance_name: 'homelab', window: '24h',
-        totals: { grabs: 12, imports: 8, fails: 0 },
-        sparkline: [], avg_grabs_7d: 6.7,
+        items: [{
+          instance_name: 'homelab', window: '24h',
+          totals: { grabs: 12, imports: 8, fails: 0 },
+          sparkline: [], avg_grabs_7d: 6.7,
+        }],
       }), { status: 200 });
     }
     if (url.endsWith('/counters?window=7d')) {
       return new Response(JSON.stringify({
-        instance_name: 'homelab', window: '7d',
-        totals: { grabs: 47, imports: 39, fails: 2 },
-        sparkline: [
-          { date: '2026-06-01', grabs: 4, imports: 3, fails: 0 },
-          { date: '2026-06-02', grabs: 6, imports: 5, fails: 0 },
-          { date: '2026-06-03', grabs: 2, imports: 1, fails: 0 },
-          { date: '2026-06-04', grabs: 9, imports: 8, fails: 1 },
-          { date: '2026-06-05', grabs: 4, imports: 4, fails: 0 },
-          { date: '2026-06-06', grabs: 6, imports: 6, fails: 0 },
-          { date: '2026-06-07', grabs: 7, imports: 7, fails: 0 },
-        ],
-        avg_grabs_7d: 6.7,
+        items: [{
+          instance_name: 'homelab', window: '7d',
+          totals: { grabs: 47, imports: 39, fails: 2 },
+          sparkline: [
+            { date: '2026-06-01', grabs: 4, imports: 3, fails: 0 },
+            { date: '2026-06-02', grabs: 6, imports: 5, fails: 0 },
+            { date: '2026-06-03', grabs: 2, imports: 1, fails: 0 },
+            { date: '2026-06-04', grabs: 9, imports: 8, fails: 1 },
+            { date: '2026-06-05', grabs: 4, imports: 4, fails: 0 },
+            { date: '2026-06-06', grabs: 6, imports: 6, fails: 0 },
+            { date: '2026-06-07', grabs: 7, imports: 7, fails: 0 },
+          ],
+          avg_grabs_7d: 6.7,
+        }],
       }), { status: 200 });
     }
     if (url.includes('state=missing') || url.endsWith('/missing')) {
@@ -85,13 +89,13 @@ describe('<InstanceHero />', () => {
     url: 'http://sonarr:80',
   } as never;
 
-  it('renders sparkline and chip row (counters disabled in 493 by VITE_LEGACY_COUNTERS flag)', async () => {
-    // 493 / N-1c §C: useInstanceCounters is gated by
-    // `VITE_LEGACY_COUNTERS === '1'`. Default builds disable the
-    // counters call entirely until 494 rewrites the data source
-    // to the global series-cache aggregate. The sparkline + chip
-    // row stay visible; the 24h/7d stats blocks collapse to the
-    // empty state.
+  it('renders 24h/7d stats blocks + sparkline + chip row from the /counters aggregate (no stuck skeleton)', async () => {
+    // A2: InstanceHero now reads GET /counters?window=24h|7d — the same
+    // shared aggregate Dashboard/TodayCard already use via
+    // useCountersAggregate — and selects this instance's row with
+    // items.find(i => i.instance_name === name). The old
+    // useInstanceCounters legacy-gate (permanently disabled in prod,
+    // producing a permanent grey Skeleton) is gone from this component.
     renderWithProviders(
       <InstanceHero
         instance={inst}
@@ -108,9 +112,40 @@ describe('<InstanceHero />', () => {
     expect(await screen.findByTestId('chip-watchdog')).toHaveTextContent(/running/i);
     const webhookChip = await screen.findByTestId('chip-webhook');
     expect(webhookChip.className).toMatch(/ok/);
-    // 24h + 7d stats blocks are absent — they only show when
-    // `useInstanceCounters` resolves successfully.
-    expect(screen.queryAllByTestId('instance-stats-block')).toHaveLength(0);
+    // Both stats blocks (24h + 7d) render with the mocked aggregate
+    // numbers once the query resolves — never a stuck grey Skeleton.
+    const blocks = await screen.findAllByTestId('instance-stats-block');
+    expect(blocks).toHaveLength(2);
+    const grabsValues = screen.getAllByTestId('stats-grabs').map((el) => el.textContent);
+    expect(grabsValues).toEqual(['12', '47']);
+    const failsValues = screen.getAllByTestId('stats-fails').map((el) => el.textContent);
+    expect(failsValues).toEqual(['0', '2']);
+  });
+
+  it('renders zeros — not a stuck skeleton — when the aggregate resolves with no matching row for this instance', async () => {
+    // Legitimate "no activity yet" state: the aggregate query succeeds,
+    // but items[] has no row for THIS instance (e.g. a freshly added
+    // instance with no grabs yet). This must render InstanceStatsBlock
+    // with zeros, exactly like a matching all-zero row — never fall
+    // back to (or get stuck on) the loading Skeleton.
+    const freshInstance = { ...(inst as object), name: 'no-activity-instance' } as never;
+    renderWithProviders(
+      <InstanceHero
+        instance={freshInstance}
+        onEdit={() => undefined}
+        onRecheck={() => undefined}
+        onDelete={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('hero-sparkline')).toBeInTheDocument();
+    });
+    const blocks = await screen.findAllByTestId('instance-stats-block');
+    expect(blocks).toHaveLength(2);
+    const grabsValues = screen.getAllByTestId('stats-grabs').map((el) => el.textContent);
+    expect(grabsValues).toEqual(['0', '0']);
+    const failsValues = screen.getAllByTestId('stats-fails').map((el) => el.textContent);
+    expect(failsValues).toEqual(['0', '0']);
   });
 
   it('applies danger left-border + last-error when degraded', async () => {
@@ -371,8 +406,10 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
       }
       if (url.includes('/counters')) {
         return new Response(JSON.stringify({
-          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
-          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          items: [{
+            instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+            totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          }],
         }), { status: 200 });
       }
       return new Response('{}', { status: 200 });
@@ -409,8 +446,10 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
       }
       if (url.includes('/counters')) {
         return new Response(JSON.stringify({
-          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
-          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          items: [{
+            instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+            totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          }],
         }), { status: 200 });
       }
       return new Response('{}', { status: 200 });
@@ -447,8 +486,10 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
       }
       if (url.includes('/counters')) {
         return new Response(JSON.stringify({
-          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
-          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          items: [{
+            instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+            totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          }],
         }), { status: 200 });
       }
       return new Response('{}', { status: 200 });
@@ -479,8 +520,10 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
       }
       if (url.includes('/counters')) {
         return new Response(JSON.stringify({
-          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
-          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          items: [{
+            instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+            totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          }],
         }), { status: 200 });
       }
       return new Response('{}', { status: 200 });
@@ -537,8 +580,10 @@ describe('<InstanceHero /> — Force scan button busy/running UX', () => {
       }
       if (url.includes('/counters')) {
         return new Response(JSON.stringify({
-          instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
-          totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          items: [{
+            instance_name: 'homelab', window: url.includes('24h') ? '24h' : '7d',
+            totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
+          }],
         }), { status: 200 });
       }
       return new Response('{}', { status: 200 });
