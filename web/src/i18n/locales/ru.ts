@@ -2976,5 +2976,17 @@ export const ru: Translations = {
       viewAll: 'Все',
       loading: 'Загрузка актёров…',
     },
+    status: {
+      released: 'Вышел',
+      planned: 'Запланирован',
+      inProduction: 'В производстве',
+      postProduction: 'Постпродакшн',
+      rumored: 'Слухи',
+      canceled: 'Отменён',
+    },
+    rail: {
+      digitalRelease: 'Цифровой релиз',
+      physicalRelease: 'Физический релиз',
+    },
   },
 };

@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { StatusBadge } from '@/components/StatusBadge';
 import { CountryName } from '@/components/series-detail/CountryName';
 import { LanguageName } from '@/components/series-detail/LanguageName';
 import { PremiereDate } from '@/components/series-detail/PremiereDate';
@@ -95,8 +94,22 @@ export function toMovieVM(p: ToMovieVMParams): MediaDetailVM {
     backdropLoadingLabel: undefined,
 
     ratings: {
-      tmdb: p.showTmdb ? { score: movie.tmdb_rating as number } : undefined,
-      imdb: p.showImdb ? { score: movie.imdb_rating as number } : undefined,
+      tmdb: p.showTmdb
+        ? {
+            score: movie.tmdb_rating as number,
+            ...(typeof p.sectionTmdbVotes === 'number' && p.sectionTmdbVotes > 0
+              ? { votes: p.sectionTmdbVotes }
+              : {}),
+          }
+        : undefined,
+      imdb: p.showImdb
+        ? {
+            score: movie.imdb_rating as number,
+            ...(typeof p.sectionImdbVotes === 'number' && p.sectionImdbVotes > 0
+              ? { votes: p.sectionImdbVotes }
+              : {}),
+          }
+        : undefined,
       imdbHref: movie.imdb_id ? `https://www.imdb.com/title/${movie.imdb_id}/` : undefined,
       // TODO wave-3: movie ratings has no SWR backoff-poll ladder yet
       // (mirrors series #1064's stale/pending signals) — always absent.
@@ -200,15 +213,37 @@ function toMovieCastMembers(
 // studio and countries, and `countries` widened to render EVERY origin
 // country (toSeriesVM's `buildSidebarFacts` pattern) rather than only the
 // first one `MovieSidebar.tsx` used to show.
+// Raw TMDB movie `status` values are mixed-case English strings (`Released`,
+// `Planned`, `In Production`, `Post Production`, `Rumored`, `Canceled`).
+// Normalize case-insensitively to the `movieDetail.status.*` i18n key
+// vocabulary; unrecognized/future TMDB values fall through to the caller's
+// `defaultValue` (the raw string) rather than a raw i18n key.
+const MOVIE_STATUS_KEYS: Record<string, string> = {
+  released: 'released',
+  planned: 'planned',
+  'in production': 'inProduction',
+  'post production': 'postProduction',
+  rumored: 'rumored',
+  canceled: 'canceled',
+  cancelled: 'canceled',
+};
+
+function normalizeMovieStatus(status: string): string {
+  const normalized = status.trim().toLowerCase();
+  return MOVIE_STATUS_KEYS[normalized] ?? normalized;
+}
+
 function buildMovieSidebarFacts(movie: MovieDetail, t: TFunction): readonly MediaFact[] {
   const facts: MediaFact[] = [];
 
   if (movie.status) {
+    const normalizedStatus = normalizeMovieStatus(movie.status);
     facts.push({
       id: 'status',
       label: t('seriesDetail.rail.status'),
+      value: t(`movieDetail.status.${normalizedStatus}`, { defaultValue: movie.status }),
       testId: 'rail-row-status',
-      value: <StatusBadge value={movie.status} />,
+      ...(normalizedStatus === 'released' ? { accent: true } : {}),
     });
   }
 
@@ -243,6 +278,24 @@ function buildMovieSidebarFacts(movie: MovieDetail, t: TFunction): readonly Medi
       label: t('seriesDetail.rail.premiereDate'),
       testId: 'rail-row-premiere-date',
       value: <PremiereDate iso={movie.release_date.slice(0, 10)} />,
+    });
+  }
+
+  if (movie.digital_release_date) {
+    facts.push({
+      id: 'digital-release',
+      label: t('movieDetail.rail.digitalRelease'),
+      testId: 'rail-row-digital-release',
+      value: <PremiereDate iso={movie.digital_release_date.slice(0, 10)} />,
+    });
+  }
+
+  if (movie.physical_release_date) {
+    facts.push({
+      id: 'physical-release',
+      label: t('movieDetail.rail.physicalRelease'),
+      testId: 'rail-row-physical-release',
+      value: <PremiereDate iso={movie.physical_release_date.slice(0, 10)} />,
     });
   }
 

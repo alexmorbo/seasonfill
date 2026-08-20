@@ -185,6 +185,61 @@ describe('<MovieDetail />', () => {
     expect(screen.getByTestId('rail-row-original-language')).toBeInTheDocument();
     expect(screen.getByTestId('rail-keywords')).toBeInTheDocument();
     expect(within(screen.getByTestId('rail-keywords')).getByText('desert')).toBeInTheDocument();
+    // Digital/physical release date rows are absent when the DTO omits
+    // those fields (base `movie()` fixture doesn't set them).
+    expect(screen.queryByTestId('rail-row-digital-release')).toBeNull();
+    expect(screen.queryByTestId('rail-row-physical-release')).toBeNull();
+  });
+
+  it('shows humanized vote counts alongside the hero TMDB/IMDb ratings', async () => {
+    // routedFetch's /ratings stub carries tmdb_votes/imdb_votes — the
+    // per-section rating numbers `toMovieVM` now wires into
+    // `ratings.tmdb.votes` / `ratings.imdb.votes` (RatingDuo renders
+    // "· <humanized votes>" whenever votes > 0 is present).
+    routedFetch();
+    renderRoute('/movies/438631');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('rating-tmdb')).toHaveTextContent('· 12k');
+    });
+    expect(screen.getByTestId('rating-imdb')).toHaveTextContent('· 900k');
+  });
+
+  it('localizes the sidebar Status row instead of printing the raw TMDB value', async () => {
+    // The raw TMDB status ("Released") IS already an English word, so an
+    // English-locale assertion would pass whether or not real i18n lookup
+    // happened. Switch to 'ru' and assert the Russian label to prove the
+    // value routes through real i18n, not a pass-through of the raw string.
+    await i18n.changeLanguage('ru');
+    try {
+      routedFetch();
+      renderRoute('/movies/438631');
+
+      const statusRow = await screen.findByTestId('rail-row-status');
+      expect(statusRow).toHaveTextContent('Вышел');
+      expect(statusRow).not.toHaveTextContent('Released');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('renders localized (formatted, not raw ISO) digital/physical release date rows when present', async () => {
+    spyFetch({
+      ...movie(),
+      digital_release_date: '2022-01-15T00:00:00Z',
+      physical_release_date: '2022-01-22T00:00:00Z',
+    });
+    renderRoute('/movies/438631');
+
+    const digitalRow = await screen.findByTestId('rail-row-digital-release');
+    expect(digitalRow.textContent ?? '').not.toBe('2022-01-15T00:00:00Z');
+    expect(digitalRow).toHaveTextContent('2022');
+    expect(digitalRow).toHaveTextContent(/15/);
+
+    const physicalRow = await screen.findByTestId('rail-row-physical-release');
+    expect(physicalRow.textContent ?? '').not.toBe('2022-01-22T00:00:00Z');
+    expect(physicalRow).toHaveTextContent('2022');
+    expect(physicalRow).toHaveTextContent(/22/);
   });
 
   it('opens the trailer modal from the hero trailer button', async () => {

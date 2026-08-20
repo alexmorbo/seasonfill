@@ -2978,6 +2978,18 @@ export const en = {
       viewAll: 'View all',
       loading: 'Loading cast…',
     },
+    status: {
+      released: 'Released',
+      planned: 'Planned',
+      inProduction: 'In Production',
+      postProduction: 'Post Production',
+      rumored: 'Rumored',
+      canceled: 'Canceled',
+    },
+    rail: {
+      digitalRelease: 'Digital release',
+      physicalRelease: 'Physical release',
+    },
   },
 };
 
