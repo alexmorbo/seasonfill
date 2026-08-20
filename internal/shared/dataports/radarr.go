@@ -30,6 +30,12 @@ type RadarrMovie struct {
 	HasFile             bool
 	MinimumAvailability string
 	SizeOnDiskBytes     int64
+	// Downloaded-release facts from the inline movieFile object. All nil when
+	// the movie has no file, or when Radarr never probed it (codecs).
+	Quality    *string
+	Resolution *int
+	VideoCodec *string
+	AudioCodec *string
 }
 
 // AddMoviePayload mirrors POST /api/v3/movie. MinimumAvailability defaults to

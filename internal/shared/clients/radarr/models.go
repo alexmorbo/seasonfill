@@ -31,11 +31,42 @@ type movieDTO struct {
 	MinimumAvailability string      `json:"minimumAvailability"`
 	SizeOnDisk          int64       `json:"sizeOnDisk"`
 	Statistics          *movieStats `json:"statistics"`
+	// MovieFile is Radarr's inline movieFile object, present on GET
+	// /api/v3/movie rows when hasFile=true. Unlike Sonarr (many files per
+	// series → separate /episodeFile call), a movie has at most one file, so
+	// the list response carries it and no extra API call is needed.
+	MovieFile *radarrMovieFileDTO `json:"movieFile,omitempty"`
 }
 
 type movieStats struct {
 	MovieFileCount int   `json:"movieFileCount"`
 	SizeOnDisk     int64 `json:"sizeOnDisk"`
+}
+
+// radarrMovieFileDTO mirrors the Servarr-family movieFile shape — same nesting
+// as sonarr.episodeFileDTO (quality.quality.{name,resolution}, mediaInfo).
+type radarrMovieFileDTO struct {
+	Quality   radarrQualityRefDTO `json:"quality"`
+	MediaInfo *radarrMediaInfoDTO `json:"mediaInfo,omitempty"`
+}
+
+type radarrQualityRefDTO struct {
+	Quality radarrQualityNestedDTO `json:"quality"`
+}
+
+// radarrQualityNestedDTO carries the release quality. Unlike Sonarr's
+// qualityNested, Radarr's quality object also exposes resolution (1080, 2160).
+type radarrQualityNestedDTO struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	Resolution int    `json:"resolution"`
+}
+
+// radarrMediaInfoDTO is the mediaInfo subset we read. Absent when Radarr never
+// probed the file.
+type radarrMediaInfoDTO struct {
+	VideoCodec string `json:"videoCodec,omitempty"`
+	AudioCodec string `json:"audioCodec,omitempty"`
 }
 
 type addMovieRequest struct {
@@ -69,6 +100,22 @@ func movieDTOToPort(d movieDTO) ports.RadarrMovie {
 	}
 	if d.Statistics != nil && d.Statistics.SizeOnDisk > d.SizeOnDisk {
 		m.SizeOnDiskBytes = d.Statistics.SizeOnDisk
+	}
+	if d.HasFile && d.MovieFile != nil {
+		if n := d.MovieFile.Quality.Quality.Name; n != "" {
+			m.Quality = &n
+		}
+		if r := d.MovieFile.Quality.Quality.Resolution; r > 0 {
+			m.Resolution = &r
+		}
+		if mi := d.MovieFile.MediaInfo; mi != nil {
+			if v := mi.VideoCodec; v != "" {
+				m.VideoCodec = &v
+			}
+			if a := mi.AudioCodec; a != "" {
+				m.AudioCodec = &a
+			}
+		}
 	}
 	return m
 }

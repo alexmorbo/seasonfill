@@ -82,6 +82,97 @@ func TestMovieStatesRepository_StubPreservesStats(t *testing.T) {
 	}
 }
 
+// TestMovieStatesRepository_QualityCodecRoundTrip — the rich writer persists
+// the downloaded-release facts, and a NULL-valued write round-trips as nil.
+func TestMovieStatesRepository_QualityCodecRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			movieID := mustSeedMovie(t, db, 210, "Blade Runner 2049")
+			repo := NewMovieStatesRepository(db)
+			quality, resolution := "Bluray-2160p", 2160
+			video, audio := "x265", "TrueHD"
+
+			require.NoError(t, repo.Upsert(ctx, movie.StateEntry{
+				InstanceName: "r1", RadarrMovieID: 21, MovieID: movieID, TitleSlug: "br2049",
+				Monitored: true, HasFile: true, Quality: &quality, Resolution: &resolution,
+				VideoCodec: &video, AudioCodec: &audio,
+				AddedToRadarr: true, UpdatedAt: time.Now().UTC(),
+			}))
+
+			got, err := repo.Get(ctx, "r1", 21)
+			require.NoError(t, err)
+			require.NotNil(t, got.Quality)
+			assert.Equal(t, "Bluray-2160p", *got.Quality)
+			require.NotNil(t, got.Resolution)
+			assert.Equal(t, 2160, *got.Resolution)
+			require.NotNil(t, got.VideoCodec)
+			assert.Equal(t, "x265", *got.VideoCodec)
+			require.NotNil(t, got.AudioCodec)
+			assert.Equal(t, "TrueHD", *got.AudioCodec)
+
+			// Rich write with no file: the rich writer OWNS these columns, so a
+			// nil-valued rich write legitimately clears them.
+			require.NoError(t, repo.Upsert(ctx, movie.StateEntry{
+				InstanceName: "r1", RadarrMovieID: 21, MovieID: movieID, TitleSlug: "br2049",
+				Monitored: true, HasFile: false,
+				AddedToRadarr: true, UpdatedAt: time.Now().UTC(),
+			}))
+			got, err = repo.Get(ctx, "r1", 21)
+			require.NoError(t, err)
+			assert.Nil(t, got.Quality)
+			assert.Nil(t, got.Resolution)
+			assert.Nil(t, got.VideoCodec)
+			assert.Nil(t, got.AudioCodec)
+		})
+	}
+}
+
+// TestMovieStatesRepository_StubPreservesQualityCodecs — the thin webhook
+// writer MUST NOT null the quality/codec facts written by the rich sync
+// writer. Same guarantee as StubPreservesStats, for the new columns.
+func TestMovieStatesRepository_StubPreservesQualityCodecs(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			movieID := mustSeedMovie(t, db, 220, "Heat")
+			repo := NewMovieStatesRepository(db)
+			quality, resolution := "WEBDL-1080p", 1080
+			video, audio := "h264", "AC3"
+
+			require.NoError(t, repo.Upsert(ctx, movie.StateEntry{
+				InstanceName: "r1", RadarrMovieID: 22, MovieID: movieID, TitleSlug: "heat",
+				Monitored: true, HasFile: true, Quality: &quality, Resolution: &resolution,
+				VideoCodec: &video, AudioCodec: &audio,
+				AddedToRadarr: true, UpdatedAt: time.Now().UTC(),
+			}))
+			// Thin webhook write carries no quality/codec facts — must NOT blank them.
+			require.NoError(t, repo.UpsertStub(ctx, movie.StateEntry{
+				InstanceName: "r1", RadarrMovieID: 22, MovieID: movieID, TitleSlug: "heat",
+				Monitored: true, HasFile: false, AddedToRadarr: true, UpdatedAt: time.Now().UTC(),
+			}))
+
+			got, err := repo.Get(ctx, "r1", 22)
+			require.NoError(t, err)
+			require.NotNil(t, got.Quality, "quality preserved by stub")
+			assert.Equal(t, "WEBDL-1080p", *got.Quality)
+			require.NotNil(t, got.Resolution, "resolution preserved by stub")
+			assert.Equal(t, 1080, *got.Resolution)
+			require.NotNil(t, got.VideoCodec, "video_codec preserved by stub")
+			assert.Equal(t, "h264", *got.VideoCodec)
+			require.NotNil(t, got.AudioCodec, "audio_codec preserved by stub")
+			assert.Equal(t, "AC3", *got.AudioCodec)
+			assert.False(t, got.HasFile, "has_file updated by stub")
+		})
+	}
+}
+
 func TestMovieStatesRepository_SoftDeleteAndResurrect(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {

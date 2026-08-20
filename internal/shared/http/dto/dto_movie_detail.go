@@ -94,4 +94,17 @@ type MovieDetailLibrary struct {
 	HasFile       bool    `json:"has_file"`
 	Availability  *string `json:"availability"`
 	SizeOnDisk    int64   `json:"size_on_disk_bytes"`
+	// Quality is the downloaded release's quality name (Radarr
+	// movieFile.quality.quality.name, e.g. "Bluray-1080p"). nil when the
+	// instance has no file or the rich radarr-sync hasn't captured it yet.
+	Quality *string `json:"quality,omitempty" example:"Bluray-1080p"`
+	// Resolution is the vertical pixel resolution (Radarr
+	// movieFile.quality.quality.resolution).
+	Resolution *int `json:"resolution,omitempty" example:"1080"`
+	// VideoCodec comes from Radarr movieFile.mediaInfo. nil when absent
+	// (Radarr never probed the file) or no file.
+	VideoCodec *string `json:"video_codec,omitempty" example:"x265"`
+	// AudioCodec comes from Radarr movieFile.mediaInfo. nil when absent
+	// (Radarr never probed the file) or no file.
+	AudioCodec *string `json:"audio_codec,omitempty" example:"EAC3"`
 }

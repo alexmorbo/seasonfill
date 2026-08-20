@@ -8421,12 +8421,37 @@ export type components = {
             readonly tmdb_id?: number;
         };
         readonly "dto.MovieDetailLibrary": {
+            /**
+             * @description AudioCodec comes from Radarr movieFile.mediaInfo. nil when absent
+             *     (Radarr never probed the file) or no file.
+             * @example EAC3
+             */
+            readonly audio_codec?: string;
             readonly availability?: string;
             readonly has_file?: boolean;
             readonly instance_name?: string;
             readonly monitored?: boolean;
+            /**
+             * @description Quality is the downloaded release's quality name (Radarr
+             *     movieFile.quality.quality.name, e.g. "Bluray-1080p"). nil when the
+             *     instance has no file or the rich radarr-sync hasn't captured it yet.
+             * @example Bluray-1080p
+             */
+            readonly quality?: string;
             readonly radarr_movie_id?: number;
+            /**
+             * @description Resolution is the vertical pixel resolution (Radarr
+             *     movieFile.quality.quality.resolution).
+             * @example 1080
+             */
+            readonly resolution?: number;
             readonly size_on_disk_bytes?: number;
+            /**
+             * @description VideoCodec comes from Radarr movieFile.mediaInfo. nil when absent
+             *     (Radarr never probed the file) or no file.
+             * @example x265
+             */
+            readonly video_codec?: string;
         };
         readonly "dto.MovieDetailResponse": {
             readonly backdrop?: string;

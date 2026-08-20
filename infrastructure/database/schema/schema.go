@@ -3597,6 +3597,13 @@ func buildMovieStatesTable(d Dialect, movies *atlasschema.Table) *atlasschema.Ta
 		SetNull(false).
 		SetDefault(&atlasschema.Literal{V: "false"})
 	availability := atlasschema.NewNullStringColumn("availability", "text")
+	// Downloaded-release quality/codec facts, captured by the RICH radarr-sync
+	// writer from GET /api/v3/movie's inline movieFile object. All nullable —
+	// nil until the first rich sync (or when the file has no mediaInfo probe).
+	quality := atlasschema.NewNullStringColumn("quality", "text")
+	resolution := atlasschema.NewNullIntColumn("resolution", "integer")
+	videoCodec := atlasschema.NewNullStringColumn("video_codec", "text")
+	audioCodec := atlasschema.NewNullStringColumn("audio_codec", "text")
 	sizeOnDiskBytes := atlasschema.NewIntColumn("size_on_disk_bytes", "bigint")
 	if d == DialectSQLite {
 		sizeOnDiskBytes = atlasschema.NewIntColumn("size_on_disk_bytes", "integer")
@@ -3611,7 +3618,8 @@ func buildMovieStatesTable(d Dialect, movies *atlasschema.Table) *atlasschema.Ta
 	return atlasschema.NewTable("movie_states").
 		AddColumns(instanceName, radarrMovieID, movieID, titleSlug,
 			monitored, hasFile, availability, sizeOnDiskBytes,
-			addedToRadarr, updatedAt, deletedAt).
+			addedToRadarr, updatedAt, deletedAt,
+			quality, resolution, videoCodec, audioCodec).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, radarrMovieID)).
 		AddIndexes(
 			partialIndex(d, "movie_states_instance_active",

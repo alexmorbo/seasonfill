@@ -2611,6 +2611,11 @@
             },
             "dto.MovieDetailLibrary": {
                 "properties": {
+                    "audio_codec": {
+                        "description": "AudioCodec comes from Radarr movieFile.mediaInfo. nil when absent\n(Radarr never probed the file) or no file.",
+                        "example": "EAC3",
+                        "type": "string"
+                    },
                     "availability": {
                         "type": "string"
                     },
@@ -2623,11 +2628,26 @@
                     "monitored": {
                         "type": "boolean"
                     },
+                    "quality": {
+                        "description": "Quality is the downloaded release's quality name (Radarr\nmovieFile.quality.quality.name, e.g. \"Bluray-1080p\"). nil when the\ninstance has no file or the rich radarr-sync hasn't captured it yet.",
+                        "example": "Bluray-1080p",
+                        "type": "string"
+                    },
                     "radarr_movie_id": {
+                        "type": "integer"
+                    },
+                    "resolution": {
+                        "description": "Resolution is the vertical pixel resolution (Radarr\nmovieFile.quality.quality.resolution).",
+                        "example": 1080,
                         "type": "integer"
                     },
                     "size_on_disk_bytes": {
                         "type": "integer"
+                    },
+                    "video_codec": {
+                        "description": "VideoCodec comes from Radarr movieFile.mediaInfo. nil when absent\n(Radarr never probed the file) or no file.",
+                        "example": "x265",
+                        "type": "string"
                     }
                 },
                 "type": "object"

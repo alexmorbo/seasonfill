@@ -97,8 +97,13 @@ func TestHandler_Get_OK(t *testing.T) {
 		ID: domain.MovieID(42), TMDBID: &tid, Title: "Dune: Part Two",
 		PosterAsset: new("/p.jpg"),
 	}
+	quality, resolution := "Bluray-1080p", 1080
+	video, audio := "x265", "EAC3"
 	h := newTestHandler(canon, nil, []movie.StateEntry{
-		{InstanceName: "radarr-alpha", RadarrMovieID: 7, MovieID: 42, Monitored: true, HasFile: true, Availability: &avail, SizeOnDiskBytes: 5},
+		{InstanceName: "radarr-alpha", RadarrMovieID: 7, MovieID: 42, Monitored: true, HasFile: true,
+			Availability: &avail, SizeOnDiskBytes: 5, Quality: &quality, Resolution: &resolution,
+			VideoCodec: &video, AudioCodec: &audio},
+		{InstanceName: "radarr-beta", RadarrMovieID: 8, MovieID: 42},
 	})
 
 	w := doGet(h, "693134")
@@ -108,9 +113,23 @@ func TestHandler_Get_OK(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, 693134, body.TMDBID)
 	assert.Equal(t, "Dune: Part Two", body.Title)
-	require.Len(t, body.Library, 1)
+	require.Len(t, body.Library, 2)
 	assert.Equal(t, "radarr-alpha", body.Library[0].InstanceName)
 	assert.Equal(t, int64(5), body.Library[0].SizeOnDisk)
+	require.NotNil(t, body.Library[0].Quality)
+	assert.Equal(t, "Bluray-1080p", *body.Library[0].Quality)
+	require.NotNil(t, body.Library[0].Resolution)
+	assert.Equal(t, 1080, *body.Library[0].Resolution)
+	require.NotNil(t, body.Library[0].VideoCodec)
+	assert.Equal(t, "x265", *body.Library[0].VideoCodec)
+	require.NotNil(t, body.Library[0].AudioCodec)
+	assert.Equal(t, "EAC3", *body.Library[0].AudioCodec)
+	// Omitempty: an instance with no file serialises without the 4 keys.
+	assert.Nil(t, body.Library[1].Quality)
+	assert.Nil(t, body.Library[1].Resolution)
+	assert.Nil(t, body.Library[1].VideoCodec)
+	assert.Nil(t, body.Library[1].AudioCodec)
+	assert.NotContains(t, w.Body.String(), `"quality":null`, "nil quality must be omitted, not null")
 	assert.Contains(t, body.Degraded, "movie_i18n")
 }
 

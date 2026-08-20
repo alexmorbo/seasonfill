@@ -386,6 +386,16 @@ function LibraryRow({ row }: { row: MovieDetailLibrary }) {
       {row.availability && (
         <span className="text-[12px] text-tx-muted">{row.availability}</span>
       )}
+      {row.has_file && row.quality && (
+        <span className="text-[12px] text-tx-muted" data-testid="movie-library-quality">
+          {row.quality}
+        </span>
+      )}
+      {row.has_file && row.quality && (row.video_codec || row.audio_codec) && (
+        <span className="text-[12px] text-tx-faint" data-testid="movie-library-codec">
+          {[row.video_codec, row.audio_codec].filter(Boolean).join(' · ')}
+        </span>
+      )}
     </div>
   );
 }

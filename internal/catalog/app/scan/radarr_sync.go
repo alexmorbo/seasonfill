@@ -81,6 +81,10 @@ func BuildRadarrMovieCache(instanceName domain.InstanceName, m ports.RadarrMovie
 		Monitored:       m.Monitored,
 		HasFile:         m.HasFile,
 		SizeOnDiskBytes: m.SizeOnDiskBytes,
+		Quality:         m.Quality,
+		Resolution:      m.Resolution,
+		VideoCodec:      m.VideoCodec,
+		AudioCodec:      m.AudioCodec,
 		AddedToRadarr:   true,
 		UpdatedAt:       now,
 	}

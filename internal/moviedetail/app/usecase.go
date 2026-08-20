@@ -94,6 +94,10 @@ type LibraryMembership struct {
 	HasFile       bool
 	Availability  *string
 	SizeOnDisk    int64
+	Quality       *string
+	Resolution    *int
+	VideoCodec    *string
+	AudioCodec    *string
 }
 
 // StaleMarker marks a movie for re-enrichment on the next MovieRefreshScheduler
@@ -330,6 +334,10 @@ func (uc *UseCase) Get(ctx context.Context, tmdbID domain.TMDBID, lang string) (
 			HasFile:       s.HasFile,
 			Availability:  s.Availability,
 			SizeOnDisk:    s.SizeOnDiskBytes,
+			Quality:       s.Quality,
+			Resolution:    s.Resolution,
+			VideoCodec:    s.VideoCodec,
+			AudioCodec:    s.AudioCodec,
 		})
 	}
 

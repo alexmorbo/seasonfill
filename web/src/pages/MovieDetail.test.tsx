@@ -157,6 +157,43 @@ describe('<MovieDetail />', () => {
     expect(screen.getByTestId('movie-library-hasfile')).toBeInTheDocument();
   });
 
+  it('renders quality/codec chip only when has_file and quality are present', async () => {
+    spyFetch({
+      ...movie(),
+      library: [
+        {
+          instance_name: 'radarr',
+          monitored: true,
+          has_file: true,
+          availability: 'released',
+          quality: 'Bluray-1080p',
+          resolution: 1080,
+          video_codec: 'x265',
+          audio_codec: 'EAC3',
+        },
+      ],
+    });
+    renderRoute('/movies/438631');
+
+    expect(await screen.findByTestId('movie-library-row-radarr')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-library-quality')).toHaveTextContent('Bluray-1080p');
+    expect(screen.getByTestId('movie-library-codec')).toHaveTextContent('x265 · EAC3');
+  });
+
+  it('omits the quality chip when the sync has not captured quality yet (has_file but no quality)', async () => {
+    spyFetch({
+      ...movie(),
+      library: [
+        { instance_name: 'radarr', monitored: true, has_file: true, availability: 'released' },
+      ],
+    });
+    renderRoute('/movies/438631');
+
+    expect(await screen.findByTestId('movie-library-row-radarr')).toBeInTheDocument();
+    expect(screen.queryByTestId('movie-library-quality')).toBeNull();
+    expect(screen.queryByTestId('movie-library-codec')).toBeNull();
+  });
+
   it('composes all four movie sections (overview, cast, ratings, recommendations)', async () => {
     routedFetch();
     renderRoute('/movies/438631');

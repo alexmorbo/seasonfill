@@ -1513,6 +1513,10 @@ type MovieStateModel struct {
 	Monitored       bool           `gorm:"column:monitored;not null"`
 	HasFile         bool           `gorm:"column:has_file;not null"`
 	Availability    *string        `gorm:"column:availability;type:text"`
+	Quality         *string        `gorm:"column:quality;type:text"`
+	Resolution      *int           `gorm:"column:resolution"`
+	VideoCodec      *string        `gorm:"column:video_codec;type:text"`
+	AudioCodec      *string        `gorm:"column:audio_codec;type:text"`
 	SizeOnDiskBytes int64          `gorm:"column:size_on_disk_bytes;not null"`
 	AddedToRadarr   bool           `gorm:"column:added_to_radarr;not null"`
 	UpdatedAt       time.Time      `gorm:"column:updated_at;not null"`

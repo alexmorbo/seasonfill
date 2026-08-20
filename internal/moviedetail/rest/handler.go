@@ -146,6 +146,10 @@ func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto
 			HasFile:       m.HasFile,
 			Availability:  m.Availability,
 			SizeOnDisk:    m.SizeOnDisk,
+			Quality:       m.Quality,
+			Resolution:    m.Resolution,
+			VideoCodec:    m.VideoCodec,
+			AudioCodec:    m.AudioCodec,
 		})
 	}
 	for _, g := range d.Genres {

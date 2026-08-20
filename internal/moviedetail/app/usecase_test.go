@@ -60,12 +60,16 @@ func TestUseCase_Get_HappyPath(t *testing.T) {
 		PosterAsset:  new("/canon-poster.jpg"),
 	}
 	avail := "released"
+	quality, resolution := "Bluray-1080p", 1080
+	video, audio := "x265", "EAC3"
 	uc := New(
 		fakeCanon{canon: canon},
 		fakeI18n{row: enrichpersistence.MovieI18nRow{Title: new("Дюна: Часть вторая"), Overview: new("обзор"), Poster: new("/ru-poster.jpg")}},
 		fakeCollection{col: movie.CollectionCanon{TMDBCollectionID: collID, Name: "Dune Collection", RadarrMonitored: true}},
 		fakeMembership{states: []movie.StateEntry{
-			{InstanceName: "radarr-alpha", RadarrMovieID: 7, MovieID: 42, Monitored: true, HasFile: true, Availability: &avail, SizeOnDiskBytes: 99},
+			{InstanceName: "radarr-alpha", RadarrMovieID: 7, MovieID: 42, Monitored: true, HasFile: true,
+				Availability: &avail, SizeOnDiskBytes: 99, Quality: &quality, Resolution: &resolution,
+				VideoCodec: &video, AudioCodec: &audio},
 			{InstanceName: "radarr-beta", RadarrMovieID: 8, MovieID: 42},
 		}},
 	)
@@ -82,6 +86,19 @@ func TestUseCase_Get_HappyPath(t *testing.T) {
 	require.Len(t, d.Library, 2)
 	assert.Equal(t, "radarr-alpha", d.Library[0].InstanceName)
 	assert.Equal(t, int64(99), d.Library[0].SizeOnDisk)
+	require.NotNil(t, d.Library[0].Quality)
+	assert.Equal(t, "Bluray-1080p", *d.Library[0].Quality)
+	require.NotNil(t, d.Library[0].Resolution)
+	assert.Equal(t, 1080, *d.Library[0].Resolution)
+	require.NotNil(t, d.Library[0].VideoCodec)
+	assert.Equal(t, "x265", *d.Library[0].VideoCodec)
+	require.NotNil(t, d.Library[0].AudioCodec)
+	assert.Equal(t, "EAC3", *d.Library[0].AudioCodec)
+	// radarr-beta has no file → the quality/codec facts stay nil.
+	assert.Nil(t, d.Library[1].Quality)
+	assert.Nil(t, d.Library[1].Resolution)
+	assert.Nil(t, d.Library[1].VideoCodec)
+	assert.Nil(t, d.Library[1].AudioCodec)
 	assert.Empty(t, d.Degraded)
 }
 

@@ -80,8 +80,19 @@ func TestSchema_MovieStates_Shape(t *testing.T) {
 			t.Parallel()
 			s := Schema(d)
 			tbl := mustTable(s, "movie_states")
-			if got, want := len(tbl.Columns), 11; got != want {
+			// 11 base + 4 downloaded-release facts (quality, resolution,
+			// video_codec, audio_codec), all nullable.
+			if got, want := len(tbl.Columns), 15; got != want {
 				t.Fatalf("movie_states columns = %d, want %d", got, want)
+			}
+			colByName := map[string]bool{}
+			for _, c := range tbl.Columns {
+				colByName[c.Name] = true
+			}
+			for _, want := range []string{"quality", "resolution", "video_codec", "audio_codec"} {
+				if !colByName[want] {
+					t.Errorf("missing column %q", want)
+				}
 			}
 			if tbl.PrimaryKey == nil || len(tbl.PrimaryKey.Parts) != 2 ||
 				tbl.PrimaryKey.Parts[0].C.Name != "instance_name" ||

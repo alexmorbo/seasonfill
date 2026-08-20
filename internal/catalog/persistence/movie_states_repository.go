@@ -35,13 +35,14 @@ var _ ports.MovieStatesRepository = (*MovieStatesRepository)(nil)
 func (r *MovieStatesRepository) Upsert(ctx context.Context, e movie.StateEntry) error {
 	return r.upsertWithConflictColumns(ctx, e, []string{
 		"movie_id", "title_slug", "monitored", "has_file", "availability",
-		"size_on_disk_bytes", "added_to_radarr", "updated_at", "deleted_at",
+		"size_on_disk_bytes", "quality", "resolution", "video_codec", "audio_codec",
+		"added_to_radarr", "updated_at", "deleted_at",
 	})
 }
 
 // UpsertStub — THIN writer (radarr-webhook). STRICT SUBSET of Upsert's set:
-// omits availability + size_on_disk_bytes so a stat-less webhook write can't
-// zero a real cached stat on an existing row.
+// omits availability + size_on_disk_bytes + the quality/codec facts so a
+// stat-less webhook write can't zero a real cached stat on an existing row.
 func (r *MovieStatesRepository) UpsertStub(ctx context.Context, e movie.StateEntry) error {
 	return r.upsertWithConflictColumns(ctx, e, []string{
 		"movie_id", "title_slug", "monitored", "has_file",
@@ -68,6 +69,10 @@ func (r *MovieStatesRepository) upsertWithConflictColumns(ctx context.Context, e
 		Monitored:       e.Monitored,
 		HasFile:         e.HasFile,
 		Availability:    e.Availability,
+		Quality:         e.Quality,
+		Resolution:      e.Resolution,
+		VideoCodec:      e.VideoCodec,
+		AudioCodec:      e.AudioCodec,
 		SizeOnDiskBytes: e.SizeOnDiskBytes,
 		AddedToRadarr:   e.AddedToRadarr,
 		UpdatedAt:       now,
@@ -161,6 +166,10 @@ func movieStateToEntry(m database.MovieStateModel) movie.StateEntry {
 		Monitored:       m.Monitored,
 		HasFile:         m.HasFile,
 		Availability:    m.Availability,
+		Quality:         m.Quality,
+		Resolution:      m.Resolution,
+		VideoCodec:      m.VideoCodec,
+		AudioCodec:      m.AudioCodec,
 		SizeOnDiskBytes: m.SizeOnDiskBytes,
 		AddedToRadarr:   m.AddedToRadarr,
 		UpdatedAt:       m.UpdatedAt,

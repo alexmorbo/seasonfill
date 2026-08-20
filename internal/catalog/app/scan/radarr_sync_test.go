@@ -48,6 +48,43 @@ func TestBuildRadarrMovieCache_SyncAndWebhookIdentical(t *testing.T) {
 	assert.Equal(t, domain.MovieID(0), fromSync.State.MovieID, "movie_id stamped only by PersistRadarrMovieCache")
 }
 
+// TestBuildRadarrMovieCache_QualityCodecsFlow proves the downloaded-release
+// facts captured from Radarr's inline movieFile reach movie.StateEntry via the
+// RICH sync path, and stay nil when the source carries none.
+func TestBuildRadarrMovieCache_QualityCodecsFlow(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+
+	t.Run("populated", func(t *testing.T) {
+		t.Parallel()
+		m := sampleRadarrMovie()
+		quality, resolution := "Bluray-1080p", 1080
+		video, audio := "x265", "EAC3"
+		m.Quality, m.Resolution, m.VideoCodec, m.AudioCodec = &quality, &resolution, &video, &audio
+
+		got := BuildRadarrMovieCache("radarr-main", m, now).State
+
+		require.NotNil(t, got.Quality)
+		assert.Equal(t, "Bluray-1080p", *got.Quality)
+		require.NotNil(t, got.Resolution)
+		assert.Equal(t, 1080, *got.Resolution)
+		require.NotNil(t, got.VideoCodec)
+		assert.Equal(t, "x265", *got.VideoCodec)
+		require.NotNil(t, got.AudioCodec)
+		assert.Equal(t, "EAC3", *got.AudioCodec)
+	})
+
+	t.Run("absent stays nil", func(t *testing.T) {
+		t.Parallel()
+		got := BuildRadarrMovieCache("radarr-main", sampleRadarrMovie(), now).State
+
+		assert.Nil(t, got.Quality)
+		assert.Nil(t, got.Resolution)
+		assert.Nil(t, got.VideoCodec)
+		assert.Nil(t, got.AudioCodec)
+	})
+}
+
 // fakeCanonUpserter / fakeStateUpserter record calls for the persist-order test.
 type fakeCanonUpserter struct {
 	lastCanon movie.Canon

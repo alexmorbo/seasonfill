@@ -21,6 +21,10 @@ type StateEntry struct {
 	Monitored       bool
 	HasFile         bool
 	Availability    *string
+	Quality         *string
+	Resolution      *int
+	VideoCodec      *string
+	AudioCodec      *string
 	SizeOnDiskBytes int64
 	AddedToRadarr   bool
 	UpdatedAt       time.Time
