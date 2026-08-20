@@ -90,7 +90,7 @@ func (h *Handler) toMovieDetailResponse(ctx context.Context, d mdapp.Detail) dto
 		if hash := h.resolver.ResolveSync(syncCtx, d.Poster, "w342", "poster_w342"); hash != nil {
 			poster = hash
 		}
-		if hash := h.resolver.ResolveSync(syncCtx, d.Backdrop, "w780", "backdrop_w780"); hash != nil {
+		if hash := h.resolver.ResolveSync(syncCtx, d.Backdrop, "w1280", "backdrop_w1280"); hash != nil {
 			backdrop = hash
 		}
 		cancel()

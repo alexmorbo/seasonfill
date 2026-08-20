@@ -177,7 +177,7 @@ func TestHandler_Get_ResolvesImages(t *testing.T) {
 }
 
 // TestHandler_Get_HeroResolvesSynchronously is the ADR-0022 S5 guard: the
-// first-fold hero poster (w342) AND backdrop (w780) must resolve SYNCHRONOUSLY
+// first-fold hero poster (w342) AND backdrop (w1280) must resolve SYNCHRONOUSLY
 // (mirroring the series skeleton hero), so a warm store hit paints on the first
 // fold instead of the async-Resolve blank-then-placeholder path.
 func TestHandler_Get_HeroResolvesSynchronously(t *testing.T) {
@@ -209,8 +209,8 @@ func TestHandler_Get_HeroResolvesSynchronously(t *testing.T) {
 	// sizes, so the response carries them without any async pass.
 	t.Run("warm hit paints resolved hero hash synchronously", func(t *testing.T) {
 		lookup := mdMediaLookupStub{byURL: map[string]string{
-			appmedia.BuildTMDBImageURL("w342", rawPoster):   posterHash,
-			appmedia.BuildTMDBImageURL("w780", rawBackdrop): backdropHash,
+			appmedia.BuildTMDBImageURL("w342", rawPoster):    posterHash,
+			appmedia.BuildTMDBImageURL("w1280", rawBackdrop): backdropHash,
 		}}
 		resolver := media.NewResolver(lookup, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
