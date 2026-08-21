@@ -28,6 +28,7 @@ import (
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
@@ -284,7 +285,7 @@ func newRegrabHarness(t *testing.T) *regrabHarness {
 	regrabUC := regrab.NewUseCase(
 		settingsUC,
 		fixedInstanceRegistry{m: instanceMap},
-		infraregrab.QbitClientFactoryFunc{},
+		infraregrab.NewQbitClientFactory(qbit.NewClientCache()),
 		infraregrab.DetectorFactoryFunc{},
 		grabRepo, cooldownRepo, blacklistRepo, watchdogStateRepo,
 		evaluator, grabUC,

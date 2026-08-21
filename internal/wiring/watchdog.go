@@ -12,6 +12,7 @@ import (
 	catalogrest "github.com/alexmorbo/seasonfill/internal/catalog/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/observability"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	handlers "github.com/alexmorbo/seasonfill/internal/shared/http/handlers"
@@ -109,8 +110,17 @@ func BuildWatchdog(persistence *PersistenceBundle, sonarr *SonarrBundle, log *sl
 //     other Phase 10 handlers — keeping the construction site
 //     together preserves the pre-337 pattern of "all Phase 10 wiring
 //     in one block".
+//
+//   - QbitClients is the process-wide qBittorrent connection cache
+//     (B1.6). BuildRegrab constructs exactly ONE and shares it with the
+//     regrab client factory, the rollup probe and the rollup torrents
+//     lister; BuildTorrentsync reuses the same pointer for the sync
+//     session factory and the torrent-action provider. Instances that
+//     point at the same qBittorrent then hold one session and one login
+//     between them, regardless of their categories.
 type RegrabBundle struct {
 	QbitSettingsUC           *regrab.SettingsUseCase
+	QbitClients              *qbit.ClientCache
 	QbitSettingsHandler      *handlers.QbitSettingsHandler
 	BlacklistRepo            *watchdogpersistence.WatchdogBlacklistRepository
 	WatchdogStateRepo        *watchdogpersistence.WatchdogStateRepository
@@ -132,8 +142,8 @@ type RegrabBundle struct {
 // Construction order mirrors the pre-337 inline body verbatim:
 //
 //  1. qbitSettingsRepo + qbitSettingsUC + qbitSettingsHandler.
-//  2. blacklistRepo + noBetterCounterRepo + regrabUC (WithMetrics +
-//     WithDecisions).
+//  2. blacklistRepo + noBetterCounterRepo + qbitClients (B1.6 connection
+//     cache) + regrabUC (WithMetrics + WithDecisions).
 //  3. RegrabLoop (NewRegrabLoop) — NOT started here; server.go calls
 //     .Start(rootCtx) after BuildRegrab returns.
 //  4. watchdogInstanceAdapter + WatchdogRollupHandler (WithQbitProbe +
@@ -189,10 +199,19 @@ func BuildRegrab(
 	// grab / cooldown / blacklist / counter repos, evaluator + grab UC.
 	blacklistRepo := watchdogpersistence.NewWatchdogBlacklistRepository(db)
 	watchdogStateRepo := watchdogpersistence.NewWatchdogStateRepository(db)
+
+	// B1.6 — ONE qBittorrent connection cache per process. Keyed by
+	// url+username+password (NOT category), so a radarr and a sonarr
+	// instance sharing a qBt share one session and log in once. Threaded
+	// into every adapter that dials qBt: here, the rollup probe/lister
+	// below, and (via RegrabBundle.QbitClients) the torrentsync session
+	// factory + torrent-action provider in catalog.go.
+	qbitClients := qbit.NewClientCache()
+
 	regrabUC := regrab.NewUseCase(
 		qbitSettingsUC, // implements SettingsLookup
 		sonarrBundle.InstanceRegistry,
-		infraregrab.QbitClientFactoryFunc{},
+		infraregrab.NewQbitClientFactory(qbitClients),
 		infraregrab.DetectorFactoryFunc{},
 		scanBundle.GrabRepo, scanBundle.CooldownRepo, blacklistRepo, watchdogStateRepo,
 		scanBundle.Evaluator, scanBundle.GrabUC,
@@ -220,8 +239,8 @@ func BuildRegrab(
 		watchdogInstanceAdapter, // InstanceLister
 		watchdogInstanceAdapter, // InstanceIDLookup
 		log,
-	).WithQbitProbe(infraregrab.QbitProbeFunc{}).
-		WithQbitTorrentsLister(infraregrab.QbitTorrentsListerFunc{})
+	).WithQbitProbe(infraregrab.NewQbitProbe(qbitClients)).
+		WithQbitTorrentsLister(infraregrab.NewQbitTorrentsLister(qbitClients))
 
 	// 047b — blacklist handler. seriesRepo + seriesCacheRepo are local
 	// (stateless GORM wrappers, same pattern as scan.go / webhook.go).
@@ -306,6 +325,7 @@ func BuildRegrab(
 
 	return &RegrabBundle{
 		QbitSettingsUC:           qbitSettingsUC,
+		QbitClients:              qbitClients,
 		QbitSettingsHandler:      qbitSettingsHandler,
 		BlacklistRepo:            blacklistRepo,
 		WatchdogStateRepo:        watchdogStateRepo,

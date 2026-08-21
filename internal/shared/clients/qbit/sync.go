@@ -136,11 +136,18 @@ func newSyncSession(ctx context.Context, c *client) (*syncSession, error) {
 	if err := c.Login(ctx); err != nil {
 		return nil, fmt.Errorf("qbit sync session: %w", err)
 	}
+	return newSyncSessionFor(c), nil
+}
+
+// newSyncSessionFor builds the /sync/maindata cursor over an already
+// authenticated client. Used by the connection cache, which logs in once
+// per connection rather than once per session (B1.6).
+func newSyncSessionFor(c *client) *syncSession {
 	return &syncSession{
 		inner: c.inner,
 		main:  &qbt.MainData{},
 		owner: c,
-	}, nil
+	}
 }
 
 // Refresh implements SyncSession.

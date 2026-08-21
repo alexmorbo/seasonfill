@@ -151,6 +151,17 @@ const defaultTimeout = 30 * time.Second
 // uses an unsupported scheme. The upstream qbt.NewClient never returns
 // an error — validation lives entirely on this side.
 func NewClient(cfg Config) (Client, error) {
+	c, err := newClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// newClient is NewClient with the concrete return type. The connection
+// cache (cache.go) needs *client to reach the unexported per-category
+// and post-login helpers.
+func newClient(cfg Config) (*client, error) {
 	if cfg.URL == "" {
 		return nil, fmt.Errorf("%w: url is empty", ErrInvalidConfig)
 	}
@@ -274,12 +285,20 @@ func (c *client) Login(ctx context.Context) error {
 // server-side filter. Empty cfg.Category returns every torrent the
 // authenticated session can see.
 func (c *client) ListTorrents(ctx context.Context) ([]Torrent, error) {
+	return c.listTorrents(ctx, c.cfg.Category)
+}
+
+// listTorrents is ListTorrents with an explicit server-side category
+// filter. The exported method passes cfg.Category; a connection-cached
+// view (cache.go) passes its own, so one shared session serves instances
+// that filter on different qBit categories (B1.6).
+func (c *client) listTorrents(ctx context.Context, category string) ([]Torrent, error) {
 	if c.closed {
 		return nil, errors.New("qbit client closed")
 	}
 	opts := qbt.TorrentFilterOptions{}
-	if c.cfg.Category != "" {
-		opts.Category = c.cfg.Category
+	if category != "" {
+		opts.Category = category
 	}
 	raw, err := c.inner.GetTorrentsCtx(ctx, opts)
 	if err != nil {
@@ -407,6 +426,16 @@ func (c *client) Ping(ctx context.Context) error {
 	}
 	if err := c.Login(ctx); err != nil {
 		return fmt.Errorf("qbit ping: %w", err)
+	}
+	return c.appVersion(ctx)
+}
+
+// appVersion is Ping's post-login half. Split out so a connection-cached
+// view can probe over an already-established session instead of logging
+// in on every call (B1.6).
+func (c *client) appVersion(ctx context.Context) error {
+	if c.closed {
+		return errors.New("qbit client closed")
 	}
 	if _, err := c.inner.GetAppVersionCtx(ctx); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {

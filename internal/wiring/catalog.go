@@ -765,8 +765,10 @@ func BuildTorrentsync(
 	// for password-decrypting Lookup. Returned as the
 	// torrentsync.SyncSessionFactory interface so it threads into
 	// NewUseCase without a cast.
+	// B1.6 — same connection cache as the regrab loop: the sync session
+	// rides the session the poll loop already authenticated.
 	factory := loops.NewTorrentsyncSessionFactoryAdapter(
-		infraregrab.QbitClientFactoryFunc{},
+		infraregrab.NewQbitClientFactory(regrabBundle.QbitClients),
 		regrabBundle.QbitSettingsUC,
 	)
 
@@ -856,7 +858,7 @@ func BuildTorrentsync(
 	// regrab settings decrypt + client factory already wired above.
 	torrentActionProvider := torrentActionQbitProvider{
 		lookup:  regrabBundle.QbitSettingsUC,
-		factory: infraregrab.QbitClientFactoryFunc{},
+		factory: infraregrab.NewQbitClientFactory(regrabBundle.QbitClients),
 	}
 	torrentAuditRepo := torrentactionpersistence.NewAuditRepository(db)
 	// ADR-0013 Q5 — bridge-table fallback guard. Torrents seasonfill only
@@ -892,7 +894,9 @@ func BuildTorrentsync(
 // SettingsUseCase, then builds a client via the shared factory. The
 // returned qbit.Client is narrowed to the app's TorrentController by the
 // return type. ports.ErrNotFound bubbles for a missing/disabled settings
-// row (-> 404); qbit.NewClient config errors bubble (-> 500).
+// row (-> 404); qbit.NewClient config errors bubble (-> 500). Since
+// B1.6 the returned client is a view over the shared per-connection
+// session — its Close releases the view, not the session.
 type torrentActionQbitProvider struct {
 	lookup  appregrab.SettingsLookup
 	factory infraregrab.QbitClientFactoryFunc
