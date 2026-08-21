@@ -17,10 +17,14 @@ var ErrMalformedPayload = errors.New("malformed radarr webhook payload")
 
 // movieWebhookAlias maps Radarr eventType strings → domain MovieEventType.
 // Case-insensitive. Unknown keys fall through to MovieEventTypeUnsupported.
+//
+// "grab" is classified DISTINCTLY (ADR-0023 B1.2): it is the only Radarr
+// event carrying downloadId, and it must NOT drive the movie_states cache
+// write (its hasFile is always false — see MovieEventTypeUpsert's docstring).
 var movieWebhookAlias = map[string]webhook.MovieEventType{
 	"movieadded":                webhook.MovieEventTypeUpsert,
-	"grab":                      webhook.MovieEventTypeUpsert,
-	"download":                  webhook.MovieEventTypeUpsert, // import success
+	"grab":                      webhook.MovieEventTypeGrabbed, // B1.2 — carries downloadId
+	"download":                  webhook.MovieEventTypeUpsert,  // import success
 	"moviefileimported":         webhook.MovieEventTypeUpsert,
 	"rename":                    webhook.MovieEventTypeUpsert,
 	"moviefiledelete":           webhook.MovieEventTypeUpsert, // has_file → false
@@ -61,6 +65,9 @@ func MapWebhookEvent(payload []byte, instanceName domain.InstanceName) (webhook.
 		RawEventType: dto.EventType,
 		OccurredAt:   coalesceTime(dto.EventTimestamp),
 		Monitored:    true, // default; overridden by movie.monitored when present
+		// B1.2: only Grab populates downloadId; passthrough unconditionally so
+		// the domain — not this mapper — decides what to do with it.
+		DownloadID: strings.TrimSpace(dto.DownloadID),
 	}
 	if dto.Movie != nil {
 		ev.RadarrMovieID = dto.Movie.ID

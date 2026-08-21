@@ -21,7 +21,7 @@ func TestRadarrMapWebhookEvent(t *testing.T) {
 		wantErr bool
 	}{
 		{"movie_added", `{"eventType":"MovieAdded","movie":{"id":7,"title":"Dune","tmdbId":438631,"titleSlug":"dune-2021"}}`, webhook.MovieEventTypeUpsert, 7, false, false},
-		{"grab", `{"eventType":"Grab","movie":{"id":7}}`, webhook.MovieEventTypeUpsert, 7, false, false},
+		{"grab", `{"eventType":"Grab","movie":{"id":7}}`, webhook.MovieEventTypeGrabbed, 7, false, false},
 		{"download_import", `{"eventType":"Download","movie":{"id":7},"movieFile":{"size":5000000000}}`, webhook.MovieEventTypeUpsert, 7, true, false},
 		{"file_delete", `{"eventType":"MovieFileDelete","movie":{"id":7},"deletedFiles":true}`, webhook.MovieEventTypeUpsert, 7, false, false},
 		{"movie_delete", `{"eventType":"MovieDelete","movie":{"id":7}}`, webhook.MovieEventTypeDeleted, 7, false, false},
@@ -79,4 +79,34 @@ func TestRadarrMapWebhookEvent_FieldMapping(t *testing.T) {
 	assert.Equal(t, "MovieAdded", ev.RawEventType)
 	// instanceName from the URL path, NOT the payload.
 	assert.Equal(t, domain.InstanceName("radarr-main"), ev.InstanceName)
+}
+
+// TestRadarrMapWebhookEvent_GrabCarriesDownloadID — ADR-0023 B1.2: the Grab
+// event is classified distinctly AND the already-parsed downloadId reaches the
+// domain event (it used to be dropped on the floor). Non-grab events leave
+// DownloadID empty.
+func TestRadarrMapWebhookEvent_GrabCarriesDownloadID(t *testing.T) {
+	t.Parallel()
+
+	const hash = "0123456789ABCDEF0123456789abcdef01234567"
+	ev, err := MapWebhookEvent([]byte(
+		`{"eventType":"Grab","downloadId":"`+hash+`","movie":{"id":7,"title":"Dune","tmdbId":438631}}`,
+	), "radarr-main")
+	require.NoError(t, err)
+	assert.Equal(t, webhook.MovieEventTypeGrabbed, ev.Type)
+	assert.Equal(t, hash, ev.DownloadID, "downloadId passes through verbatim; normalisation is the domain's job")
+	assert.Equal(t, 7, ev.RadarrMovieID)
+	assert.Equal(t, "Grab", ev.RawEventType)
+	assert.False(t, ev.HasFile, "a grab is not an import")
+
+	// Whitespace-only downloadId normalises to "" (→ silent no-op downstream).
+	blank, err := MapWebhookEvent([]byte(`{"eventType":"Grab","downloadId":"   ","movie":{"id":7}}`), "radarr-main")
+	require.NoError(t, err)
+	assert.Empty(t, blank.DownloadID)
+
+	// Non-grab events carry no downloadId.
+	added, err := MapWebhookEvent([]byte(`{"eventType":"MovieAdded","movie":{"id":7}}`), "radarr-main")
+	require.NoError(t, err)
+	assert.Empty(t, added.DownloadID)
+	assert.Equal(t, webhook.MovieEventTypeUpsert, added.Type)
 }

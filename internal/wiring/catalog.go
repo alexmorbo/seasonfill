@@ -596,6 +596,13 @@ func BuildWebhook(
 	webhookInboxRepo := catalogpersistence.NewWebhookInboxRepository(db)
 	inboxCfg := config.WebhookInboxConfigFromEnv()
 
+	// ADR-0023 B1.1/B1.2 — torrent_movie_map repo, the movie twin of
+	// torrentSeriesMapRepo above. Wired here so the Radarr Grab webhook can
+	// write the (instance, hash) → radarr_movie_id bridge row in the same tx
+	// as the rest of the webhook side effects. B1.3's reconciler and B1.4's
+	// reader pick the same table up later.
+	torrentMovieMapRepo := catalogpersistence.NewTorrentMovieMapRepository(db)
+
 	// Ф6-R-4b: radarr movie webhook usecase (THIN movie_states writer). Reuses
 	// the SAME Movies (COALESCE-guarded canon) + MovieStates repos as the
 	// DORMANT radarr-sync, so both writers land byte-identical cache rows (F-21).
@@ -604,6 +611,11 @@ func BuildWebhook(
 		States:      stubMovieStateWriter{repo: scanBundle.RadarrSync.MovieStates}, // THIN UpsertStub
 		SoftDeleter: scanBundle.RadarrSync.MovieStates,
 		Logger:      webhookLog,
+		// ADR-0023 B1.2 — Grab bridge. Shares the scan stack's GormTransactor
+		// (same instance the inbox drainer uses below) so the map write is one
+		// atomic unit.
+		TorrentMovieMap: torrentMovieMapRepo,
+		Tx:              scanBundle.Txr,
 	})
 
 	webhookInboxDrainer := webhookuc.NewDrainer(webhookuc.DrainerDeps{
