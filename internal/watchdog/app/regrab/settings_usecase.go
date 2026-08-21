@@ -22,7 +22,7 @@ import (
 // explicit `ErrCode...` constant the handler reads.
 var (
 	ErrValidation          = errors.New("validation failed")
-	ErrWebhookNotInstalled = errors.New("OnGrab webhook is not installed in Sonarr")
+	ErrWebhookNotInstalled = errors.New("OnGrab webhook is not installed on the arr instance")
 	ErrWebhookCheckFailed  = errors.New("OnGrab webhook installation check failed")
 )
 

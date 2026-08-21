@@ -189,8 +189,15 @@ func BuildRegrab(
 
 	// Phase 10 Watchdog — settings CRUD.
 	qbitSettingsRepo := catalogpersistence.NewQbitSettingsRepository(db)
+	// ADR-0023 F3: .WithRadarr wires the sonarr-miss fallback so a Radarr
+	// instance can pass the OnGrab-webhook gate. scanBundle.RadarrSync is
+	// always non-nil (BuildScan unconditionally calls BuildRadarrSync — see
+	// internal/wiring/catalog.go), so RadarrHolder is always a live,
+	// reload-aware *adapters.RadarrInstanceMapHolder (empty map until the
+	// OnApplied fanout populates it — WithRadarr stays nil-OK regardless).
 	qbitSettingsUC := regrab.NewSettingsUseCase(qbitSettingsRepo, instanceRepo, cipher, watchdogLog).
-		WithWebhookChecker(adapters.NewWebhookChecker(sonarrBundle.InstanceReg))
+		WithWebhookChecker(adapters.NewWebhookChecker(sonarrBundle.InstanceReg).
+			WithRadarr(scanBundle.RadarrSync.RadarrHolder))
 	// HTTP handler stays on bare `log` — see watchdogLog godoc above.
 	qbitSettingsHandler := handlers.NewQbitSettingsHandler(qbitSettingsUC, log)
 
