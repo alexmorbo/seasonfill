@@ -64,6 +64,26 @@ type SeriesMap interface {
 	FindByHash(ctx context.Context, hash string) (SeriesMapRef, error)
 }
 
+// MovieMapRef is the torrent_movie_map projection the Q5 fallback guard
+// needs: the instance that owns the hash (RadarrMovieID carried for
+// logging / future use, cheap to select). Twin of SeriesMapRef.
+type MovieMapRef struct {
+	InstanceName  shareddomain.InstanceName
+	RadarrMovieID shareddomain.RadarrMovieID
+}
+
+// MovieMap is the movie-side twin of SeriesMap (ADR-0023 B1.1).
+// Movie torrents seasonfill only OBSERVES have no grab_records row, so
+// the Grabs guard 404s them; the displayed set comes from
+// torrent_movie_map, and FindByHash resolves the owning instance from
+// that bridge. ports.ErrNotFound (wrapped in GrabNotFoundError) signals
+// a hash absent from the bridge. Satisfied by
+// *torrentactionpersistence.MovieMapRepository. Not yet consumed by the
+// usecase — B1.6 folds it into the guard chain.
+type MovieMap interface {
+	FindByHash(ctx context.Context, hash string) (MovieMapRef, error)
+}
+
 // TorrentController is the narrow write surface the usecase drives against
 // a single qBit instance. qbit.Client satisfies it structurally (it also
 // exposes Login/Pause/Resume/Recheck/Close). The usecase owns the client

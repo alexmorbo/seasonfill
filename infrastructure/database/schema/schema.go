@@ -332,10 +332,11 @@ func Schema(d Dialect) *atlasschema.Schema {
 
 	// D-6 (story 467c) — qBit runtime tables: qbit_settings (per-instance
 	// Watchdog config), qbit_torrents (per-(instance, hash) snapshot),
-	// qbit_torrent_events (state-transition log, 180d retention), and
-	// torrent_series_map (qBit hash → Sonarr series_id Phase-2 fuzzy).
+	// qbit_torrent_events (state-transition log, 180d retention),
+	// torrent_series_map (qBit hash → Sonarr series_id Phase-2 fuzzy),
+	// and torrent_movie_map (ADR-0023 B1.1 — qBit hash → Radarr movie_id).
 	//
-	// All four FK to arr_instance.name with ON DELETE CASCADE so a
+	// All five FK to arr_instance.name with ON DELETE CASCADE so a
 	// single instance delete wipes its qBit runtime footprint atomically.
 	//
 	// Dev-time split: setting ATLAS_SCHEMA_SKIP_QBIT_RUNTIME=1 generates
@@ -4354,18 +4355,20 @@ func buildOriginReleasesTable(d Dialect, sonarrInstance *atlasschema.Table) *atl
 // D-6 (story 467c) — qBit runtime tables.
 
 // addQbitRuntime appends qbit_settings, qbit_torrents,
-// qbit_torrent_events, and torrent_series_map. Called from Schema(d)
-// after addGrabAudit. All four FK to arr_instance.name CASCADE so
-// a single arr_instance delete wipes the entire qBit runtime
-// footprint for that instance.
+// qbit_torrent_events, torrent_series_map, and torrent_movie_map.
+// Called from Schema(d) after addGrabAudit. All five FK to
+// arr_instance.name CASCADE so a single arr_instance delete wipes the
+// entire qBit runtime footprint for that instance.
 //
 // PRD §5.4 §7.3 — qBit runtime + Phase-2 fuzzy matcher.
+// ADR-0023 B1.1 — torrent_movie_map (movie twin of torrent_series_map).
 func addQbitRuntime(s *atlasschema.Schema, d Dialect) {
 	sonarrInstance := mustTable(s, "arr_instance")
 	s.AddTables(buildQbitSettingsTable(d, sonarrInstance))
 	s.AddTables(buildQbitTorrentsTable(d, sonarrInstance))
 	s.AddTables(buildQbitTorrentEventsTable(d, sonarrInstance))
 	s.AddTables(buildTorrentSeriesMapTable(d, sonarrInstance))
+	s.AddTables(buildTorrentMovieMapTable(d, sonarrInstance))
 }
 
 // buildQbitSettingsTable returns the qbit_settings table — 13 cols,
@@ -4542,6 +4545,52 @@ func buildTorrentSeriesMapTable(d Dialect, sonarrInstance *atlasschema.Table) *a
 		).
 		AddForeignKeys(
 			atlasschema.NewForeignKey("torrent_series_map_instance_name_fkey").
+				AddColumns(instanceName).
+				SetRefTable(sonarrInstance).
+				AddRefColumns(parentRefCol(sonarrInstance)).
+				SetOnDelete(atlasschema.Cascade).
+				SetOnUpdate(atlasschema.NoAction),
+		)
+}
+
+// buildTorrentMovieMapTable returns the torrent_movie_map table —
+// 6 cols, composite PK (instance_name, torrent_hash), FK
+// arr_instance.name CASCADE (ADR-0023 B1.1, migration 000065).
+//
+// Movie twin of torrent_series_map: bridge from a qBit torrent hash to
+// a Radarr movie id. Structural mirror of the series table with two
+// deliberate differences:
+//
+//   - season_number is GONE — movies have no seasons.
+//   - provenance (NOT NULL) is NEW — it records HOW the download was
+//     started (radarr_search = Radarr issued the grab itself;
+//     manual_import = the torrent was pushed into qBit out-of-band and
+//     later matched). The series bridge has no equivalent because the
+//     Sonarr flow only ever produces the search path.
+//
+// source keeps the series role (which lookup path won the row) but with
+// the movie value set: webhook | radarr_queue | radarr_history.
+// Neither source nor provenance carries a DB CHECK — both enums are
+// app-owned, matching webhook_inbox.status and enrichment_errors.source
+// precedent. The first-source-wins invariant lives in the repository
+// OnConflict (touches only created_at), identical to the series bridge.
+func buildTorrentMovieMapTable(d Dialect, sonarrInstance *atlasschema.Table) *atlasschema.Table {
+	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
+	torrentHash := atlasschema.NewStringColumn("torrent_hash", "text").SetNull(false)
+	radarrMovieID := atlasschema.NewIntColumn("radarr_movie_id", "bigint").SetNull(false)
+	source := atlasschema.NewStringColumn("source", "text").SetNull(false)
+	provenance := atlasschema.NewStringColumn("provenance", "text").SetNull(false)
+	createdAt := timestampColumn(d, "created_at", true /*withDefault*/, true /*notNull*/)
+
+	return atlasschema.NewTable("torrent_movie_map").
+		AddColumns(instanceName, torrentHash, radarrMovieID, source, provenance, createdAt).
+		SetPrimaryKey(atlasschema.NewPrimaryKey(instanceName, torrentHash)).
+		AddIndexes(
+			atlasschema.NewIndex("torrent_movie_map_movie_idx").
+				AddColumns(instanceName, radarrMovieID),
+		).
+		AddForeignKeys(
+			atlasschema.NewForeignKey("torrent_movie_map_instance_name_fkey").
 				AddColumns(instanceName).
 				SetRefTable(sonarrInstance).
 				AddRefColumns(parentRefCol(sonarrInstance)).

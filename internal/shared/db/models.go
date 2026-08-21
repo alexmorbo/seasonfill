@@ -1405,6 +1405,28 @@ type TorrentSeriesMapModel struct {
 
 func (TorrentSeriesMapModel) TableName() string { return "torrent_series_map" }
 
+// TorrentMovieMapModel — bridge from a qBit torrent hash to a Radarr
+// movie id (ADR-0023 B1.1, migration 000065). Movie twin of
+// TorrentSeriesMapModel. One row per (instance_name, torrent_hash).
+//
+// No season_number (movies have no seasons). `provenance` is the new
+// column with no series equivalent: radarr_search (Radarr issued the
+// grab) | manual_import (torrent appeared in qBit out-of-band and was
+// matched afterwards). `source` records which lookup path produced the
+// row: webhook | radarr_queue | radarr_history. Both enums are
+// app-enforced — the table carries no CHECK, matching the sibling
+// precedent (webhook_inbox.status, enrichment_errors.source).
+type TorrentMovieMapModel struct {
+	InstanceName  domain.InstanceName  `gorm:"primaryKey;column:instance_name;type:text"`
+	TorrentHash   domain.QbitHash      `gorm:"primaryKey;column:torrent_hash;type:text"`
+	RadarrMovieID domain.RadarrMovieID `gorm:"column:radarr_movie_id;not null"`
+	Source        string               `gorm:"column:source;type:text;not null"`
+	Provenance    string               `gorm:"column:provenance;type:text;not null"`
+	CreatedAt     time.Time            `gorm:"column:created_at;not null"`
+}
+
+func (TorrentMovieMapModel) TableName() string { return "torrent_movie_map" }
+
 // QbitTorrentEventModel — append-only log of state_group transitions
 // and synthetic added / completed / deleted events (PRD v4 §4.6,
 // §7.3, migration 000035). State_group (not state_raw) intentional:
