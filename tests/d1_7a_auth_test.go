@@ -260,7 +260,7 @@ func TestD17a_UserInstanceTagsForeignKeys(t *testing.T) {
 }
 
 // TestD17a_UserInstanceTagsLabelUnique — UNIQUE composite-2 on
-// (instance_name, sonarr_tag_label). Prevents two users claiming the
+// (instance_name, arr_tag_label). Prevents two users claiming the
 // same label on one instance.
 func TestD17a_UserInstanceTagsLabelUnique(t *testing.T) {
 	t.Parallel()
@@ -274,8 +274,8 @@ func TestD17a_UserInstanceTagsLabelUnique(t *testing.T) {
 			}
 			if len(idx.Parts) != 2 ||
 				idx.Parts[0].C.Name != "instance_name" ||
-				idx.Parts[1].C.Name != "sonarr_tag_label" {
-				t.Errorf("user_instance_tags_label parts = %+v, want (instance_name, sonarr_tag_label)", idx.Parts)
+				idx.Parts[1].C.Name != "arr_tag_label" {
+				t.Errorf("user_instance_tags_label parts = %+v, want (instance_name, arr_tag_label)", idx.Parts)
 			}
 		})
 	}

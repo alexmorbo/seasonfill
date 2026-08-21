@@ -1,7 +1,13 @@
 // Package app — tag_resolver.go ships the N-4c TagResolver: maps a
-// (user, instance) tuple to a Sonarr tag.id. Cache hits in
-// user_instance_tags skip Sonarr entirely; cache miss falls through to
+// (user, instance) tuple to an arr tag.id. Cache hits in
+// user_instance_tags skip the arr entirely; cache miss falls through to
 // ListTags + (if absent) CreateTag, then writes the cache row.
+//
+// Arr-neutral since R-6: the same resolver serves the Sonarr series-add
+// and the Radarr movie-add. arr_instance.name is unique across both arr
+// kinds (`type` discriminator), so the (user_id, instance_name) cache
+// key already pins which arr a row belongs to — no per-arr columns and
+// no kind parameter are needed.
 //
 // NormalizeUsername produces the "sf-<slug>" label per PRD §5.3.1:
 // lowercase, non-alphanumeric → "-", dedupe + trim, length cap 30
@@ -21,10 +27,11 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// SonarrTagPort is the narrow per-instance Sonarr surface the resolver
-// reads: list existing tags + create on miss. The wiring layer adapts
-// a runtime *sonarr.Client to this two-method port via a closure.
-type SonarrTagPort interface {
+// ArrTagPort is the narrow per-instance arr surface the resolver reads:
+// list existing tags + create on miss. Satisfied by ports.SonarrClient
+// AND ports.RadarrClient (both expose ListTags + CreateTag), so the
+// wiring layer can pass a runtime client straight through.
+type ArrTagPort interface {
 	ListTags(ctx context.Context) ([]ports.Tag, error)
 	CreateTag(ctx context.Context, label string) (ports.Tag, error)
 }
@@ -36,8 +43,8 @@ type TagCachePort interface {
 	Upsert(ctx context.Context, t admin.UserInstanceTag) error
 }
 
-// TagResolver maps (user, instance) → Sonarr tag.id with a write-
-// through cache. The cache key is (userID, instanceName); bypass mode
+// TagResolver maps (user, instance) → arr tag.id with a write-through
+// cache. The cache key is (userID, instanceName); bypass mode
 // (user==nil) uses userID=0 — the unique key is then (0, instanceName)
 // which collapses every bypass caller onto a shared "sf-system" tag.
 type TagResolver struct {
@@ -56,14 +63,13 @@ func NewTagResolver(cache TagCachePort, log *slog.Logger) *TagResolver {
 	return &TagResolver{cache: cache, log: log}
 }
 
-// Resolve returns the Sonarr tag.id for (user, instance). On cache hit
-// no Sonarr call is issued. On miss the resolver calls ListTags +
-// (if absent) CreateTag, then writes the cache row. Upsert errors are
-// logged but do not fail the call — the next call retries the cache
-// path.
+// Resolve returns the arr tag.id for (user, instance). On cache hit no
+// arr call is issued. On miss the resolver calls ListTags + (if absent)
+// CreateTag, then writes the cache row. Upsert errors are logged but do
+// not fail the call — the next call retries the cache path.
 func (r *TagResolver) Resolve(
 	ctx context.Context,
-	sonarr SonarrTagPort,
+	arr ArrTagPort,
 	user *admin.User,
 	instanceName domain.InstanceName,
 ) (int, string, error) {
@@ -74,8 +80,8 @@ func (r *TagResolver) Resolve(
 	}
 
 	cached, err := r.cache.Get(ctx, userID, instanceName)
-	if err == nil && cached.SonarrTagID > 0 {
-		return cached.SonarrTagID, cached.SonarrTagLabel, nil
+	if err == nil && cached.ArrTagID > 0 {
+		return cached.ArrTagID, cached.ArrTagLabel, nil
 	}
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		// Transient cache read failure — log and fall through.
@@ -85,7 +91,7 @@ func (r *TagResolver) Resolve(
 			slog.String("error", err.Error()))
 	}
 
-	tags, err := sonarr.ListTags(ctx)
+	tags, err := arr.ListTags(ctx)
 	if err != nil {
 		return 0, label, fmt.Errorf("list tags: %w", err)
 	}
@@ -96,7 +102,7 @@ func (r *TagResolver) Resolve(
 		}
 	}
 
-	created, err := sonarr.CreateTag(ctx, label)
+	created, err := arr.CreateTag(ctx, label)
 	if err != nil {
 		return 0, label, fmt.Errorf("create tag: %w", err)
 	}
@@ -106,10 +112,10 @@ func (r *TagResolver) Resolve(
 
 func (r *TagResolver) writeCache(ctx context.Context, userID uint, name domain.InstanceName, tagID int, label string) {
 	if err := r.cache.Upsert(ctx, admin.UserInstanceTag{
-		UserID:         userID,
-		InstanceName:   name,
-		SonarrTagID:    tagID,
-		SonarrTagLabel: label,
+		UserID:       userID,
+		InstanceName: name,
+		ArrTagID:     tagID,
+		ArrTagLabel:  label,
 	}); err != nil {
 		r.log.WarnContext(ctx, "tag_cache_upsert_failed",
 			slog.Uint64("user_id", uint64(userID)),

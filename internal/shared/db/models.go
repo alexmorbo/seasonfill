@@ -246,20 +246,21 @@ type UserModel struct {
 func (UserModel) TableName() string { return "users" }
 
 // UserInstanceTagModel — sf-<user> tag cache per (user, instance). Used
-// by the discovery TagResolver (N-4); D-5 ships the repo with no
-// production callers yet, so the schema is exercised by tests only and
-// N-4 wires the consumer.
+// by the discovery TagResolver for BOTH Sonarr series-add and Radarr
+// movie-add (R-6).
 //
 // PK is the composite (user_id, instance_name); the (instance_name,
-// sonarr_tag_label) UNIQUE index prevents two users from claiming the
-// same Sonarr label on one instance.
+// arr_tag_label) UNIQUE index prevents two users from claiming the
+// same arr label on one instance. Columns are arr-neutral because
+// arr_instance.name is unique across Sonarr + Radarr rows (type
+// discriminator), so the PK already disambiguates the arr kind.
 type UserInstanceTagModel struct {
-	UserID         uint                `gorm:"primaryKey;column:user_id"`
-	InstanceName   domain.InstanceName `gorm:"primaryKey;column:instance_name;type:text"`
-	SonarrTagID    int                 `gorm:"column:sonarr_tag_id;not null"`
-	SonarrTagLabel string              `gorm:"column:sonarr_tag_label;type:text;not null;uniqueIndex:user_instance_tags_label,composite:instance_name"`
-	CreatedAt      time.Time           `gorm:"column:created_at"`
-	UpdatedAt      time.Time           `gorm:"column:updated_at"`
+	UserID       uint                `gorm:"primaryKey;column:user_id"`
+	InstanceName domain.InstanceName `gorm:"primaryKey;column:instance_name;type:text"`
+	ArrTagID     int                 `gorm:"column:arr_tag_id;not null"`
+	ArrTagLabel  string              `gorm:"column:arr_tag_label;type:text;not null;uniqueIndex:user_instance_tags_label,composite:instance_name"`
+	CreatedAt    time.Time           `gorm:"column:created_at"`
+	UpdatedAt    time.Time           `gorm:"column:updated_at"`
 }
 
 func (UserInstanceTagModel) TableName() string { return "user_instance_tags" }

@@ -36,6 +36,9 @@ var _ RadarrClient = &RadarrClientMock{}
 //			ListRootFoldersFunc: func(ctx context.Context) ([]RootFolder, error) {
 //				panic("mock out the ListRootFolders method")
 //			},
+//			ListTagsFunc: func(ctx context.Context) ([]Tag, error) {
+//				panic("mock out the ListTags method")
+//			},
 //			LookupMovieFunc: func(ctx context.Context, term string) ([]RadarrLookupResult, error) {
 //				panic("mock out the LookupMovie method")
 //			},
@@ -69,6 +72,9 @@ type RadarrClientMock struct {
 
 	// ListRootFoldersFunc mocks the ListRootFolders method.
 	ListRootFoldersFunc func(ctx context.Context) ([]RootFolder, error)
+
+	// ListTagsFunc mocks the ListTags method.
+	ListTagsFunc func(ctx context.Context) ([]Tag, error)
 
 	// LookupMovieFunc mocks the LookupMovie method.
 	LookupMovieFunc func(ctx context.Context, term string) ([]RadarrLookupResult, error)
@@ -117,6 +123,11 @@ type RadarrClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// ListTags holds details about calls to the ListTags method.
+		ListTags []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// LookupMovie holds details about calls to the LookupMovie method.
 		LookupMovie []struct {
 			// Ctx is the ctx argument value.
@@ -139,6 +150,7 @@ type RadarrClientMock struct {
 	lockListMovies          sync.RWMutex
 	lockListQualityProfiles sync.RWMutex
 	lockListRootFolders     sync.RWMutex
+	lockListTags            sync.RWMutex
 	lockLookupMovie         sync.RWMutex
 	lockName                sync.RWMutex
 	lockSystemStatus        sync.RWMutex
@@ -345,6 +357,38 @@ func (mock *RadarrClientMock) ListRootFoldersCalls() []struct {
 	mock.lockListRootFolders.RLock()
 	calls = mock.calls.ListRootFolders
 	mock.lockListRootFolders.RUnlock()
+	return calls
+}
+
+// ListTags calls ListTagsFunc.
+func (mock *RadarrClientMock) ListTags(ctx context.Context) ([]Tag, error) {
+	if mock.ListTagsFunc == nil {
+		panic("RadarrClientMock.ListTagsFunc: method is nil but RadarrClient.ListTags was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockListTags.Lock()
+	mock.calls.ListTags = append(mock.calls.ListTags, callInfo)
+	mock.lockListTags.Unlock()
+	return mock.ListTagsFunc(ctx)
+}
+
+// ListTagsCalls gets all the calls that were made to ListTags.
+// Check the length with:
+//
+//	len(mockedRadarrClient.ListTagsCalls())
+func (mock *RadarrClientMock) ListTagsCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockListTags.RLock()
+	calls = mock.calls.ListTags
+	mock.lockListTags.RUnlock()
 	return calls
 }
 

@@ -72,10 +72,10 @@ func TestUserInstanceTagRepository_Upsert_Then_Get(t *testing.T) {
 			ctx := context.Background()
 
 			tag := admin.UserInstanceTag{
-				UserID:         1,
-				InstanceName:   domain.InstanceName("main"),
-				SonarrTagID:    42,
-				SonarrTagLabel: "sf-alice",
+				UserID:       1,
+				InstanceName: domain.InstanceName("main"),
+				ArrTagID:     42,
+				ArrTagLabel:  "sf-alice",
 			}
 			require.NoError(t, repo.Upsert(ctx, tag))
 
@@ -83,8 +83,8 @@ func TestUserInstanceTagRepository_Upsert_Then_Get(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, uint(1), got.UserID)
 			assert.Equal(t, domain.InstanceName("main"), got.InstanceName)
-			assert.Equal(t, 42, got.SonarrTagID)
-			assert.Equal(t, "sf-alice", got.SonarrTagLabel)
+			assert.Equal(t, 42, got.ArrTagID)
+			assert.Equal(t, "sf-alice", got.ArrTagLabel)
 			assert.False(t, got.CreatedAt.IsZero())
 			assert.False(t, got.UpdatedAt.IsZero())
 		})
@@ -106,20 +106,20 @@ func TestUserInstanceTagRepository_Upsert_Idempotent(t *testing.T) {
 
 			first := admin.UserInstanceTag{
 				UserID: 1, InstanceName: domain.InstanceName("main"),
-				SonarrTagID: 1, SonarrTagLabel: "sf-alice-v1",
+				ArrTagID: 1, ArrTagLabel: "sf-alice-v1",
 			}
 			require.NoError(t, repo.Upsert(ctx, first))
 
 			second := admin.UserInstanceTag{
 				UserID: 1, InstanceName: domain.InstanceName("main"),
-				SonarrTagID: 99, SonarrTagLabel: "sf-alice-v2",
+				ArrTagID: 99, ArrTagLabel: "sf-alice-v2",
 			}
 			require.NoError(t, repo.Upsert(ctx, second))
 
 			got, err := repo.Get(ctx, 1, domain.InstanceName("main"))
 			require.NoError(t, err)
-			assert.Equal(t, 99, got.SonarrTagID, "Upsert must replace the existing tag id")
-			assert.Equal(t, "sf-alice-v2", got.SonarrTagLabel, "Upsert must replace the existing label")
+			assert.Equal(t, 99, got.ArrTagID, "Upsert must replace the existing tag id")
+			assert.Equal(t, "sf-alice-v2", got.ArrTagLabel, "Upsert must replace the existing label")
 		})
 	}
 }
@@ -139,7 +139,7 @@ func TestUserInstanceTagRepository_DeleteByUser_Idempotent(t *testing.T) {
 
 			require.NoError(t, repo.Upsert(ctx, admin.UserInstanceTag{
 				UserID: 1, InstanceName: domain.InstanceName("main"),
-				SonarrTagID: 1, SonarrTagLabel: "sf-alice",
+				ArrTagID: 1, ArrTagLabel: "sf-alice",
 			}))
 
 			// Sanity: row present before delete.
@@ -156,6 +156,48 @@ func TestUserInstanceTagRepository_DeleteByUser_Idempotent(t *testing.T) {
 			require.NoError(t, repo.DeleteByUser(ctx, 1))
 			// Deleting an unknown user is also a no-op.
 			require.NoError(t, repo.DeleteByUser(ctx, 9999))
+		})
+	}
+}
+
+// TestUserInstanceTagRepository_SonarrAndRadarrInstances_Coexist — R-6: an arr
+// instance name is globally unique (arr_instance.name PK + `type` discriminator),
+// so one user tagging on a Sonarr instance AND a Radarr instance yields TWO
+// independent rows keyed by (user_id, instance_name) — no per-arr columns needed.
+func TestUserInstanceTagRepository_SonarrAndRadarrInstances_Coexist(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			seedTagDeps(t, db)
+			now := time.Now().UTC()
+			require.NoError(t, db.Exec(
+				`INSERT INTO arr_instance (name, url, mode, health, transitions_count, created_at, updated_at, type)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				"movies", "http://radarr.local", "auto", "unknown", 0, now, now, "radarr",
+			).Error)
+			repo := NewUserInstanceTagRepository(db)
+			ctx := context.Background()
+
+			require.NoError(t, repo.Upsert(ctx, admin.UserInstanceTag{
+				UserID: 1, InstanceName: domain.InstanceName("main"),
+				ArrTagID: 42, ArrTagLabel: "sf-alice",
+			}))
+			require.NoError(t, repo.Upsert(ctx, admin.UserInstanceTag{
+				UserID: 1, InstanceName: domain.InstanceName("movies"),
+				ArrTagID: 7, ArrTagLabel: "sf-alice",
+			}))
+
+			sonarrRow, err := repo.Get(ctx, 1, domain.InstanceName("main"))
+			require.NoError(t, err)
+			assert.Equal(t, 42, sonarrRow.ArrTagID)
+
+			radarrRow, err := repo.Get(ctx, 1, domain.InstanceName("movies"))
+			require.NoError(t, err)
+			assert.Equal(t, 7, radarrRow.ArrTagID, "radarr row is independent of the sonarr row")
+			assert.Equal(t, "sf-alice", radarrRow.ArrTagLabel,
+				"the same label on a DIFFERENT instance must not trip user_instance_tags_label")
 		})
 	}
 }

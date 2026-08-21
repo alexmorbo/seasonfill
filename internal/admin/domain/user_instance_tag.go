@@ -6,15 +6,20 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// UserInstanceTag is the (user, instance) → sf-<user> Sonarr tag
-// mapping cached by the discovery resolver (N-4 future consumer).
-// D-5 (466a) ships the entity + repository with no production
-// callers yet; the schema is exercised by tests only.
+// UserInstanceTag is the (user, instance) → sf-<user> arr tag mapping
+// cached by the discovery TagResolver.
+//
+// ArrTagID/ArrTagLabel are arr-NEUTRAL (R-6): arr_instance.name is a
+// globally unique PK carrying a `type` discriminator, so an instance is
+// either Sonarr or Radarr and (user_id, instance_name) already pins the
+// arr kind. One row per (user, instance) serves both verticals — no
+// per-arr column pair (which would also break the NOT NULL +
+// UNIQUE (instance_name, label) guard on the other arr's rows).
 type UserInstanceTag struct {
-	UserID         uint
-	InstanceName   domain.InstanceName
-	SonarrTagID    int
-	SonarrTagLabel string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	UserID       uint
+	InstanceName domain.InstanceName
+	ArrTagID     int
+	ArrTagLabel  string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }

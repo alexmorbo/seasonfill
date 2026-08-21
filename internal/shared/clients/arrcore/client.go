@@ -355,6 +355,23 @@ func (c *Client) ListRootFolders(ctx context.Context) ([]ports.RootFolder, error
 	return out, nil
 }
 
+// ListTags returns every tag on the arr (GET /api/v3/tag). Shared transport
+// surface: radarr.Client inherits it through the embedded *arrcore.Client, which
+// is what lets the discovery TagResolver treat both arrs through one ArrTagPort
+// (R-6). sonarr.Client keeps its own identical ListTags at depth 0 — that method
+// shadows this one, so Sonarr behaviour is unchanged.
+func (c *Client) ListTags(ctx context.Context) ([]ports.Tag, error) {
+	var dtos []tagDTO
+	if err := c.Get(ctx, "/api/v3/tag", nil, &dtos); err != nil {
+		return nil, err
+	}
+	out := make([]ports.Tag, 0, len(dtos))
+	for _, d := range dtos {
+		out = append(out, ports.Tag{ID: d.ID, Label: d.Label})
+	}
+	return out, nil
+}
+
 // CreateTag posts {label} to /api/v3/tag and returns the created (or
 // pre-existing — the arr deduplicates by label) row. Idempotent at the arr
 // layer, so the resolver does not race on concurrent identical labels.

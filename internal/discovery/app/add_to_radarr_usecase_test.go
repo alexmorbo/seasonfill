@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/arrcore"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	sharedErrors "github.com/alexmorbo/seasonfill/internal/shared/errors"
@@ -206,4 +207,157 @@ func TestRadarrAdd_AddMovie500_NotIdempotent(t *testing.T) {
 	require.Error(t, err)
 	var ru *sharedErrors.RadarrUnreachableError
 	require.ErrorAs(t, err, &ru)
+}
+
+// TestRadarrAdd_UserTagApplied — R-6 parity: the movie add payload carries the
+// resolved sf-<user> tag and the result echoes it.
+func TestRadarrAdd_UserTagApplied(t *testing.T) {
+	t.Parallel()
+	var captured ports.AddMoviePayload
+	cli := &ports.RadarrClientMock{
+		LookupMovieFunc: oneMovieLookup,
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) {
+			return []ports.Tag{{ID: 5, Label: "sf-alex"}}, nil
+		},
+		AddMovieFunc: func(_ context.Context, p ports.AddMoviePayload) (ports.AddMovieResult, error) {
+			captured = p
+			return ports.AddMovieResult{RadarrMovieID: 42}, nil
+		},
+	}
+	resolver := NewTagResolver(&fakeTagCache{}, discardLog())
+	uc := NewAddToRadarrUseCase(fakeRadarrLookup{name: "movies", client: cli}, discardLog()).
+		WithCurrentUserResolver(fakeUsers{user: &admin.User{ID: 7, Username: "alex", Role: admin.RoleAdmin}}).
+		WithTagResolver(resolver)
+
+	res, err := uc.Add(t.Context(), AddMovieRequest{
+		InstanceName: "movies", TMDBID: 438631, QualityProfileID: 4,
+		RootFolderPath: "/movies", Monitored: true, Username: "alex",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []int{5}, captured.Tags, "payload MUST carry the resolved tag id")
+	assert.Equal(t, 5, res.UserTagID)
+	assert.Equal(t, "sf-alex", res.UserTagLabel)
+	assert.Equal(t, 42, res.RadarrMovieID)
+}
+
+// TestRadarrAdd_BypassUser_SystemTag — no username ⇒ user==nil ⇒ "sf-system",
+// created on the arr when absent.
+func TestRadarrAdd_BypassUser_SystemTag(t *testing.T) {
+	t.Parallel()
+	var captured ports.AddMoviePayload
+	var createdLabel string
+	cli := &ports.RadarrClientMock{
+		LookupMovieFunc: oneMovieLookup,
+		ListTagsFunc:    func(_ context.Context) ([]ports.Tag, error) { return nil, nil },
+		CreateTagFunc: func(_ context.Context, label string) (ports.Tag, error) {
+			createdLabel = label
+			return ports.Tag{ID: 9, Label: label}, nil
+		},
+		AddMovieFunc: func(_ context.Context, p ports.AddMoviePayload) (ports.AddMovieResult, error) {
+			captured = p
+			return ports.AddMovieResult{RadarrMovieID: 1}, nil
+		},
+	}
+	uc := NewAddToRadarrUseCase(fakeRadarrLookup{name: "movies", client: cli}, discardLog()).
+		WithTagResolver(NewTagResolver(&fakeTagCache{}, discardLog()))
+
+	res, err := uc.Add(t.Context(), AddMovieRequest{
+		InstanceName: "movies", TMDBID: 438631, QualityProfileID: 4,
+		RootFolderPath: "/movies", Monitored: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "sf-system", createdLabel)
+	assert.Equal(t, []int{9}, captured.Tags)
+	assert.Equal(t, "sf-system", res.UserTagLabel)
+}
+
+// TestRadarrAdd_TagFailure_NonBlocking — a ListTags outage must NOT block the
+// add: the movie lands untagged with zero UserTag*.
+func TestRadarrAdd_TagFailure_NonBlocking(t *testing.T) {
+	t.Parallel()
+	var captured ports.AddMoviePayload
+	cli := &ports.RadarrClientMock{
+		LookupMovieFunc: oneMovieLookup,
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) {
+			return nil, errors.New("radarr tag endpoint down")
+		},
+		AddMovieFunc: func(_ context.Context, p ports.AddMoviePayload) (ports.AddMovieResult, error) {
+			captured = p
+			return ports.AddMovieResult{RadarrMovieID: 42}, nil
+		},
+	}
+	uc := NewAddToRadarrUseCase(fakeRadarrLookup{name: "movies", client: cli}, discardLog()).
+		WithCurrentUserResolver(fakeUsers{user: &admin.User{ID: 7, Username: "alex", Role: admin.RoleAdmin}}).
+		WithTagResolver(NewTagResolver(&fakeTagCache{}, discardLog()))
+
+	res, err := uc.Add(t.Context(), AddMovieRequest{
+		InstanceName: "movies", TMDBID: 438631, QualityProfileID: 4,
+		RootFolderPath: "/movies", Monitored: true, Username: "alex",
+	})
+	require.NoError(t, err, "tag failure MUST NOT fail the add")
+	assert.Equal(t, 42, res.RadarrMovieID)
+	assert.Empty(t, captured.Tags, "untagged payload on tag failure")
+	assert.Equal(t, 0, res.UserTagID)
+	assert.Equal(t, "", res.UserTagLabel)
+}
+
+// TestRadarrAdd_NoResolver_TagLess — the pre-R-6 shape stays available: without
+// WithTagResolver the payload carries no tags and ListTags is never called.
+func TestRadarrAdd_NoResolver_TagLess(t *testing.T) {
+	t.Parallel()
+	var captured ports.AddMoviePayload
+	var listCalls int
+	cli := &ports.RadarrClientMock{
+		LookupMovieFunc: oneMovieLookup,
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) {
+			listCalls++
+			return nil, nil
+		},
+		AddMovieFunc: func(_ context.Context, p ports.AddMoviePayload) (ports.AddMovieResult, error) {
+			captured = p
+			return ports.AddMovieResult{RadarrMovieID: 42}, nil
+		},
+	}
+	uc := NewAddToRadarrUseCase(fakeRadarrLookup{name: "movies", client: cli}, discardLog())
+
+	res, err := uc.Add(t.Context(), AddMovieRequest{
+		InstanceName: "movies", TMDBID: 438631, QualityProfileID: 4,
+		RootFolderPath: "/movies", Monitored: true, Username: "alex",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, captured.Tags)
+	assert.Equal(t, 0, listCalls, "nil resolver MUST NOT touch the arr tag endpoint")
+	assert.Equal(t, 0, res.UserTagID)
+}
+
+// TestRadarrAdd_AlreadyAdded_KeepsTag — the idempotent duplicate path still
+// reports the tag that was resolved for the attempt.
+func TestRadarrAdd_AlreadyAdded_KeepsTag(t *testing.T) {
+	t.Parallel()
+	cli := &ports.RadarrClientMock{
+		LookupMovieFunc: oneMovieLookup,
+		ListTagsFunc: func(_ context.Context) ([]ports.Tag, error) {
+			return []ports.Tag{{ID: 5, Label: "sf-alex"}}, nil
+		},
+		AddMovieFunc: func(_ context.Context, _ ports.AddMoviePayload) (ports.AddMovieResult, error) {
+			return ports.AddMovieResult{}, &arrcore.StatusError{
+				Endpoint: "/api/v3/movie",
+				Status:   400,
+				Body:     `[{"errorMessage":"This movie has already been added","errorCode":"MovieExistsValidator"}]`,
+				Arr:      "radarr",
+			}
+		},
+	}
+	uc := NewAddToRadarrUseCase(fakeRadarrLookup{name: "movies", client: cli}, discardLog()).
+		WithCurrentUserResolver(fakeUsers{user: &admin.User{ID: 7, Username: "alex", Role: admin.RoleAdmin}}).
+		WithTagResolver(NewTagResolver(&fakeTagCache{}, discardLog()))
+
+	res, err := uc.Add(t.Context(), AddMovieRequest{
+		InstanceName: "movies", TMDBID: 438631, QualityProfileID: 4,
+		RootFolderPath: "/movies", Monitored: true, Username: "alex",
+	})
+	require.NoError(t, err)
+	assert.True(t, res.AlreadyAdded)
+	assert.Equal(t, "sf-alex", res.UserTagLabel)
+	assert.Equal(t, 5, res.UserTagID)
 }

@@ -2861,18 +2861,21 @@ func buildUsersTable(d Dialect) *atlasschema.Table {
 //
 // Columns:
 //
-//	user_id          BIGINT NOT NULL  FK→users.id CASCADE
-//	instance_name    TEXT NOT NULL    FK→arr_instance.name CASCADE
-//	sonarr_tag_id    INTEGER NOT NULL (Sonarr-side numeric tag id)
-//	sonarr_tag_label TEXT NOT NULL    ('sf-alice' — Sonarr-visible label)
-//	created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-//	updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+//	user_id       BIGINT NOT NULL  FK→users.id CASCADE
+//	instance_name TEXT NOT NULL    FK→arr_instance.name CASCADE
+//	arr_tag_id    INTEGER NOT NULL (arr-side numeric tag id)
+//	arr_tag_label TEXT NOT NULL    ('sf-alice' — arr-visible label)
+//	created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+//	updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 //
 // PRIMARY KEY (user_id, instance_name) — natural composite identity.
+// arr_instance.name is unique across Sonarr AND Radarr rows (`type`
+// discriminator, migration 000052), so this PK already pins the arr kind:
+// the tag columns are arr-neutral (R-6) rather than per-arr pairs.
 //
-// UNIQUE composite-2 on (instance_name, sonarr_tag_label) — prevents
-// two users claiming the same Sonarr label on one instance. PK doesn't
-// cover this; standalone index needed.
+// UNIQUE composite-2 on (instance_name, arr_tag_label) — prevents two
+// users claiming the same arr label on one instance. PK doesn't cover
+// this; standalone index needed.
 //
 // No standalone index on instance_name alone — fan-out "list all
 // users tagging on instance X" is a rare admin path; PK won't help
@@ -2881,17 +2884,17 @@ func buildUsersTable(d Dialect) *atlasschema.Table {
 func buildUserInstanceTagsTable(d Dialect, usersTable, sonarrInstanceTable *atlasschema.Table) *atlasschema.Table {
 	userID := fkColumn(d, "user_id", false /* not nullable */)
 	instanceName := atlasschema.NewStringColumn("instance_name", "text").SetNull(false)
-	sonarrTagID := atlasschema.NewIntColumn("sonarr_tag_id", "integer").SetNull(false)
-	sonarrTagLabel := atlasschema.NewStringColumn("sonarr_tag_label", "text").SetNull(false)
+	arrTagID := atlasschema.NewIntColumn("arr_tag_id", "integer").SetNull(false)
+	arrTagLabel := atlasschema.NewStringColumn("arr_tag_label", "text").SetNull(false)
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
 	return atlasschema.NewTable("user_instance_tags").
-		AddColumns(userID, instanceName, sonarrTagID, sonarrTagLabel, createdAt, updatedAt).
+		AddColumns(userID, instanceName, arrTagID, arrTagLabel, createdAt, updatedAt).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(userID, instanceName)).
 		AddIndexes(
 			atlasschema.NewUniqueIndex("user_instance_tags_label").
-				AddColumns(instanceName, sonarrTagLabel),
+				AddColumns(instanceName, arrTagLabel),
 		).
 		AddForeignKeys(
 			atlasschema.NewForeignKey("user_instance_tags_user_id_fkey").

@@ -1,4 +1,4 @@
-h1:072yIkGWWDjDT+CDsC9xZwa6Vw04rp8l6f7k6u+tBv4=
+h1:hxt6izPSsWHS8IbrbLf22k39OMCRzAo9NIRKESGAdHk=
 000001_core_series.down.sql h1:gfykgEYaKVCrX5hfUr2apCw2Gzsyb8ImJrAM6VPhoyk=
 000001_core_series.up.sql h1:l8VIG5ZFJDCDmEHfGbUAXZ3z5Hqz2aX9RIWiSeIxraY=
 000002_i18n_texts.down.sql h1:z0YiLGE4EbQZgtM0QJlS2XytNQ7ewRFMgPkb68+rnyg=
@@ -129,3 +129,5 @@ h1:072yIkGWWDjDT+CDsC9xZwa6Vw04rp8l6f7k6u+tBv4=
 000064_instance_default_minimum_availability.up.sql h1:gkNo8BLW4UaVOrAaXAovc9l/Rl3ja3LlGt82gbbZsJA=
 000065_torrent_movie_map.down.sql h1:9W4P5co1M7h+ILvPnKya8bLsqhj2/JXyLOsGJD8Yguk=
 000065_torrent_movie_map.up.sql h1:qFmsRqmK9uim+ZYAoO1z9rzbjJE90qBfcfDlk94BmpY=
+000066_user_instance_tag_arr_rename.down.sql h1:QwAwqXm+6VxbaT1EijpwrJ9MnrEd44Cl9rDNIYz9zhE=
+000066_user_instance_tag_arr_rename.up.sql h1:OgtTYsWOQ/2nbDmNgPnkT02YPvJZiFxwcM9ATrXHvyE=

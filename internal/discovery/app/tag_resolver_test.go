@@ -45,8 +45,9 @@ func (f *fakeTagCache) Upsert(_ context.Context, t admin.UserInstanceTag) error 
 	return f.upsertErr
 }
 
-// fakeSonarrTagPort doubles SonarrTagPort with explicit ListTags/CreateTag stubs.
-type fakeSonarrTagPort struct {
+// fakeArrTagPort doubles ArrTagPort with explicit ListTags/CreateTag stubs.
+// One double serves both arrs — the port is arr-neutral (R-6).
+type fakeArrTagPort struct {
 	listTags  []ports.Tag
 	listErr   error
 	createTag ports.Tag
@@ -55,12 +56,12 @@ type fakeSonarrTagPort struct {
 	createN   atomic.Int32
 }
 
-func (f *fakeSonarrTagPort) ListTags(_ context.Context) ([]ports.Tag, error) {
+func (f *fakeArrTagPort) ListTags(_ context.Context) ([]ports.Tag, error) {
 	f.listCalls.Add(1)
 	return f.listTags, f.listErr
 }
 
-func (f *fakeSonarrTagPort) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
+func (f *fakeArrTagPort) CreateTag(_ context.Context, _ string) (ports.Tag, error) {
 	f.createN.Add(1)
 	return f.createTag, f.createErr
 }
@@ -105,68 +106,68 @@ func TestTagResolver_CacheHit(t *testing.T) {
 		hasRow: true,
 		row: admin.UserInstanceTag{
 			UserID: 7, InstanceName: "main",
-			SonarrTagID: 42, SonarrTagLabel: "sf-alex",
+			ArrTagID: 42, ArrTagLabel: "sf-alex",
 		},
 	}
-	sonarr := &fakeSonarrTagPort{}
+	arr := &fakeArrTagPort{}
 	r := NewTagResolver(cache, discardLog())
 
-	id, label, err := r.Resolve(t.Context(), sonarr,
+	id, label, err := r.Resolve(t.Context(), arr,
 		&admin.User{ID: 7, Username: "alex"}, "main")
 	require.NoError(t, err)
 	assert.Equal(t, 42, id)
 	assert.Equal(t, "sf-alex", label)
-	assert.Equal(t, int32(0), sonarr.listCalls.Load(), "cache hit MUST skip Sonarr")
-	assert.Equal(t, int32(0), sonarr.createN.Load())
+	assert.Equal(t, int32(0), arr.listCalls.Load(), "cache hit MUST skip the arr")
+	assert.Equal(t, int32(0), arr.createN.Load())
 	assert.Equal(t, int32(0), cache.upserted.Load(), "no rewrite on cache hit")
 }
 
 func TestTagResolver_CacheMiss_TagExists(t *testing.T) {
 	t.Parallel()
 	cache := &fakeTagCache{} // ErrNotFound on Get
-	sonarr := &fakeSonarrTagPort{
+	arr := &fakeArrTagPort{
 		listTags: []ports.Tag{
 			{ID: 1, Label: "other"}, {ID: 9, Label: "sf-alex"},
 		},
 	}
 	r := NewTagResolver(cache, discardLog())
 
-	id, label, err := r.Resolve(t.Context(), sonarr,
+	id, label, err := r.Resolve(t.Context(), arr,
 		&admin.User{ID: 7, Username: "alex"}, "main")
 	require.NoError(t, err)
 	assert.Equal(t, 9, id)
 	assert.Equal(t, "sf-alex", label)
-	assert.Equal(t, int32(0), sonarr.createN.Load(), "tag already exists — no CreateTag")
+	assert.Equal(t, int32(0), arr.createN.Load(), "tag already exists — no CreateTag")
 	assert.Equal(t, int32(1), cache.upserted.Load())
-	assert.Equal(t, 9, cache.last.SonarrTagID)
+	assert.Equal(t, 9, cache.last.ArrTagID)
 }
 
 func TestTagResolver_CacheMiss_TagAbsent_Created(t *testing.T) {
 	t.Parallel()
 	cache := &fakeTagCache{}
-	sonarr := &fakeSonarrTagPort{
+	arr := &fakeArrTagPort{
 		listTags:  []ports.Tag{{ID: 1, Label: "other"}},
 		createTag: ports.Tag{ID: 42, Label: "sf-alex"},
 	}
 	r := NewTagResolver(cache, discardLog())
 
-	id, label, err := r.Resolve(t.Context(), sonarr,
+	id, label, err := r.Resolve(t.Context(), arr,
 		&admin.User{ID: 7, Username: "alex"}, "main")
 	require.NoError(t, err)
 	assert.Equal(t, 42, id)
 	assert.Equal(t, "sf-alex", label)
-	assert.Equal(t, int32(1), sonarr.createN.Load())
+	assert.Equal(t, int32(1), arr.createN.Load())
 	assert.Equal(t, int32(1), cache.upserted.Load())
-	assert.Equal(t, "sf-alex", cache.last.SonarrTagLabel)
+	assert.Equal(t, "sf-alex", cache.last.ArrTagLabel)
 }
 
 func TestTagResolver_ListTags_ErrorPropagates(t *testing.T) {
 	t.Parallel()
 	cache := &fakeTagCache{}
-	sonarr := &fakeSonarrTagPort{listErr: errors.New("boom")}
+	arr := &fakeArrTagPort{listErr: errors.New("boom")}
 	r := NewTagResolver(cache, discardLog())
 
-	_, _, err := r.Resolve(t.Context(), sonarr, &admin.User{ID: 1, Username: "u"}, "main")
+	_, _, err := r.Resolve(t.Context(), arr, &admin.User{ID: 1, Username: "u"}, "main")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "list tags")
 }
@@ -174,14 +175,61 @@ func TestTagResolver_ListTags_ErrorPropagates(t *testing.T) {
 func TestTagResolver_Bypass_SystemLabel(t *testing.T) {
 	t.Parallel()
 	cache := &fakeTagCache{}
-	sonarr := &fakeSonarrTagPort{
+	arr := &fakeArrTagPort{
 		createTag: ports.Tag{ID: 1, Label: "sf-system"},
 	}
 	r := NewTagResolver(cache, discardLog())
 
-	id, label, err := r.Resolve(t.Context(), sonarr, nil, "main")
+	id, label, err := r.Resolve(t.Context(), arr, nil, "main")
 	require.NoError(t, err)
 	assert.Equal(t, 1, id)
 	assert.Equal(t, "sf-system", label)
 	assert.Equal(t, uint(0), cache.last.UserID, "bypass MUST persist userID=0")
+}
+
+// TestTagResolver_RadarrInstance_SameCacheRow — R-6: a Radarr instance name is a
+// distinct arr_instance row, so the (userID, instanceName) key resolves it
+// independently of any Sonarr instance the same user tags. Cache miss creates the
+// tag on the radarr client and persists under the radarr instance name.
+func TestTagResolver_RadarrInstance_SameCacheRow(t *testing.T) {
+	t.Parallel()
+	cache := &fakeTagCache{}
+	radarr := &fakeArrTagPort{
+		listTags:  []ports.Tag{{ID: 3, Label: "sf-bob"}},
+		createTag: ports.Tag{ID: 11, Label: "sf-alex"},
+	}
+	r := NewTagResolver(cache, discardLog())
+
+	id, label, err := r.Resolve(t.Context(), radarr,
+		&admin.User{ID: 7, Username: "alex"}, "movies")
+	require.NoError(t, err)
+	assert.Equal(t, 11, id)
+	assert.Equal(t, "sf-alex", label)
+	assert.Equal(t, int32(1), radarr.createN.Load())
+	assert.Equal(t, uint(7), cache.last.UserID)
+	assert.Equal(t, domain.InstanceName("movies"), cache.last.InstanceName)
+	assert.Equal(t, 11, cache.last.ArrTagID)
+	assert.Equal(t, "sf-alex", cache.last.ArrTagLabel)
+}
+
+// TestTagResolver_RadarrCacheHit_SkipsArr — durable-cache proof for the radarr path.
+func TestTagResolver_RadarrCacheHit_SkipsArr(t *testing.T) {
+	t.Parallel()
+	cache := &fakeTagCache{
+		hasRow: true,
+		row: admin.UserInstanceTag{
+			UserID: 7, InstanceName: "movies",
+			ArrTagID: 11, ArrTagLabel: "sf-alex",
+		},
+	}
+	radarr := &fakeArrTagPort{}
+	r := NewTagResolver(cache, discardLog())
+
+	id, label, err := r.Resolve(t.Context(), radarr,
+		&admin.User{ID: 7, Username: "alex"}, "movies")
+	require.NoError(t, err)
+	assert.Equal(t, 11, id)
+	assert.Equal(t, "sf-alex", label)
+	assert.Equal(t, int32(0), radarr.listCalls.Load(), "cache hit MUST skip the arr")
+	assert.Equal(t, int32(0), cache.upserted.Load())
 }

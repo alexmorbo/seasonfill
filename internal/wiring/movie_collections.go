@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	adminpersistence "github.com/alexmorbo/seasonfill/internal/admin/persistence"
 	"github.com/alexmorbo/seasonfill/internal/catalog/app/moviecalendar"
 	moviecollection "github.com/alexmorbo/seasonfill/internal/catalog/app/moviecollection"
 	catalogpersistence "github.com/alexmorbo/seasonfill/internal/catalog/persistence"
@@ -44,7 +45,12 @@ func BuildMovieCollections(db *gorm.DB, radarr *RadarrSyncBundle, resolver *medi
 	domainLog := sharedports.DomainLogger(log, "http")
 	repo := enrichpersistence.NewMovieCollectionsRepository(db)
 	addUC := discoapp.NewAddToRadarrUseCase(radarrAddLookup{holder: radarr.RadarrHolder}, domainLog).
-		WithInstanceDefaults(radarrDefaultsLookup{holder: radarr.RadarrHolder})
+		WithInstanceDefaults(radarrDefaultsLookup{holder: radarr.RadarrHolder}).
+		// R-6: collection batch adds are tagged too. This use case has no
+		// CurrentUserResolver and moviecollection.AddMovieRequest carries no
+		// username, so the batch resolves to "sf-system" — same as any
+		// bypass/api-key add. Threading the real username is follow-up R-6b.
+		WithTagResolver(discoapp.NewTagResolver(adminpersistence.NewUserInstanceTagRepository(db), domainLog))
 	addAll := moviecollection.NewAddMissingUseCase(repo, movieAdderBridge{uc: addUC}, domainLog)
 	monitor := moviecollection.NewRadarrMonitorUseCase(radarrCollectionLookup{holder: radarr.RadarrHolder}, repo, domainLog)
 	defaultInstance := func() string {

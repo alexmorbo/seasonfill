@@ -37,6 +37,8 @@ type addToRadarrResponse struct {
 	RadarrMovieID int    `json:"radarr_movie_id"`
 	InstanceName  string `json:"instance_name"`
 	AlreadyAdded  bool   `json:"already_added"`
+	UserTagLabel  string `json:"user_tag_label"`
+	UserTagID     int    `json:"user_tag_id"`
 }
 
 // AddToRadarrHandler owns POST /api/v1/discovery/add-to-radarr.
@@ -125,5 +127,7 @@ func (h *AddToRadarrHandler) Handle(c *gin.Context) {
 		RadarrMovieID: res.RadarrMovieID,
 		InstanceName:  string(res.InstanceName),
 		AlreadyAdded:  res.AlreadyAdded,
+		UserTagLabel:  res.UserTagLabel,
+		UserTagID:     res.UserTagID,
 	})
 }

@@ -17,9 +17,9 @@ import (
 )
 
 // UserInstanceTagRepository is the GORM-backed CRUD surface for the
-// `user_instance_tags` table. D-5 (466a) ships full CRUD with no
-// production caller yet — the N-4 sf-<user> discovery TagResolver
-// will wire the consumer in a later story.
+// `user_instance_tags` table — the durable write-through cache behind
+// the discovery TagResolver. Arr-neutral: one row serves the Sonarr
+// series-add and the Radarr movie-add for that (user, instance).
 type UserInstanceTagRepository struct{ db *gorm.DB }
 
 // NewUserInstanceTagRepository constructs a UserInstanceTagRepository
@@ -50,8 +50,8 @@ func (r *UserInstanceTagRepository) Get(ctx context.Context, userID uint, instan
 }
 
 // Upsert inserts or replaces the (user_id, instance_name) row.
-// Idempotent: re-calling with the same key updates sonarr_tag_id and
-// sonarr_tag_label in place.
+// Idempotent: re-calling with the same key updates arr_tag_id and
+// arr_tag_label in place.
 func (r *UserInstanceTagRepository) Upsert(ctx context.Context, t admin.UserInstanceTag) error {
 	now := time.Now().UTC()
 	if t.CreatedAt.IsZero() {
@@ -66,8 +66,8 @@ func (r *UserInstanceTagRepository) Upsert(ctx context.Context, t admin.UserInst
 				{Name: "instance_name"},
 			},
 			DoUpdates: clause.AssignmentColumns([]string{
-				"sonarr_tag_id",
-				"sonarr_tag_label",
+				"arr_tag_id",
+				"arr_tag_label",
 				"updated_at",
 			}),
 		}).
@@ -94,23 +94,23 @@ func (r *UserInstanceTagRepository) DeleteByUser(ctx context.Context, userID uin
 
 func userInstanceTagDomainToModel(t admin.UserInstanceTag) database.UserInstanceTagModel {
 	return database.UserInstanceTagModel{
-		UserID:         t.UserID,
-		InstanceName:   t.InstanceName,
-		SonarrTagID:    t.SonarrTagID,
-		SonarrTagLabel: t.SonarrTagLabel,
-		CreatedAt:      t.CreatedAt,
-		UpdatedAt:      t.UpdatedAt,
+		UserID:       t.UserID,
+		InstanceName: t.InstanceName,
+		ArrTagID:     t.ArrTagID,
+		ArrTagLabel:  t.ArrTagLabel,
+		CreatedAt:    t.CreatedAt,
+		UpdatedAt:    t.UpdatedAt,
 	}
 }
 
 func userInstanceTagModelToDomain(m database.UserInstanceTagModel) admin.UserInstanceTag {
 	return admin.UserInstanceTag{
-		UserID:         m.UserID,
-		InstanceName:   m.InstanceName,
-		SonarrTagID:    m.SonarrTagID,
-		SonarrTagLabel: m.SonarrTagLabel,
-		CreatedAt:      m.CreatedAt,
-		UpdatedAt:      m.UpdatedAt,
+		UserID:       m.UserID,
+		InstanceName: m.InstanceName,
+		ArrTagID:     m.ArrTagID,
+		ArrTagLabel:  m.ArrTagLabel,
+		CreatedAt:    m.CreatedAt,
+		UpdatedAt:    m.UpdatedAt,
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	admin "github.com/alexmorbo/seasonfill/internal/admin/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/arrcore"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -32,8 +33,8 @@ type AddRadarrInstanceDefaults interface {
 
 // AddMovieRequest is the add-to-Radarr use-case input. MinimumAvailability is
 // a per-add override — "" defers to the client default ("released", ADR-0018
-// Q3). R-3 keeps the movie add-flow tag-less; user-tag parity is deferred to
-// R-6 (§10a) to avoid widening TagResolver to a second client type here.
+// Q3). Username drives BOTH the Ф8-U-2 request gate and the R-6 sf-<user> tag;
+// "" means bypass / api-key / system ⇒ the "sf-system" label.
 type AddMovieRequest struct {
 	InstanceName        domain.InstanceName
 	TMDBID              int
@@ -42,12 +43,13 @@ type AddMovieRequest struct {
 	Monitored           bool
 	MinimumAvailability string // "" ⇒ "released" (client default); per-add override
 	SearchOnAdd         bool
-	Username            string // reserved for R-6 user-tag parity; unused in R-3
+	Username            string // "" ⇒ bypass / system ("sf-system" tag)
 }
 
 // AddMovieResult is the add-to-Radarr use-case output. AlreadyAdded is true
-// when Radarr rejected a duplicate tmdbId (idempotent success). UserTag* stay
-// zero in R-3 (tag-less; R-6 wires user-tag parity).
+// when Radarr rejected a duplicate tmdbId (idempotent success). UserTag* carry
+// the R-6 sf-<user> tag actually applied; both stay zero when no resolver is
+// wired or the tag resolve failed (non-blocking — the movie is still added).
 type AddMovieResult struct {
 	RadarrMovieID int
 	InstanceName  domain.InstanceName
@@ -59,14 +61,13 @@ type AddMovieResult struct {
 }
 
 // AddToRadarrUseCase orchestrates the discovery "Add to Radarr" flow. It is
-// the movie analog of AddToSonarrUseCase, minus the tag resolution (R-3 is
-// tag-less — see §10a). No REST route is wired in R-3 (that is R-6); the use
-// case is exercised via unit tests only.
+// the movie analog of AddToSonarrUseCase, including the R-6 sf-<user> tag.
 type AddToRadarrUseCase struct {
 	lookup   AddRadarrInstanceLookup
 	users    CurrentUserResolver       // nil-OK — set via WithCurrentUserResolver
 	requests RequestQueue              // nil-OK — set via WithRequestQueue
 	defaults AddRadarrInstanceDefaults // nil-OK — set via WithInstanceDefaults
+	resolver *TagResolver              // nil-OK — set via WithTagResolver
 	log      *slog.Logger
 }
 
@@ -79,6 +80,15 @@ func NewAddToRadarrUseCase(lookup AddRadarrInstanceLookup, log *slog.Logger) *Ad
 		panic("NewAddToRadarrUseCase: log required")
 	}
 	return &AddToRadarrUseCase{lookup: lookup, log: log}
+}
+
+// WithTagResolver wires the R-6 sf-<user> tag resolver. nil-OK: an absent
+// resolver keeps the pre-R-6 tag-less behaviour (no tag on the add payload,
+// zero UserTag* on the result). Kept as a With… seam rather than a constructor
+// parameter to match this use case's three existing optional seams.
+func (uc *AddToRadarrUseCase) WithTagResolver(r *TagResolver) *AddToRadarrUseCase {
+	uc.resolver = r
+	return uc
 }
 
 // WithCurrentUserResolver wires the Ф8-U-2 resolver seam (audit F-08 — Radarr
@@ -107,10 +117,18 @@ func (uc *AddToRadarrUseCase) WithInstanceDefaults(d AddRadarrInstanceDefaults) 
 //
 //  1. Lookup the per-instance Radarr client; 404 instance_not_found on miss.
 //
-//  2. GET /api/v3/movie/lookup?term=tmdb:{id} to resolve title/slug/year/images
+//  2. Resolve the caller (nil for bypass / api-key / unknown username).
+//
+//  3. Ф8-U-2 gate: a resolved non-admin without auto_approve is queued as a
+//     pending request instead of a direct add.
+//
+//  4. Resolve the R-6 sf-<user> tag. Tag failures are NON-blocking: WARN log,
+//     the movie is added untagged with empty UserTag*.
+//
+//  5. GET /api/v3/movie/lookup?term=tmdb:{id} to resolve title/slug/year/images
 //     (Radarr rejects POST /api/v3/movie without them). Empty result → 404.
 //
-//  3. POST /api/v3/movie. A duplicate tmdbId (Radarr 400 MovieExistsValidator)
+//  6. POST /api/v3/movie. A duplicate tmdbId (Radarr 400 MovieExistsValidator)
 //     is treated as an idempotent success (AlreadyAdded=true), not an error.
 //     Network/other failures → 502 radarr_unreachable.
 //
@@ -125,19 +143,46 @@ func (uc *AddToRadarrUseCase) Add(ctx context.Context, req AddMovieRequest) (Add
 		)
 	}
 
-	// Ф8-U-2 permission gate. Resolve the caller; a non-admin without
-	// auto_approve is queued as a pending request instead of a direct add.
-	if uc.users != nil && uc.requests != nil && req.Username != "" {
+	// R-6: resolve the caller BEFORE the gate — the tag needs the user even when
+	// no RequestQueue is wired (e.g. the collections batch use case). Mirrors
+	// add_to_sonarr_usecase.go. Soft fail: a resolve error leaves user == nil,
+	// which downgrades the tag to "sf-system" rather than failing the add.
+	var user *admin.User
+	if uc.users != nil && req.Username != "" {
 		u, uerr := uc.users.GetCurrent(ctx, req.Username)
 		if uerr != nil {
 			uc.log.WarnContext(ctx, "add_to_radarr_user_resolve_failed",
 				slog.String("username", req.Username), slog.String("error", uerr.Error()))
-		} else if u != nil && !autoApproves(u) {
-			id, qerr := uc.requests.Queue(ctx, u.ID, movieAddSpec(req))
-			if qerr != nil {
-				return AddMovieResult{}, fmt.Errorf("queue movie request: %w", qerr)
-			}
-			return AddMovieResult{Requested: true, RequestID: id}, nil
+		} else {
+			user = u
+		}
+	}
+
+	// Ф8-U-2 permission gate. A resolved non-admin without auto_approve is
+	// queued as a pending request instead of a direct add. Bypass / api-key /
+	// system callers (user == nil) always add directly.
+	if uc.requests != nil && user != nil && !autoApproves(user) {
+		id, qerr := uc.requests.Queue(ctx, user.ID, movieAddSpec(req))
+		if qerr != nil {
+			return AddMovieResult{}, fmt.Errorf("queue movie request: %w", qerr)
+		}
+		return AddMovieResult{Requested: true, RequestID: id}, nil
+	}
+
+	// R-6 user tag. Non-blocking by contract — a Radarr tag outage must not
+	// block the add; the movie lands untagged and the next add re-resolves.
+	var (
+		tagID    int
+		tagLabel string
+	)
+	if uc.resolver != nil {
+		id, label, tagErr := uc.resolver.Resolve(ctx, client, user, req.InstanceName)
+		if tagErr != nil {
+			uc.log.WarnContext(ctx, "add_to_radarr_tag_resolve_failed",
+				slog.String("instance", string(req.InstanceName)),
+				slog.String("error", tagErr.Error()))
+		} else {
+			tagID, tagLabel = id, label
 		}
 	}
 
@@ -162,6 +207,9 @@ func (uc *AddToRadarrUseCase) Add(ctx context.Context, req AddMovieRequest) (Add
 		Monitored:           req.Monitored,
 		MinimumAvailability: minAvail, // client defaults "" → "released"
 		SearchOnAdd:         req.SearchOnAdd,
+	}
+	if tagID > 0 {
+		payload.Tags = []int{tagID}
 	}
 
 	results, err := client.LookupMovie(ctx, fmt.Sprintf("tmdb:%d", req.TMDBID))
@@ -193,6 +241,8 @@ func (uc *AddToRadarrUseCase) Add(ctx context.Context, req AddMovieRequest) (Add
 			return AddMovieResult{
 				InstanceName: req.InstanceName,
 				AlreadyAdded: true,
+				UserTagLabel: tagLabel,
+				UserTagID:    tagID,
 			}, nil
 		}
 		return AddMovieResult{}, &sharedErrors.RadarrUnreachableError{
@@ -204,6 +254,8 @@ func (uc *AddToRadarrUseCase) Add(ctx context.Context, req AddMovieRequest) (Add
 	return AddMovieResult{
 		RadarrMovieID: res.RadarrMovieID,
 		InstanceName:  req.InstanceName,
+		UserTagLabel:  tagLabel,
+		UserTagID:     tagID,
 	}, nil
 }
 

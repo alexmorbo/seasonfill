@@ -3,7 +3,7 @@
 // D-1-7a (story 460a) — verifies 000001..000011 apply cleanly on both
 // backends, exercises CHECK constraints (role + avatar_mode), partial
 // UNIQUE on oidc_subject, composite UNIQUE on (instance_name,
-// sonarr_tag_label), and FK CASCADE in both directions for
+// arr_tag_label), and FK CASCADE in both directions for
 // user_instance_tags.
 package integration
 
@@ -109,7 +109,7 @@ func TestD17a_UsersMigrationRoundTrip(t *testing.T) {
 }
 
 // TestD17a_UserInstanceTagsCascade exercises both CASCADE directions
-// and the composite UNIQUE (instance_name, sonarr_tag_label) guard.
+// and the composite UNIQUE (instance_name, arr_tag_label) guard.
 func TestD17a_UserInstanceTagsCascade(t *testing.T) {
 	for _, b := range allD1Backends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -149,7 +149,7 @@ func TestD17a_UserInstanceTagsCascade(t *testing.T) {
 			// UNIQUE composite: bobby tries to reuse alice's label on inst1.
 			err = insertUserInstanceTag(ctx, db, b.name,
 				bobbyID, instance1, 999, "sf-alice")
-			require.Error(t, err, "duplicate (instance_name, sonarr_tag_label) must fail")
+			require.Error(t, err, "duplicate (instance_name, arr_tag_label) must fail")
 			require.Truef(t, isUniqueViolation(b.name, err),
 				"expected UNIQUE violation on (instance_name, label), got %T: %v", err, err)
 
@@ -269,11 +269,11 @@ func insertUserInstanceTag(ctx context.Context, db *sql.DB, driver string,
 	switch driver {
 	case "postgres":
 		stmt = `INSERT INTO user_instance_tags
-		        (user_id, instance_name, sonarr_tag_id, sonarr_tag_label, updated_at)
+		        (user_id, instance_name, arr_tag_id, arr_tag_label, updated_at)
 		        VALUES ($1, $2, $3, $4, now())`
 	case "sqlite":
 		stmt = `INSERT INTO user_instance_tags
-		        (user_id, instance_name, sonarr_tag_id, sonarr_tag_label, updated_at)
+		        (user_id, instance_name, arr_tag_id, arr_tag_label, updated_at)
 		        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`
 	default:
 		panic("unknown driver " + driver)

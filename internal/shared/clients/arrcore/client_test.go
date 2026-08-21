@@ -178,6 +178,55 @@ func TestClient_CreateTag_Success(t *testing.T) {
 	assert.Equal(t, "sf-alice", gotBody.Label)
 }
 
+func TestClient_ListTags_Success(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		gotPath string
+		gotMeth string
+		gotKey  string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gotPath = r.URL.Path
+		gotMeth = r.Method
+		gotKey = r.Header.Get("X-Api-Key")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":1,"label":"sf-alice"},{"id":7,"label":"sf-system"}]`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, nil)
+	tags, err := c.ListTags(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tags, 2)
+	assert.Equal(t, 1, tags[0].ID)
+	assert.Equal(t, "sf-alice", tags[0].Label)
+	assert.Equal(t, 7, tags[1].ID)
+	assert.Equal(t, "sf-system", tags[1].Label)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, "/api/v3/tag", gotPath)
+	assert.Equal(t, http.MethodGet, gotMeth)
+	assert.Equal(t, "secret", gotKey)
+}
+
+// TestClient_ListTags_Empty — an arr with no tags returns [] (not null); the
+// resolver must fall through to CreateTag rather than nil-panic.
+func TestClient_ListTags_Empty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test", srv.URL, "secret", 5*time.Second, nil)
+	tags, err := c.ListTags(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, tags)
+}
+
 // --- transport error mapping (vehicle = SystemStatus) ---
 
 func TestClient_Unauthorized_WrapsSentinel(t *testing.T) {

@@ -1040,7 +1040,7 @@ func BuildHTTPServer(
 	movieDetailBundle := BuildMovieDetail(persistence.DB, seriesDetailBundle.MediaResolver, log)
 	// Ф6-R-6a — movie vertical write/read handlers over the radarr holder +
 	// local repos: add-to-radarr, franchise collections, movie release calendar.
-	addToRadarrHandler, radarrAddUC := BuildDiscoveryAddToRadarr(scanBundle.RadarrSync, newMeUserResolver(auth), log)
+	addToRadarrHandler, radarrAddUC := BuildDiscoveryAddToRadarr(scanBundle.RadarrSync, newMeUserResolver(auth), persistence, log)
 	// Ф8-U-2 — request-workflow. Built here (after the add use cases exist)
 	// so approve replays through the SAME add use cases the direct-add routes
 	// use. The queue↔use-case cycle is broken by attaching the queue to the

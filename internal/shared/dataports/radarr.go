@@ -66,6 +66,10 @@ type RadarrClient interface {
 	ListQualityProfiles(ctx context.Context) ([]QualityProfile, error)
 	ListRootFolders(ctx context.Context) ([]RootFolder, error)
 	CreateTag(ctx context.Context, label string) (Tag, error)
+	// ListTags calls GET /api/v3/tag. R-6 user-tag parity: the shared discovery
+	// TagResolver needs ListTags + CreateTag on BOTH arr clients to satisfy
+	// discoapp.ArrTagPort. Inherited from the embedded *arrcore.Client.
+	ListTags(ctx context.Context) ([]Tag, error)
 	Name() string
 	// LookupMovie calls GET /api/v3/movie/lookup?term={term}. The add-flow
 	// passes term="tmdb:{id}" for a deterministic single-row match. Returns the
