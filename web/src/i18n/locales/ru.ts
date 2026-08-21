@@ -3011,5 +3011,18 @@ export const ru: Translations = {
       digitalRelease: 'Цифровой релиз',
       physicalRelease: 'Физический релиз',
     },
+    torrents: {
+      viewLink: 'Торренты',
+      empty: {
+        never: {
+          title: 'Для этого фильма пока нет торрентов',
+          body: 'Они появятся здесь, когда Radarr захватит релиз через qBittorrent.',
+        },
+      },
+      provenance: {
+        radarrSearch: 'через Radarr',
+        manualImport: 'вручную',
+      },
+    },
   },
 };

@@ -3013,6 +3013,19 @@ export const en = {
       digitalRelease: 'Digital release',
       physicalRelease: 'Physical release',
     },
+    torrents: {
+      viewLink: 'Torrents',
+      empty: {
+        never: {
+          title: 'No torrents for this movie yet',
+          body: 'They will appear here once Radarr grabs a release via qBittorrent.',
+        },
+      },
+      provenance: {
+        radarrSearch: 'via Radarr',
+        manualImport: 'manual import',
+      },
+    },
   },
 };
 

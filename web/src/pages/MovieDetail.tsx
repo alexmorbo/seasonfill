@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -28,6 +28,7 @@ import { buildRadarrMovieHref } from '@/lib/radarrUrl';
 import { MediaDetail } from '@/components/media-detail';
 import type { MediaAction } from '@/components/media-detail/view-model';
 import { FollowButton } from '@/components/follow/FollowButton';
+import { MovieTorrentsSection } from '@/components/torrents/MovieTorrentsSection';
 import { toMovieVM } from './toMovieVM';
 
 function parseTmdbId(raw: string | undefined): number | null {
@@ -150,6 +151,7 @@ export function MovieDetail() {
   const { t } = useTranslation();
   const { tmdbId: tmdbParam } = useParams();
   const lang = useLanguage().current;
+  const torrentsRef = useRef<HTMLDivElement | null>(null);
 
   const tmdbId = useMemo(() => parseTmdbId(tmdbParam), [tmdbParam]);
   const query = useMovie(tmdbId ?? undefined, lang);
@@ -164,6 +166,10 @@ export function MovieDetail() {
   const ratingsQ = useMovieRatings({ tmdbId: tmdbId ?? undefined });
 
   useSetPageTitle(movie?.title ?? t('movies.title'));
+
+  const scrollToTorrents = useCallback(() => {
+    torrentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   if (tmdbId === null) {
     return (
@@ -204,6 +210,14 @@ export function MovieDetail() {
   const showTmdb = typeof movie.tmdb_rating === 'number' && movie.tmdb_rating > 0;
   const showImdb = typeof movie.imdb_rating === 'number' && movie.imdb_rating > 0;
   const library = movie.library ?? [];
+  // B1.5/ADR-0023 — the instance the movie torrents panel is scoped to.
+  // Mirrors `OpenInRadarrButton`'s / `CollectionHeroCard`'s existing
+  // `library[0]?.instance_name` resolution (first library row = the
+  // Radarr instance holding this movie). '' when the movie is in no
+  // library — MovieTorrentsSection then never leaves the "settings
+  // pending" gate (same behavior SeriesDetail's `primaryInstance ?? ''`
+  // fallback already relies on for TorrentsSection).
+  const primaryInstanceName = library[0]?.instance_name ?? '';
 
   // Synced/stale footer — mirror of the SeriesDetail synced footer, kept as
   // a sibling OUTSIDE the shared scaffold (its staleness check is
@@ -232,7 +246,7 @@ export function MovieDetail() {
   // link, resolved here (needs `useInstances`/`useAddToRadarrLauncher`,
   // hooks the `toMovieVM` adapter does not call — same "resolved by the
   // page" pattern `toSeriesVM`'s `heroActions` param uses).
-  const actions: readonly MediaAction[] =
+  const radarrAction: readonly MediaAction[] =
     typeof movie.tmdb_id === 'number' && movie.tmdb_id > 0
       ? [{
           id: 'radarr-action',
@@ -244,6 +258,34 @@ export function MovieDetail() {
           ),
         }]
       : [];
+  // B1.5/ADR-0023 — quick-jump hero action to the torrents panel below the
+  // overview grid. Mirrors SeriesDetail's `HeroLibraryStrip`
+  // `onDownloadClick` chip in SPIRIT (both call `scrollToTorrents`), but
+  // movies have no "download in progress" DTO field yet (that's the
+  // series-only `download`/`DownloadChip` prop on `HeroLibraryStrip.tsx` —
+  // adding it for movies is out of scope, non-goal "No re-grab UI (B2)"),
+  // so this is an always-visible link gated on library presence (same gate
+  // the torrents panel itself needs a resolvable instance for) rather than
+  // a state-conditional badge.
+  const torrentsAction: readonly MediaAction[] =
+    library.length > 0
+      ? [{
+          id: 'torrents-action',
+          kind: 'node',
+          node: (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={scrollToTorrents}
+              data-testid="movie-detail-view-torrents"
+            >
+              {t('movieDetail.torrents.viewLink')}
+            </Button>
+          ),
+        }]
+      : [];
+  const actions: readonly MediaAction[] = [...radarrAction, ...torrentsAction];
 
   // Follow/watchlist hero button — mirrors `SeriesHero`'s
   // `<FollowButton seriesId={seriesId}/>` (resolved here, same "resolved by
@@ -309,6 +351,11 @@ export function MovieDetail() {
       <MediaDetail
         vm={vm}
         heroExtras={heroExtras}
+        belowGrid={
+          <div ref={torrentsRef}>
+            <MovieTorrentsSection instance={primaryInstanceName} tmdbId={tmdbId} />
+          </div>
+        }
         recommendationsSlot={<MovieRecommendationsRail tmdbId={movie.tmdb_id ?? tmdbId} />}
       />
 

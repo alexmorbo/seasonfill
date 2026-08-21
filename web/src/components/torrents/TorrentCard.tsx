@@ -6,6 +6,7 @@ import { SpeedCell } from './SpeedCell';
 import { ETAChip } from './ETAChip';
 import { RatioPill } from './RatioPill';
 import { TorrentActions } from './TorrentActions';
+import { ProvenanceChip } from './ProvenanceChip';
 import type { TorrentRow as TorrentRowDTO } from '@/api/seriesTorrents';
 
 export interface TorrentCardProps {
@@ -48,9 +49,13 @@ export function TorrentCard({ row, instance, className }: TorrentCardProps) {
             {row.tracker_host ? ` · ${row.tracker_host}` : ''}
           </div>
         </div>
-        {deleted
-          ? <TorrentStateChip group="unknown" deleted deletedAt={row.last_activity ?? undefined} />
-          : <TorrentStateChip group={row.state_group} rawState={row.state_raw ?? undefined} />}
+        {/* + provenance chip — movie rows only (B1.5/ADR-0023) */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {deleted
+            ? <TorrentStateChip group="unknown" deleted deletedAt={row.last_activity ?? undefined} />
+            : <TorrentStateChip group={row.state_group} rawState={row.state_raw ?? undefined} />}
+          <ProvenanceChip provenance={row.provenance} />
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-x-3 gap-y-2 pt-1 border-t border-border-faint/60">

@@ -9,6 +9,7 @@ import { ETAChip } from './ETAChip';
 import { RatioPill } from './RatioPill';
 import { PopularityMeter } from './PopularityMeter';
 import { TorrentActions } from './TorrentActions';
+import { ProvenanceChip } from './ProvenanceChip';
 import type { TorrentRow as TorrentRowDTO } from '@/api/seriesTorrents';
 
 export interface TorrentRowProps {
@@ -116,13 +117,16 @@ export function TorrentRow({ row, instance, className }: TorrentRowProps) {
         <span className="text-[11.5px] tabular-nums text-tx-secondary w-9 text-right">{pct}%</span>
       </div>
 
-      {/* Status chip */}
-      <div>
+      {/* Status chip (+ provenance — movie rows only; provenance is
+          omitempty on series rows so ProvenanceChip renders nothing there.
+          B1.5/ADR-0023.) */}
+      <div className="flex flex-col items-start gap-1">
         {deleted ? (
           <TorrentStateChip group="unknown" deleted deletedAt={row.last_activity ?? undefined} />
         ) : (
           <TorrentStateChip group={row.state_group} rawState={row.state_raw ?? undefined} />
         )}
+        <ProvenanceChip provenance={row.provenance} />
       </div>
 
       {/* Seeds / peers (drops on narrow) */}

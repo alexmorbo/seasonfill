@@ -21,9 +21,10 @@ export interface MediaDetailProps {
    *  card + library strip; movie: compact collection card in `nextCard`
    *  when the movie belongs to a TMDB collection, else omitted). */
   readonly heroExtras?: MediaHeroProps['heroExtras'];
-  /** Series-only sections (RecentStrip + Torrents + SeasonsAccordion) that
-   *  render between the overview grid and the collection/recommendations
-   *  tail — inert (undefined) for the movie page. */
+  /** Renders between the overview grid and the collection/recommendations
+   *  tail. Series: RecentStrip + TorrentsSection + SeasonsAccordion. Movie
+   *  (B1.5, ADR-0023): MovieTorrentsSection only. Omitted (undefined) →
+   *  no slot rendered. */
   readonly belowGrid?: ReactNode;
   /**
    * U-4 sub-step B / §9 R1 fix — when provided, rendered INSTEAD of the

@@ -23,10 +23,14 @@ const OK_TOAST: Record<TorrentActionKind, string> = {
 //
 // The three endpoints are idempotent 200 no-ops; the response body
 // (dto.TorrentActionResponse) is not needed by the UI, so we type it void
-// and let `api` discard it. On success we invalidate the whole
-// `series-torrents` query family (prefix invalidation — mirrors
-// grab-mutation invalidating by prefix) so the row reflects the new state
-// on the next poll tick without threading seriesId down here.
+// and let `api` discard it. On success we invalidate BOTH the
+// `series-torrents` AND `movie-torrents` query families (prefix
+// invalidation — mirrors grab-mutation invalidating by prefix) so the row
+// reflects the new state on the next poll tick without threading
+// seriesId/tmdbId down here. The mutation is instance+hash keyed, so it has
+// no static way to know which panel (series or movie) the row came from —
+// invalidating the family that isn't mounted is a cheap no-op (react-query
+// only refetches ACTIVE queries). B1.5/ADR-0023.
 export function useTorrentAction(): UseMutationResult<void, ApiError, TorrentActionInput> {
   const qc = useQueryClient();
   return useMutation<void, ApiError, TorrentActionInput>({
@@ -37,6 +41,7 @@ export function useTorrentAction(): UseMutationResult<void, ApiError, TorrentAct
       ),
     onSuccess: (_data, { action }) => {
       qc.invalidateQueries({ queryKey: ['series-torrents'] });
+      qc.invalidateQueries({ queryKey: ['movie-torrents'] });
       toast.success(i18n.t(OK_TOAST[action]));
     },
     onError: (err) => {

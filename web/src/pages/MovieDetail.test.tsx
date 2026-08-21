@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -18,7 +18,17 @@ const json = (body: unknown, status = 200) =>
   });
 
 function spyFetch(body: unknown, status = 200) {
-  const fn = vi.fn(async () => json(body, status));
+  const fn = vi.fn(async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    // B1.5/ADR-0023 — MovieTorrentsSection now mounts unconditionally;
+    // without this branch every spyFetch-based test would feed the movie
+    // payload to useQbitSettings as if it were a qBit settings response.
+    // 404 keeps the panel a no-op (`useQbitSettings` is 404-tolerant),
+    // restoring this helper's pre-B1.5 behavior for tests that don't
+    // care about torrents.
+    if (url.includes('/qbit/settings')) return json({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404);
+    return json(body, status);
+  });
   globalThis.fetch = fn as typeof fetch;
 }
 
@@ -97,6 +107,15 @@ function routedFetch(base: Record<string, unknown> = movie()) {
         degraded: [],
       });
     }
+    // B1.5/ADR-0023 — see the spyFetch comment above for why these two
+    // routes are needed. "not configured" keeps the panel a no-op for
+    // every routedFetch-based test in this file today.
+    if (url.includes('/qbit/settings')) {
+      return json({ code: 'QBIT_SETTINGS_NOT_FOUND' }, 404);
+    }
+    if (url.includes('/torrents')) {
+      return json({ torrents: [], synced_at: new Date().toISOString(), total_count: 0, live_count: 0 });
+    }
     return json(base);
   }) as typeof fetch;
 }
@@ -129,6 +148,7 @@ beforeEach(() => {
     writable: true,
     value: { pathname: '/movies/438631', search: '', assign: vi.fn() },
   });
+  Element.prototype.scrollIntoView = vi.fn();
 });
 afterEach(() => {
   globalThis.fetch = origFetch;
@@ -441,5 +461,39 @@ describe('<MovieDetail />', () => {
       .toHaveTextContent(i18n.t('movieCollection.addAll'));
     // No wide below-hero block anymore.
     expect(screen.queryByTestId('movie-collection-block')).toBeNull();
+  });
+
+  it('renders the movie torrents panel with a provenance chip and the hero view-torrents action', async () => {
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/qbit/settings')) {
+        return json({ enabled: true, url: 'http://qbit', username: 'u' });
+      }
+      if (url.includes('/torrents')) {
+        return json({
+          torrents: [
+            { hash: 'a', name: 'dune.2021.bluray', size_bytes: 4_000_000_000, present: true, live: true, ratio: 0, provenance: 'manual_import' },
+          ],
+          synced_at: new Date().toISOString(),
+        });
+      }
+      if (url.endsWith('/api/v1/admin/instances')) {
+        return json({ instances: [{ name: 'radarr', type: 'radarr', public_url: 'https://radarr.example' }] });
+      }
+      return json(movie());
+    }) as typeof fetch;
+    renderRoute('/movies/438631');
+
+    expect(await screen.findByTestId('torrents-section')).toBeInTheDocument();
+    // jsdom does not evaluate the `hidden md:block` / `md:hidden`
+    // responsive classes, so BOTH the desktop table row and the mobile
+    // card render simultaneously — use getAllByTestId (not the singular
+    // getByTestId) and assert on the first match. Deviation from the
+    // story's exact test code (B1.5/ADR-0023 impl report).
+    const chips = await screen.findAllByTestId('torrent-provenance');
+    expect(chips[0]).toHaveTextContent('manual import');
+
+    fireEvent.click(screen.getByTestId('movie-detail-view-torrents'));
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 });
