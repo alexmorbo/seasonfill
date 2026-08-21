@@ -111,10 +111,15 @@ type UnmappedGauge interface {
 //     because the per-tick cap bounds the catch-up work and
 //     newer grabs are caught by webhook + grab_record first.
 type Reconciler struct {
-	store         *Store
-	maps          MapRepo
-	grabs         GrabHashLookup
-	sonarrFor     func(instance domain.InstanceName) (SonarrReconciler, bool)
+	store     *Store
+	maps      MapRepo
+	grabs     GrabHashLookup
+	sonarrFor func(instance domain.InstanceName) (SonarrReconciler, bool)
+	// movieMaps + radarrFor drive the ADR-0023 B1.3 movie pass. Both are
+	// nil / always-false unless WithMovieSources was applied, so a fleet
+	// with no Radarr instance behaves exactly as it did pre-B1.3.
+	movieMaps     MovieMapRepo
+	radarrFor     func(instance domain.InstanceName) (RadarrReconciler, bool)
 	gauge         UnmappedGauge
 	logger        *slog.Logger
 	now           func() time.Time
@@ -130,6 +135,9 @@ type Reconciler struct {
 // (we still run sources 1+2 against the store + grab_records);
 // a nil gauge is silently skipped; a nil maps is a programming
 // error and panics at construction.
+//
+// The movie pass (ADR-0023 B1.3) is OFF by default — opt in with
+// WithMovieSources.
 func NewReconciler(
 	store *Store,
 	maps MapRepo,
@@ -152,6 +160,7 @@ func NewReconciler(
 		maps:          maps,
 		grabs:         grabs,
 		sonarrFor:     sonarrFor,
+		radarrFor:     func(domain.InstanceName) (RadarrReconciler, bool) { return nil, false },
 		gauge:         gauge,
 		logger:        logger,
 		now:           func() time.Time { return time.Now().UTC() },
@@ -173,6 +182,20 @@ func (r *Reconciler) WithEveryN(n int) *Reconciler {
 // WithClock pins the clock for tests.
 func (r *Reconciler) WithClock(f func() time.Time) *Reconciler {
 	r.now = f
+	return r
+}
+
+// WithMovieSources enables the ADR-0023 B1.3 movie pass: Radarr /queue +
+// /history -> torrent_movie_map. BOTH arguments must be non-nil; a nil in
+// either position leaves the reconciler in its series-only shape, so a
+// deployment with no Radarr instance is byte-identical to pre-B1.3
+// behaviour.
+func (r *Reconciler) WithMovieSources(movieMaps MovieMapRepo, radarrFor func(instance domain.InstanceName) (RadarrReconciler, bool)) *Reconciler {
+	if movieMaps == nil || radarrFor == nil {
+		return r
+	}
+	r.movieMaps = movieMaps
+	r.radarrFor = radarrFor
 	return r
 }
 
@@ -249,6 +272,24 @@ func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName) erro
 		}
 	}
 
+	// Sources 5+6 (ADR-0023 B1.3): Radarr /queue + /history ->
+	// torrent_movie_map. Mutually exclusive with sources 3+4 in practice:
+	// an arr instance is either sonarr-typed or radarr-typed and the two
+	// holders are partitioned, so at most one of sonarrFor/radarrFor
+	// resolves for a given instance name.
+	if client, ok := r.radarrFor(instance); ok && len(unmapped) > 0 {
+		remaining, err := r.applyMovieSources(ctx, instance, client, unmapped)
+		if err != nil {
+			r.logger.WarnContext(ctx, "torrentsync_reconciler_movie_sources_failed",
+				slog.String("instance", string(instance)),
+				slog.String("error", err.Error()),
+			)
+		}
+		// applyMovieSources always returns the post-write remainder, even
+		// on a partial upstream failure — assign unconditionally.
+		unmapped = remaining
+	}
+
 	r.emitGauge(instance, len(unmapped))
 	r.logger.InfoContext(ctx, "torrentsync_reconciler_done",
 		slog.String("instance", string(instance)),
@@ -270,6 +311,13 @@ func (r *Reconciler) unmappedHashes(instance domain.InstanceName) []string {
 	out := make([]string, 0, len(rows))
 	for h := range rows {
 		if r.store.SeriesForHash(instance, h) != 0 {
+			continue
+		}
+		// B1.3: a hash bridged to a Radarr movie is just as "mapped" as a
+		// series-bridged one — without this the unmapped gauge on a radarr
+		// instance would never fall and every pass would re-upsert every
+		// row.
+		if r.store.MovieForHash(instance, h) != 0 {
 			continue
 		}
 		out = append(out, strings.ToLower(h))

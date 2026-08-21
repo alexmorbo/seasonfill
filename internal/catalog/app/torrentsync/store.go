@@ -81,6 +81,13 @@ type Store struct {
 	// exists so 221 can wire writes without retro-fitting
 	// the store shape.
 	bySeries map[domain.InstanceName]map[domain.SonarrSeriesID]map[string]struct{}
+	// byMovie is the movie twin of bySeries: instance ->
+	// radarrMovieID -> set-of-hashes. Populated by the ADR-0023 B1.3
+	// movie reconciler pass via SetMovieMapping; B1.4's reader consumes
+	// it. Kept as a SEPARATE index rather than a union with bySeries
+	// because the two id spaces are unrelated integers — a sonarr
+	// series 42 and a radarr movie 42 must never collide.
+	byMovie map[domain.InstanceName]map[domain.RadarrMovieID]map[string]struct{}
 }
 
 // NewStore constructs an empty Store ready to receive an
@@ -89,6 +96,7 @@ func NewStore() *Store {
 	return &Store{
 		rows:     make(map[domain.InstanceName]map[string]Entry),
 		bySeries: make(map[domain.InstanceName]map[domain.SonarrSeriesID]map[string]struct{}),
+		byMovie:  make(map[domain.InstanceName]map[domain.RadarrMovieID]map[string]struct{}),
 	}
 }
 
@@ -104,6 +112,9 @@ func (s *Store) EnsureInstance(instance domain.InstanceName) {
 	if _, ok := s.bySeries[instance]; !ok {
 		s.bySeries[instance] = make(map[domain.SonarrSeriesID]map[string]struct{})
 	}
+	if _, ok := s.byMovie[instance]; !ok {
+		s.byMovie[instance] = make(map[domain.RadarrMovieID]map[string]struct{})
+	}
 }
 
 // DropInstance removes every entry for the named instance. Used
@@ -115,6 +126,7 @@ func (s *Store) DropInstance(instance domain.InstanceName) {
 	defer s.mu.Unlock()
 	delete(s.rows, instance)
 	delete(s.bySeries, instance)
+	delete(s.byMovie, instance)
 }
 
 // Get returns the current Entry for (instance, hash) and a boolean
@@ -162,6 +174,14 @@ func (s *Store) Delete(instance domain.InstanceName, hash string) {
 			delete(set, hash)
 			if len(set) == 0 {
 				delete(idx, seriesID)
+			}
+		}
+	}
+	if idx, ok := s.byMovie[instance]; ok {
+		for movieID, set := range idx {
+			delete(set, hash)
+			if len(set) == 0 {
+				delete(idx, movieID)
 			}
 		}
 	}
@@ -230,6 +250,71 @@ func (s *Store) SetSeriesMapping(instance domain.InstanceName, hash string, seri
 	if !ok {
 		set = make(map[string]struct{})
 		idx[seriesID] = set
+	}
+	set[hash] = struct{}{}
+}
+
+// HashesForMovieID returns the hashes currently mapped to the supplied
+// radarr movie under instance. Empty slice on miss. The slice is a fresh
+// copy — callers can mutate it without holding the store lock. Movie twin
+// of HashesFor. (Named …MovieID, not HashesForMovie, so it cannot be
+// confused with the MovieLookupRepo DB port of that name.)
+func (s *Store) HashesForMovieID(instance domain.InstanceName, movieID domain.RadarrMovieID) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	idx, ok := s.byMovie[instance]
+	if !ok {
+		return nil
+	}
+	set, ok := idx[movieID]
+	if !ok || len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for h := range set {
+		out = append(out, h)
+	}
+	return out
+}
+
+// MovieForHash returns the radarr movie id mapped to the supplied hash, or
+// 0 when no mapping exists. The reconciler uses this — together with
+// SeriesForHash — to decide whether a hash is still "unmapped". Reverse
+// index over byMovie; O(movieCount) per lookup, same shape and same
+// acceptable cost as SeriesForHash.
+func (s *Store) MovieForHash(instance domain.InstanceName, hash string) domain.RadarrMovieID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	idx, ok := s.byMovie[instance]
+	if !ok {
+		return 0
+	}
+	for movieID, set := range idx {
+		if _, ok := set[hash]; ok {
+			return movieID
+		}
+	}
+	return 0
+}
+
+// SetMovieMapping records (instance, hash) -> radarrMovieID in the
+// secondary index. Called by the movie reconciler pass after a successful
+// torrent_movie_map write. Movie twin of SetSeriesMapping.
+func (s *Store) SetMovieMapping(instance domain.InstanceName, hash string, movieID domain.RadarrMovieID) {
+	if movieID <= 0 || hash == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx, ok := s.byMovie[instance]
+	if !ok {
+		idx = make(map[domain.RadarrMovieID]map[string]struct{})
+		s.byMovie[instance] = idx
+	}
+	set, ok := idx[movieID]
+	if !ok {
+		set = make(map[string]struct{})
+		idx[movieID] = set
 	}
 	set[hash] = struct{}{}
 }

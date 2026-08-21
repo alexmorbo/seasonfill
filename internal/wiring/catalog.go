@@ -388,8 +388,13 @@ type WebhookBundle struct {
 	StatusCache          *webhookinstall.StatusCache
 	ReconcilerAdapter    adapters.ReconcilerAdapter
 	TorrentSeriesMapRepo *catalogpersistence.TorrentSeriesMapRepository
-	EpisodeStatesRepo    *catalogpersistence.EpisodeStatesRepository
-	SeasonStatsRepo      *catalogpersistence.SeasonStatsRepository
+	// TorrentMovieMapRepo is the ADR-0023 B1.1 movie twin of
+	// TorrentSeriesMapRepo. Written by the B1.2 Grab webhook inside this
+	// bundle AND by the B1.3 movie reconciler outside it — exposed so both
+	// consumers hold the SAME pointer (story 335 invariant).
+	TorrentMovieMapRepo *catalogpersistence.TorrentMovieMapRepository
+	EpisodeStatesRepo   *catalogpersistence.EpisodeStatesRepository
+	SeasonStatsRepo     *catalogpersistence.SeasonStatsRepository
 	// InboxDrainer is the ADR-0005 (E3) durable webhook-inbox FIFO
 	// drainer. Registered on the lifecycle group in server.go as
 	// "webhook_inbox_drainer".
@@ -653,6 +658,7 @@ func BuildWebhook(
 		StatusCache:          webhookStatusCache,
 		ReconcilerAdapter:    adapters.ReconcilerAdapter{Inner: webhookReconciler},
 		TorrentSeriesMapRepo: torrentSeriesMapRepo,
+		TorrentMovieMapRepo:  torrentMovieMapRepo,
 		EpisodeStatesRepo:    webhookEpisodeStatesRepo,
 		SeasonStatsRepo:      webhookSeasonStatsRepo,
 		InboxDrainer:         webhookInboxDrainer,
@@ -727,8 +733,9 @@ type TorrentsyncBundle struct {
 //  1. qbit_torrents + qbit_torrent_events repos.
 //  2. Store + PersistPolicy.
 //  3. SessionFactory adapter (closes over regrabBundle.QbitSettingsUC).
-//  4. sonarrFor closure over sonarrBundle.Holder.Load — reload-aware
-//     by construction.
+//  4. sonarrFor + radarrFor closures over the sonarr / radarr instance
+//     holders — reload-aware by construction. At most one resolves per
+//     instance name (the holders are type-partitioned).
 //  5. Reconciler (uses webhookBundle.TorrentSeriesMapRepo and
 //     scanBundle.GrabRepo).
 //  6. UseCase (with WithReconciler).
@@ -801,11 +808,37 @@ func BuildTorrentsync(
 		}
 		return client, true
 	}
+	// ADR-0023 B1.3 — radarrFor is the movie twin of sonarrFor. Instances
+	// are partitioned by type: a radarr row never enters the sonarr holder
+	// (see the scan-slice guard at the top of this file) and vice versa, so
+	// at most one of the two closures resolves for any instance name. The
+	// concrete *radarr.Client satisfies torrentsync.RadarrReconciler — its
+	// QueueAll + GrabHistoryPaged + ImportHistoryPaged are exactly the
+	// three methods in the port. Reads through RadarrHolder.Load so it
+	// observes the live instance map after every reload publish.
+	radarrFor := func(instance domain.InstanceName) (torrentsync.RadarrReconciler, bool) {
+		if scanBundle == nil || scanBundle.RadarrSync == nil || scanBundle.RadarrSync.RadarrHolder == nil {
+			return nil, false
+		}
+		inst, ok := scanBundle.RadarrSync.RadarrHolder.Load()[string(instance)]
+		if !ok || inst.Client == nil {
+			return nil, false
+		}
+		client, ok := inst.Client.(*radarrclient.Client)
+		if !ok {
+			return nil, false
+		}
+		return client, true
+	}
 	// B-32 — single TorrentsyncMetricsAdapter value satisfies the
 	// reconciler's narrow UnmappedGauge AND the use-case + loop wider
 	// Metrics port. One sink, no double-emission risk.
 	torrentsyncMetrics := observability.TorrentsyncMetricsAdapter{}
 
+	// WithMovieSources takes a concrete *TorrentMovieMapRepository, which is
+	// safe because it is constructed unconditionally at boot (see
+	// NewTorrentMovieMapRepository above) — so the reconciler's
+	// movieMaps == nil disable-check can never see a typed nil.
 	reconciler := torrentsync.NewReconciler(
 		store,
 		webhookBundle.TorrentSeriesMapRepo,
@@ -813,7 +846,7 @@ func BuildTorrentsync(
 		sonarrFor,
 		torrentsyncMetrics,
 		qbitLog,
-	)
+	).WithMovieSources(webhookBundle.TorrentMovieMapRepo, radarrFor)
 
 	useCase := torrentsync.NewUseCase(
 		store, policy,

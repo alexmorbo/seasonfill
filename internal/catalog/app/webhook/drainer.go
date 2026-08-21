@@ -401,9 +401,16 @@ func (d *Drainer) processRadarrRow(ctx context.Context, row ports.WebhookInboxRo
 	d.markDead(ctx, row.ID, perr, log)
 }
 
-// radarrDedupKey is the F-14 same-pass identity of a movie event's cache effect.
+// radarrDedupKey is the F-14 same-pass identity of a movie event's cache
+// effect. DownloadID is part of the key (mirroring the sonarr dedupKey
+// below): without it two Grab rows for the SAME movie in one drain batch —
+// an original grab and an upgrade grab — collapse into one and the second
+// torrent hash never reaches torrent_movie_map (ADR-0023 B1.2 review nit).
 func radarrDedupKey(evt webhook.MovieEvent) string {
-	return string(evt.InstanceName) + "|radarr|" + evt.RawEventType + "|" + strconv.Itoa(evt.RadarrMovieID)
+	return string(evt.InstanceName) + "|radarr|" +
+		evt.RawEventType + "|" +
+		evt.DownloadID + "|" +
+		strconv.Itoa(evt.RadarrMovieID)
 }
 
 // withJobTimeout derives a per-job ctx cancelled after perJobTimeout,

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/qbit"
+	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
 func mkInfo(hash, name string, group qbit.StateGroup) qbit.TorrentInfo {
@@ -90,4 +91,44 @@ func TestCountersDirty(t *testing.T) {
 	assert.False(t, CountersDirty(a, b))
 	b.Uploaded = 200
 	assert.True(t, CountersDirty(a, b))
+}
+
+func TestStore_MovieIndex_SetLookupAndDelete(t *testing.T) {
+	t.Parallel()
+	s := NewStore()
+	s.EnsureInstance("radarr-main")
+
+	s.SetMovieMapping("radarr-main", "aaaa", 42)
+	s.SetMovieMapping("radarr-main", "bbbb", 42)
+	s.SetMovieMapping("radarr-main", "cccc", 43)
+
+	assert.Equal(t, domain.RadarrMovieID(42), s.MovieForHash("radarr-main", "aaaa"))
+	assert.Equal(t, domain.RadarrMovieID(43), s.MovieForHash("radarr-main", "cccc"))
+	assert.Equal(t, domain.RadarrMovieID(0), s.MovieForHash("radarr-main", "zzzz"))
+	assert.Equal(t, domain.RadarrMovieID(0), s.MovieForHash("other", "aaaa"))
+	assert.ElementsMatch(t, []string{"aaaa", "bbbb"}, s.HashesForMovieID("radarr-main", 42))
+	assert.Empty(t, s.HashesForMovieID("radarr-main", 99))
+
+	// The series index must not see movie mappings and vice versa.
+	assert.Equal(t, domain.SonarrSeriesID(0), s.SeriesForHash("radarr-main", "aaaa"))
+
+	s.Delete("radarr-main", "aaaa")
+	assert.Equal(t, domain.RadarrMovieID(0), s.MovieForHash("radarr-main", "aaaa"))
+	assert.Equal(t, []string{"bbbb"}, s.HashesForMovieID("radarr-main", 42))
+
+	s.Delete("radarr-main", "cccc")
+	assert.Empty(t, s.HashesForMovieID("radarr-main", 43))
+
+	s.DropInstance("radarr-main")
+	assert.Equal(t, domain.RadarrMovieID(0), s.MovieForHash("radarr-main", "bbbb"))
+}
+
+func TestStore_SetMovieMapping_RejectsZeroIDAndEmptyHash(t *testing.T) {
+	t.Parallel()
+	s := NewStore()
+	s.EnsureInstance("radarr-main")
+	s.SetMovieMapping("radarr-main", "aaaa", 0)
+	s.SetMovieMapping("radarr-main", "", 42)
+	assert.Equal(t, domain.RadarrMovieID(0), s.MovieForHash("radarr-main", "aaaa"))
+	assert.Empty(t, s.HashesForMovieID("radarr-main", 42))
 }
