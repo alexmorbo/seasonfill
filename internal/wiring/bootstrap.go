@@ -581,6 +581,89 @@ type qbitSettingsLoader interface {
 	Load(ctx context.Context) map[string]regrab.Settings
 }
 
+// qbitLoopRefreshTimeout bounds the settings reload performed by the
+// HTTP-write-path refresher (ADR-0023 F4). The reload-bus path is
+// unbounded by design (it runs under the subscriber lock with the
+// long-lived rootCtx); the HTTP path detaches the request context and
+// caps it so a wedged DB cannot hold an operator's PUT open.
+const qbitLoopRefreshTimeout = 10 * time.Second
+
+// refreshQbitLoops is THE single "reload the qbit settings and re-evaluate
+// the watchdog loops" body. Two callers, one implementation:
+//
+//   - BuildOnAppliedFanout — the reload-bus path (instance CRUD / snapshot
+//     publish), passing the long-lived rootCtx.
+//   - BuildQbitLoopRefresher — the qbit-settings write path (ADR-0023 F4),
+//     passing a cancellation-detached, timeout-bounded context.
+//
+// Both loops consume the SAME projection, so the map is loaded once per
+// call. SwapSettings is idempotent diff semantics — it spawns loops for
+// newly-enabled instances (any arr type: the loops are type-neutral),
+// re-tunes changed intervals, and cancels removed/disabled ones.
+//
+// Returns the number of instances in the freshly-loaded map so callers can
+// log it; the fanout discards it.
+//
+// Guard note: the nil checks are interface-nil checks. Production always
+// passes live pointers; the guards exist for the minimal/test wirings that
+// pass literal nil (see bootstrap_fanout_radarr_test.go).
+func refreshQbitLoops(ctx context.Context, regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader) int {
+	if qbitLoader == nil || (regrabLoop == nil && torrentsyncLoop == nil) {
+		return 0
+	}
+	qbitMap := qbitLoader.Load(ctx)
+	if regrabLoop != nil {
+		regrabLoop.SwapSettings(qbitMap)
+	}
+	if torrentsyncLoop != nil {
+		torrentsyncLoop.SwapSettings(qbitMap)
+	}
+	return len(qbitMap)
+}
+
+// BuildQbitLoopRefresher returns the ADR-0023 F4 hook installed on
+// regrab.SettingsUseCase via WithLoopRefresher. It is called on the HTTP
+// write path (PUT / DELETE /instances/{name}/qbit/settings) right after a
+// successful commit, and it makes enabling the watchdog take effect
+// immediately instead of waiting for the next instance apply or a pod
+// restart.
+//
+// Two things this closure does that the fanout path must NOT do:
+//
+//  1. context.WithoutCancel — the incoming ctx is the gin request context.
+//     If the operator's client disconnected mid-request, a cancelled ctx
+//     would make qbitLoader.Load fail; the loader SWALLOWS its error and
+//     returns an EMPTY map, and an empty map tells SwapSettings to stop
+//     EVERY running loop. Detaching cancellation removes that foot-gun;
+//     qbitLoopRefreshTimeout keeps the detached context bounded.
+//
+//  2. recover — the hook is fired after the settings row is already
+//     committed. A panic in a loop's SwapSettings must never escape into
+//     the HTTP handler and turn a successful write into a 500. (The use
+//     case's notifyLoops recovers too; this is deliberate defence in
+//     depth, because the wiring layer is the one that knows the loops.)
+//
+// log is nil-OK — the logging is simply skipped. Unlike the application
+// layers, internal/wiring has no slog.Default() carve-out in .golangci.yml
+// (F-4c forbidigo), and ports.DomainLogger panics on a nil base, so the
+// nil case is handled by guarding the two call sites rather than by
+// substituting a fallback logger. Production always passes a live logger.
+func BuildQbitLoopRefresher(regrabLoop regrabSwapper, torrentsyncLoop torrentsyncSwapper, qbitLoader qbitSettingsLoader, log *slog.Logger) func(context.Context) {
+	return func(ctx context.Context) {
+		defer func() {
+			if r := recover(); r != nil && log != nil {
+				log.ErrorContext(ctx, "qbit_loop_refresh_panic", slog.Any("panic", r))
+			}
+		}()
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), qbitLoopRefreshTimeout)
+		defer cancel()
+		n := refreshQbitLoops(loadCtx, regrabLoop, torrentsyncLoop, qbitLoader)
+		if log != nil {
+			log.InfoContext(ctx, "qbit_loops_refreshed", slog.Int("instances", n))
+		}
+	}
+}
+
 // BuildOnAppliedFanout wires the OnApplied hook that updates everything
 // that depends on the freshly-rebuilt sonarr-client set: the scan UC
 // instance list, the holder map HTTP handlers iterate, the health
@@ -668,23 +751,20 @@ func BuildOnAppliedFanout(rootCtx context.Context, scanUC *scan.UseCase, radarrS
 		scanUC.SwapDryRun(snap.DryRun)
 
 		// Phase 10 — Watchdog regrab loop fanout. Loaded fresh from the
-		// repo on every publish so the loop sees the latest qBit settings
+		// repo on every publish so the loops see the latest qBit settings
 		// without a separate subscriber. The lookup runs under the
 		// SonarrClientsSubscriber lock (we're inside its fanout closure)
 		// so concurrent SwapSettings calls cannot interleave.
 		//
-		// Story 220 (A-2) — torrentsync loop consumes the same projection;
-		// we reuse the qbitMap we already fetched rather than calling
-		// qbitLoader.Load a second time per publish.
-		if (regrabLoop != nil || torrentsyncLoop != nil) && qbitLoader != nil {
-			qbitMap := qbitLoader.Load(rootCtx)
-			if regrabLoop != nil {
-				regrabLoop.SwapSettings(qbitMap)
-			}
-			if torrentsyncLoop != nil {
-				torrentsyncLoop.SwapSettings(qbitMap)
-			}
-		}
+		// Story 220 (A-2) — the torrentsync loop consumes the same
+		// projection; the map is loaded once and handed to both loops.
+		//
+		// ADR-0023 F4 — the body moved to refreshQbitLoops so the
+		// qbit-settings write path (BuildQbitLoopRefresher →
+		// SettingsUseCase.WithLoopRefresher) drives byte-identical logic.
+		// Behaviour on this path is unchanged: same guards, same rootCtx,
+		// same single Load, same order (regrab then torrentsync).
+		refreshQbitLoops(rootCtx, regrabLoop, torrentsyncLoop, qbitLoader)
 
 		go checker.Preflight(rootCtx)
 	}

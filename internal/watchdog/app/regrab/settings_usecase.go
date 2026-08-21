@@ -130,6 +130,18 @@ type SettingsUseCase struct {
 	webhooks  WebhookChecker
 	logger    *slog.Logger
 	now       func() time.Time
+	// refreshLoops is the ADR-0023 F4 hook: "the persisted qbit settings
+	// changed — re-evaluate the watchdog loops NOW". nil-OK (the zero
+	// value), so every existing caller and test that constructs the use
+	// case without it keeps working unchanged. Production installs
+	// wiring.BuildQbitLoopRefresher, which reloads the settings map and
+	// calls SwapSettings on the regrab + torrentsync loops.
+	//
+	// Contract: best-effort and side-effect-only. The return value is
+	// void, the call is fired only AFTER a successful write, and a panic
+	// inside it is recovered by notifyLoops — enabling the watchdog must
+	// never fail (or roll back) because a loop refresh misbehaved.
+	refreshLoops func(ctx context.Context)
 }
 
 func NewSettingsUseCase(
@@ -169,6 +181,48 @@ func (u *SettingsUseCase) WithClock(now func() time.Time) *SettingsUseCase {
 		u.now = now
 	}
 	return u
+}
+
+// WithLoopRefresher installs the ADR-0023 F4 loop-refresh hook. Passing
+// nil clears it (the use case then behaves exactly as it did before F4).
+// Returns the use case so the cmd/server wiring stays fluent, matching
+// WithWebhookChecker / WithClock.
+//
+// Called from the composition root AFTER both watchdog loops exist and
+// have been Started — see cmd/server/server.go's late-bind next to
+// torrentsyncBundle.Loop.Start.
+func (u *SettingsUseCase) WithLoopRefresher(fn func(ctx context.Context)) *SettingsUseCase {
+	u.refreshLoops = fn
+	return u
+}
+
+// notifyLoops fires the F4 loop-refresh hook. Every guard here exists to
+// protect the ALREADY-COMMITTED write:
+//
+//   - nil hook (default / tests / minimal wirings) → no-op.
+//   - a panic inside the hook is recovered and logged; the caller's
+//     success path continues untouched.
+//
+// The hook is deliberately synchronous: the operator's PUT must not
+// return 200 before the loops have been re-evaluated, otherwise an
+// immediately-following GET still reports a dormant watchdog. The
+// production hook's only I/O is one bounded qbit_settings List.
+//
+// `op` is the audit-ish discriminator ("upsert" / "delete") carried into
+// the panic log line so a report names the write that tripped it.
+func (u *SettingsUseCase) notifyLoops(ctx context.Context, name, op string) {
+	if u.refreshLoops == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			u.logger.ErrorContext(ctx, "qbit_settings.loop_refresh_panic",
+				slog.String("instance", name),
+				slog.String("op", op),
+				slog.Any("panic", r))
+		}
+	}()
+	u.refreshLoops(ctx)
 }
 
 // GetByInstanceName resolves the parent instance, then reads the
@@ -295,6 +349,14 @@ func (u *SettingsUseCase) Upsert(ctx context.Context, name string, in UpsertInpu
 	if err != nil {
 		return QbitSettingsView{}, fmt.Errorf("reload settings: %w", err)
 	}
+	// ADR-0023 F4 — the row is committed and re-read; re-evaluate the
+	// watchdog loops so enabling/disabling the watchdog takes effect
+	// immediately instead of waiting for the next instance apply (the
+	// reload subscriber's OnApplied fanout) or a pod restart. Fired on
+	// EVERY successful upsert, not just enabled-transitions: interval /
+	// URL / credential edits must re-tune a running loop too, and
+	// SwapSettings is an idempotent diff.
+	u.notifyLoops(ctx, name, "upsert")
 	return recordToView(stored, name), nil
 }
 
@@ -314,6 +376,10 @@ func (u *SettingsUseCase) Delete(ctx context.Context, name string) error {
 	if err := u.settings.DeleteByInstance(ctx, domain.InstanceName(name)); err != nil {
 		return err
 	}
+	// ADR-0023 F4 — the row is gone; the refreshed map no longer contains
+	// this instance, so SwapSettings cancels its regrab + torrentsync
+	// goroutines on the spot.
+	u.notifyLoops(ctx, name, "delete")
 	return nil
 }
 

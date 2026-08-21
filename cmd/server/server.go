@@ -274,6 +274,27 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	// torrentsync loop's Start needs rootCtx (owned by server.go, not
 	// the wirer). Same pattern as regrabBundle.RegrabLoop.Start above.
 	torrentsyncBundle.Loop.Start(rootCtx)
+
+	// ADR-0023 F4 — late-bind the qbit-loop refresher into the settings use
+	// case so PUT/DELETE /api/v1/instances/{name}/qbit/settings re-evaluates
+	// the regrab + torrentsync loops immediately. Before this, enabling the
+	// watchdog only persisted the row; the loops were re-read exclusively by
+	// the reload subscriber's OnApplied fanout (instance apply), so a
+	// watchdog toggle did nothing until an unrelated instance-apply or a pod
+	// restart.
+	//
+	// Wired HERE, not inside BuildRegrab, because the torrentsync loop does
+	// not exist yet at that point (BuildTorrentsync consumes regrabBundle).
+	// This is the first line in the boot sequence where the settings use
+	// case AND both Started loops are simultaneously in scope; the HTTP
+	// server is not serving yet, so no request can observe a half-wired hook.
+	regrabBundle.QbitSettingsUC.WithLoopRefresher(wiring.BuildQbitLoopRefresher(
+		regrabBundle.RegrabLoop,
+		torrentsyncBundle.Loop,
+		regrabBundle.QbitLoader,
+		log,
+	))
+
 	// B-32 — qbit_torrents row-count collector. bgWG.Add + go-Run
 	// mirrors the sweep/regrab pattern; the loop calls bgWG.Done on
 	// exit. Drained by drainBackground at shutdown.
