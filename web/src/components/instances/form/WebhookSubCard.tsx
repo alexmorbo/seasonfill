@@ -1,6 +1,5 @@
-import { Controller, useWatch, type Control } from 'react-hook-form';
+import { useWatch, type Control } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { WebhookStatusBadge } from '@/components/settings/WebhookStatusBadge';
@@ -11,14 +10,13 @@ export interface WebhookSubCardProps {
   readonly control: Control<any, any, any>;
   readonly mode: 'create' | 'edit';
   readonly instanceName: string | undefined;
-  readonly installEnabled: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly register: any;
   readonly errorOverride?: string;
 }
 
 export function WebhookSubCard({
-  control, mode, instanceName, installEnabled, register, errorOverride,
+  control, mode, instanceName, register, errorOverride,
 }: WebhookSubCardProps) {
   const { t } = useTranslation();
   const isEdit = mode === 'edit';
@@ -51,29 +49,7 @@ export function WebhookSubCard({
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[13px] font-[550]">
-            {t('settings.instances.form.connection.webhookAutoInstallTitle', { arr: arrLabel })}
-          </span>
-          <span className="text-[11.5px] text-tx-muted">
-            {t('settings.instances.form.connection.webhookAutoInstallHint')}
-          </span>
-        </div>
-        <Controller
-          control={control}
-          name="webhook_install_enabled"
-          render={({ field }) => (
-            <Switch
-              id="inst-webhook-install"
-              checked={Boolean(field.value)}
-              onCheckedChange={(v) => field.onChange(v)}
-            />
-          )}
-        />
-      </div>
-
-      {installEnabled && (
+      {(
         <div className="flex flex-col gap-1.5">
           <Label
             htmlFor="inst-webhook-url-override"

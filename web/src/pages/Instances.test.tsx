@@ -1,6 +1,7 @@
 import { type ReactElement } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test-utils';
 import { Instances } from './Instances';
 import { InstanceFilterCtx } from '@/lib/instance-filter-context-internal';
@@ -23,13 +24,30 @@ beforeEach(() => {
       }), { status: 200 });
     }
     if (url.includes('/counters')) {
-      return new Response(JSON.stringify({
-        instance_name: 'x', window: url.includes('24h') ? '24h' : '7d',
-        totals: { grabs: 0, imports: 0, fails: 0 }, sparkline: [], avg_grabs_7d: 0,
-      }), { status: 200 });
+      // Aggregate shape ({ items: InstanceCountersDTO[] }) — matches
+      // useCountersAggregate's CountersAggregateDTO. A bare per-instance
+      // body here (no `items` array) throws in InstanceHero's
+      // `c24.data?.items.find(...)` once the query actually resolves;
+      // previously-passing tests just never waited long enough to
+      // observe it.
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
     }
     if (url.endsWith('/missing')) {
       return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }
+    // adr0023-F1 BUG 1/4b regression test: InstanceFormDialog's detail
+    // GET (/api/v1/admin/instances/<name>) needs real per-instance bodies
+    // so the dialog actually populates url/type from the fetched detail
+    // rather than falling through to the generic '{}' stub below.
+    if (url.endsWith('/instances/homelab')) {
+      return new Response(JSON.stringify({
+        name: 'homelab', type: 'sonarr', url: 'http://sonarr:80', mode: 'auto',
+      }), { status: 200 });
+    }
+    if (url.endsWith('/instances/films')) {
+      return new Response(JSON.stringify({
+        name: 'films', type: 'radarr', url: 'http://radarr:7878', mode: 'auto',
+      }), { status: 200 });
     }
     if (url.endsWith('/webhook/status')) {
       return new Response(JSON.stringify({ installed: true }), { status: 200 });
@@ -101,5 +119,36 @@ describe('<Instances />', () => {
     await waitFor(() => {
       expect(nameInput).toHaveFocus();
     });
+  });
+
+  it('adr0023-F1 BUG 1/4b: dirtying the edit form for one instance does not leak into a fresh open for another', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(wrap(<Instances />));
+    await waitFor(() => {
+      expect(screen.getByTestId('instance-hero-homelab')).toBeInTheDocument();
+    });
+
+    // Open edit for "homelab", dirty the URL field, close WITHOUT saving.
+    await user.click(
+      within(screen.getByTestId('instance-hero-homelab'))
+        .getByRole('button', { name: /изменить|edit/i }),
+    );
+    const urlInput = await screen.findByLabelText(/^url$/i) as HTMLInputElement;
+    await waitFor(() => expect(urlInput.value).toBe('http://sonarr:80'));
+    await user.clear(urlInput);
+    await user.type(urlInput, 'http://DIRTY-LEAK:9999');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByLabelText(/^url$/i)).toBeNull());
+
+    // Re-open edit for a DIFFERENT instance ("films", radarr).
+    await user.click(
+      within(screen.getByTestId('instance-hero-films'))
+        .getByRole('button', { name: /изменить|edit/i }),
+    );
+    const urlInput2 = await screen.findByLabelText(/^url$/i) as HTMLInputElement;
+    // Must show films' OWN url — never the dirty-leaked value, never
+    // homelab's url, never a stale `type`.
+    await waitFor(() => expect(urlInput2.value).toBe('http://radarr:7878'));
+    expect(urlInput2.value).not.toBe('http://DIRTY-LEAK:9999');
   });
 });

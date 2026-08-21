@@ -26,6 +26,14 @@ export function dryRunToWire(c: DryRunChoice): boolean | undefined {
   return undefined;
 }
 
+// ADR-0023 F1 (BUG 2): per-type URL defaults. Used by InstanceFormDialog
+// to keep a PRISTINE url field in sync with the type segmented control in
+// create mode (edit mode locks `type`, so this never applies there).
+export const URL_DEFAULTS: Record<'sonarr' | 'radarr', string> = {
+  sonarr: 'http://sonarr:8989',
+  radarr: 'http://radarr:7878',
+};
+
 export const FORM_DEFAULTS = {
   name: '',
   // Ф6-R-6b: arr kind. New instances default to sonarr; immutable after

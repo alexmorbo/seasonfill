@@ -33,7 +33,7 @@ import {
   type QbitSettingsUpsertRequest,
 } from '@/api/qbit';
 import {
-  FORM_DEFAULTS, WATCHDOG_DEFAULTS, MIN_AVAILABILITY_VALUES,
+  FORM_DEFAULTS, WATCHDOG_DEFAULTS, MIN_AVAILABILITY_VALUES, URL_DEFAULTS,
   coerceMinAvailability,
   dryRunFromWire, dryRunToWire, type DryRunChoice,
 } from './instance-form-helpers';
@@ -270,7 +270,11 @@ function valuesToPayload(v: FormValues): Omit<InstanceCreateRequest, 'api_key'> 
     mode: v.mode as DtoInstanceCreateRequestMode,
     timeout_sec: v.timeout_sec,
     search_timeout_sec: v.search_timeout_sec,
-    webhook_install_enabled: v.webhook_install_enabled,
+    // ADR-0023 F1 (BUG 3): always auto-install — the UI toggle is gone,
+    // the operator can no longer opt out. Field name/shape on the wire is
+    // unchanged; this just pins the value instead of reading it from a
+    // form control that no longer exists.
+    webhook_install_enabled: true,
     tags: {
       mode: v.tags_mode as DtoInstanceTagsMode,
       include: [...v.tags_include],
@@ -377,11 +381,6 @@ export function InstanceFormDialog({
     mode: 'onBlur',
   });
 
-  const webhookInstallEnabled = useWatch({
-    control,
-    name: 'webhook_install_enabled',
-    defaultValue: true,
-  });
   // A3a: type-aware form chrome. `type` is immutable after create
   // (PromotedControls locks it in edit mode), but create-mode still
   // needs the live value as the operator flips the segmented control.
@@ -390,6 +389,25 @@ export function InstanceFormDialog({
     name: 'type',
   }) ?? 'sonarr') as 'sonarr' | 'radarr';
   const arrLabel = t(`instances.type.${arrType === 'radarr' ? 'radarr' : 'sonarr'}`);
+
+  // ADR-0023 F1 (BUG 2): create-mode-only URL reactivity. If the operator
+  // hasn't touched the URL field (still pristine — the common case), or
+  // it still holds the OTHER type's canonical default (covers flipping
+  // the segmented control back and forth), snap it to the new type's
+  // canonical default. A URL the operator has genuinely customized (any
+  // value that isn't one of the two known per-type defaults) is left
+  // alone. `isEdit` guard is defensive — PromotedControls only wires
+  // onTypeChange from its create-mode SegmentedField branch, never from
+  // the edit-mode read-only badge branch, so this can't actually fire in
+  // edit mode today; kept in case that ever changes.
+  const handleTypeChange = (newType: 'sonarr' | 'radarr') => {
+    if (isEdit) return;
+    const otherType = newType === 'radarr' ? 'sonarr' : 'radarr';
+    const currentUrl = getValues('url');
+    if (!dirtyFields.url || currentUrl === URL_DEFAULTS[otherType]) {
+      setValue('url', URL_DEFAULTS[newType]);
+    }
+  };
 
   // Reset the open-transition gate whenever the dialog closes. Next
   // open-transition will be allowed to seed openSections exactly once.
@@ -485,7 +503,7 @@ export function InstanceFormDialog({
     let section: 'connection' | 'tuning';
     if (has(
       'name', 'url', 'api_key', 'mode', 'dry_run',
-      'public_url', 'webhook_url_override', 'webhook_install_enabled',
+      'public_url', 'webhook_url_override',
     )) {
       section = 'connection';
     } else {
@@ -648,8 +666,12 @@ export function InstanceFormDialog({
           className="flex flex-col gap-4 overflow-y-auto overflow-x-hidden px-5 py-4 min-h-0"
           noValidate
         >
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          <PromotedControls control={control as unknown as any} mode={mode} />
+          <PromotedControls
+            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+            control={control as unknown as any}
+            mode={mode}
+            onTypeChange={handleTypeChange}
+          />
 
           <Accordion
             type="multiple"
@@ -672,7 +694,6 @@ export function InstanceFormDialog({
                 mode={mode}
                 arrType={arrType}
                 instanceName={initial?.name ?? undefined}
-                installEnabled={Boolean(webhookInstallEnabled)}
                 uiUrlHint={uiUrlHint}
                 onTest={onTest}
                 testing={probe.isPending}

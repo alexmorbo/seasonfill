@@ -208,48 +208,50 @@ export function WatchdogSection({
         </p>
       </div>
 
-      <div className="flex items-start gap-3 pt-1">
-        <Controller
-          control={control}
-          name="qbit_enabled"
-          render={({ field }) => (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Switch
-                      id="qbit-enabled"
-                      checked={Boolean(field.value)}
-                      onCheckedChange={(v) => field.onChange(v)}
-                      disabled={enableLocked}
-                      aria-label={t('settings.instances.form.watchdog.form.enabled.label')}
-                    />
-                  </span>
-                </TooltipTrigger>
-                {enableLocked && (
-                  <TooltipContent>
-                    {isCreate
-                      ? t('settings.instances.form.watchdog.form.enabled.helpCreate')
-                      : t('settings.instances.form.watchdog.form.enabled.helpDisabled')}
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        />
-        <div className="flex flex-col gap-0.5">
-          <Label htmlFor="qbit-enabled" className="font-normal">
-            {t('settings.instances.form.watchdog.form.enabled.label')}
-          </Label>
-          <p className="text-[11.5px] text-tx-muted">
-            {enableLocked
-              ? (isCreate
-                  ? t('settings.instances.form.watchdog.form.enabled.helpCreate')
-                  : t('settings.instances.form.watchdog.form.enabled.helpDisabled'))
-              : t('settings.instances.form.watchdog.form.enabled.helpEnabled')}
-          </p>
+      {!isCreate && (
+        <div className="flex items-start gap-3 pt-1">
+          <Controller
+            control={control}
+            name="qbit_enabled"
+            render={({ field }) => (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Switch
+                        id="qbit-enabled"
+                        checked={Boolean(field.value)}
+                        onCheckedChange={(v) => field.onChange(v)}
+                        disabled={enableLocked}
+                        aria-label={t('settings.instances.form.watchdog.form.enabled.label')}
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  {enableLocked && (
+                    <TooltipContent>
+                      {isCreate
+                        ? t('settings.instances.form.watchdog.form.enabled.helpCreate')
+                        : t('settings.instances.form.watchdog.form.enabled.helpDisabled')}
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          />
+          <div className="flex flex-col gap-0.5">
+            <Label htmlFor="qbit-enabled" className="font-normal">
+              {t('settings.instances.form.watchdog.form.enabled.label')}
+            </Label>
+            <p className="text-[11.5px] text-tx-muted">
+              {enableLocked
+                ? (isCreate
+                    ? t('settings.instances.form.watchdog.form.enabled.helpCreate')
+                    : t('settings.instances.form.watchdog.form.enabled.helpDisabled'))
+                : t('settings.instances.form.watchdog.form.enabled.helpEnabled')}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

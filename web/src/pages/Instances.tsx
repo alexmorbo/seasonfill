@@ -44,6 +44,30 @@ export function Instances() {
     () => searchParams.get('edit'),
   );
   const [deleting, setDeleting] = useState<string | null>(null);
+  // Story adr0023-F1 (BUG 1+4b): InstanceFormDialog is a persistent
+  // singleton (only `open` toggles), so its internal useForm/useState
+  // survives across open/close cycles. The form-populate effect
+  // (InstanceFormDialog.tsx:425-443) is gated `if (!open || isDirty)
+  // return`, so a dirty prior session (operator edited a field then
+  // closed via Cancel/X/Escape without saving — isDirty never clears)
+  // blocks reseeding on the NEXT open: stale field values (including
+  // `type`) leak into a different instance's edit session, and
+  // `qbit_enabled` shows a value carried from the previous open.
+  //
+  // Fix: force a fresh RHF instance every explicit open via a `key` on
+  // <InstanceFormDialog>. `dialogNonce` increments ONLY inside
+  // openCreate/openEdit below — i.e. exactly at a closed→open transition
+  // the operator triggers — and is NEVER touched by the close path
+  // (onOpenChange below only resets `editing`/search-params). This is
+  // deliberate: Radix's <DialogPrimitive.Content> keeps rendering with
+  // data-state="closed" for the ~200ms exit animation
+  // (web/src/components/ui/dialog.tsx:29-49) while `open` is already
+  // false — if the `key` changed at that moment React would tear down
+  // the whole subtree immediately and cut the animation short. Gating
+  // the bump to the two explicit open call-sites (never to `editing`
+  // going null, which happens synchronously in the close handler) keeps
+  // the key stable throughout the entire close sequence.
+  const [dialogNonce, setDialogNonce] = useState(0);
 
   const detailQuery = useInstanceDetail(editing);
   const editDetail = detailQuery.data?.detail;
@@ -62,8 +86,16 @@ export function Instances() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailName, detailUrl, detailMode, detailType]);
 
-  const openCreate = () => { setEditing(null); setDialogOpen(true); };
-  const openEdit = (name: string) => { setEditing(name); setDialogOpen(true); };
+  const openCreate = () => {
+    setDialogNonce((n) => n + 1);
+    setEditing(null);
+    setDialogOpen(true);
+  };
+  const openEdit = (name: string) => {
+    setDialogNonce((n) => n + 1);
+    setEditing(name);
+    setDialogOpen(true);
+  };
   const onRecheck = (name: string) => { trigger.mutate({ instance: name }); };
   const onDeleteClick = (name: string) => { setDeleting(name); };
   const confirmDelete = async () => {
@@ -128,6 +160,7 @@ export function Instances() {
       )}
 
       <InstanceFormDialog
+        key={dialogNonce}
         open={dialogOpen}
         onOpenChange={(v) => {
           setDialogOpen(v);

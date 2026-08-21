@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen } from '@testing-library/react';
 import { useForm } from 'react-hook-form';
@@ -10,9 +10,14 @@ import { FORM_DEFAULTS } from '@/components/settings/instance-form-helpers';
 function Harness({
   defaultValues = FORM_DEFAULTS as Record<string, unknown>,
   mode = 'create' as 'create' | 'edit',
+  onTypeChange,
+}: {
+  defaultValues?: Record<string, unknown>;
+  mode?: 'create' | 'edit';
+  onTypeChange?: (v: 'sonarr' | 'radarr') => void;
 }) {
   const { control } = useForm<Record<string, unknown>>({ defaultValues });
-  return <PromotedControls control={control} mode={mode} />;
+  return <PromotedControls control={control} mode={mode} onTypeChange={onTypeChange} />;
 }
 
 const wrap = (n: React.ReactElement) => <I18nextProvider i18n={i18n}>{n}</I18nextProvider>;
@@ -59,6 +64,14 @@ describe('<PromotedControls />', () => {
       i18n.t('settings.instances.form.type.radarr'),
     );
     expect(screen.getAllByTestId('segmented-field')).toHaveLength(2);
+  });
+
+  it('BUG 2: calls onTypeChange with the new type when the segmented control changes', async () => {
+    const onTypeChange = vi.fn();
+    const user = userEvent.setup();
+    render(wrap(<Harness onTypeChange={onTypeChange} />));
+    await user.click(screen.getByRole('radio', { name: /radarr/i }));
+    expect(onTypeChange).toHaveBeenCalledWith('radarr');
   });
 
   it('switches mode via SegmentedField click', async () => {

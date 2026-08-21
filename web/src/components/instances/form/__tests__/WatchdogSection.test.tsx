@@ -90,8 +90,8 @@ describe('<WatchdogSection />', () => {
     });
   });
 
-  it('disables the enabled-switch in create mode (no instance yet)', () => {
+  it('hides the enabled-switch entirely in create mode (no instance yet)', () => {
     render(<Harness mode="create" />);
-    expect(screen.getByRole('switch')).toBeDisabled();
+    expect(screen.queryByRole('switch')).toBeNull();
   });
 });

@@ -9,9 +9,14 @@ export interface PromotedControlsProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly control: Control<any, any, any>;
   readonly mode: 'create' | 'edit';
+  // ADR-0023 F1 (BUG 2): fired with the new type whenever the create-mode
+  // segmented control changes. Undefined/no-op in edit mode (the type
+  // Controller there renders the read-only badge branch and never calls
+  // this at all — see the isEdit check inside the Controller render).
+  readonly onTypeChange?: ((v: 'sonarr' | 'radarr') => void) | undefined;
 }
 
-export function PromotedControls({ control, mode }: PromotedControlsProps) {
+export function PromotedControls({ control, mode, onTypeChange }: PromotedControlsProps) {
   const { t } = useTranslation();
   const isEdit = mode === 'edit';
   return (
@@ -42,7 +47,10 @@ export function PromotedControls({ control, mode }: PromotedControlsProps) {
               <SegmentedField
                 id="promoted-type"
                 value={current}
-                onChange={(v) => field.onChange(v)}
+                onChange={(v) => {
+                  field.onChange(v);
+                  onTypeChange?.(v === 'radarr' ? 'radarr' : 'sonarr');
+                }}
                 ariaLabel={t('settings.instances.form.typeLabel')}
                 options={[
                   { value: 'sonarr', label: t('settings.instances.form.type.sonarr') },

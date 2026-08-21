@@ -10,9 +10,9 @@ import { FORM_DEFAULTS } from '@/components/settings/instance-form-helpers';
 function makeQc() { return new QueryClient({ defaultOptions: { queries: { retry: false } } }); }
 
 function Harness({
-  installEnabled = true, mode = 'edit' as 'edit' | 'create',
+  mode = 'edit' as 'edit' | 'create',
   type = 'sonarr' as 'sonarr' | 'radarr',
-}: { installEnabled?: boolean; mode?: 'edit' | 'create'; type?: 'sonarr' | 'radarr' }) {
+}: { mode?: 'edit' | 'create'; type?: 'sonarr' | 'radarr' }) {
   const qc = makeQc();
   const { control, register } = useForm({
     defaultValues: { ...FORM_DEFAULTS, type } as Record<string, unknown>,
@@ -24,7 +24,6 @@ function Harness({
           control={control}
           mode={mode}
           instanceName={mode === 'edit' ? 'homelab' : undefined}
-          installEnabled={installEnabled}
           register={register}
         />
       </I18nextProvider>
@@ -52,14 +51,23 @@ describe('<WebhookSubCard />', () => {
     expect(screen.queryByTestId('webhook-status-badge')).toBeNull();
   });
 
-  it('hides the override-url input when install switch is off', () => {
-    render(<Harness installEnabled={false} />);
-    expect(screen.queryByLabelText(/override base url|override base/i)).toBeNull();
+  it('BUG 3: always renders the override-url input (toggle removed)', () => {
+    render(<Harness />);
+    expect(
+      screen.getByLabelText(/override base url|override base/i),
+    ).toBeInTheDocument();
   });
 
-  it('A3a: webhook title/auto-install title read Radarr for a radarr-typed form', () => {
+  it('BUG 3: never renders the auto-install toggle switch', () => {
+    render(<Harness />);
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+
+  it('A3a: webhook title reads Radarr for a radarr-typed form', () => {
+    // BUG 3 (ADR-0023 F1) removed the auto-install toggle row, which
+    // carried the second "{arr} Connect" string this test used to
+    // assert on — only the card's own webhookTitle string remains.
     render(<Harness type="radarr" />);
     expect(screen.getByTestId('webhook-subcard')).toHaveTextContent(/Webhook → Radarr/);
-    expect(screen.getByTestId('webhook-subcard')).toHaveTextContent(/Radarr Connect/);
   });
 });

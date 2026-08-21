@@ -22,7 +22,6 @@ export interface ConnectionSectionProps {
   // edit-mode gets the immutable stored type.
   readonly arrType: 'sonarr' | 'radarr';
   readonly instanceName: string | undefined;
-  readonly installEnabled: boolean;
   readonly uiUrlHint: string | undefined;
   readonly onTest: () => void;
   readonly testing: boolean;
@@ -33,7 +32,7 @@ export interface ConnectionSectionProps {
 // NOTE: Mode + Dry-run are NOT here — they live in <PromotedControls>
 // at the top of the dialog body, per design HTML (`.promo` block).
 export function ConnectionSection({
-  control, register, errors, mode, arrType, instanceName, installEnabled,
+  control, register, errors, mode, arrType, instanceName,
   uiUrlHint, onTest, testing, probeResult, tValidationError,
 }: ConnectionSectionProps) {
   const { t } = useTranslation();
@@ -226,7 +225,6 @@ export function ConnectionSection({
         control={control}
         mode={mode}
         instanceName={instanceName}
-        installEnabled={installEnabled}
         register={register}
         errorOverride={tValidationError((errors.webhook_url_override?.message as string) ?? undefined)}
       />

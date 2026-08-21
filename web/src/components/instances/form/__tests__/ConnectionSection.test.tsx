@@ -33,7 +33,6 @@ function Harness({
           mode={mode}
           arrType={arrType}
           instanceName={mode === 'edit' ? 'homelab' : undefined}
-          installEnabled
           uiUrlHint={uiUrlHint}
           onTest={onTest}
           testing={false}

@@ -1005,4 +1005,29 @@ describe('<InstanceFormDialog /> redesign (F9)', () => {
       expect(metadataPosts(capture.calls).length).toBe(1);
     });
   });
+
+  describe('adr0023-F1 BUG 2 — type-aware URL default (create mode)', () => {
+    it('switches the pristine URL field to the radarr default when type flips to Radarr, and back', async () => {
+      const user = userEvent.setup();
+      render(wrap(<InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />));
+      await screen.findByTestId('connection-section');
+      const urlInput = screen.getByLabelText(/^url$/i) as HTMLInputElement;
+      expect(urlInput.value).toBe('http://sonarr:8989');
+      await user.click(screen.getByRole('radio', { name: /radarr/i }));
+      expect(urlInput.value).toBe('http://radarr:7878');
+      await user.click(screen.getByRole('radio', { name: /sonarr/i }));
+      expect(urlInput.value).toBe('http://sonarr:8989');
+    });
+
+    it('does not overwrite a manually-edited URL when the type flips', async () => {
+      const user = userEvent.setup();
+      render(wrap(<InstanceFormDialog open onOpenChange={vi.fn()} mode="create" />));
+      await screen.findByTestId('connection-section');
+      const urlInput = screen.getByLabelText(/^url$/i) as HTMLInputElement;
+      await user.clear(urlInput);
+      await user.type(urlInput, 'http://custom-host:1234');
+      await user.click(screen.getByRole('radio', { name: /radarr/i }));
+      expect(urlInput.value).toBe('http://custom-host:1234');
+    });
+  });
 });
