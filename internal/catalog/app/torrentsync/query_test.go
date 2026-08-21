@@ -176,3 +176,171 @@ func TestQuery_BySeriesID_LookupErrorBubbles(t *testing.T) {
 	_, err := q.BySeriesID(context.Background(), "alpha", 42)
 	require.Error(t, err)
 }
+
+// fakeMovieLookup is the test stub for MovieLookupRepo (ADR-0023 B1.4).
+type fakeMovieLookup struct {
+	mu      sync.Mutex
+	entries map[string][]MovieMapEntry // key = "instance|radarrMovieID"
+	err     error
+}
+
+func (f *fakeMovieLookup) HashesForMovie(_ context.Context, instance domain.InstanceName, movieID domain.RadarrMovieID) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]string, 0)
+	for _, e := range f.entries[movieLookupKey(instance, movieID)] {
+		out = append(out, e.Hash)
+	}
+	return out, nil
+}
+
+func (f *fakeMovieLookup) EntriesForMovie(_ context.Context, instance domain.InstanceName, movieID domain.RadarrMovieID) ([]MovieMapEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.entries[movieLookupKey(instance, movieID)], nil
+}
+
+func movieLookupKey(instance domain.InstanceName, movieID domain.RadarrMovieID) string {
+	return string(instance) + "|" + strconv.Itoa(int(movieID))
+}
+
+func TestQuery_ByMovieID(t *testing.T) {
+	t.Parallel()
+
+	addedNewer := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	addedOlder := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
+
+	t.Run("live rows carry provenance from the bridge", func(t *testing.T) {
+		t.Parallel()
+		store := NewStore()
+		store.EnsureInstance("radarr-main")
+		store.Put("radarr-main", Entry{
+			Info:       liveInfo("aaaa", "live movie", addedNewer),
+			StateGroup: qbit.StateGroupSeeding,
+			SyncedAt:   addedNewer.Add(time.Hour),
+		})
+		store.SetMovieMapping("radarr-main", "aaaa", 42)
+
+		lookup := &fakeMovieLookup{entries: map[string][]MovieMapEntry{
+			movieLookupKey("radarr-main", 42): {
+				{Hash: "aaaa", Source: MovieMapSourceWebhook, Provenance: MovieProvenanceManualImport},
+			},
+		}}
+		q := NewQuery(store, &fakeTorrentsRepoWithFind{}, nil).WithMovieLookup(lookup)
+
+		result, err := q.ByMovieID(context.Background(), "radarr-main", 42)
+		require.NoError(t, err)
+		require.Len(t, result.Rows, 1)
+		assert.Equal(t, "aaaa", result.Rows[0].Entry.Info.Hash)
+		assert.True(t, result.Rows[0].Live)
+		assert.True(t, result.Rows[0].Present)
+		assert.Equal(t, string(MovieProvenanceManualImport), result.Rows[0].Provenance)
+		assert.Equal(t, 1, result.LiveCount)
+	})
+
+	t.Run("db fallback fills bridge hash absent from the store with zeroed live cells", func(t *testing.T) {
+		t.Parallel()
+		store := NewStore()
+		store.EnsureInstance("radarr-main")
+		store.Put("radarr-main", Entry{
+			Info:       liveInfo("aaaa", "live movie", addedNewer),
+			StateGroup: qbit.StateGroupSeeding,
+			SyncedAt:   addedNewer.Add(time.Hour),
+		})
+		store.SetMovieMapping("radarr-main", "aaaa", 42)
+
+		repo := &fakeTorrentsRepoWithFind{byHash: map[string]Entry{
+			"bbbb": {
+				Info: qbit.TorrentInfo{
+					Hash:       "bbbb",
+					Name:       "dead movie",
+					StateRaw:   "stoppedUP",
+					StateGroup: qbit.StateGroupPaused,
+					AddedOn:    addedOlder,
+					DlSpeed:    9999, // MUST be zeroed by the query
+					UpSpeed:    9999,
+					ETA:        9999,
+					NumSeeds:   9999,
+					NumLeechs:  9999,
+					Progress:   0.5,
+				},
+				StateGroup: qbit.StateGroupPaused,
+				SyncedAt:   addedOlder.Add(time.Hour),
+			},
+		}}
+		lookup := &fakeMovieLookup{entries: map[string][]MovieMapEntry{
+			movieLookupKey("radarr-main", 42): {
+				{Hash: "aaaa", Source: MovieMapSourceWebhook, Provenance: MovieProvenanceRadarrSearch},
+				{Hash: "bbbb", Source: MovieMapSourceRadarrHistory, Provenance: MovieProvenanceManualImport},
+			},
+		}}
+		q := NewQuery(store, repo, nil).
+			WithMovieLookup(lookup).
+			WithClock(func() time.Time { return addedNewer.Add(2 * time.Hour) })
+
+		result, err := q.ByMovieID(context.Background(), "radarr-main", 42)
+		require.NoError(t, err)
+		require.Len(t, result.Rows, 2)
+		// added_on DESC — the live (newer) row first.
+		assert.Equal(t, "aaaa", result.Rows[0].Entry.Info.Hash)
+		assert.True(t, result.Rows[0].Live)
+		assert.Equal(t, string(MovieProvenanceRadarrSearch), result.Rows[0].Provenance)
+
+		assert.Equal(t, "bbbb", result.Rows[1].Entry.Info.Hash)
+		assert.False(t, result.Rows[1].Live)
+		assert.True(t, result.Rows[1].Present)
+		assert.Equal(t, string(MovieProvenanceManualImport), result.Rows[1].Provenance)
+		assert.EqualValues(t, 0, result.Rows[1].Entry.Info.DlSpeed)
+		assert.EqualValues(t, 0, result.Rows[1].Entry.Info.UpSpeed)
+		assert.EqualValues(t, 0, result.Rows[1].Entry.Info.ETA)
+		assert.EqualValues(t, 0, result.Rows[1].Entry.Info.NumSeeds)
+		assert.EqualValues(t, 0, result.Rows[1].Entry.Info.NumLeechs)
+		assert.EqualValues(t, 0, result.Rows[1].Entry.Info.Progress)
+
+		assert.Equal(t, 1, result.LiveCount)
+		assert.Equal(t, addedNewer.Add(2*time.Hour), result.SyncedAt)
+	})
+
+	t.Run("movieLookup nil degrades to store-only rows with empty provenance", func(t *testing.T) {
+		t.Parallel()
+		store := NewStore()
+		store.EnsureInstance("radarr-main")
+		store.Put("radarr-main", Entry{
+			Info:       liveInfo("aaaa", "live movie", addedNewer),
+			StateGroup: qbit.StateGroupSeeding,
+			SyncedAt:   addedNewer,
+		})
+		store.SetMovieMapping("radarr-main", "aaaa", 42)
+
+		// WithMovieLookup(nil) is a no-op — movieLookup stays unset.
+		q := NewQuery(store, &fakeTorrentsRepoWithFind{}, nil).WithMovieLookup(nil)
+
+		result, err := q.ByMovieID(context.Background(), "radarr-main", 42)
+		require.NoError(t, err)
+		require.Len(t, result.Rows, 1)
+		assert.Equal(t, "aaaa", result.Rows[0].Entry.Info.Hash)
+		assert.True(t, result.Rows[0].Live)
+		assert.Empty(t, result.Rows[0].Provenance)
+	})
+
+	t.Run("EntriesForMovie error wraps and returns an empty result", func(t *testing.T) {
+		t.Parallel()
+		store := NewStore()
+		store.EnsureInstance("radarr-main")
+		lookup := &fakeMovieLookup{err: errors.New("db dead")}
+		q := NewQuery(store, &fakeTorrentsRepoWithFind{}, nil).WithMovieLookup(lookup)
+
+		result, err := q.ByMovieID(context.Background(), "radarr-main", 42)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "lookup entries for movie")
+		assert.Contains(t, err.Error(), "db dead")
+		assert.Empty(t, result.Rows)
+		assert.Equal(t, 0, result.LiveCount)
+	})
+}

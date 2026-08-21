@@ -240,3 +240,68 @@ func TestTorrentMovieMapRepository_UpsertTx_RoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// EntriesForMovie is the B1.4 read port: HashesForMovie plus the
+// source/provenance columns, ordered torrent_hash ASC. Mirrors the
+// HashesForMovie cases (populated / empty / wrong instance).
+func TestTorrentMovieMapRepository_EntriesForMovie(t *testing.T) {
+	t.Parallel()
+	for _, backend := range qbitSettingsBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			r := NewTorrentMovieMapRepository(db)
+			ctx := context.Background()
+
+			// Inserted out of hash order to prove the ORDER BY.
+			require.NoError(t, r.Upsert(ctx, torrentsync.MovieMapRow{
+				Instance: "alpha", Hash: "bbbb", RadarrMovieID: 42,
+				Source:     torrentsync.MovieMapSourceRadarrQueue,
+				Provenance: torrentsync.MovieProvenanceManualImport,
+			}))
+			require.NoError(t, r.Upsert(ctx, torrentsync.MovieMapRow{
+				Instance: "alpha", Hash: "aaaa", RadarrMovieID: 42,
+				Source:     torrentsync.MovieMapSourceWebhook,
+				Provenance: torrentsync.MovieProvenanceRadarrSearch,
+			}))
+			// Different movie on the same instance must not leak in.
+			require.NoError(t, r.Upsert(ctx, torrentsync.MovieMapRow{
+				Instance: "alpha", Hash: "cccc", RadarrMovieID: 99,
+				Source:     torrentsync.MovieMapSourceRadarrHistory,
+				Provenance: torrentsync.MovieProvenanceRadarrSearch,
+			}))
+			// Same movie id on another instance must not leak in either.
+			require.NoError(t, r.Upsert(ctx, torrentsync.MovieMapRow{
+				Instance: "beta", Hash: "dddd", RadarrMovieID: 42,
+				Source:     torrentsync.MovieMapSourceWebhook,
+				Provenance: torrentsync.MovieProvenanceRadarrSearch,
+			}))
+
+			got, err := r.EntriesForMovie(ctx, "alpha", 42)
+			require.NoError(t, err)
+			require.Len(t, got, 2)
+			assert.Equal(t, []torrentsync.MovieMapEntry{
+				{
+					Hash:       "aaaa",
+					Source:     torrentsync.MovieMapSourceWebhook,
+					Provenance: torrentsync.MovieProvenanceRadarrSearch,
+				},
+				{
+					Hash:       "bbbb",
+					Source:     torrentsync.MovieMapSourceRadarrQueue,
+					Provenance: torrentsync.MovieProvenanceManualImport,
+				},
+			}, got)
+
+			// Unknown movie id → empty, no error.
+			empty, err := r.EntriesForMovie(ctx, "alpha", 1234)
+			require.NoError(t, err)
+			assert.Empty(t, empty)
+
+			// Wrong instance → empty, no error.
+			wrongInstance, err := r.EntriesForMovie(ctx, "gamma", 42)
+			require.NoError(t, err)
+			assert.Empty(t, wrongInstance)
+		})
+	}
+}

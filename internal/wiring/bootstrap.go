@@ -1163,6 +1163,7 @@ func BuildHTTPServer(
 		movieDetailBundle.RecommendationsHandler, // Ф2.4 movie recommendations sub-endpoint
 		movieDetailBundle.CastETagFreshness,      // Ф2.1 movie ETag adapter
 		movieFollowBundle.Handler,                // ADR-0022 Wave-3 movie follow
+		torrentsyncBundle.MovieTorrentsHandler,   // ADR-0023 B1.4 movie torrents
 		log,
 	)
 	return srv, instanceMetadataBundle, movieDetailBundle.FreshenerHolder, movieDetailBundle.HotEnqueuer, movieDetailBundle.StubResolverHolder, movieDetailBundle.EngineFreshener

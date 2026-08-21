@@ -78,8 +78,9 @@ type MovieMapRef struct {
 // torrent_movie_map, and FindByHash resolves the owning instance from
 // that bridge. ports.ErrNotFound (wrapped in GrabNotFoundError) signals
 // a hash absent from the bridge. Satisfied by
-// *torrentactionpersistence.MovieMapRepository. Not yet consumed by the
-// usecase — B1.6 folds it into the guard chain.
+// *torrentactionpersistence.MovieMapRepository. Consumed by Do as the third
+// (last) link of the guard chain: grab_records → torrent_series_map →
+// torrent_movie_map.
 type MovieMap interface {
 	FindByHash(ctx context.Context, hash string) (MovieMapRef, error)
 }
@@ -137,6 +138,7 @@ type Input struct {
 type UseCase struct {
 	grabs     Grabs
 	seriesMap SeriesMap
+	movieMap  MovieMap
 	provider  QbitClientProvider
 	audit     AuditWriter
 	now       func() time.Time
@@ -159,6 +161,17 @@ func New(grabs Grabs, seriesMap SeriesMap, provider QbitClientProvider, audit Au
 	}
 }
 
+// WithMovieMap attaches the movie bridge guard (ADR-0023 B1.4). Builder
+// rather than a New parameter: New has thirteen call sites (one prod, twelve
+// tests) and none of them care about movies. nil is a no-op — Do then keeps
+// the pre-B1.4 grab+series-only resolution.
+func (u *UseCase) WithMovieMap(movieMap MovieMap) *UseCase {
+	if movieMap != nil {
+		u.movieMap = movieMap
+	}
+	return u
+}
+
 // Do runs guard → resolve actual instance → dial → mutate → audit.
 //
 // Error contract (mapped by the handler):
@@ -173,29 +186,34 @@ func (u *UseCase) Do(ctx context.Context, in Input) error {
 	}
 	hash := strings.ToLower(strings.TrimSpace(in.Hash))
 
-	// Guard + actual-instance resolution. UNION (ADR-0013 Q5): a hash is
-	// legitimate if it produced a grab_records row (seasonfill grabbed it)
-	// OR it lives in torrent_series_map (seasonfill only observed a
-	// Sonarr-driven download). The displayed torrents come from
-	// torrent_series_map, so the map fallback is what keeps the action
-	// buttons from 404ing on ~100% of the UI.
+	// Guard + actual-instance resolution. UNION (ADR-0013 Q5 + ADR-0023
+	// B1.4): a hash is legitimate if it produced a grab_records row
+	// (seasonfill grabbed it) OR it lives in torrent_series_map (we only
+	// observed a Sonarr-driven download) OR it lives in torrent_movie_map
+	// (we only observed a Radarr-driven download). The displayed torrents on
+	// BOTH detail pages come from those bridge tables, so without the union
+	// the action buttons 404 on ~100% of the UI.
+	//
+	// Order matters only for cost, not correctness: a hash lives in at most
+	// one bridge (a torrent is a movie or an episode, never both), so the
+	// chain is a plain first-hit-wins fallthrough on ErrNotFound.
 	var actual shareddomain.InstanceName
 	rec, err := u.grabs.FindLatestSuccessByHash(ctx, hash)
 	switch {
 	case err == nil:
 		actual = rec.InstanceName
 	case errors.Is(err, ports.ErrNotFound):
-		// Grab miss — fall back to the bridge table.
-		ref, mapErr := u.seriesMap.FindByHash(ctx, hash)
+		// Grab miss — fall back to the bridge tables.
+		resolved, mapErr := u.resolveFromBridges(ctx, hash)
 		if mapErr != nil {
-			// Bridge miss returns the same GrabNotFoundError + ErrNotFound
-			// shape -> the current 404; a real DB error propagates -> 500.
+			// Both bridges missed: the same GrabNotFoundError + ErrNotFound
+			// shape -> 404. A real DB error propagates -> 500.
 			return mapErr
 		}
-		actual = ref.InstanceName
+		actual = resolved
 	default:
 		// A real grab-repo error (not not-found): propagate, do NOT fall
-		// through to the bridge.
+		// through to the bridges.
 		return err
 	}
 	if actual != in.Instance {
@@ -236,6 +254,34 @@ func (u *UseCase) Do(ctx context.Context, in Input) error {
 		slog.String("action", string(in.Action)),
 		slog.String("actor", in.Actor))
 	return nil
+}
+
+// resolveFromBridges is the grab-miss fallback: torrent_series_map first,
+// torrent_movie_map second. A not-found from the series bridge falls through
+// to the movie bridge; a real DB error short-circuits so a transient outage
+// is never misreported as a 404. When movieMap is unwired (nil) the series
+// bridge's error is returned verbatim, preserving pre-B1.4 behaviour byte for
+// byte.
+func (u *UseCase) resolveFromBridges(ctx context.Context, hash string) (shareddomain.InstanceName, error) {
+	seriesRef, seriesErr := u.seriesMap.FindByHash(ctx, hash)
+	if seriesErr == nil {
+		return seriesRef.InstanceName, nil
+	}
+	if !errors.Is(seriesErr, ports.ErrNotFound) {
+		return "", seriesErr
+	}
+	if u.movieMap == nil {
+		return "", seriesErr
+	}
+	movieRef, movieErr := u.movieMap.FindByHash(ctx, hash)
+	if movieErr != nil {
+		return "", movieErr
+	}
+	u.log.DebugContext(ctx, "torrent_action_movie_bridge_hit",
+		slog.String("instance", string(movieRef.InstanceName)),
+		slog.Int("radarr_movie_id", int(movieRef.RadarrMovieID)),
+		slog.String("hash", hash))
+	return movieRef.InstanceName, nil
 }
 
 func (u *UseCase) invoke(ctx context.Context, c TorrentController, a Action, hash string) error {

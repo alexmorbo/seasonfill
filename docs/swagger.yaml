@@ -2453,6 +2453,60 @@ components:
           example: 12
           type: integer
       type: object
+    dto.MovieTorrentsResponse:
+      properties:
+        instance:
+          description: Instance is the Radarr instance the torrents were resolved
+            under.
+          example: radarr-main
+          type: string
+        live_count:
+          description: LiveCount is the number of rows where live=true.
+          example: 1
+          type: integer
+        movie_id:
+          description: |-
+            MovieID is the resolved canonical movies.id, echoed for parity with
+            SeriesTorrentsResponse.SeriesID.
+          example: 42
+          type: integer
+        radarr_movie_id:
+          description: |-
+            RadarrMovieID is the INSTANCE-LOCAL Radarr movie id — the key
+            torrent_movie_map is written against.
+          example: 123
+          type: integer
+        sync_age_seconds:
+          description: |-
+            SyncAgeSeconds is `now - synced_at` at composition time. Always 0 in
+            steady state; non-zero only in tests that pin the clock.
+          example: 0
+          type: integer
+        synced_at:
+          description: |-
+            SyncedAt is the server-side wall-clock at which the response was
+            composed.
+          type: string
+        tmdb_id:
+          description: |-
+            TMDBID echoes the URL parameter so a client holding only the response
+            can round-trip back to the movie detail document.
+          example: 550
+          type: integer
+        torrents:
+          description: |-
+            Torrents is the merged list of live + DB-fallback rows, sorted by
+            added_on DESC with synced_at DESC as tiebreaker. Always present
+            (empty slice when nothing maps to the movie).
+          items:
+            $ref: '#/components/schemas/dto.TorrentRow'
+          type: array
+          uniqueItems: false
+        total_count:
+          description: TotalCount is len(Torrents).
+          example: 2
+          type: integer
+      type: object
     dto.NextEpisode:
       description: |-
         NextEpisodeToAir is the earliest future-dated episode (monitored
@@ -3971,6 +4025,15 @@ components:
         progress:
           example: 1
           type: number
+        provenance:
+          description: |-
+            Provenance is the movie bridge's record of HOW the download came to
+            exist: `radarr_search` (Radarr searched an indexer and grabbed) or
+            `manual_import` (the file was dropped in and Radarr imported it).
+            MOVIE ROWS ONLY — torrent_series_map has no provenance column, so this
+            field is absent from every /series/:id/torrents payload (omitempty).
+          example: radarr_search
+          type: string
         ratio:
           description: |-
             Ratio / Popularity / TimeActive / SeedingTime /
@@ -7973,6 +8036,64 @@ paths:
       - CookieAuth: []
       - ApiKeyAuth: []
       summary: Movie recommendations ("you might also like")
+      tags:
+      - movies
+  /movies/{tmdb_id}/torrents:
+    get:
+      description: |-
+        Per-movie torrent inventory keyed by TMDB movie id — the movie
+        twin of /series/{id}/torrents. Resolves the canonical movie and
+        then the preferred Radarr instance automatically (lex-first
+        instance whose movie_states row is active), and merges the live
+        qBit snapshot with the durable qbit_torrents fallback over the
+        hashes bridged in torrent_movie_map. Each row additionally
+        carries `provenance` (radarr_search | manual_import); rows never
+        carry `season_number`. 404 when the movie is unknown or in no
+        Radarr library — TMDB-only movies have no torrent surface.
+      parameters:
+      - description: TMDB movie id
+        in: path
+        name: tmdb_id
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.MovieTorrentsResponse'
+          description: OK
+        "304":
+          description: not modified — If-None-Match matched the current ETag
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.ErrorResponse'
+          description: Internal Server Error
+      security:
+      - CookieAuth: []
+      - ApiKeyAuth: []
+      summary: Per-movie torrent inventory
       tags:
       - movies
   /movies/calendar:

@@ -121,6 +121,38 @@ func (r *TorrentMovieMapRepository) HashesForMovie(ctx context.Context, instance
 	return out, nil
 }
 
+// EntriesForMovie returns every bridge row for (instance, radarr_movie_id)
+// with its source + provenance. Empty result on no rows. Rows with an empty
+// torrent_hash are skipped (defensive — the column is NOT NULL and the
+// upsert refuses empties, so this can only fire on a hand-edited row).
+// Implements torrentsync.MovieLookupRepo.
+func (r *TorrentMovieMapRepository) EntriesForMovie(ctx context.Context, instance domain.InstanceName, radarrMovieID domain.RadarrMovieID) ([]torrentsync.MovieMapEntry, error) {
+	var rows []database.TorrentMovieMapModel
+	err := dbFromContext(ctx, r.db).WithContext(ctx).
+		Select([]string{"torrent_hash", "source", "provenance"}).
+		Where("instance_name = ? AND radarr_movie_id = ?", instance, radarrMovieID).
+		Order("torrent_hash ASC").
+		Find(&rows).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("entries for movie: %w", err)
+	}
+	out := make([]torrentsync.MovieMapEntry, 0, len(rows))
+	for _, m := range rows {
+		if m.TorrentHash == "" {
+			continue
+		}
+		out = append(out, torrentsync.MovieMapEntry{
+			Hash:       string(m.TorrentHash),
+			Source:     torrentsync.MovieMapSource(m.Source),
+			Provenance: torrentsync.MovieProvenance(m.Provenance),
+		})
+	}
+	return out, nil
+}
+
 // Compile-time port checks.
 var _ torrentsync.MovieMapRepo = (*TorrentMovieMapRepository)(nil)
 var _ torrentsync.MovieLookupRepo = (*TorrentMovieMapRepository)(nil)

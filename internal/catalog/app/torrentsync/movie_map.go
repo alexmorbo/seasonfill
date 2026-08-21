@@ -60,9 +60,25 @@ type MovieMapRepo interface {
 	UpsertTx(ctx context.Context, row MovieMapRow) error
 }
 
+// MovieMapEntry is the (hash, source, provenance) projection the B1.4 read
+// path needs. HashesForMovie answers "which hashes"; EntriesForMovie answers
+// "which hashes AND how each download came to exist" — GET
+// /movies/:tmdb_id/torrents surfaces provenance per row so the UI can badge a
+// manual import differently from a Radarr search grab. No series twin exists:
+// torrent_series_map carries no provenance column.
+type MovieMapEntry struct {
+	Hash       string
+	Source     MovieMapSource
+	Provenance MovieProvenance
+}
+
 // MovieLookupRepo is the narrow read port over torrent_movie_map —
 // every hash ever mapped to (instance, radarr_movie_id), regardless of
 // source. Twin of LookupRepo.HashesForSeries.
 type MovieLookupRepo interface {
 	HashesForMovie(ctx context.Context, instance domain.InstanceName, radarrMovieID domain.RadarrMovieID) ([]string, error)
+	// EntriesForMovie is HashesForMovie plus the source/provenance columns.
+	// Deterministic order (torrent_hash ASC) so a caller that logs the set
+	// gets a stable line; the read path re-sorts by added_on anyway.
+	EntriesForMovie(ctx context.Context, instance domain.InstanceName, radarrMovieID domain.RadarrMovieID) ([]MovieMapEntry, error)
 }

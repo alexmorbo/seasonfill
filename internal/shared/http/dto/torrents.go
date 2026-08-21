@@ -95,6 +95,12 @@ type TorrentRow struct {
 	SeasonNumber *int    `json:"season_number,omitempty" example:"5"`
 	SavePath     *string `json:"save_path,omitempty"`
 	ContentPath  *string `json:"content_path,omitempty"`
+	// Provenance is the movie bridge's record of HOW the download came to
+	// exist: `radarr_search` (Radarr searched an indexer and grabbed) or
+	// `manual_import` (the file was dropped in and Radarr imported it).
+	// MOVIE ROWS ONLY — torrent_series_map has no provenance column, so this
+	// field is absent from every /series/:id/torrents payload (omitempty).
+	Provenance *string `json:"provenance,omitempty" example:"radarr_search"`
 
 	// StateRaw is the verbatim qBit state token (22 values —
 	// see PRD §4.3); UI tooltip uses this.
@@ -165,4 +171,47 @@ type TorrentActionResponse struct {
 	Status string `json:"status"` // always "ok" on 200
 	Action string `json:"action"` // pause | resume | recheck
 	Hash   string `json:"hash"`   // normalised 40-hex
+}
+
+// MovieTorrentsResponse — the document returned by
+// GET /api/v1/movies/:tmdb_id/torrents (ADR-0023 B1.4). Movie twin of
+// SeriesTorrentsResponse with the series identity swapped for the movie one:
+// `sonarr_series_id`/`series_id` → `radarr_movie_id`/`movie_id`. Rows carry
+// the SAME TorrentRow shape, so the frontend reuses one table component; the
+// movie-only `provenance` field appears per row and `season_number` never
+// does (movies have no seasons).
+//
+// `instance` is the RADARR instance resolved from the canonical movie — the
+// lex-first instance whose movie_states row is active. Torrent actions must
+// be POSTed to that same instance
+// (POST /instances/{instance}/torrents/{hash}/{pause,resume,recheck}).
+type MovieTorrentsResponse struct {
+	// Instance is the Radarr instance the torrents were resolved under.
+	Instance domain.InstanceName `json:"instance" example:"radarr-main"`
+	// RadarrMovieID is the INSTANCE-LOCAL Radarr movie id — the key
+	// torrent_movie_map is written against.
+	RadarrMovieID int `json:"radarr_movie_id" example:"123"`
+	// MovieID is the resolved canonical movies.id, echoed for parity with
+	// SeriesTorrentsResponse.SeriesID.
+	MovieID domain.MovieID `json:"movie_id" example:"42"`
+	// TMDBID echoes the URL parameter so a client holding only the response
+	// can round-trip back to the movie detail document.
+	TMDBID int `json:"tmdb_id" example:"550"`
+
+	// Torrents is the merged list of live + DB-fallback rows, sorted by
+	// added_on DESC with synced_at DESC as tiebreaker. Always present
+	// (empty slice when nothing maps to the movie).
+	Torrents []TorrentRow `json:"torrents"`
+
+	// LiveCount is the number of rows where live=true.
+	LiveCount int `json:"live_count" example:"1"`
+	// TotalCount is len(Torrents).
+	TotalCount int `json:"total_count" example:"2"`
+
+	// SyncedAt is the server-side wall-clock at which the response was
+	// composed.
+	SyncedAt time.Time `json:"synced_at"`
+	// SyncAgeSeconds is `now - synced_at` at composition time. Always 0 in
+	// steady state; non-zero only in tests that pin the clock.
+	SyncAgeSeconds int `json:"sync_age_seconds" example:"0"`
 }

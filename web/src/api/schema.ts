@@ -4743,6 +4743,99 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/movies/{tmdb_id}/torrents": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Per-movie torrent inventory
+         * @description Per-movie torrent inventory keyed by TMDB movie id — the movie
+         *     twin of /series/{id}/torrents. Resolves the canonical movie and
+         *     then the preferred Radarr instance automatically (lex-first
+         *     instance whose movie_states row is active), and merges the live
+         *     qBit snapshot with the durable qbit_torrents fallback over the
+         *     hashes bridged in torrent_movie_map. Each row additionally
+         *     carries `provenance` (radarr_search | manual_import); rows never
+         *     carry `season_number`. 404 when the movie is unknown or in no
+         *     Radarr library — TMDB-only movies have no torrent surface.
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query?: never;
+                readonly header?: never;
+                readonly path: {
+                    /** @description TMDB movie id */
+                    readonly tmdb_id: number;
+                };
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.MovieTorrentsResponse"];
+                    };
+                };
+                /** @description not modified — If-None-Match matched the current ETag */
+                readonly 304: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                readonly 404: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/movies/calendar": {
         readonly parameters: {
             readonly query?: never;
@@ -8874,6 +8967,58 @@ export type components = {
              */
             readonly total_count?: number;
         };
+        readonly "dto.MovieTorrentsResponse": {
+            /**
+             * @description Instance is the Radarr instance the torrents were resolved under.
+             * @example radarr-main
+             */
+            readonly instance?: string;
+            /**
+             * @description LiveCount is the number of rows where live=true.
+             * @example 1
+             */
+            readonly live_count?: number;
+            /**
+             * @description MovieID is the resolved canonical movies.id, echoed for parity with
+             *     SeriesTorrentsResponse.SeriesID.
+             * @example 42
+             */
+            readonly movie_id?: number;
+            /**
+             * @description RadarrMovieID is the INSTANCE-LOCAL Radarr movie id — the key
+             *     torrent_movie_map is written against.
+             * @example 123
+             */
+            readonly radarr_movie_id?: number;
+            /**
+             * @description SyncAgeSeconds is `now - synced_at` at composition time. Always 0 in
+             *     steady state; non-zero only in tests that pin the clock.
+             * @example 0
+             */
+            readonly sync_age_seconds?: number;
+            /**
+             * @description SyncedAt is the server-side wall-clock at which the response was
+             *     composed.
+             */
+            readonly synced_at?: string;
+            /**
+             * @description TMDBID echoes the URL parameter so a client holding only the response
+             *     can round-trip back to the movie detail document.
+             * @example 550
+             */
+            readonly tmdb_id?: number;
+            /**
+             * @description Torrents is the merged list of live + DB-fallback rows, sorted by
+             *     added_on DESC with synced_at DESC as tiebreaker. Always present
+             *     (empty slice when nothing maps to the movie).
+             */
+            readonly torrents?: readonly components["schemas"]["dto.TorrentRow"][];
+            /**
+             * @description TotalCount is len(Torrents).
+             * @example 2
+             */
+            readonly total_count?: number;
+        };
         /**
          * @description NextEpisodeToAir is the earliest future-dated episode (monitored
          *     preferred). Title is nil by design — titles live in the canon episode
@@ -9904,6 +10049,15 @@ export type components = {
             readonly present?: boolean;
             /** @example 1 */
             readonly progress?: number;
+            /**
+             * @description Provenance is the movie bridge's record of HOW the download came to
+             *     exist: `radarr_search` (Radarr searched an indexer and grabbed) or
+             *     `manual_import` (the file was dropped in and Radarr imported it).
+             *     MOVIE ROWS ONLY — torrent_series_map has no provenance column, so this
+             *     field is absent from every /series/:id/torrents payload (omitempty).
+             * @example radarr_search
+             */
+            readonly provenance?: string;
             /**
              * @description Ratio / Popularity / TimeActive / SeedingTime /
              *     LastActivity — seeding counters; persisted columns. Are

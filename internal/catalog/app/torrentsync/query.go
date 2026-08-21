@@ -25,7 +25,11 @@ type Query struct {
 	store  *Store
 	repo   TorrentsRepo
 	lookup LookupRepo
-	now    func() time.Time
+	// movieLookup is the ADR-0023 B1.4 movie bridge port (torrent_movie_map).
+	// nil in every pre-B1.4 wiring → ByMovieID degrades to store-only rows
+	// with no provenance, exactly like `lookup == nil` does for BySeriesID.
+	movieLookup MovieLookupRepo
+	now         func() time.Time
 }
 
 // QueryRow is the merged result row the handler renders. Mirrors
@@ -38,6 +42,12 @@ type QueryRow struct {
 	// Live=true rows (the live snapshot only carries present
 	// torrents); false on DB-only rows that were marked absent.
 	Present bool
+	// Provenance is torrent_movie_map.provenance for the row
+	// (radarr_search | manual_import). ALWAYS empty on rows produced by
+	// BySeriesID — torrent_series_map has no such column — and empty on a
+	// movie row whose bridge entry vanished between the lookup and the
+	// merge. The DTO layer maps "" to an absent JSON field.
+	Provenance string
 }
 
 // QueryResult is the materialised return value. Rows are sorted
@@ -66,6 +76,17 @@ func NewQuery(store *Store, repo TorrentsRepo, lookup LookupRepo) *Query {
 func (q *Query) WithClock(now func() time.Time) *Query {
 	if now != nil {
 		q.now = now
+	}
+	return q
+}
+
+// WithMovieLookup attaches the movie bridge port (torrent_movie_map) so
+// ByMovieID can serve. Builder rather than a NewQuery parameter: NewQuery has
+// eight call sites (one prod, seven tests) and none of them care about movies.
+// Same shape as Reconciler.WithMovieSources (B1.1). nil is a no-op.
+func (q *Query) WithMovieLookup(lookup MovieLookupRepo) *Query {
+	if lookup != nil {
+		q.movieLookup = lookup
 	}
 	return q
 }
@@ -149,7 +170,13 @@ func (q *Query) BySeriesID(ctx context.Context, instance domain.InstanceName, so
 		}
 	}
 
-	// Step 3 — sort. added_on DESC, then synced_at DESC.
+	// Step 3 — sort + count (shared with ByMovieID).
+	return composeQueryResult(rows, syncedAt), nil
+}
+
+// sortQueryRows orders rows by added_on DESC with synced_at DESC as the
+// tiebreaker. Stable so equal keys keep insertion order (live-before-DB).
+func sortQueryRows(rows []QueryRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		ai := rows[i].Entry.Info.AddedOn
 		aj := rows[j].Entry.Info.AddedOn
@@ -158,7 +185,13 @@ func (q *Query) BySeriesID(ctx context.Context, instance domain.InstanceName, so
 		}
 		return rows[i].Entry.SyncedAt.After(rows[j].Entry.SyncedAt)
 	})
+}
 
+// composeQueryResult sorts, counts the live rows and materialises the result.
+// One implementation shared by BySeriesID and ByMovieID so the wire ordering
+// contract can never drift between the two verticals.
+func composeQueryResult(rows []QueryRow, syncedAt time.Time) QueryResult {
+	sortQueryRows(rows)
 	live := 0
 	for _, r := range rows {
 		if r.Live {
@@ -169,5 +202,98 @@ func (q *Query) BySeriesID(ctx context.Context, instance domain.InstanceName, so
 		Rows:      rows,
 		LiveCount: live,
 		SyncedAt:  syncedAt,
-	}, nil
+	}
+}
+
+// ByMovieID is the movie twin of BySeriesID: the merged + sorted torrent rows
+// for one (instance, radarrMovieID). Both arguments are INSTANCE-LOCAL —
+// torrent_movie_map's PK is (instance_name, radarr_movie_id), so the caller
+// (GlobalMovieTorrentsHandler) is responsible for resolving the canonical
+// movie to a concrete instance first.
+//
+// Empty slice when nothing is mapped; "unknown movie" vs "no torrents" is the
+// handler's 404-vs-200 call, not the query's. The error return surfaces only
+// infrastructure failures.
+//
+// One shape difference from BySeriesID: the bridge read happens FIRST, because
+// the movie endpoint stamps torrent_movie_map.provenance onto every row —
+// including live ones — so the provenance index must exist before the live
+// rows are composed.
+func (q *Query) ByMovieID(ctx context.Context, instance domain.InstanceName, radarrMovieID domain.RadarrMovieID) (QueryResult, error) {
+	syncedAt := q.now()
+
+	// Step 0 — bridge rows: the hash set AND the provenance index.
+	// movieLookup nil (pre-B1.4 / minimal wirings) → store-only, no provenance.
+	var provByHash map[string]MovieProvenance
+	var bridgeHashes []string
+	if q.movieLookup != nil {
+		entries, err := q.movieLookup.EntriesForMovie(ctx, instance, radarrMovieID)
+		if err != nil {
+			return QueryResult{}, fmt.Errorf("lookup entries for movie: %w", err)
+		}
+		provByHash = make(map[string]MovieProvenance, len(entries))
+		bridgeHashes = make([]string, 0, len(entries))
+		for _, e := range entries {
+			provByHash[e.Hash] = e.Provenance
+			bridgeHashes = append(bridgeHashes, e.Hash)
+		}
+	}
+
+	// Step 1 — live hashes from the store's byMovie secondary index.
+	liveHashes := q.store.HashesForMovieID(instance, radarrMovieID)
+	seen := make(map[string]struct{}, len(liveHashes)+len(bridgeHashes))
+	rows := make([]QueryRow, 0, len(liveHashes)+len(bridgeHashes))
+	for _, h := range liveHashes {
+		entry, ok := q.store.Get(instance, h)
+		if !ok {
+			// Same race as BySeriesID: the index lists the hash but the
+			// entry was evicted between SetMovieMapping and Get. Fall
+			// through — the DB branch picks it up if it was persisted.
+			continue
+		}
+		seen[h] = struct{}{}
+		rows = append(rows, QueryRow{
+			Entry:      entry,
+			Live:       true,
+			Present:    true,
+			Provenance: string(provByHash[h]),
+		})
+	}
+
+	// Step 2 — fill the gap from qbit_torrents for bridge hashes the store
+	// did not serve. Empty input → no DB round-trip.
+	if len(bridgeHashes) > 0 {
+		missing := make([]string, 0, len(bridgeHashes))
+		for _, h := range bridgeHashes {
+			if _, dup := seen[h]; dup {
+				continue
+			}
+			missing = append(missing, h)
+		}
+		if len(missing) > 0 {
+			dbRows, err := q.repo.FindByHashes(ctx, instance, missing)
+			if err != nil {
+				return QueryResult{}, fmt.Errorf("find qbit_torrents by hashes: %w", err)
+			}
+			for _, e := range dbRows {
+				// Live telemetry is not persisted; re-state the contract
+				// here so a repo refactor can never leak stale numbers.
+				e.Info.DlSpeed = 0
+				e.Info.UpSpeed = 0
+				e.Info.ETA = 0
+				e.Info.NumSeeds = 0
+				e.Info.NumLeechs = 0
+				e.Info.Progress = 0
+				rows = append(rows, QueryRow{
+					Entry:      e,
+					Live:       false,
+					Present:    true,
+					Provenance: string(provByHash[e.Info.Hash]),
+				})
+				seen[e.Info.Hash] = struct{}{}
+			}
+		}
+	}
+
+	return composeQueryResult(rows, syncedAt), nil
 }

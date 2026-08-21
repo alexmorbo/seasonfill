@@ -181,6 +181,13 @@ func NewServer(
 	// followHandler). nil-OK: the /follow/movies routes are omitted when the
 	// handler is absent (minimal/test wirings).
 	movieFollowHandler *followrest.MovieFollowHandler,
+	// ADR-0023 B1.4 — movie torrents inventory (GET
+	// /movies/:tmdb_id/torrents), the movie twin of /series/:id/torrents.
+	// Built whole in wiring.BuildTorrentsync (it owns the torrentsync Query)
+	// rather than assembled here like globalTorrentsHandler, because the
+	// canon + movie_states readers it needs are not otherwise in this scope.
+	// nil-OK: the route is omitted when absent (minimal/test wirings).
+	movieTorrentsHandler *moviedetailrest.GlobalMovieTorrentsHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -670,6 +677,14 @@ func NewServer(
 		if movieRecommendationsHandler != nil {
 			movieRecsEtagMW := ETagMiddleware("tmdb_id", movieEtagFreshness, logger)
 			guarded.GET("/movies/:tmdb_id/recommendations", movieRecsEtagMW, movieRecommendationsHandler.Get)
+		}
+		// ADR-0023 B1.4 — movie torrents inventory. Deeper static segment
+		// under the :tmdb_id param, exactly like /movies/:tmdb_id/cast.
+		// Carries NO ETag middleware: per-instance qBit state has no
+		// enrichment stamp, mirroring the /series/:id/torrents exclusion
+		// documented at etagMW above.
+		if movieTorrentsHandler != nil {
+			guarded.GET("/movies/:tmdb_id/torrents", movieTorrentsHandler.Get)
 		}
 		// Ф6-R-6a — TMDB franchise collections.
 		if movieCollectionsHandler != nil {

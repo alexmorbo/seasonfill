@@ -255,3 +255,125 @@ func TestDo_SeriesMapInstanceMismatch_404(t *testing.T) {
 	assert.Empty(t, prov.got, "must not dial when path != map-resolved instance")
 	assert.Empty(t, audit.rows)
 }
+
+// --- ADR-0023 B1.4: torrent_movie_map as the third guard link ---
+
+type fakeMovieMap struct {
+	ref    appta.MovieMapRef
+	err    error
+	called int
+}
+
+func (f *fakeMovieMap) FindByHash(_ context.Context, _ string) (appta.MovieMapRef, error) {
+	f.called++
+	return f.ref, f.err
+}
+
+func movieMapMiss() *fakeMovieMap {
+	return &fakeMovieMap{err: errors.Join(
+		&sharedErrors.GrabNotFoundError{ID: "hash:" + testHash}, sharedports.ErrNotFound)}
+}
+
+func movieMapRefFor(inst shareddomain.InstanceName) *fakeMovieMap {
+	return &fakeMovieMap{ref: appta.MovieMapRef{InstanceName: inst, RadarrMovieID: 77}}
+}
+
+// grabMiss is the "hash never grabbed by seasonfill" fake.
+func grabMiss() fakeGrabs {
+	return fakeGrabs{err: errors.Join(
+		&sharedErrors.GrabNotFoundError{ID: "hash:" + testHash}, sharedports.ErrNotFound)}
+}
+
+func TestDo_MovieBridgeFallback(t *testing.T) {
+	// (a) grab miss + series-bridge miss + movie-bridge HIT -> the action
+	// proceeds against the Radarr instance the movie bridge names. This is
+	// the whole point of B1.4: pre-B1.4 this 404'd.
+	t.Run("movie bridge hit proceeds", func(t *testing.T) {
+		ctrl := &fakeController{}
+		prov := &fakeProvider{ctrl: ctrl}
+		audit := &fakeAudit{}
+		movieMap := movieMapRefFor("radarr-main")
+		uc := appta.New(grabMiss(), seriesMapMiss(), prov, audit, nil).
+			WithMovieMap(movieMap)
+
+		err := uc.Do(context.Background(), appta.Input{
+			Instance: "radarr-main", Hash: testHash, Action: appta.ActionRecheck, Actor: "op",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1, movieMap.called, "movie bridge must be consulted on a series miss")
+		assert.Equal(t, shareddomain.InstanceName("radarr-main"), prov.got,
+			"must dial the instance the movie bridge resolved")
+		assert.Equal(t, 1, ctrl.rechecked)
+		require.Len(t, audit.rows, 1)
+		assert.Equal(t, "ok", audit.rows[0].Result)
+	})
+
+	// (b) both bridges miss -> the same 404 shape as before, no dial, no
+	// audit.
+	t.Run("movie bridge miss keeps the 404 shape", func(t *testing.T) {
+		prov := &fakeProvider{ctrl: &fakeController{}}
+		audit := &fakeAudit{}
+		movieMap := movieMapMiss()
+		uc := appta.New(grabMiss(), seriesMapMiss(), prov, audit, nil).
+			WithMovieMap(movieMap)
+
+		err := uc.Do(context.Background(), appta.Input{
+			Instance: "radarr-main", Hash: testHash, Action: appta.ActionPause, Actor: "u",
+		})
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, sharedports.ErrNotFound))
+		var notFound *sharedErrors.GrabNotFoundError
+		assert.True(t, errors.As(err, &notFound), "must keep the GrabNotFoundError shape")
+		assert.Equal(t, 1, movieMap.called)
+		assert.Empty(t, prov.got, "must not dial when every guard missed")
+		assert.Empty(t, audit.rows)
+	})
+
+	// (c) movieMap unwired (nil) -> byte-for-byte pre-B1.4 behaviour: the
+	// SERIES bridge's error is what surfaces.
+	t.Run("nil movie map preserves pre-B1.4 error", func(t *testing.T) {
+		prov := &fakeProvider{ctrl: &fakeController{}}
+		audit := &fakeAudit{}
+		seriesMiss := seriesMapMiss()
+
+		withNil := appta.New(grabMiss(), seriesMiss, prov, audit, nil).WithMovieMap(nil)
+		errWithNil := withNil.Do(context.Background(), appta.Input{
+			Instance: "obs", Hash: testHash, Action: appta.ActionPause, Actor: "u",
+		})
+
+		baseline := appta.New(grabMiss(), seriesMiss, &fakeProvider{ctrl: &fakeController{}}, &fakeAudit{}, nil)
+		errBaseline := baseline.Do(context.Background(), appta.Input{
+			Instance: "obs", Hash: testHash, Action: appta.ActionPause, Actor: "u",
+		})
+
+		require.Error(t, errWithNil)
+		require.Error(t, errBaseline)
+		assert.Equal(t, errBaseline.Error(), errWithNil.Error())
+		assert.True(t, errors.Is(errWithNil, sharedports.ErrNotFound))
+		assert.Empty(t, prov.got)
+		assert.Empty(t, audit.rows)
+	})
+
+	// (d) a REAL series-bridge error (not not-found) short-circuits: the
+	// movie bridge is never consulted and the DB error propagates (500),
+	// so a transient outage is never misreported as a 404.
+	t.Run("real series bridge error propagates without touching the movie bridge", func(t *testing.T) {
+		dbErr := errors.New("series bridge: connection refused")
+		prov := &fakeProvider{ctrl: &fakeController{}}
+		audit := &fakeAudit{}
+		movieMap := movieMapRefFor("radarr-main")
+		uc := appta.New(grabMiss(), fakeSeriesMap{err: dbErr}, prov, audit, nil).
+			WithMovieMap(movieMap)
+
+		err := uc.Do(context.Background(), appta.Input{
+			Instance: "obs", Hash: testHash, Action: appta.ActionPause, Actor: "u",
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, dbErr)
+		assert.False(t, errors.Is(err, sharedports.ErrNotFound),
+			"a transient DB outage must not be reported as a 404")
+		assert.Zero(t, movieMap.called, "movie bridge must not be consulted on a real series error")
+		assert.Empty(t, prov.got)
+		assert.Empty(t, audit.rows)
+	})
+}

@@ -26,6 +26,7 @@ import (
 	grab "github.com/alexmorbo/seasonfill/internal/grab/app"
 	"github.com/alexmorbo/seasonfill/internal/grab/app/evaluate"
 	grabpersistence "github.com/alexmorbo/seasonfill/internal/grab/persistence"
+	moviedetailrest "github.com/alexmorbo/seasonfill/internal/moviedetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
@@ -719,6 +720,10 @@ type TorrentsyncBundle struct {
 	// TorrentActionHandler serves the ADR-0013 Q2 pause/resume/recheck
 	// instance-scoped write endpoints.
 	TorrentActionHandler *torrentactionrest.Handler
+	// MovieTorrentsHandler — ADR-0023 B1.4 GET /movies/:tmdb_id/torrents.
+	// Built here (not in NewServer) because the torrentsync Query only
+	// exists in this scope.
+	MovieTorrentsHandler *moviedetailrest.GlobalMovieTorrentsHandler
 	// QbitCapacityLoop is the B-32 periodic qbit_torrents row-count
 	// collector. server.go owns rootCtx and calls .Run on it under
 	// bgWG, mirroring the TorrentsyncLoop.Start pattern.
@@ -884,7 +889,10 @@ func BuildTorrentsync(
 	// 222 (A-4) — per-series torrents endpoint. Reuses the store +
 	// qbit_torrents repo wired above. TorrentSeriesMapRepo is shared
 	// with the reconciler (story 335 invariant).
-	query := torrentsync.NewQuery(store, qbitTorrentsRepo, webhookBundle.TorrentSeriesMapRepo)
+	query := torrentsync.NewQuery(store, qbitTorrentsRepo, webhookBundle.TorrentSeriesMapRepo).
+		// ADR-0023 B1.4 — the movie bridge, shared with the reconciler's
+		// WithMovieSources above (same repo instance, story-335 invariant).
+		WithMovieLookup(webhookBundle.TorrentMovieMapRepo)
 
 	// seriesRepo + seriesCacheRepo are local (stateless GORM wrappers,
 	// same pattern as webhook.go / regrab.go — re-constructing them
@@ -896,6 +904,18 @@ func BuildTorrentsync(
 	// HTTP handler stays on bare `log` — see qbitLog godoc above.
 	seriesTorrentsHandler := seriesdetailrest.NewSeriesTorrentsHandler(
 		query, seriesCacheRepo, seriesRepo, log,
+	)
+
+	// ADR-0023 B1.4 — movie torrents endpoint. movieRepo + movieStatesRepo
+	// are local stateless GORM wrappers, same free-reconstruction pattern as
+	// seriesRepo / seriesCacheRepo above. The inner handler resolves
+	// (instance, radarr_movie_id) → canon movies.id; the global wrapper
+	// resolves tmdb_id → canon → lex-first active Radarr instance.
+	movieCanonRepo := enrichpersistence.NewMovieRepository(db)
+	movieStatesRepo := catalogpersistence.NewMovieStatesRepository(db)
+	movieTorrentsInner := moviedetailrest.NewMovieTorrentsHandler(query, movieStatesRepo, log)
+	movieTorrentsHandler := moviedetailrest.NewGlobalMovieTorrentsHandler(
+		movieTorrentsInner, movieCanonRepo, movieStatesRepo, log,
 	)
 
 	// ADR-0013 Q2 — torrent action write-slice. Provider adapter dials the
@@ -911,13 +931,17 @@ func BuildTorrentsync(
 	// resolve their owning instance from torrent_series_map so the UI
 	// buttons stop 404ing.
 	torrentSeriesMapGuardRepo := torrentactionpersistence.NewSeriesMapRepository(db)
+	// ADR-0023 B1.4 — movie twin of the Q5 bridge guard. Without it every
+	// movie-only hash (Radarr-driven download, no grab_record, no
+	// torrent_series_map row) 404s on pause/resume/recheck.
+	torrentMovieMapGuardRepo := torrentactionpersistence.NewMovieMapRepository(db)
 	torrentActionUC := torrentactionapp.New(
 		scanBundle.GrabRepo,
 		torrentSeriesMapGuardRepo,
 		torrentActionProvider,
 		torrentAuditRepo,
 		qbitLog,
-	)
+	).WithMovieMap(torrentMovieMapGuardRepo)
 	torrentActionHandler := torrentactionrest.NewHandler(torrentActionUC, log)
 
 	return &TorrentsyncBundle{
@@ -930,6 +954,7 @@ func BuildTorrentsync(
 		Query:                 query,
 		SeriesTorrentsHandler: seriesTorrentsHandler,
 		TorrentActionHandler:  torrentActionHandler,
+		MovieTorrentsHandler:  movieTorrentsHandler,
 		QbitCapacityLoop:      capacityLoop,
 	}, nil
 }
