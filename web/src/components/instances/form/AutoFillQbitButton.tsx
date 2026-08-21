@@ -18,6 +18,13 @@ export interface AutoFillApplyResult {
 
 export interface AutoFillQbitButtonProps {
   readonly instanceName: string;
+  /**
+   * Short display name of the arr this instance is ("Sonarr" | "Radarr"),
+   * interpolated as {{arr}} into the button label and both toasts. The caller
+   * computes it (WatchdogSection useWatch('type') + t('instances.type.*')) —
+   * same caller-computes-label pattern as WebhookSubCard. ADR-0023 F2.
+   */
+  readonly arrLabel: string;
   readonly onApply: (fields: AutoFillFields) => AutoFillApplyResult;
   readonly disabled?: boolean;
 }
@@ -31,7 +38,7 @@ function errorCode(err: ApiError): string {
 }
 
 export function AutoFillQbitButton({
-  instanceName, onApply, disabled,
+  instanceName, arrLabel, onApply, disabled,
 }: AutoFillQbitButtonProps) {
   const { t } = useTranslation();
 
@@ -47,13 +54,13 @@ export function AutoFillQbitButton({
       if (data.category) fields.category = data.category;
       const result = onApply(fields);
       if (result.changed) {
-        toast.success(t('settings.instances.form.watchdog.actions.autoFillSuccess'));
+        toast.success(t('settings.instances.form.watchdog.actions.autoFillSuccess', { arr: arrLabel }));
       }
     },
     onError: (err) => {
       const code = errorCode(err);
       if (err.status === 404 || code === 'NO_QBIT_FOUND') {
-        toast.error(t('settings.instances.form.watchdog.actions.autoFillNoQbit'));
+        toast.error(t('settings.instances.form.watchdog.actions.autoFillNoQbit', { arr: arrLabel }));
       } else {
         toast.error(t('settings.instances.form.watchdog.actions.autoFillFailed'));
       }
@@ -73,7 +80,7 @@ export function AutoFillQbitButton({
       {m.isPending
         ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
         : <Wand2 className="w-3.5 h-3.5" />}
-      {t('settings.instances.form.watchdog.actions.autoFill')}
+      {t('settings.instances.form.watchdog.actions.autoFill', { arr: arrLabel })}
     </Button>
   );
 }

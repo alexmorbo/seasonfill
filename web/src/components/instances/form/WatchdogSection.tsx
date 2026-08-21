@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import {
-  Controller,
+  Controller, useWatch,
   type Control, type FieldErrors, type UseFormGetValues,
   type UseFormRegister, type UseFormSetValue, type UseFormWatch,
 } from 'react-hook-form';
@@ -44,6 +44,15 @@ export function WatchdogSection({
 }: WatchdogSectionProps) {
   const { t } = useTranslation();
   const isCreate = mode === 'create';
+  // ADR-0023 F2 — the qBit discover copy names the arr this instance is.
+  // Same derivation as WebhookSubCard: watch the form's `type` field and read
+  // the SHORT label namespace (instances.type.*, "Sonarr"/"Radarr"), not the
+  // long settings.instances.form.type.* one ("Sonarr (сериалы)").
+  const arrType = (useWatch({
+    control,
+    name: 'type',
+  }) ?? 'sonarr') as 'sonarr' | 'radarr';
+  const arrLabel = t(`instances.type.${arrType === 'radarr' ? 'radarr' : 'sonarr'}`);
 
   const webhookStatusQuery = useWebhookStatus(instanceName ?? '');
   const settingsQuery = useQbitSettings(instanceName ?? null);
@@ -88,6 +97,7 @@ export function WatchdogSection({
       {!isCreate && instanceName && (
         <AutoFillQbitButton
           instanceName={instanceName}
+          arrLabel={arrLabel}
           onApply={onApply}
         />
       )}

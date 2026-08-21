@@ -6943,13 +6943,14 @@ paths:
   /instances/{name}/discover/qbit:
     get:
       description: |-
-        Calls Sonarr's /api/v3/downloadclient and returns the
+        Calls the arr's /api/v3/downloadclient and returns the
         first ENABLED QBittorrent download client (falling back
         to the first one regardless of Enable). Surfaces the
         client `name`, composed `url` (http://host:port), `username`
-        and `category`. Password is never returned — Sonarr
+        and `category`. Password is never returned — the arr
         redacts it server-side; the operator re-enters it into
-        the qBit settings form.
+        the qBit settings form. The instance name is resolved
+        against the Sonarr registry first, then the Radarr one.
       parameters:
       - description: Instance name
         in: path
@@ -6975,7 +6976,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/dto.ErrorResponse'
-          description: unknown instance OR no qBit configured in Sonarr
+          description: unknown instance OR no qBit configured in the arr
         "502":
           content:
             application/json:
@@ -6985,7 +6986,7 @@ paths:
       security:
       - CookieAuth: []
       - ApiKeyAuth: []
-      summary: Discover qBit settings from a Sonarr instance
+      summary: Discover qBit settings from a Sonarr or Radarr instance
       tags:
       - instances
   /instances/{name}/qbit/settings:

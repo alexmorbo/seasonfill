@@ -3131,14 +3131,15 @@ export type paths = {
             readonly cookie?: never;
         };
         /**
-         * Discover qBit settings from a Sonarr instance
-         * @description Calls Sonarr's /api/v3/downloadclient and returns the
+         * Discover qBit settings from a Sonarr or Radarr instance
+         * @description Calls the arr's /api/v3/downloadclient and returns the
          *     first ENABLED QBittorrent download client (falling back
          *     to the first one regardless of Enable). Surfaces the
          *     client `name`, composed `url` (http://host:port), `username`
-         *     and `category`. Password is never returned — Sonarr
+         *     and `category`. Password is never returned — the arr
          *     redacts it server-side; the operator re-enters it into
-         *     the qBit settings form.
+         *     the qBit settings form. The instance name is resolved
+         *     against the Sonarr registry first, then the Radarr one.
          */
         readonly get: {
             readonly parameters: {
@@ -3170,7 +3171,7 @@ export type paths = {
                         readonly "application/json": components["schemas"]["dto.ErrorResponse"];
                     };
                 };
-                /** @description unknown instance OR no qBit configured in Sonarr */
+                /** @description unknown instance OR no qBit configured in the arr */
                 readonly 404: {
                     headers: {
                         readonly [name: string]: unknown;

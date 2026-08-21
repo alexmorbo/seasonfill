@@ -1809,9 +1809,9 @@ export const ru: Translations = {
         // === 057b2 added (replaces 057a4 watchdog.createPlaceholder) ===
         watchdog: {
           actions: {
-            autoFill: 'Подтянуть qBit из Sonarr',
-            autoFillSuccess: 'qBittorrent-поля подгружены из Sonarr',
-            autoFillNoQbit: 'В этом Sonarr не настроен qBittorrent-клиент',
+            autoFill: 'Подтянуть qBit из {{arr}}',
+            autoFillSuccess: 'qBittorrent-поля подгружены из {{arr}}',
+            autoFillNoQbit: 'В этом {{arr}} не настроен qBittorrent-клиент',
             autoFillFailed: 'Не удалось подтянуть',
             partialSuccessToast: 'Инстанс сохранён, но qBittorrent не записался: {{error}}. Нажмите Сохранить ещё раз.',
           },
@@ -2309,10 +2309,10 @@ export const ru: Translations = {
       title: 'Watchdog не настроен',
       body:
         'Watchdog следит за qBittorrent и перехватывает торренты, снятые трекером с раздачи (unregistered) — запускает re-grab за живой альтернативой. Нужен доступ к qBittorrent и установленный webhook.',
-      step1: 'Установите webhook в Sonarr',
+      step1: 'Установите webhook в Sonarr/Radarr',
       step1Desc: 'Watchdog опирается на события OnGrab / OnImport.',
       step2: 'Подключите qBittorrent',
-      step2Desc: 'URL + логин · можно подтянуть из Sonarr.',
+      step2Desc: 'URL + логин · можно подтянуть из Sonarr/Radarr.',
       step3: 'Задайте пороги',
       step3Desc: 'Poll-интервал, cooldown, max «no better».',
       cta: {

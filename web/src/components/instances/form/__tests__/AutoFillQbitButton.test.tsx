@@ -36,7 +36,7 @@ describe('<AutoFillQbitButton />', () => {
     ) as typeof fetch;
     const onApply = vi.fn<(fields: AutoFillFields) => { changed: boolean }>(() => ({ changed: true }));
     const user = userEvent.setup();
-    render(wrap(<AutoFillQbitButton instanceName="homelab" onApply={onApply} />));
+    render(wrap(<AutoFillQbitButton instanceName="homelab" arrLabel="Sonarr" onApply={onApply} />));
     await user.click(screen.getByTestId('auto-fill-qbit'));
     await waitFor(() => expect(onApply).toHaveBeenCalled());
     expect(onApply.mock.calls[0]?.[0]).toEqual({
@@ -52,7 +52,7 @@ describe('<AutoFillQbitButton />', () => {
     ) as typeof fetch;
     const onApply = vi.fn(() => ({ changed: true }));
     const user = userEvent.setup();
-    render(wrap(<AutoFillQbitButton instanceName="homelab" onApply={onApply} />));
+    render(wrap(<AutoFillQbitButton instanceName="homelab" arrLabel="Sonarr" onApply={onApply} />));
     await user.click(screen.getByTestId('auto-fill-qbit'));
     await waitFor(() => {
       const toasts = document.querySelectorAll('[data-sonner-toast]');
@@ -68,7 +68,7 @@ describe('<AutoFillQbitButton />', () => {
     ) as typeof fetch;
     const onApply = vi.fn(() => ({ changed: false }));
     const user = userEvent.setup();
-    render(wrap(<AutoFillQbitButton instanceName="homelab" onApply={onApply} />));
+    render(wrap(<AutoFillQbitButton instanceName="homelab" arrLabel="Sonarr" onApply={onApply} />));
     await user.click(screen.getByTestId('auto-fill-qbit'));
     await waitFor(() => expect(onApply).toHaveBeenCalled());
     // Give sonner a tick to render any pending toast.
@@ -85,7 +85,7 @@ describe('<AutoFillQbitButton />', () => {
     ) as typeof fetch;
     const onApply = vi.fn(() => ({ changed: false }));
     const user = userEvent.setup();
-    render(wrap(<AutoFillQbitButton instanceName="homelab" onApply={onApply} />));
+    render(wrap(<AutoFillQbitButton instanceName="homelab" arrLabel="Sonarr" onApply={onApply} />));
     await user.click(screen.getByTestId('auto-fill-qbit'));
     await waitFor(() => {
       expect(screen.getByText(/no qbit|qbittorrent not found|не найден|autoFillNoQbit/i)).toBeInTheDocument();
@@ -97,7 +97,7 @@ describe('<AutoFillQbitButton />', () => {
     const spy = vi.fn();
     globalThis.fetch = spy as typeof fetch;
     const onApply = vi.fn(() => ({ changed: false }));
-    render(wrap(<AutoFillQbitButton instanceName="homelab" onApply={onApply} />));
+    render(wrap(<AutoFillQbitButton instanceName="homelab" arrLabel="Sonarr" onApply={onApply} />));
     // Tick the event loop; nothing should have fetched.
     await new Promise((r) => setTimeout(r, 30));
     expect(spy).not.toHaveBeenCalled();
@@ -113,9 +113,38 @@ describe('<AutoFillQbitButton />', () => {
     globalThis.fetch = spy as typeof fetch;
     const onApply = vi.fn(() => ({ changed: true }));
     const user = userEvent.setup();
-    render(wrap(<AutoFillQbitButton instanceName="homelab" onApply={onApply} />));
+    render(wrap(<AutoFillQbitButton instanceName="homelab" arrLabel="Sonarr" onApply={onApply} />));
     await user.click(screen.getByTestId('auto-fill-qbit'));
     await waitFor(() => expect(onApply).toHaveBeenCalled());
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the arrLabel in the button copy (radarr)', async () => {
+    const onApply = vi.fn(() => ({ changed: false }));
+    render(wrap(
+      <AutoFillQbitButton instanceName="rad" arrLabel="Radarr" onApply={onApply} />,
+    ));
+    expect(screen.getByTestId('auto-fill-qbit')).toHaveTextContent(/radarr/i);
+    expect(screen.getByTestId('auto-fill-qbit')).not.toHaveTextContent(/sonarr/i);
+  });
+
+  it('interpolates arrLabel into the NO_QBIT_FOUND toast (radarr)', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: 'NO_QBIT_FOUND' }), {
+        status: 404, headers: { 'Content-Type': 'application/json' },
+      }),
+    ) as typeof fetch;
+    const onApply = vi.fn(() => ({ changed: false }));
+    const user = userEvent.setup();
+    render(wrap(
+      <AutoFillQbitButton instanceName="rad" arrLabel="Radarr" onApply={onApply} />,
+    ));
+    await user.click(screen.getByTestId('auto-fill-qbit'));
+    await waitFor(() => {
+      const toast = document.querySelector('[data-sonner-toast]');
+      expect(toast).not.toBeNull();
+      expect(toast?.textContent ?? '').toMatch(/radarr/i);
+    });
+    expect(onApply).not.toHaveBeenCalled();
   });
 });

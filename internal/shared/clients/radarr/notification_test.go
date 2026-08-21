@@ -469,3 +469,74 @@ func TestClient_TestNotification_FallbackOnUnknownTrigger(t *testing.T) {
 	assert.Contains(t, bodies[1], `"onGrab":true`, "fallback keeps the known-good core")
 	assert.Contains(t, bodies[1], `"onDownload":true`)
 }
+
+func TestClient_ListDownloadClients_Empty(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/downloadclient", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	})
+	c := newNotifTestClient(t, mux)
+	out, err := c.ListDownloadClients(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, out)
+}
+
+// movieCategory is Radarr's field name for the qBittorrent category (the movie
+// analog of Sonarr's tvCategory) — the ONE divergence from the sonarr mirror.
+func TestClient_ListDownloadClients_WithQbit_MovieCategory(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/downloadclient", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"id": 1, "name": "qbit-main", "implementation": "QBittorrent",
+			 "enable": true,
+			 "fields": [
+				{"name":"host","value":"10.0.0.9"},
+				{"name":"port","value":8080},
+				{"name":"username","value":"radarr"},
+				{"name":"movieCategory","value":"movies-radarr"}
+			 ]}
+		]`))
+	})
+	c := newNotifTestClient(t, mux)
+	out, err := c.ListDownloadClients(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.Equal(t, "qbit-main", out[0].Name)
+	assert.Equal(t, "QBittorrent", out[0].Implementation)
+	assert.True(t, out[0].Enable)
+	assert.Equal(t, "10.0.0.9", out[0].Host)
+	assert.Equal(t, 8080, out[0].Port)
+	assert.Equal(t, "radarr", out[0].Username)
+	assert.Equal(t, "movies-radarr", out[0].Category)
+}
+
+// Newer Radarr builds emit the neutral `category` name, and `port` may arrive as
+// an int-shaped string — both must coerce (toInt + the two-name switch case).
+func TestClient_ListDownloadClients_NeutralCategoryAndStringPort(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v3/downloadclient", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"id": 2, "name": "qb", "implementation": "QBittorrent",
+			 "enable": false,
+			 "fields": [
+				{"name":"host","value":"qbittorrent"},
+				{"name":"port","value":"9091"},
+				{"name":"category","value":"radarr"}
+			 ]},
+			{"id": 5, "name": "tr", "implementation": "Transmission",
+			 "enable": true, "fields": []}
+		]`))
+	})
+	c := newNotifTestClient(t, mux)
+	out, err := c.ListDownloadClients(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	assert.Equal(t, "qbittorrent", out[0].Host)
+	assert.Equal(t, 9091, out[0].Port)
+	assert.Equal(t, "radarr", out[0].Category)
+	assert.Empty(t, out[0].Username)
+	assert.Equal(t, "Transmission", out[1].Implementation)
+}

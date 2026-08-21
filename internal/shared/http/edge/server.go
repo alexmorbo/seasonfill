@@ -526,7 +526,12 @@ func NewServer(
 			api.GET("/media/:hash", mediaHandler.Serve)
 			api.HEAD("/media/:hash", mediaHandler.Serve)
 		}
-		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, logger)
+		// ADR-0023 F2: radarrConfigLookup makes the discover route
+		// radarr-aware. instanceReg is the sonarr-scoped registry and never
+		// holds radarr rows, so every radarr instance 404'd here and the FE
+		// mapped that onto the "no qBit configured" toast. nil-OK — a nil
+		// lookup keeps the pre-F2 sonarr-only behaviour.
+		qbitDiscoverHandler := handlers.NewQbitDiscoverHandler(instanceReg, radarrConfigLookup, logger)
 		guarded.GET("/instances/:name/discover/qbit", qbitDiscoverHandler.Discover)
 		webhookInstallHandler := catalogrest.NewWebhookInstallHandler(webhookReconciler, webhookStatusCache, logger)
 		guarded.POST("/instances/:name/webhook/install", permAdmin, reconcileContextMiddleware(), webhookInstallHandler.Install)

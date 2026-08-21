@@ -1801,9 +1801,9 @@ export const en = {
         // === 057b2 added (replaces 057a4 watchdog.createPlaceholder) ===
         watchdog: {
           actions: {
-            autoFill: 'Pull from Sonarr',
-            autoFillSuccess: 'Filled qBittorrent fields from Sonarr',
-            autoFillNoQbit: 'No qBittorrent download client configured in this Sonarr',
+            autoFill: 'Pull from {{arr}}',
+            autoFillSuccess: 'Filled qBittorrent fields from {{arr}}',
+            autoFillNoQbit: 'No qBittorrent download client configured in this {{arr}}',
             autoFillFailed: 'Auto-fill failed',
             partialSuccessToast: 'Instance saved, but qBittorrent settings failed: {{error}}. Try Save again.',
           },
@@ -2311,10 +2311,10 @@ export const en = {
       title: 'Watchdog not configured',
       body:
         'Watchdog watches qBittorrent and intercepts torrents the tracker pulled (unregistered) — kicks off a re-grab for a live alternative. Needs qBittorrent access and an installed webhook.',
-      step1: 'Install the Sonarr webhook',
+      step1: 'Install the Sonarr/Radarr webhook',
       step1Desc: 'Watchdog reacts to OnGrab / OnImport events.',
       step2: 'Connect qBittorrent',
-      step2Desc: 'URL + credentials · can be auto-detected from Sonarr.',
+      step2Desc: 'URL + credentials · can be auto-detected from Sonarr/Radarr.',
       step3: 'Set thresholds',
       step3Desc: 'Poll interval, cooldown, max «no better».',
       cta: {

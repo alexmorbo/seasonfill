@@ -109,6 +109,42 @@ type NotificationPayload struct {
 	TemplateFields []NotificationField
 }
 
+// downloadClientDTO mirrors the subset of Radarr's /api/v3/downloadclient
+// response we need for qBit auto-discover. Radarr v3 exposes the identical
+// endpoint + field-array shape as Sonarr. Password is intentionally NOT decoded
+// — Radarr redacts it server-side via the `privacy:"password"` annotation; the
+// wire payload either omits the field or carries a placeholder. Mirror of
+// sonarr.downloadClientDTO.
+type downloadClientDTO struct {
+	ID             int                   `json:"id"`
+	Name           string                `json:"name"`
+	Implementation string                `json:"implementation"`
+	Enable         bool                  `json:"enable"`
+	Fields         []downloadClientField `json:"fields"`
+}
+
+// downloadClientField mirrors Radarr's field-array entries on /downloadclient.
+// We pluck host, port, username, category from this by `name` rather than
+// decoding into a typed struct because the download-client field set varies per
+// implementation. Mirror of sonarr.downloadClientField.
+type downloadClientField struct {
+	Name  string `json:"name"`
+	Value any    `json:"value,omitempty"`
+}
+
+// DownloadClient is the trimmed, typed shape ListDownloadClients returns to the
+// qbit-discover handler. Mirror of sonarr.DownloadClient.
+type DownloadClient struct {
+	ID             int
+	Name           string
+	Implementation string
+	Enable         bool
+	Host           string
+	Port           int
+	Username       string
+	Category       string
+}
+
 // ListNotifications calls Radarr GET /api/v3/notification and returns the
 // trimmed Notification slice. Fields are preserved verbatim for the
 // match-by-url loop and for shape mirroring in CreateNotification.
@@ -399,4 +435,64 @@ func buildNotificationFields(p NotificationPayload) []NotificationField {
 		{Name: "password", Value: ""},
 		{Name: "headers", Value: headersValue},
 	}
+}
+
+// ListDownloadClients calls Radarr GET /api/v3/downloadclient and returns the
+// trimmed DownloadClient slice. The host/port/username/category lookup is
+// best-effort: missing fields yield zero values. Mirror of
+// sonarr.ListDownloadClients — the ONE divergence is the category field name:
+// Radarr's qBittorrent client emits `movieCategory` where Sonarr emits
+// `tvCategory` (newer builds of both emit the neutral `category`), so all
+// applicable names are accepted.
+func (c *Client) ListDownloadClients(ctx context.Context) ([]DownloadClient, error) {
+	var dtos []downloadClientDTO
+	if err := c.get(ctx, "/api/v3/downloadclient", nil, &dtos); err != nil {
+		return nil, err
+	}
+	out := make([]DownloadClient, 0, len(dtos))
+	for _, d := range dtos {
+		dc := DownloadClient{
+			ID: d.ID, Name: d.Name,
+			Implementation: d.Implementation, Enable: d.Enable,
+		}
+		for _, f := range d.Fields {
+			switch f.Name {
+			case "host":
+				if s, ok := f.Value.(string); ok {
+					dc.Host = s
+				}
+			case "port":
+				dc.Port = toInt(f.Value)
+			case "username":
+				if s, ok := f.Value.(string); ok {
+					dc.Username = s
+				}
+			case "category", "movieCategory":
+				if s, ok := f.Value.(string); ok {
+					dc.Category = s
+				}
+			}
+		}
+		out = append(out, dc)
+	}
+	return out, nil
+}
+
+// toInt is a lenient JSON-number → int coercion. Radarr emits port as either a
+// JSON number (float64 after decode) or an int-shaped string depending on field
+// type; we tolerate both. Mirror of sonarr.toInt (the radarr package had no such
+// helper before this story — no symbol collision).
+func toInt(v any) int {
+	switch x := v.(type) {
+	case float64:
+		return int(x)
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case string:
+		n, _ := strconv.Atoi(x)
+		return n
+	}
+	return 0
 }

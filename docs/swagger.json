@@ -9508,7 +9508,7 @@
         },
         "/instances/{name}/discover/qbit": {
             "get": {
-                "description": "Calls Sonarr's /api/v3/downloadclient and returns the\nfirst ENABLED QBittorrent download client (falling back\nto the first one regardless of Enable). Surfaces the\nclient `name`, composed `url` (http://host:port), `username`\nand `category`. Password is never returned — Sonarr\nredacts it server-side; the operator re-enters it into\nthe qBit settings form.",
+                "description": "Calls the arr's /api/v3/downloadclient and returns the\nfirst ENABLED QBittorrent download client (falling back\nto the first one regardless of Enable). Surfaces the\nclient `name`, composed `url` (http://host:port), `username`\nand `category`. Password is never returned — the arr\nredacts it server-side; the operator re-enters it into\nthe qBit settings form. The instance name is resolved\nagainst the Sonarr registry first, then the Radarr one.",
                 "parameters": [
                     {
                         "description": "Instance name",
@@ -9549,7 +9549,7 @@
                                 }
                             }
                         },
-                        "description": "unknown instance OR no qBit configured in Sonarr"
+                        "description": "unknown instance OR no qBit configured in the arr"
                     },
                     "502": {
                         "content": {
@@ -9570,7 +9570,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "summary": "Discover qBit settings from a Sonarr instance",
+                "summary": "Discover qBit settings from a Sonarr or Radarr instance",
                 "tags": [
                     "instances"
                 ]

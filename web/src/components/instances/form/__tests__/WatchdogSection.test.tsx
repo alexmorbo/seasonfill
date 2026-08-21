@@ -94,4 +94,35 @@ describe('<WatchdogSection />', () => {
     render(<Harness mode="create" />);
     expect(screen.queryByRole('switch')).toBeNull();
   });
+
+  it('labels the auto-fill button with the arr the form type says (radarr)', () => {
+    function RadarrHarness() {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { control, register, formState, setValue, getValues, watch } = useForm({
+        defaultValues: {
+          ...(WATCHDOG_DEFAULTS as Record<string, unknown>),
+          type: 'radarr',
+        } as Record<string, unknown>,
+      });
+      return (
+        <QueryClientProvider client={qc}>
+          <I18nextProvider i18n={i18n}>
+            <WatchdogSection
+              control={control}
+              register={register}
+              errors={formState.errors}
+              setValue={setValue}
+              getValues={getValues}
+              watch={watch}
+              mode="edit"
+              instanceName="rad"
+              tValidationError={(m) => m ?? ''}
+            />
+          </I18nextProvider>
+        </QueryClientProvider>
+      );
+    }
+    render(<RadarrHarness />);
+    expect(screen.getByTestId('auto-fill-qbit')).toHaveTextContent(/radarr/i);
+  });
 });
