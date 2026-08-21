@@ -129,32 +129,59 @@ func putUnmappedHash(t *testing.T, store *Store, instance domain.InstanceName, h
 	})
 }
 
-func TestReconciler_MaybeRun_RespectsEveryNthTick(t *testing.T) {
+// New contract (decouple + boot pass): the CHEAP sources (grab_records +
+// Sonarr /queue) run on EVERY tick; the EXPENSIVE Sonarr /history walk runs
+// only on the boot tick (tick 1) and every historyEveryN-th tick after. The
+// hash is arranged never to map (empty queue + empty history) so the cheap
+// sources are exercised on every tick.
+func TestReconciler_MaybeRun_CheapEveryTickHistoryGated(t *testing.T) {
 	t.Parallel()
 	store := NewStore()
 	maps := &fakeMapRepo{}
-	grabs := &fakeGrabHashLookup{}
-	r := NewReconciler(store, maps, grabs, nil, nil, newQuietLogger()).WithEveryN(3)
-
-	for range 7 {
-		require.NoError(t, r.MaybeRun(context.Background(), "alpha"))
-	}
-	// Ticks 3 and 6 trigger. Each pass calls the grab lookup once when
-	// there are unmapped hashes — but with no hashes in store, grabs
-	// short-circuits before the lookup. Tick counter however must
-	// reflect 7 ticks.
-	assert.Equal(t, 7, r.TickIndexFor("alpha"))
-	// grabs.calls is 0 because store is empty (early return).
-	assert.Equal(t, 0, grabs.calls)
-
-	// Now add a hash and run 3 more ticks (8, 9, 10) — tick 9 fires.
+	grabs := &fakeGrabHashLookup{} // never matches
+	sn := &fakeSonarr{}            // empty /queue and empty /history: never maps
+	sonarrFor := func(_ domain.InstanceName) (SonarrReconciler, bool) { return sn, true }
+	r := NewReconciler(store, maps, grabs, sonarrFor, nil, newQuietLogger()).WithEveryN(3)
 	putUnmappedHash(t, store, "alpha", "aaaa")
-	for range 3 {
+
+	// Boot tick (1) + every 3rd tick (3, 6) run the history walk.
+	historyTick := map[int]bool{1: true, 3: true, 6: true}
+	prevHistory := 0
+	for tick := 1; tick <= 7; tick++ {
 		require.NoError(t, r.MaybeRun(context.Background(), "alpha"))
+		assert.Equal(t, tick, grabs.calls, "grab lookup runs every tick (tick %d)", tick)
+		assert.Equal(t, tick, sn.queueCalls, "sonarr /queue runs every tick (tick %d)", tick)
+		ranHistory := sn.historyCalls > prevHistory
+		assert.Equal(t, historyTick[tick], ranHistory, "history gate wrong at tick %d", tick)
+		prevHistory = sn.historyCalls
 	}
-	// 9 - 6 = 3 more, tick 9 is %3==0, so one more grabs call.
-	assert.Equal(t, 1, grabs.calls)
-	assert.Equal(t, 10, r.TickIndexFor("alpha"))
+	assert.Equal(t, 3, sn.historyCalls, "history ran on ticks 1, 3, 6 only")
+	assert.Equal(t, 7, r.TickIndexFor("alpha"))
+}
+
+// The boot tick runs a FULL pass — including the /history walk — so a
+// pre-existing torrent that only the history source can bridge maps on the
+// very first tick after (re)start, without waiting historyEveryN ticks.
+func TestReconciler_MaybeRun_BootTickRunsHistory(t *testing.T) {
+	t.Parallel()
+	store := NewStore()
+	maps := &fakeMapRepo{}
+	grabs := &fakeGrabHashLookup{} // miss
+	sn := &fakeSonarr{
+		queueResp: sonarr.QueuePayload{}, // miss
+		historyResp: []sonarr.HistoryPage{
+			{Records: []sonarr.HistoryGrab{{DownloadID: "aaaa", SeriesID: 42, SeasonNumber: 1}}},
+		},
+	}
+	sonarrFor := func(_ domain.InstanceName) (SonarrReconciler, bool) { return sn, true }
+	// Large N: without the boot-tick rule the history walk would not run for
+	// 50 ticks. The boot tick must map the hash immediately.
+	r := NewReconciler(store, maps, grabs, sonarrFor, nil, newQuietLogger()).WithEveryN(50)
+	putUnmappedHash(t, store, "alpha", "aaaa")
+
+	require.NoError(t, r.MaybeRun(context.Background(), "alpha")) // tick 1 = boot
+	assert.Equal(t, 1, sn.historyCalls, "history walk runs on the boot tick")
+	assert.Equal(t, domain.SonarrSeriesID(42), store.SeriesForHash("alpha", "aaaa"))
 }
 
 func TestReconciler_FourSources_GrabRecord(t *testing.T) {

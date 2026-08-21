@@ -446,6 +446,101 @@ func TestMovieReconciler_Disabled_NoRadarrCalls(t *testing.T) {
 	assert.Empty(t, rc.grabPages)
 }
 
+// On a cheap-only tick (not the boot tick, not an Nth tick) the Radarr
+// /queue source still runs AND its provenance stays sound: the grabbed
+// oracle rides with the cheap phase, so a queued hash Radarr grabbed is
+// stamped radarr_search even though the import-history walk is skipped.
+func TestMovieReconciler_CheapTick_QueueMapsWithSoundProvenance(t *testing.T) {
+	t.Parallel()
+	store := NewStore()
+	movieMaps := &fakeMovieMapRepo{}
+	rc := &fakeRadarr{
+		queueResp: radarr.QueuePayload{Records: []radarr.QueueRecord{{MovieID: 42, DownloadID: "aaaa"}}},
+		grabResp: []radarr.HistoryPage{{RawCount: 1, Records: []radarr.HistoryRecord{
+			{DownloadID: "aaaa", MovieID: 42, EventType: "grabbed"},
+		}}},
+		importResp: []radarr.HistoryPage{{RawCount: 1, Records: []radarr.HistoryRecord{
+			{DownloadID: "aaaa", MovieID: 42, EventType: "downloadFolderImported"},
+		}}},
+	}
+	radarrFor := func(domain.InstanceName) (RadarrReconciler, bool) { return rc, true }
+	r := NewReconciler(store, &fakeMapRepo{}, &fakeGrabHashLookup{}, nil, nil, newQuietLogger()).
+		WithEveryN(5).
+		WithMovieSources(movieMaps, radarrFor)
+
+	// Tick 1 (boot) with an empty store short-circuits before any Radarr
+	// call but still advances the tick counter.
+	require.NoError(t, r.MaybeRun(context.Background(), "radarr-main"))
+	rc.mu.Lock()
+	assert.Equal(t, 0, rc.queueCalls, "empty store short-circuits the boot tick")
+	rc.mu.Unlock()
+
+	// Tick 2 is cheap-only (2 != 1 and 2%5 != 0).
+	putUnmappedHash(t, store, "radarr-main", "aaaa")
+	require.NoError(t, r.MaybeRun(context.Background(), "radarr-main"))
+
+	row, ok := movieMaps.byHash("aaaa")
+	require.True(t, ok, "queue source maps the hash on a cheap-only tick")
+	assert.Equal(t, MovieMapSourceRadarrQueue, row.Source)
+	assert.Equal(t, MovieProvenanceRadarrSearch, row.Provenance, "grabbed oracle rides with the cheap phase")
+	rc.mu.Lock()
+	assert.Empty(t, rc.importPages, "import-history walk is throttled off on a cheap tick")
+	assert.NotEmpty(t, rc.grabPages, "grabbed-history oracle still runs (queue provenance depends on it)")
+	rc.mu.Unlock()
+}
+
+// An import-ONLY hash (gone from /queue, absent from grabbed history) does
+// NOT map on a cheap-only tick — the import walk is throttled — but DOES map
+// on the next history tick.
+func TestMovieReconciler_ImportOnlyHash_WaitsForHistoryTick(t *testing.T) {
+	t.Parallel()
+	store := NewStore()
+	movieMaps := &fakeMovieMapRepo{}
+	rc := &fakeRadarr{
+		queueResp: radarr.QueuePayload{},
+		grabResp:  []radarr.HistoryPage{{RawCount: 0}},
+		importResp: []radarr.HistoryPage{{RawCount: 1, Records: []radarr.HistoryRecord{
+			{DownloadID: "cccc", MovieID: 55, EventType: "downloadFolderImported"},
+		}}},
+	}
+	radarrFor := func(domain.InstanceName) (RadarrReconciler, bool) { return rc, true }
+	r := NewReconciler(store, &fakeMapRepo{}, &fakeGrabHashLookup{}, nil, nil, newQuietLogger()).
+		WithEveryN(2).
+		WithMovieSources(movieMaps, radarrFor)
+
+	// Tick 1 (boot) short-circuits on the empty store.
+	require.NoError(t, r.MaybeRun(context.Background(), "radarr-main"))
+	putUnmappedHash(t, store, "radarr-main", "cccc")
+
+	// Tick 2 is a history tick (2%2==0) — the import walk runs and maps it.
+	require.NoError(t, r.MaybeRun(context.Background(), "radarr-main"))
+	_, ok := movieMaps.byHash("cccc")
+	require.True(t, ok, "import-only hash maps on a history tick")
+
+	// Sanity: a fresh reconciler on a cheap-only tick leaves it unmapped.
+	store2 := NewStore()
+	movieMaps2 := &fakeMovieMapRepo{}
+	rc2 := &fakeRadarr{
+		queueResp: radarr.QueuePayload{},
+		grabResp:  []radarr.HistoryPage{{RawCount: 0}},
+		importResp: []radarr.HistoryPage{{RawCount: 1, Records: []radarr.HistoryRecord{
+			{DownloadID: "cccc", MovieID: 55, EventType: "downloadFolderImported"},
+		}}},
+	}
+	radarrFor2 := func(domain.InstanceName) (RadarrReconciler, bool) { return rc2, true }
+	r2 := NewReconciler(store2, &fakeMapRepo{}, &fakeGrabHashLookup{}, nil, nil, newQuietLogger()).
+		WithEveryN(5).
+		WithMovieSources(movieMaps2, radarrFor2)
+	require.NoError(t, r2.MaybeRun(context.Background(), "radarr-main")) // tick 1 boot, empty store
+	putUnmappedHash(t, store2, "radarr-main", "cccc")
+	require.NoError(t, r2.MaybeRun(context.Background(), "radarr-main")) // tick 2 cheap-only
+	_, ok = movieMaps2.byHash("cccc")
+	assert.False(t, ok, "import-only hash stays unmapped on a cheap-only tick")
+	rc2.mu.Lock()
+	assert.Empty(t, rc2.importPages, "import walk not attempted on a cheap-only tick")
+	rc2.mu.Unlock()
+}
+
 // The unmapped gauge must fall once a hash is movie-bridged.
 func TestMovieReconciler_GaugeCountsMovieMappedAsMapped(t *testing.T) {
 	t.Parallel()

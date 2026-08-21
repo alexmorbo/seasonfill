@@ -25,10 +25,13 @@ const HistoryPageCap = 10
 // the size mid-walk shifts the alignment of "next page".
 const HistoryPageSize = 50
 
-// ReconcilerEveryNthTick is the sub-cadence at which the reconciler
-// runs inside the torrentsync loop. N=10 with the default 30 s
-// cadence => a reconciler pass every ~5 minutes. Tests pin the
-// value via a UseCase option; production uses this constant.
+// ReconcilerEveryNthTick is the sub-cadence at which the EXPENSIVE
+// paginated /history walks run inside the torrentsync loop. The cheap
+// sources (grab_records + /queue) run on EVERY tick regardless — only the
+// history walks are throttled to this sub-cadence, plus an unconditional
+// full pass on the loop's first tick after (re)start so pre-existing
+// torrents backfill promptly instead of waiting historyEveryN ticks. Tests
+// pin the value via WithEveryN; production uses this constant.
 const ReconcilerEveryNthTick = 10
 
 // MapRepo is the narrow port the reconciler writes to. Implemented
@@ -199,10 +202,12 @@ func (r *Reconciler) WithMovieSources(movieMaps MovieMapRepo, radarrFor func(ins
 	return r
 }
 
-// MaybeRun is the per-torrentsync-tick entrypoint. It returns
-// without doing any work on 9 out of every 10 ticks; on the
-// reconciler tick it walks all four sources, writes new map rows,
-// and emits the unmapped-count gauge.
+// MaybeRun is the per-torrentsync-tick entrypoint. The CHEAP sources
+// (grab_records batch lookup + /queue) run on EVERY tick so a fresh
+// torrent maps within one tick; the EXPENSIVE paginated /history walks
+// are gated to the loop's first tick after (re)start (the boot backfill
+// pass) and every historyEveryN-th tick thereafter. The gauge is emitted
+// once per tick regardless.
 //
 // The error returned summarises the worst per-source outcome —
 // the loop logs it WARN but never lets it propagate (one bad
@@ -210,22 +215,26 @@ func (r *Reconciler) WithMovieSources(movieMaps MovieMapRepo, radarrFor func(ins
 func (r *Reconciler) MaybeRun(ctx context.Context, instance domain.InstanceName) error {
 	r.mu.Lock()
 	r.tickIdx[instance]++
-	due := r.tickIdx[instance]%r.historyEveryN == 0
+	tick := r.tickIdx[instance]
 	r.mu.Unlock()
-	if !due {
-		return nil
-	}
-	return r.run(ctx, instance)
+	// runHistory: the boot tick (tick 1, immediate on (re)start) always runs
+	// a full pass so pre-existing torrents backfill without waiting hours;
+	// afterwards the history walks throttle to every historyEveryN-th tick.
+	runHistory := tick == 1 || tick%r.historyEveryN == 0
+	return r.run(ctx, instance, runHistory)
 }
 
-// run is the unconditional reconciler pass — exposed for tests
-// that want to drive it without dialling the tick counter.
-func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName) error {
+// run is the reconciler pass. The cheap sources always run; the paginated
+// /history walks run only when runHistory is true. unmapped is threaded
+// through the sources in priority order, so each source only works the
+// hashes an earlier one left behind.
+func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName, runHistory bool) error {
 	unmapped := r.unmappedHashes(instance)
 	startedAt := r.now()
 	r.logger.InfoContext(ctx, "torrentsync_reconciler_start",
 		slog.String("instance", string(instance)),
 		slog.Int("unmapped_count", len(unmapped)),
+		slog.Bool("run_history", runHistory),
 	)
 
 	if len(unmapped) == 0 {
@@ -233,7 +242,7 @@ func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName) erro
 		return nil
 	}
 
-	// Source 2: grab_records.torrent_hash batch lookup.
+	// Source 2 (CHEAP): grab_records.torrent_hash batch lookup.
 	if r.grabs != nil {
 		remaining, err := r.applyGrabRecords(ctx, instance, unmapped)
 		if err != nil {
@@ -246,7 +255,7 @@ func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName) erro
 		}
 	}
 
-	// Source 3: Sonarr /queue.
+	// Source 3 (CHEAP): Sonarr /queue.
 	if client, ok := r.sonarrFor(instance); ok && len(unmapped) > 0 {
 		remaining, err := r.applyQueue(ctx, instance, client, unmapped)
 		if err != nil {
@@ -258,8 +267,8 @@ func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName) erro
 			unmapped = remaining
 		}
 
-		// Source 4: Sonarr /history paginated with cursor.
-		if len(unmapped) > 0 {
+		// Source 4 (EXPENSIVE, throttled): Sonarr /history paginated with cursor.
+		if runHistory && len(unmapped) > 0 {
 			remaining, err = r.applyHistory(ctx, instance, client, unmapped)
 			if err != nil {
 				r.logger.WarnContext(ctx, "torrentsync_reconciler_history_failed",
@@ -276,9 +285,12 @@ func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName) erro
 	// torrent_movie_map. Mutually exclusive with sources 3+4 in practice:
 	// an arr instance is either sonarr-typed or radarr-typed and the two
 	// holders are partitioned, so at most one of sonarrFor/radarrFor
-	// resolves for a given instance name.
+	// resolves for a given instance name. The /queue source is cheap and
+	// runs every tick; only the import-history walk is gated by runHistory —
+	// the grabbed-history oracle rides with the cheap phase because /queue
+	// row provenance is derived from it (see applyMovieSources).
 	if client, ok := r.radarrFor(instance); ok && len(unmapped) > 0 {
-		remaining, err := r.applyMovieSources(ctx, instance, client, unmapped)
+		remaining, err := r.applyMovieSources(ctx, instance, client, unmapped, runHistory)
 		if err != nil {
 			r.logger.WarnContext(ctx, "torrentsync_reconciler_movie_sources_failed",
 				slog.String("instance", string(instance)),
@@ -294,6 +306,7 @@ func (r *Reconciler) run(ctx context.Context, instance domain.InstanceName) erro
 	r.logger.InfoContext(ctx, "torrentsync_reconciler_done",
 		slog.String("instance", string(instance)),
 		slog.Int("unmapped_count", len(unmapped)),
+		slog.Bool("run_history", runHistory),
 		slog.Duration("elapsed", r.now().Sub(startedAt)),
 	)
 	return nil

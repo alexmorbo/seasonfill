@@ -56,16 +56,26 @@ type RadarrReconciler interface {
 	ImportHistoryPaged(ctx context.Context, page, pageSize int) (radarr.HistoryPage, error)
 }
 
-// applyMovieSources runs the whole movie pass for one instance and returns
-// the hashes still unmapped afterwards. Upstream failures are reported in
-// the error and — with ONE exception — never abort the pass: whatever the
-// other sources did resolve is still written, and the returned slice always
+// applyMovieSources runs the movie pass for one instance and returns the
+// hashes still unmapped afterwards. Upstream failures are reported in the
+// error and — with ONE exception — never abort the pass: whatever the other
+// sources did resolve is still written, and the returned slice always
 // reflects the writes that actually landed.
 //
 // The exception is the grabbed-history fetch, the provenance oracle: if it
 // fails the pass writes nothing at all, because no row's provenance could
 // be derived soundly. See the call site for why that is unrecoverable.
-func (r *Reconciler) applyMovieSources(ctx context.Context, instance domain.InstanceName, client RadarrReconciler, hashes []string) ([]string, error) {
+//
+// runHistory gates the EXPENSIVE import-history walk. The grabbed-history
+// walk is NOT gated: it is the /queue source's provenance oracle, and /queue
+// runs every tick, so a throttled oracle would either drop queue rows or
+// stamp them manual_import permanently (first-source-wins). Gating only the
+// import walk keeps /queue mapping every tick with sound provenance while
+// still throttling the one history stream that has no cheap-source
+// dependency. On a cheap-only tick (runHistory=false) the import stream is
+// skipped, so an import-only hash — hand-added and already dropped from
+// /queue — maps on the next history tick (boot tick or every Nth).
+func (r *Reconciler) applyMovieSources(ctx context.Context, instance domain.InstanceName, client RadarrReconciler, hashes []string, runHistory bool) ([]string, error) {
 	if r.movieMaps == nil || client == nil || len(hashes) == 0 {
 		return hashes, nil
 	}
@@ -112,10 +122,16 @@ func (r *Reconciler) applyMovieSources(ctx context.Context, instance domain.Inst
 
 	// Window B — downloadFolderImported history. The only surface that
 	// still carries downloadId -> movieId for a hand-added torrent Radarr
-	// has already imported and dropped from /queue.
-	imported, err := r.movieHistoryWindow(fetchCtx, client.ImportHistoryPaged, wanted)
-	if err != nil {
-		note("radarr_import_history", err)
+	// has already imported and dropped from /queue. EXPENSIVE and gated:
+	// walked only on a history tick. On a cheap-only tick it stays empty, so
+	// import-only hashes wait for the next history tick — queue-derived and
+	// grabbed rows still land every tick.
+	var imported map[string]domain.RadarrMovieID
+	if runHistory {
+		imported, err = r.movieHistoryWindow(fetchCtx, client.ImportHistoryPaged, wanted)
+		if err != nil {
+			note("radarr_import_history", err)
+		}
 	}
 
 	// Source 3 — /queue. One global fan-out, matched locally.
