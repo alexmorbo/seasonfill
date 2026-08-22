@@ -1,4 +1,4 @@
-h1:v8vaQSdoBgCtmguxmeheXvE46K9yquna5yUlTu09QUY=
+h1:T97F6Cuoi7LGXFHTaZwnPw+rpi4TVS6kgPN3trcPWbg=
 000001_core_series.down.sql h1:g/jAztVO3BHc0O0tkKdmg68Q0lZZlgzecVvBegBQlBE=
 000001_core_series.up.sql h1:MmXX1qaneSHNwJbnxUh0lI51h1t2Ijg2A5r4P8hMxQ8=
 000002_i18n_texts.down.sql h1:XeUg6hO9QcWnT/EE/pvGZKTYq2uESNtlTw5o8c3zPwA=
@@ -131,3 +131,5 @@ h1:v8vaQSdoBgCtmguxmeheXvE46K9yquna5yUlTu09QUY=
 000065_torrent_movie_map.up.sql h1:oCv+hUA1FV5eMZG1vKqVAqYSSni5o1+c4QaeYoLUkxU=
 000066_user_instance_tag_arr_rename.down.sql h1:r21ALd5VaKSRJKY0ZD+AeZ3+6BTSS7LspVhqYuASGpk=
 000066_user_instance_tag_arr_rename.up.sql h1:TsaYS4drFqgtPzWDytZQY64iiGPw+6knTXYW7b7+foc=
+000067_universal_search_indexes.down.sql h1:QA6/iyZramAnD0dh4pUMGxZhHzO3suupzC0/goMmOAM=
+000067_universal_search_indexes.up.sql h1:WSd6UcwrQVdHHJItnaZS+0KtbnScoFSAI5Gf2ZiDhWo=

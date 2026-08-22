@@ -73,6 +73,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ADR-0024 S1.1 — emit the pg_trgm/unaccent/f_unaccent prelude before any
+	// table/index change so the modeled expression-GIN indexes can build in
+	// Atlas's dev DB. Postgres-only; SQLite search needs none of this.
+	if d == schema.DialectPostgres {
+		for _, stmt := range pgSearchPrelude {
+			if _, err := fmt.Fprintln(os.Stdout, stmt+";"); err != nil {
+				fmt.Fprintf(os.Stderr, "loader: write prelude: %v\n", err)
+				os.Exit(1)
+			}
+		}
+	}
+
 	for _, c := range plan.Changes {
 		// Atlas's external_schema expects ";" terminated statements.
 		if _, err := fmt.Fprintln(os.Stdout, strings.TrimRight(c.Cmd, "\n")+";"); err != nil {
@@ -80,6 +92,21 @@ func main() {
 			os.Exit(1)
 		}
 	}
+}
+
+// pgSearchPrelude is the Postgres-only raw DDL that Atlas's ephemeral dev
+// database must run BEFORE the expression-GIN search indexes (modeled in
+// schema.go via pgTrgmSearchIndex, ADR-0024 S1.1) can materialize. Atlas
+// does not introspect extensions or functions, so emitting them here keeps
+// the desired-state dev DB symmetric with migration 000067 while staying
+// invisible to the drift diff (S1.0 verdict). Each entry is ONE statement,
+// emitted ";"-terminated exactly like the table changes below, and MUST be
+// byte-identical (per statement) to the prelude in
+// infrastructure/database/migrations/postgres/000067_universal_search_indexes.up.sql.
+var pgSearchPrelude = []string{
+	"CREATE EXTENSION IF NOT EXISTS pg_trgm",
+	"CREATE EXTENSION IF NOT EXISTS unaccent",
+	"CREATE OR REPLACE FUNCTION f_unaccent(text) RETURNS text\n  LANGUAGE sql IMMUTABLE PARALLEL SAFE\n  AS $$ SELECT public.unaccent('public.unaccent'::regdictionary, $1) $$",
 }
 
 // emitDDL converts every table in target into a sequence of

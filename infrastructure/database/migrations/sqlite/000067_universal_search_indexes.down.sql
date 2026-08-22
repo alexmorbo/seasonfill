@@ -1,0 +1,1 @@
+-- Reverse of 000067 on SQLite — nothing to undo (the up is a no-op).

@@ -1,0 +1,6 @@
+-- ADR-0024 S1.1 — no-op on SQLite. The universal-search foundation is
+-- Postgres-only: pg_trgm/unaccent extensions, the f_unaccent() function, and
+-- expression-GIN indexes do not exist on SQLite. SQLite search uses plain
+-- LIKE against the same columns (no index object required). This file exists
+-- solely to keep the golang-migrate version sequence aligned across dialects
+-- (head must reach 67 on both). See ADR-0024 S1.0 escape-hatch.

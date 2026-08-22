@@ -913,7 +913,7 @@ func addI18nTexts(s *atlasschema.Schema, d Dialect) {
 //	         enriched_at timestamptz NULL, updated_at timestamptz NOT NULL DEFAULT now()
 //	FK series_id → series(id) NO ACTION (canonical-to-canonical)
 func buildSeriesTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlasschema.Table {
-	return i18nTextTable(d, "series_texts", seriesTable, "series_id",
+	t := i18nTextTable(d, "series_texts", seriesTable, "series_id",
 		[]*atlasschema.Column{
 			atlasschema.NewNullStringColumn("title", "text"),
 			atlasschema.NewNullStringColumn("overview", "text"),
@@ -922,6 +922,10 @@ func buildSeriesTextsTable(d Dialect, seriesTable *atlasschema.Table) *atlassche
 		"",   // no (language, name) lookup index
 		true, // include enriched_at
 	)
+	if d == DialectPostgres {
+		t.AddIndexes(pgTrgmSearchIndex("series_texts_title_trgm_idx", "title"))
+	}
+	return t
 }
 
 // buildEpisodeTextsTable returns the episode_texts table:
@@ -1359,7 +1363,7 @@ func buildPeopleTable(d Dialect) *atlasschema.Table {
 	// the legacy sync_log(tmdb_person, outcome='ok') row TTL gate.
 	enrichmentSyncedAt := timestampColumn(d, "enrichment_synced_at", false, false)
 
-	return atlasschema.NewTable("people").
+	t := atlasschema.NewTable("people").
 		AddColumns(
 			id, tmdbID, imdbID, hydration, originalName, gender,
 			birthday, deathday, placeOfBirth, knownForDept, popularity,
@@ -1371,6 +1375,12 @@ func buildPeopleTable(d Dialect) *atlasschema.Table {
 				[]*atlasschema.Column{tmdbID}, "tmdb_id IS NOT NULL"),
 			atlasschema.NewIndex("people_imdb_id").AddColumns(imdbID),
 		)
+	// people.name was dropped in 000037 — original_name is the canonical
+	// language-neutral fallback and the only base-tier person-search column.
+	if d == DialectPostgres {
+		t.AddIndexes(pgTrgmSearchIndex("people_original_name_trgm_idx", "original_name"))
+	}
+	return t
 }
 
 // buildPersonCreditsTable returns person_credits — 20 cols + 3 indexes
@@ -1483,7 +1493,7 @@ func buildPeopleTextsTable(d Dialect, peopleTable *atlasschema.Table) *atlassche
 	name := atlasschema.NewNullStringColumn("name", "text")
 	updatedAt := timestampColumn(d, "updated_at", true /* withDefault */, true /* notNull */)
 
-	return atlasschema.NewTable("people_texts").
+	t := atlasschema.NewTable("people_texts").
 		AddColumns(
 			personID,
 			language,
@@ -1499,6 +1509,10 @@ func buildPeopleTextsTable(d Dialect, peopleTable *atlasschema.Table) *atlassche
 				SetOnDelete(atlasschema.Cascade).
 				SetOnUpdate(atlasschema.NoAction),
 		)
+	if d == DialectPostgres {
+		t.AddIndexes(pgTrgmSearchIndex("people_texts_name_trgm_idx", "name"))
+	}
+	return t
 }
 
 // addSeriesExtras appends the 4 series-extras tables (videos,
@@ -1844,6 +1858,24 @@ func attachPredicate(d Dialect, idx *atlasschema.Index, predicate string) {
 	case DialectSQLite:
 		idx.AddAttrs(&sqlite.IndexPredicate{P: predicate})
 	}
+}
+
+// pgTrgmSearchIndex builds a Postgres-only expression GIN index over
+// lower(f_unaccent(<col>)) using the pg_trgm gin_trgm_ops operator class.
+// It backs the universal-search foundation (ADR-0024 S1.1): every search
+// predicate calls the identical lower(f_unaccent(col)) so the planner can
+// use the index. The pg_trgm extension and the IMMUTABLE f_unaccent wrapper
+// are NOT modeled here — Atlas does not introspect extensions or functions,
+// so they ride a raw prelude emitted by the loader (dev DB) and migration
+// 000067 (runtime); see cmd/loader/main.go:pgSearchPrelude. The index name
+// and the RawExpr string MUST stay byte-identical to migration 000067.
+func pgTrgmSearchIndex(name, col string) *atlasschema.Index {
+	return atlasschema.NewIndex(name).
+		AddAttrs(&postgres.IndexType{T: "gin"}).
+		AddParts(
+			atlasschema.NewExprPart(&atlasschema.RawExpr{X: "lower(f_unaccent(" + col + "))"}).
+				AddAttrs(&postgres.IndexOpClass{Name: "gin_trgm_ops"}),
+		)
 }
 
 // i18nTextTable builds a per-parent per-language i18n table:
@@ -3486,7 +3518,7 @@ func buildMoviesTable(d Dialect) *atlasschema.Table {
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
-	return atlasschema.NewTable("movies").
+	t := atlasschema.NewTable("movies").
 		AddColumns(
 			id,
 			tmdbID,
@@ -3541,6 +3573,13 @@ func buildMoviesTable(d Dialect) *atlasschema.Table {
 				[]*atlasschema.Column{tmdbChangedAt},
 				"tmdb_changed_at IS NOT NULL"),
 		)
+	if d == DialectPostgres {
+		t.AddIndexes(
+			pgTrgmSearchIndex("movies_original_title_trgm_idx", "original_title"),
+			pgTrgmSearchIndex("movies_title_trgm_idx", "title"),
+		)
+	}
+	return t
 }
 
 // buildMovieI18nTable returns movie_i18n — 9 cols, composite PK
@@ -3548,7 +3587,7 @@ func buildMoviesTable(d Dialect) *atlasschema.Table {
 // i18nTextTable helper (parent_id, language PK + enriched_at + updated_at)
 // with the movie-localized extra columns.
 func buildMovieI18nTable(d Dialect, movies *atlasschema.Table) *atlasschema.Table {
-	return i18nTextTable(d, "movie_i18n", movies, "movie_id",
+	t := i18nTextTable(d, "movie_i18n", movies, "movie_id",
 		[]*atlasschema.Column{
 			atlasschema.NewNullStringColumn("title", "text"),
 			atlasschema.NewNullStringColumn("overview", "text"),
@@ -3559,6 +3598,10 @@ func buildMovieI18nTable(d Dialect, movies *atlasschema.Table) *atlasschema.Tabl
 		"",   // no (language, name) lookup index
 		true, // include enriched_at
 	)
+	if d == DialectPostgres {
+		t.AddIndexes(pgTrgmSearchIndex("movie_i18n_title_trgm_idx", "title"))
+	}
+	return t
 }
 
 // buildMovieRecommendationsTable returns movie_recommendations — the movie-side
@@ -3717,7 +3760,7 @@ func buildCollectionsTable(d Dialect) *atlasschema.Table {
 	createdAt := timestampColumn(d, "created_at", true, true)
 	updatedAt := timestampColumn(d, "updated_at", true, true)
 
-	return atlasschema.NewTable("collections").
+	t := atlasschema.NewTable("collections").
 		AddColumns(id, tmdbCollectionID, name, overview, posterAsset,
 			backdropAsset, monitored, radarrMonitored, createdAt, updatedAt).
 		SetPrimaryKey(atlasschema.NewPrimaryKey(id)).
@@ -3725,6 +3768,10 @@ func buildCollectionsTable(d Dialect) *atlasschema.Table {
 			atlasschema.NewUniqueIndex("collections_tmdb_collection_id").
 				AddColumns(tmdbCollectionID),
 		)
+	if d == DialectPostgres {
+		t.AddIndexes(pgTrgmSearchIndex("collections_name_trgm_idx", "name"))
+	}
+	return t
 }
 
 // D-1-7b — grab tables.
