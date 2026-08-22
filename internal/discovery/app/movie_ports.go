@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -32,4 +33,15 @@ type MovieTMDBDiscoverClient interface {
 // — so discovery never imports enrichment/catalog.
 type MovieStubUpserter interface {
 	EnsureMovieStub(ctx context.Context, tmdbID shareddomain.TMDBID, lang, title, originalTitle, originalLanguage string, poster, backdrop *string) (shareddomain.MovieID, error)
+}
+
+// MovieSearchRepo is the local-first read surface for GET /discovery/movie/search
+// (ADR-0024 Ф0 S0.2). LocalSearch matches the local movies canon over
+// canon title ∪ original_title ∪ movie_i18n and resolves the DISPLAYED title
+// to the requested language (→ en-US → canon m.title fallback), so a localized
+// (e.g. ru) title resolves before the original-title-biased TMDB /search/movie.
+// Impl: internal/discovery/persistence.MovieSearchRepository. Portable SQL
+// (LOWER + LIKE + NULLS LAST) — Postgres + SQLite share one plan.
+type MovieSearchRepo interface {
+	LocalSearch(ctx context.Context, query, language string, limit int) ([]disco.MovieItem, error)
 }

@@ -64,18 +64,36 @@ func (f *fakeMoviePassthrough) LastWaitSeconds() float64 { return f.waitSecs }
 
 func newMovieHarness(t *testing.T, pass discoapp.MovieTMDBPassthrough) (*gin.Engine, *cachewatch.Cache[string, []disco.MovieItem]) {
 	t.Helper()
+	return newMovieHarnessWithSearch(t, pass, nil)
+}
+
+func newMovieHarnessWithSearch(t *testing.T, pass discoapp.MovieTMDBPassthrough, localSearch discoapp.MovieSearchRepo) (*gin.Engine, *cachewatch.Cache[string, []disco.MovieItem]) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sizer := func(k string, v []disco.MovieItem) int { return len(k) + len(v)*500 }
 	lru := cachewatch.New[string, []disco.MovieItem]("movie_discover_test_"+t.Name(), 8, time.Hour, sizer)
 	t.Cleanup(func() { _ = lru.Close() })
-	h := discoveryrest.NewMovieDiscoverHandler(lru, pass, nil, log)
+	h := discoveryrest.NewMovieDiscoverHandler(lru, pass, localSearch, nil, log)
 	r := gin.New()
 	r.GET("/discovery/movie/discover", h.Discover)
 	r.GET("/discovery/movie/trending", h.Trending)
 	r.GET("/discovery/movie/popular", h.Popular)
 	r.GET("/discovery/movie/search", h.Search)
 	return r, lru
+}
+
+// fakeMovieSearchRepo scripts MovieSearchRepo.LocalSearch outcomes and counts
+// calls so a test can assert the local tier short-circuited the TMDB fetch.
+type fakeMovieSearchRepo struct {
+	calls atomic.Int64
+	items []disco.MovieItem
+	err   error
+}
+
+func (f *fakeMovieSearchRepo) LocalSearch(_ context.Context, _, _ string, _ int) ([]disco.MovieItem, error) {
+	f.calls.Add(1)
+	return f.items, f.err
 }
 
 func doGet(t *testing.T, r *gin.Engine, path string) *httptest.ResponseRecorder {
@@ -149,6 +167,42 @@ func TestMovieTrending_ScopeValidation(t *testing.T) {
 	r, _ := newMovieHarness(t, pass)
 	require.Equal(t, http.StatusBadRequest, doGet(t, r, "/discovery/movie/trending?scope=month").Code)
 	require.Equal(t, http.StatusOK, doGet(t, r, "/discovery/movie/trending?scope=week").Code)
+}
+
+// ADR-0024 Ф0 S0.2 — a non-empty local search result short-circuits the TMDB
+// passthrough: 200, cache_status="local", and the passthrough is never called.
+func TestMovieSearch_LocalHit_NoTMDBFetch(t *testing.T) {
+	pass := &fakeMoviePassthrough{items: []disco.MovieItem{{MovieID: 99, Title: "TMDB Fallback"}}}
+	local := &fakeMovieSearchRepo{items: []disco.MovieItem{{MovieID: 7, Title: "Матрица"}}}
+	r, _ := newMovieHarnessWithSearch(t, pass, local)
+
+	w := doGet(t, r, "/discovery/movie/search?q=matrix&lang=ru-RU")
+	require.Equal(t, http.StatusOK, w.Code)
+	var body discoveryrest.MovieDiscoverResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "local", body.CacheStatus)
+	require.Len(t, body.Items, 1)
+	require.Equal(t, "Матрица", body.Items[0].Title)
+	require.EqualValues(t, 1, local.calls.Load())
+	require.EqualValues(t, 0, pass.calls.Load(), "local hit must NOT reach the TMDB passthrough")
+}
+
+// ADR-0024 Ф0 S0.2 — an empty local result falls through to the TMDB
+// passthrough-sync path (cache_status="miss").
+func TestMovieSearch_LocalEmpty_FallsBackToTMDB(t *testing.T) {
+	pass := &fakeMoviePassthrough{items: []disco.MovieItem{{MovieID: 42, Title: "Interstellar"}}}
+	local := &fakeMovieSearchRepo{items: nil}
+	r, _ := newMovieHarnessWithSearch(t, pass, local)
+
+	w := doGet(t, r, "/discovery/movie/search?q=interstellar")
+	require.Equal(t, http.StatusOK, w.Code)
+	var body discoveryrest.MovieDiscoverResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "miss", body.CacheStatus)
+	require.Len(t, body.Items, 1)
+	require.Equal(t, "Interstellar", body.Items[0].Title)
+	require.EqualValues(t, 1, local.calls.Load())
+	require.EqualValues(t, 1, pass.calls.Load(), "empty local must fall back to the TMDB passthrough")
 }
 
 func TestMoviePopularAndSearch_SyncPaths(t *testing.T) {

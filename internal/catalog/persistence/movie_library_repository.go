@@ -63,7 +63,13 @@ func (r *MovieLibraryRepository) base(ctx context.Context, filter ports.MovieLib
 		Group("m.id")
 
 	if s := strings.TrimSpace(filter.Search); s != "" {
-		q = q.Where("LOWER(m.title) LIKE ?", "%"+strings.ToLower(s)+"%")
+		pattern := "%" + strings.ToLower(s) + "%"
+		q = q.Where(
+			"LOWER(m.title) LIKE ? OR LOWER(m.original_title) LIKE ? OR "+
+				"EXISTS (SELECT 1 FROM movie_i18n mi WHERE mi.movie_id = m.id "+
+				"AND mi.title IS NOT NULL AND LOWER(mi.title) LIKE ?)",
+			pattern, pattern, pattern,
+		)
 	}
 	switch filter.State {
 	case ports.MovieLibraryStateDownloaded:

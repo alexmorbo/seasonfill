@@ -170,6 +170,60 @@ func TestMovieLibraryRepository_List(t *testing.T) {
 	}
 }
 
+// ADR-0024 Ф0 S0.1 — the library search predicate matches localized movie_i18n
+// titles AND original_title in addition to the canon movies.title (additive
+// F-03). SQLite LOWER folds ASCII only, so the Cyrillic fixture searches an
+// interior all-lowercase fragment ("атриц" from "Матрица").
+func TestMovieLibraryRepository_SearchLocalizedAndOriginal(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewMovieLibraryRepository(db)
+			rel := time.Date(1999, 3, 31, 0, 0, 0, 0, time.UTC)
+
+			// Canon en title "The Matrix", original_title "The Matrix",
+			// localized ru-RU title "Матрица".
+			y := 1999
+			rating := 8.7
+			original := "The Matrix"
+			id, err := enrichpersistence.NewMovieRepository(db).Upsert(ctx, movie.Canon{
+				TMDBID: tmdbIDPtr(603), Hydration: movie.HydrationFull, Title: "The Matrix",
+				OriginalTitle: &original, Year: &y, ReleaseDate: &rel, TMDBRating: &rating,
+			})
+			require.NoError(t, err)
+			ruTitle := "Матрица"
+			require.NoError(t, enrichpersistence.NewMovieI18nSeeder(db).
+				SeedStub(ctx, id, "ru-RU", ruTitle, nil, nil))
+			addMembership(t, db, "r1", 1, id, true, true, 1_000, rel)
+
+			// Localized ru title match (interior lowercase fragment).
+			ruRows, ruTotal, err := repo.List(ctx,
+				ports.MovieLibraryFilter{Search: "атриц"}, ports.MovieLibrarySortTitleAsc, 50, 0)
+			require.NoError(t, err)
+			require.Equal(t, 1, ruTotal, "ru-RU movie_i18n title must be searchable")
+			require.Len(t, ruRows, 1)
+			assert.Equal(t, 603, ruRows[0].TMDBID)
+
+			// Canon/original title still matches (additive F-03).
+			enRows, enTotal, err := repo.List(ctx,
+				ports.MovieLibraryFilter{Search: "matrix"}, ports.MovieLibrarySortTitleAsc, 50, 0)
+			require.NoError(t, err)
+			require.Equal(t, 1, enTotal, "canon title stays searchable")
+			require.Len(t, enRows, 1)
+			assert.Equal(t, 603, enRows[0].TMDBID)
+
+			// Non-matching fragment finds nothing.
+			_, noneTotal, err := repo.List(ctx,
+				ports.MovieLibraryFilter{Search: "zzznomatch"}, ports.MovieLibrarySortTitleAsc, 50, 0)
+			require.NoError(t, err)
+			assert.Equal(t, 0, noneTotal)
+		})
+	}
+}
+
 func TestMovieLibraryRepository_Empty(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {

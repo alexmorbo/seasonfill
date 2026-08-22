@@ -51,10 +51,11 @@ const (
 
 // MovieDiscoverHandler serves the four movie discovery endpoints.
 type MovieDiscoverHandler struct {
-	lru      *cachewatch.Cache[string, []disco.MovieItem]
-	pass     app.MovieTMDBPassthrough
-	resolver *media.Resolver // nil-OK: raw TMDB paths flow through unchanged
-	log      *slog.Logger
+	lru         *cachewatch.Cache[string, []disco.MovieItem]
+	pass        app.MovieTMDBPassthrough
+	localSearch app.MovieSearchRepo // nil-OK: nil → TMDB-only search
+	resolver    *media.Resolver     // nil-OK: raw TMDB paths flow through unchanged
+	log         *slog.Logger
 }
 
 // NewMovieDiscoverHandler wires the handler. lru/pass/log are required;
@@ -63,6 +64,7 @@ type MovieDiscoverHandler struct {
 func NewMovieDiscoverHandler(
 	lru *cachewatch.Cache[string, []disco.MovieItem],
 	pass app.MovieTMDBPassthrough,
+	localSearch app.MovieSearchRepo,
 	resolver *media.Resolver,
 	log *slog.Logger,
 ) *MovieDiscoverHandler {
@@ -74,7 +76,7 @@ func NewMovieDiscoverHandler(
 	case log == nil:
 		panic("movie discover handler: log required")
 	}
-	return &MovieDiscoverHandler{lru: lru, pass: pass, resolver: resolver, log: log}
+	return &MovieDiscoverHandler{lru: lru, pass: pass, localSearch: localSearch, resolver: resolver, log: log}
 }
 
 // Discover implements Pattern B for /discovery/movie/discover.
@@ -158,6 +160,12 @@ func (h *MovieDiscoverHandler) Popular(c *gin.Context) {
 }
 
 // Search serves /discovery/movie/search?q=…&lang=…&page=…
+//
+// Local-first (ADR-0024 Ф0 S0.2): page 1 first matches the local movies canon
+// (canon title ∪ original_title ∪ movie_i18n, display title localized to lang)
+// so a localized (e.g. ru) title resolves before TMDB /search/movie. On a local
+// hit the envelope reports cache_status="local"; on empty local (or page>1, or
+// no local tier wired) it falls back to the TMDB passthrough-sync path.
 func (h *MovieDiscoverHandler) Search(c *gin.Context) {
 	q := strings.TrimSpace(c.Query("q"))
 	if q == "" || len(q) > 100 {
@@ -167,6 +175,20 @@ func (h *MovieDiscoverHandler) Search(c *gin.Context) {
 	lang, page, ok := h.parsePaging(c)
 	if !ok {
 		return
+	}
+	if h.localSearch != nil && page == 1 {
+		ctx := c.Request.Context()
+		items, err := h.localSearch.LocalSearch(ctx, q, lang, movieDiscoverPerPage)
+		if err != nil {
+			h.log.WarnContext(ctx, "discovery.movie.search.local_failed",
+				slog.String("query", q),
+				slog.String("language", lang),
+				slog.String("error", err.Error()))
+		} else if len(items) > 0 {
+			observability.IncMovieDiscoverHandlerOutcome(OutcomeHit)
+			c.JSON(http.StatusOK, h.envelope(ctx, items, page, "local", 0))
+			return
+		}
 	}
 	h.serveList(c, "search", func(ctx context.Context) ([]disco.MovieItem, error) {
 		return h.pass.FetchSearch(ctx, q, lang, page)

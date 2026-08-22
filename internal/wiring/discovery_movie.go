@@ -9,6 +9,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/catalog/domain/movie"
 	discoapp "github.com/alexmorbo/seasonfill/internal/discovery/app"
 	disco "github.com/alexmorbo/seasonfill/internal/discovery/domain"
+	discoverypersistence "github.com/alexmorbo/seasonfill/internal/discovery/persistence"
 	discoveryrest "github.com/alexmorbo/seasonfill/internal/discovery/rest"
 	enrichpersistence "github.com/alexmorbo/seasonfill/internal/enrichment/persistence"
 	"github.com/alexmorbo/seasonfill/internal/shared/cachewatch"
@@ -115,6 +116,7 @@ func BuildMovieDiscovery(deps MovieDiscoveryDeps) *MovieDiscoveryBundle {
 	sizer := func(k string, v []disco.MovieItem) int { return len(k) + len(v)*500 }
 	lru := cachewatch.New[string, []disco.MovieItem]("movie_discover", 1000, 1*time.Hour, sizer)
 	pass := discoapp.NewMovieTMDBPassthrough(deps.TMDBClient, stubs, deps.Log)
-	handler := discoveryrest.NewMovieDiscoverHandler(lru, pass, deps.Resolver, deps.Log)
+	localSearch := discoverypersistence.NewMovieSearchRepository(deps.Persistence.DB)
+	handler := discoveryrest.NewMovieDiscoverHandler(lru, pass, localSearch, deps.Resolver, deps.Log)
 	return &MovieDiscoveryBundle{Handler: handler, LRU: lru}
 }
