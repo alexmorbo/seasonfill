@@ -33,6 +33,8 @@ var AllowedDomains = map[string]struct{}{
 
 	"request": {}, // ADR-0020 Ф8-U-2 — request-workflow bounded context.
 
+	"search": {}, // S1.4 — search bounded context.
+
 	"catalog_counts":          {},
 	"library_poster_coverage": {},
 	"enrichment_coverage":     {},
