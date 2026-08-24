@@ -5537,6 +5537,150 @@
                 },
                 "type": "object"
             },
+            "rest.SearchCollectionItem": {
+                "properties": {
+                    "backdrop_path": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "poster_path": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "tmdb_id": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "rest.SearchMovieItem": {
+                "properties": {
+                    "backdrop_path": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "integer"
+                    },
+                    "poster_path": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "tmdb_id": {
+                        "type": "integer"
+                    },
+                    "year": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "rest.SearchPersonItem": {
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "known_for": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "profile_path": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "tmdb_id": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "rest.SearchResponse": {
+                "properties": {
+                    "collections": {
+                        "items": {
+                            "$ref": "#/components/schemas/rest.SearchCollectionItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "movies": {
+                        "items": {
+                            "$ref": "#/components/schemas/rest.SearchMovieItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "people": {
+                        "items": {
+                            "$ref": "#/components/schemas/rest.SearchPersonItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "query": {
+                        "type": "string"
+                    },
+                    "scope": {
+                        "type": "string"
+                    },
+                    "series": {
+                        "items": {
+                            "$ref": "#/components/schemas/rest.SearchSeriesItem"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "types": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "rest.SearchSeriesItem": {
+                "properties": {
+                    "backdrop_path": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "integer"
+                    },
+                    "poster_path": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "tmdb_id": {
+                        "type": "integer"
+                    },
+                    "year": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "rest.followListResponse": {
                 "properties": {
                     "items": {
@@ -12378,6 +12522,108 @@
                 "summary": "Cancel a running scan",
                 "tags": [
                     "scans"
+                ]
+            }
+        },
+        "/search": {
+            "get": {
+                "description": "Grouped library search across series, movies, collections and\npeople (ADR-0024). Returns four arrays keyed by entity; empty\ngroups serialize as []. scope selects library|catalog|all — in\nthis release every scope returns library hits only (catalog\nTMDB fan-out lands in a later slice). types is an optional CSV\nsubset of series,movie,collection,person that filters which\ngroups are populated. Each hit carries source=\"library\".",
+                "parameters": [
+                    {
+                        "description": "Search query (1..100 chars after trim)",
+                        "in": "query",
+                        "name": "q",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "library | catalog | all (default all)",
+                        "in": "query",
+                        "name": "scope",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "CSV subset of series,movie,collection,person (default all)",
+                        "in": "query",
+                        "name": "types",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "BCP-47 language tag (default en-US)",
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Max hits per group (1..50; default 20)",
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/rest.SearchResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/dto.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "security": [
+                    {
+                        "CookieAuth": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "summary": "Unified hybrid search",
+                "tags": [
+                    "search"
                 ]
             }
         },

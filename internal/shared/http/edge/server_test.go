@@ -379,6 +379,7 @@ func buildServer(t *testing.T) *Server {
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		nil, // movieTorrentsHandler (ADR-0023 B1.4) — nil-OK, route omitted
+		nil, // searchHandler (ADR-0024 S1.4) — nil-OK, /search route omitted
 		lg)
 }
 
@@ -475,6 +476,7 @@ func buildServerWithAuth(t *testing.T, adminKey string) *Server {
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		nil, // movieTorrentsHandler (ADR-0023 B1.4) — nil-OK, route omitted
+		nil, // searchHandler (ADR-0024 S1.4) — nil-OK, /search route omitted
 		lg)
 }
 
@@ -578,6 +580,7 @@ func buildServerWithAuthAndMedia(t *testing.T, adminKey string) *Server {
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		nil, // movieTorrentsHandler (ADR-0023 B1.4) — nil-OK, route omitted
+		nil, // searchHandler (ADR-0024 S1.4) — nil-OK, /search route omitted
 		lg)
 }
 
@@ -828,6 +831,7 @@ func TestNewServer_TrustedProxies_HonorsLocalhost(t *testing.T) {
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		nil, // movieTorrentsHandler (ADR-0023 B1.4) — nil-OK, route omitted
+		nil, // searchHandler (ADR-0024 S1.4) — nil-OK, /search route omitted
 		lg)
 
 	srv.engine.GET("/__client_ip", func(c *gin.Context) {

@@ -117,6 +117,7 @@ func buildServerWithEpoch(t *testing.T, apiKey string, epoch int64, ptr *middlew
 		nil,                            // movieEtagFreshness (Ф2.1)
 		nil,                            // movieFollowHandler (ADR-0022 Wave-3)
 		nil,                            // movieTorrentsHandler (ADR-0023 B1.4)
+		nil,                            // searchHandler (ADR-0024 S1.4)
 		logger,
 	)
 }

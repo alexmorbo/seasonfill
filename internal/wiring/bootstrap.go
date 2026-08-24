@@ -1073,6 +1073,10 @@ func BuildHTTPServer(
 	// gate) — the endpoint serves the code-default set even with an empty
 	// discovery_rows table.
 	rowConfigHandler := BuildDiscoveryRowConfig(persistence.DB, log)
+	// ADR-0024 S1.4 — unified hybrid search. Standalone: the repo's only
+	// dependency is persistence.DB (dialect-branched inside). Always wired
+	// (no TMDB gate) — catalog fan-out lands in a later slice.
+	searchHandler := BuildSearch(persistence.DB, log)
 	// ADR-0017 Ф5 S3 — discovery blocklist. Standalone repo over
 	// persistence.DB; the shared MediaResolver resolves tmdb-row poster
 	// hashes. The cache is injected into the curated + discover readers
@@ -1244,6 +1248,7 @@ func BuildHTTPServer(
 		movieDetailBundle.CastETagFreshness,      // Ф2.1 movie ETag adapter
 		movieFollowBundle.Handler,                // ADR-0022 Wave-3 movie follow
 		torrentsyncBundle.MovieTorrentsHandler,   // ADR-0023 B1.4 movie torrents
+		searchHandler,                            // ADR-0024 S1.4 unified hybrid search
 		log,
 	)
 	return srv, instanceMetadataBundle, movieDetailBundle.FreshenerHolder, movieDetailBundle.HotEnqueuer, movieDetailBundle.StubResolverHolder, movieDetailBundle.EngineFreshener

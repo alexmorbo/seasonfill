@@ -72,5 +72,6 @@ func newServerForTest(t *testing.T, apiKey string) *Server {
 		nil, // movieEtagFreshness (Ф2.1) — nil-OK, ETag middleware pass-through
 		nil, // movieFollowHandler (ADR-0022 Wave-3) — nil-OK, routes omitted
 		nil, // movieTorrentsHandler (ADR-0023 B1.4) — nil-OK, route omitted
+		nil, // searchHandler (ADR-0024 S1.4) — nil-OK, /search route omitted
 		logger)
 }

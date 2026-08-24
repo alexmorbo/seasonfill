@@ -36,6 +36,7 @@ import (
 	requestrest "github.com/alexmorbo/seasonfill/internal/request/rest"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
+	searchrest "github.com/alexmorbo/seasonfill/internal/search/rest"
 	seriesdetailrest "github.com/alexmorbo/seasonfill/internal/seriesdetail/rest"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/sonarr"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
@@ -188,6 +189,8 @@ func NewServer(
 	// canon + movie_states readers it needs are not otherwise in this scope.
 	// nil-OK: the route is omitted when absent (minimal/test wirings).
 	movieTorrentsHandler *moviedetailrest.GlobalMovieTorrentsHandler,
+	// ADR-0024 S1.4 — unified hybrid search (GET /search). nil-OK.
+	searchHandler *searchrest.SearchHandler,
 	logger *slog.Logger,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
@@ -583,6 +586,12 @@ func NewServer(
 		// nil-OK: omitted when the handler is absent (minimal/test wirings).
 		if movieReenrichHandler != nil {
 			guarded.POST("/admin/movies/reenrich", permAdmin, movieReenrichHandler.Trigger)
+		}
+		// ADR-0024 S1.4 — unified hybrid search. Grouped library-scope
+		// search across series/movies/collections/people. Nil-OK: the route
+		// is omitted for minimal/test wirings.
+		if searchHandler != nil {
+			guarded.GET("/search", searchHandler.Search)
 		}
 		// Story 507 (N-2f) — curated discovery read endpoints.
 		// Nil-OK pattern: when wiring did not construct the handler

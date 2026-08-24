@@ -5792,6 +5792,89 @@ export type paths = {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/search": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Unified hybrid search
+         * @description Grouped library search across series, movies, collections and
+         *     people (ADR-0024). Returns four arrays keyed by entity; empty
+         *     groups serialize as []. scope selects library|catalog|all — in
+         *     this release every scope returns library hits only (catalog
+         *     TMDB fan-out lands in a later slice). types is an optional CSV
+         *     subset of series,movie,collection,person that filters which
+         *     groups are populated. Each hit carries source="library".
+         */
+        readonly get: {
+            readonly parameters: {
+                readonly query: {
+                    /** @description Search query (1..100 chars after trim) */
+                    readonly q: string;
+                    /** @description library | catalog | all (default all) */
+                    readonly scope?: string;
+                    /** @description CSV subset of series,movie,collection,person (default all) */
+                    readonly types?: string;
+                    /** @description BCP-47 language tag (default en-US) */
+                    readonly lang?: string;
+                    /** @description Max hits per group (1..50; default 20) */
+                    readonly limit?: number;
+                };
+                readonly header?: never;
+                readonly path?: never;
+                readonly cookie?: never;
+            };
+            readonly requestBody?: never;
+            readonly responses: {
+                /** @description OK */
+                readonly 200: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["rest.SearchResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                readonly 400: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                readonly 401: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                readonly 500: {
+                    headers: {
+                        readonly [name: string]: unknown;
+                    };
+                    content: {
+                        readonly "application/json": components["schemas"]["dto.ErrorResponse"];
+                    };
+                };
+            };
+        };
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/series": {
         readonly parameters: {
             readonly query?: never;
@@ -10343,6 +10426,49 @@ export type components = {
             readonly notification_id?: number;
             /** @example https://sf.example.com/api/v1/webhook/sonarr/homelab */
             readonly url?: string;
+        };
+        readonly "rest.SearchCollectionItem": {
+            readonly backdrop_path?: string;
+            readonly id?: number;
+            readonly name?: string;
+            readonly poster_path?: string;
+            readonly source?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "rest.SearchMovieItem": {
+            readonly backdrop_path?: string;
+            readonly id?: number;
+            readonly poster_path?: string;
+            readonly source?: string;
+            readonly title?: string;
+            readonly tmdb_id?: number;
+            readonly year?: number;
+        };
+        readonly "rest.SearchPersonItem": {
+            readonly id?: number;
+            readonly known_for?: string;
+            readonly name?: string;
+            readonly profile_path?: string;
+            readonly source?: string;
+            readonly tmdb_id?: number;
+        };
+        readonly "rest.SearchResponse": {
+            readonly collections?: readonly components["schemas"]["rest.SearchCollectionItem"][];
+            readonly movies?: readonly components["schemas"]["rest.SearchMovieItem"][];
+            readonly people?: readonly components["schemas"]["rest.SearchPersonItem"][];
+            readonly query?: string;
+            readonly scope?: string;
+            readonly series?: readonly components["schemas"]["rest.SearchSeriesItem"][];
+            readonly types?: readonly string[];
+        };
+        readonly "rest.SearchSeriesItem": {
+            readonly backdrop_path?: string;
+            readonly id?: number;
+            readonly poster_path?: string;
+            readonly source?: string;
+            readonly title?: string;
+            readonly tmdb_id?: number;
+            readonly year?: number;
         };
         readonly "rest.followListResponse": {
             readonly items?: readonly components["schemas"]["rest.followedItemResponse"][];
