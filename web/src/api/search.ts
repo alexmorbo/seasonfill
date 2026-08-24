@@ -10,6 +10,7 @@ type SearchResponse = components['schemas']['rest.SearchResponse'];
 type RawSeries = components['schemas']['rest.SearchSeriesItem'];
 type RawMovie = components['schemas']['rest.SearchMovieItem'];
 type RawPerson = components['schemas']['rest.SearchPersonItem'];
+type RawCollection = components['schemas']['rest.SearchCollectionItem'];
 
 export type SearchSource = 'library' | 'catalog';
 export type SearchScope = 'library' | 'catalog';
@@ -39,11 +40,19 @@ export interface PersonHit {
   readonly knownFor?: string | undefined;
   readonly profilePath?: string | undefined;
 }
-export type SearchHit = SeriesHit | MovieHit | PersonHit;
+export interface CollectionHit {
+  readonly kind: 'collection';
+  readonly source: SearchSource;
+  readonly tmdbId: number;
+  readonly name: string;
+  readonly posterPath?: string | undefined;
+}
+export type SearchHit = SeriesHit | MovieHit | CollectionHit | PersonHit;
 
 export interface SearchGroup {
   readonly series: readonly SeriesHit[];
   readonly movies: readonly MovieHit[];
+  readonly collections: readonly CollectionHit[];
   readonly people: readonly PersonHit[];
 }
 export interface UnifiedSearchResult {
@@ -113,6 +122,26 @@ export function mapMovieItems(
   return out;
 }
 
+export function mapCollectionItems(
+  items: readonly RawCollection[] | undefined,
+  fallback: SearchSource,
+): CollectionHit[] {
+  const out: CollectionHit[] = [];
+  for (const it of items ?? []) {
+    const name = it.name?.trim();
+    const tmdbId = posInt(it.tmdb_id);
+    if (!name || tmdbId === undefined) continue;
+    out.push({
+      kind: 'collection',
+      source: coerceSource(it.source, fallback),
+      tmdbId,
+      name,
+      posterPath: it.poster_path || undefined,
+    });
+  }
+  return out;
+}
+
 export function mapPersonItems(
   items: readonly RawPerson[] | undefined,
   fallback: SearchSource,
@@ -151,7 +180,10 @@ function fetchSearch(
 }
 
 const groupHasHits = (g: SearchGroup): boolean =>
-  g.series.length > 0 || g.movies.length > 0 || g.people.length > 0;
+  g.series.length > 0 ||
+  g.movies.length > 0 ||
+  g.collections.length > 0 ||
+  g.people.length > 0;
 
 export function useUnifiedSearch(debouncedQuery: string): UnifiedSearchResult {
   const { i18n } = useTranslation();
@@ -179,6 +211,7 @@ export function useUnifiedSearch(debouncedQuery: string): UnifiedSearchResult {
     () => ({
       series: mapSeriesItems(libraryQuery.data?.series, 'library'),
       movies: mapMovieItems(libraryQuery.data?.movies, 'library'),
+      collections: mapCollectionItems(libraryQuery.data?.collections, 'library'),
       people: mapPersonItems(libraryQuery.data?.people, 'library'),
     }),
     [libraryQuery.data],
@@ -189,6 +222,7 @@ export function useUnifiedSearch(debouncedQuery: string): UnifiedSearchResult {
       library.series.map((h) => h.tmdbId).filter((x): x is number => x !== undefined),
     );
     const libMovies = new Set(library.movies.map((h) => h.tmdbId));
+    const libCollections = new Set(library.collections.map((h) => h.tmdbId));
     const libPeople = new Set(library.people.map((h) => h.tmdbId));
     return {
       series: mapSeriesItems(catalogQuery.data?.series, 'catalog').filter(
@@ -196,6 +230,9 @@ export function useUnifiedSearch(debouncedQuery: string): UnifiedSearchResult {
       ),
       movies: mapMovieItems(catalogQuery.data?.movies, 'catalog').filter(
         (h) => !libMovies.has(h.tmdbId),
+      ),
+      collections: mapCollectionItems(catalogQuery.data?.collections, 'catalog').filter(
+        (h) => !libCollections.has(h.tmdbId),
       ),
       people: mapPersonItems(catalogQuery.data?.people, 'catalog').filter(
         (h) => !libPeople.has(h.tmdbId),

@@ -12,7 +12,7 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate }
 })
 
-const emptyGroup: SearchGroup = { series: [], movies: [], people: [] }
+const emptyGroup: SearchGroup = { series: [], movies: [], collections: [], people: [] }
 const baseResult: UnifiedSearchResult = {
   library: emptyGroup,
   catalog: emptyGroup,
@@ -76,8 +76,8 @@ describe("<CommandPalette />", () => {
       ...baseResult,
       enabled: true,
       hasResults: true,
-      library: { series: mkSeries(5, "library"), movies: [], people: [] },
-      catalog: { series: mkSeries(2, "catalog"), movies: [], people: [] },
+      library: { series: mkSeries(5, "library"), movies: [], collections: [], people: [] },
+      catalog: { series: mkSeries(2, "catalog"), movies: [], collections: [], people: [] },
     }
     renderWithProviders(
       <CommandPalette open onOpenChange={vi.fn()} onNewScan={vi.fn()} />,
@@ -106,6 +106,7 @@ describe("<CommandPalette />", () => {
           { kind: "series", source: "library", id: 1, tmdbId: 1, title: "L" },
         ],
         movies: [],
+        collections: [],
         people: [],
       },
     }
@@ -135,6 +136,34 @@ describe("<CommandPalette />", () => {
     )
     expect(await screen.findByTestId("cmdk-catalog-searching")).toBeInTheDocument()
     expect(screen.queryByTestId("cmdk-search-empty")).toBeNull()
+  })
+
+  it("navigates to /collections/:tmdbId and closes the palette when a collection row is selected", async () => {
+    const onOpenChange = vi.fn()
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: true,
+      library: {
+        series: [],
+        movies: [],
+        collections: [
+          {
+            kind: "collection",
+            source: "library",
+            tmdbId: 603,
+            name: "The Matrix Collection",
+          },
+        ],
+        people: [],
+      },
+    }
+    renderWithProviders(
+      <CommandPalette open onOpenChange={onOpenChange} onNewScan={vi.fn()} />,
+    )
+    await userEvent.click(await screen.findByText("The Matrix Collection"))
+    expect(mockNavigate).toHaveBeenCalledWith("/collections/603")
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it("navigates to /search and closes the palette when 'show all' is selected", async () => {

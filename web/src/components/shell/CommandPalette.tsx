@@ -13,6 +13,7 @@ import {
   resolveSearchPoster,
   type SeriesHit,
   type MovieHit,
+  type CollectionHit,
   type PersonHit,
   type SearchGroup,
 } from "@/api/search"
@@ -68,6 +69,10 @@ export function CommandPalette({ open, onOpenChange, onNewScan }: CommandPalette
     close()
     navigate(`/movies/${hit.tmdbId}`)
   }
+  const selectCollection = (hit: CollectionHit) => {
+    close()
+    navigate(`/collections/${hit.tmdbId}`)
+  }
   const selectPerson = (hit: PersonHit) => {
     close()
     navigate(`/person/${hit.tmdbId}`)
@@ -76,8 +81,10 @@ export function CommandPalette({ open, onOpenChange, onNewScan }: CommandPalette
   const renderGroup = (scope: "library" | "catalog", group: SearchGroup) => {
     const series = group.series.slice(0, TOP_N)
     const movies = group.movies.slice(0, TOP_N)
+    const collections = group.collections.slice(0, TOP_N)
     const people = group.people.slice(0, TOP_N)
-    if (series.length + movies.length + people.length === 0) return null
+    if (series.length + movies.length + collections.length + people.length === 0)
+      return null
     const heading =
       scope === "library" ? t("shell.cmdk.groupLibrary") : t("shell.cmdk.groupCatalog")
     const sourceLabel =
@@ -110,6 +117,17 @@ export function CommandPalette({ open, onOpenChange, onNewScan }: CommandPalette
             monogram={monogram(hit.title)}
             poster={resolveSearchPoster(hit)}
             onSelect={() => selectMovie(hit)}
+          />
+        ))}
+        {collections.map((hit) => (
+          <SearchResultRow
+            key={`${scope}-collection-${hit.tmdbId}`}
+            value={`${scope}-collection-${hit.tmdbId}`}
+            title={hit.name}
+            sourceLabel={sourceLabel}
+            monogram={monogram(hit.name)}
+            poster={resolveSearchPoster(hit)}
+            onSelect={() => selectCollection(hit)}
           />
         ))}
         {people.map((hit) => (

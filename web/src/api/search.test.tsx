@@ -16,6 +16,7 @@ import {
   useUnifiedSearch,
   resolveSearchPoster,
   mapSeriesItems,
+  mapCollectionItems,
   type SeriesHit,
   type PersonHit,
 } from "./search"
@@ -100,6 +101,65 @@ describe("useUnifiedSearch()", () => {
     await waitFor(() => expect(result.current.catalog.series.length).toBe(1))
     expect(result.current.catalog.series[0]?.tmdbId).toBe(200)
     expect(result.current.library.series[0]?.id).toBe(5)
+  })
+
+  it("maps collections and dedups the catalog against the library group", async () => {
+    apiSpy.mockImplementation((path: string) => {
+      if (path.includes("scope=library"))
+        return Promise.resolve({
+          collections: [
+            { tmdb_id: 10, name: "Lib Coll", source: "library" },
+          ],
+        })
+      return Promise.resolve({
+        collections: [
+          { tmdb_id: 10, name: "Lib Coll", source: "catalog" },
+          { tmdb_id: 20, name: "Cat Coll", source: "catalog" },
+        ],
+      })
+    })
+    const { result } = renderHook(() => useUnifiedSearch("coll"), {
+      wrapper: wrapper(),
+    })
+    await waitFor(() => expect(result.current.library.collections.length).toBe(1))
+    expect(result.current.library.collections[0]?.tmdbId).toBe(10)
+    await waitFor(() => expect(result.current.catalog.collections.length).toBe(1))
+    expect(result.current.catalog.collections[0]?.tmdbId).toBe(20)
+    expect(result.current.hasResults).toBe(true)
+  })
+
+  it("flips hasResults true when only collections match", async () => {
+    apiSpy.mockImplementation((path: string) => {
+      if (path.includes("scope=library"))
+        return Promise.resolve({
+          collections: [{ tmdb_id: 7, name: "Only Coll", source: "library" }],
+        })
+      return Promise.resolve({})
+    })
+    const { result } = renderHook(() => useUnifiedSearch("only"), {
+      wrapper: wrapper(),
+    })
+    await waitFor(() => expect(result.current.hasResults).toBe(true))
+    expect(result.current.library.collections[0]?.name).toBe("Only Coll")
+  })
+})
+
+describe("mapCollectionItems()", () => {
+  it("maps a raw item, drops items missing name or tmdb_id, and coerces source", () => {
+    const hits = mapCollectionItems(
+      [
+        { tmdb_id: 1, name: "Keep", poster_path: "abc", source: "library" },
+        { name: "NoId" },
+        { tmdb_id: 2 },
+        { tmdb_id: 9, name: "Weird", source: "weird" },
+      ],
+      "catalog",
+    )
+    expect(hits.map((h) => h.name)).toEqual(["Keep", "Weird"])
+    expect(hits[0]?.tmdbId).toBe(1)
+    expect(hits[0]?.posterPath).toBe("abc")
+    expect(hits[0]?.source).toBe("library")
+    expect(hits[1]?.source).toBe("catalog")
   })
 })
 

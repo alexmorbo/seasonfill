@@ -33,6 +33,7 @@ import { SeriesCast } from '@/pages/SeriesCast';
 import { Movies } from '@/pages/Movies';
 import { MovieDetail } from '@/pages/MovieDetail';
 import { MovieCast } from '@/pages/MovieCast';
+import { CollectionDetail } from '@/pages/CollectionDetail';
 import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
 import { DiscoveryPage } from '@/pages/DiscoveryPage';
@@ -81,6 +82,7 @@ export const router = createBrowserRouter([
       { path: '/stats',     element: <Stats /> },
       { path: '/lists',     element: <Lists /> },
       { path: '/collections', element: <Collections /> },
+      { path: '/collections/:tmdbId', element: <CollectionDetail /> },
       { path: '/instances',             element: <Instances /> },
       { path: '/instances/:name/queue', element: <InstanceQueue /> },
       {

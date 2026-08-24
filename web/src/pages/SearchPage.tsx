@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeriesCard } from '@/components/series/SeriesCard';
 import { MovieCard } from '@/components/movies/MovieCard';
+import { CollectionCard } from '@/components/movies/CollectionCard';
 import { PersonCard } from '@/components/search/PersonCard';
 import { useUnifiedSearch, type SearchGroup, type SearchScope } from '@/api/search';
 
@@ -17,14 +18,15 @@ const GRID_CLASS =
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 250;
 
-type TypeTab = 'all' | 'tv' | 'movie' | 'people';
+type TypeTab = 'all' | 'tv' | 'movie' | 'collection' | 'people';
 type ScopeSeg = 'all' | 'library' | 'catalog';
 
 function groupVisibleCount(g: SearchGroup, tab: TypeTab): number {
   const s = tab === 'all' || tab === 'tv' ? g.series.length : 0;
   const m = tab === 'all' || tab === 'movie' ? g.movies.length : 0;
+  const c = tab === 'all' || tab === 'collection' ? g.collections.length : 0;
   const p = tab === 'all' || tab === 'people' ? g.people.length : 0;
-  return s + m + p;
+  return s + m + c + p;
 }
 
 // SearchPage — S3.1. The full-page counterpart of the ⌘K palette: it reuses
@@ -95,6 +97,7 @@ export function SearchPage() {
     { id: 'all', label: t('search.tab.all') },
     { id: 'tv', label: t('search.tab.tv') },
     { id: 'movie', label: t('search.tab.movie') },
+    { id: 'collection', label: t('search.tab.collections') },
     { id: 'people', label: t('search.tab.people') },
   ];
   const scopeSegs: readonly { id: ScopeSeg; label: string }[] = [
@@ -105,6 +108,7 @@ export function SearchPage() {
 
   const showSeries = typeTab === 'all' || typeTab === 'tv';
   const showMovies = typeTab === 'all' || typeTab === 'movie';
+  const showCollections = typeTab === 'all' || typeTab === 'collection';
   const showPeople = typeTab === 'all' || typeTab === 'people';
 
   return (
@@ -237,6 +241,15 @@ export function SearchPage() {
                         title={hit.title}
                         libraryBadge={key === 'library'}
                         {...(hit.year !== undefined ? { year: hit.year } : {})}
+                        {...(hit.posterPath !== undefined ? { poster: hit.posterPath } : {})}
+                      />
+                    ))}
+                  {showCollections &&
+                    group.collections.map((hit) => (
+                      <CollectionCard
+                        key={`collection-${hit.tmdbId}`}
+                        tmdbId={hit.tmdbId}
+                        name={hit.name}
                         {...(hit.posterPath !== undefined ? { poster: hit.posterPath } : {})}
                       />
                     ))}

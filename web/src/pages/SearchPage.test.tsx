@@ -8,6 +8,7 @@ import type {
   SearchGroup,
   SeriesHit,
   MovieHit,
+  CollectionHit,
   PersonHit,
 } from '@/api/search';
 
@@ -28,6 +29,13 @@ const movieHit = (over: Partial<MovieHit> = {}): MovieHit => ({
   year: 1999,
   ...over,
 });
+const collectionHit = (over: Partial<CollectionHit> = {}): CollectionHit => ({
+  kind: 'collection',
+  source: 'library',
+  tmdbId: 400,
+  name: 'The Matrix Collection',
+  ...over,
+});
 const personHit = (over: Partial<PersonHit> = {}): PersonHit => ({
   kind: 'person',
   source: 'catalog',
@@ -37,7 +45,7 @@ const personHit = (over: Partial<PersonHit> = {}): PersonHit => ({
   ...over,
 });
 
-const emptyGroup: SearchGroup = { series: [], movies: [], people: [] };
+const emptyGroup: SearchGroup = { series: [], movies: [], collections: [], people: [] };
 const baseResult: UnifiedSearchResult = {
   library: emptyGroup,
   catalog: emptyGroup,
@@ -70,8 +78,8 @@ describe('<SearchPage />', () => {
       ...baseResult,
       enabled: true,
       hasResults: true,
-      library: { series: [seriesHit()], movies: [movieHit()], people: [] },
-      catalog: { series: [], movies: [], people: [personHit()] },
+      library: { series: [seriesHit()], movies: [movieHit()], collections: [], people: [] },
+      catalog: { series: [], movies: [], collections: [], people: [personHit()] },
     };
     renderWithProviders(<SearchPage />, { route: '/search?q=matrix' });
     expect(await screen.findByTestId('series-card')).toBeInTheDocument();
@@ -84,7 +92,12 @@ describe('<SearchPage />', () => {
       ...baseResult,
       enabled: true,
       hasResults: true,
-      library: { series: [seriesHit()], movies: [movieHit()], people: [personHit()] },
+      library: {
+        series: [seriesHit()],
+        movies: [movieHit()],
+        collections: [collectionHit()],
+        people: [personHit()],
+      },
       catalog: emptyGroup,
     };
     renderWithProviders(<SearchPage />, { route: '/search?q=matrix' });
@@ -98,6 +111,29 @@ describe('<SearchPage />', () => {
     await userEvent.click(screen.getByTestId('search-tab-all'));
     expect(screen.getByTestId('series-card')).toBeInTheDocument();
     expect(screen.getByTestId('person-card')).toBeInTheDocument();
+  });
+
+  it('filters to collections only when the Collections tab is selected', async () => {
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: true,
+      library: {
+        series: [seriesHit()],
+        movies: [movieHit()],
+        collections: [collectionHit()],
+        people: [personHit()],
+      },
+      catalog: emptyGroup,
+    };
+    renderWithProviders(<SearchPage />, { route: '/search?q=matrix' });
+    await screen.findByTestId('collection-card');
+
+    await userEvent.click(screen.getByTestId('search-tab-collection'));
+    expect(screen.getByTestId('collection-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('series-card')).toBeNull();
+    expect(screen.queryByTestId('movie-card')).toBeNull();
+    expect(screen.queryByTestId('person-card')).toBeNull();
   });
 
   it('seeds the input from ?q= and updates the URL while typing', async () => {
@@ -122,8 +158,8 @@ describe('<SearchPage />', () => {
       ...baseResult,
       enabled: true,
       hasResults: true,
-      library: { series: [seriesHit()], movies: [], people: [] },
-      catalog: { series: [], movies: [movieHit()], people: [] },
+      library: { series: [seriesHit()], movies: [], collections: [], people: [] },
+      catalog: { series: [], movies: [movieHit()], collections: [], people: [] },
     };
     renderWithProviders(<SearchPage />, { route: '/search?q=matrix' });
     await screen.findByTestId('series-card');

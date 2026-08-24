@@ -557,6 +557,7 @@ export const en = {
       all: 'All',
       tv: 'Series',
       movie: 'Movies',
+      collections: 'Collections',
       people: 'People',
     },
     scope: {
@@ -2961,6 +2962,16 @@ export const en = {
   },
   movieCard: {
     open: 'Open {{title}}',
+  },
+  collectionCard: {
+    open: 'Open {{name}}',
+  },
+  collectionDetail: {
+    title: 'Collection',
+    invalidTitle: 'Invalid collection',
+    errorTitle: 'Failed to load collection',
+    noInstance: 'No Radarr instance available.',
+    empty: 'This collection has no movies yet.',
   },
   movieCollection: {
     title: 'Collection',

@@ -559,6 +559,7 @@ export const ru: Translations = {
       all: 'Всё',
       tv: 'Сериалы',
       movie: 'Фильмы',
+      collections: 'Коллекции',
       people: 'Персоны',
     },
     scope: {
@@ -2959,6 +2960,16 @@ export const ru: Translations = {
   },
   movieCard: {
     open: 'Открыть {{title}}',
+  },
+  collectionCard: {
+    open: 'Открыть {{name}}',
+  },
+  collectionDetail: {
+    title: 'Коллекция',
+    invalidTitle: 'Неверная коллекция',
+    errorTitle: 'Не удалось загрузить коллекцию',
+    noInstance: 'Нет доступного инстанса Radarr.',
+    empty: 'В этой коллекции пока нет фильмов.',
   },
   movieCollection: {
     title: 'Коллекция',
