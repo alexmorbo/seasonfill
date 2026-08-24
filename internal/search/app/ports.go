@@ -23,4 +23,12 @@ type LibrarySearchRepository interface {
 	// SearchMovies matches movies.title ∪ movies.original_title ∪
 	// movie_i18n.title (additive, F-03).
 	SearchMovies(ctx context.Context, q, language string, limit int) ([]searchdomain.MovieHit, error)
+
+	// SearchCollections matches collections.name (no popularity column —
+	// ranked score → name → id).
+	SearchCollections(ctx context.Context, q, language string, limit int) ([]searchdomain.CollectionHit, error)
+
+	// SearchPeople matches people.original_name ∪ people_texts.name, restricted
+	// to persons credited (person_credits) on an in-library title (D7).
+	SearchPeople(ctx context.Context, q, language string, limit int) ([]searchdomain.PersonHit, error)
 }

@@ -325,3 +325,262 @@ func movieHitFromRow(row movieHitRow) searchdomain.MovieHit {
 	}
 	return hit
 }
+
+// ========================= COLLECTIONS =========================
+
+// SearchCollections matches collections.name. Collections have no popularity
+// column, so the rank tie-break is name ASC → id ASC (deterministic).
+func (r *LibrarySearchRepository) SearchCollections(ctx context.Context, q, language string, limit int) ([]searchdomain.CollectionHit, error) {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var rows []collectionHitRow
+	var err error
+	if r.isPostgres() {
+		if len([]rune(q)) >= minTrigramLen {
+			err = r.collectionPostgresTrigram(ctx, q, limit, &rows)
+		} else {
+			err = r.collectionPostgresPrefix(ctx, q, limit, &rows)
+		}
+	} else {
+		err = r.collectionSQLite(ctx, q, limit, &rows)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("library search collections: %w", err)
+	}
+
+	out := make([]searchdomain.CollectionHit, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, collectionHitFromRow(row))
+	}
+	return out, nil
+}
+
+type collectionHitRow struct {
+	ID               int64   `gorm:"column:id"`
+	TMDBCollectionID int64   `gorm:"column:tmdb_collection_id"`
+	Name             string  `gorm:"column:name"`
+	PosterAsset      *string `gorm:"column:poster_asset"`
+	BackdropAsset    *string `gorm:"column:backdrop_asset"`
+}
+
+func (r *LibrarySearchRepository) collectionPostgresTrigram(ctx context.Context, q string, limit int, rows *[]collectionHitRow) error {
+	pattern := "%" + q + "%"
+	sql := `
+SELECT c.id, c.tmdb_collection_id, c.name, c.poster_asset, c.backdrop_asset,
+       similarity(lower(f_unaccent(c.name)), lower(f_unaccent(?))) AS score
+  FROM collections c
+ WHERE lower(f_unaccent(c.name)) LIKE lower(f_unaccent(?))
+ ORDER BY score DESC NULLS LAST, c.name ASC, c.id ASC
+ LIMIT ?`
+	// args: q(score), pattern(where), limit
+	return r.db.WithContext(ctx).
+		Raw(sql, q, pattern, limit).
+		Scan(rows).Error
+}
+
+func (r *LibrarySearchRepository) collectionPostgresPrefix(ctx context.Context, q string, limit int, rows *[]collectionHitRow) error {
+	prefix := q + "%"
+	sql := `
+SELECT c.id, c.tmdb_collection_id, c.name, c.poster_asset, c.backdrop_asset
+  FROM collections c
+ WHERE lower(f_unaccent(c.name)) LIKE lower(f_unaccent(?))
+ ORDER BY c.name ASC, c.id ASC
+ LIMIT ?`
+	// args: prefix(where), limit
+	return r.db.WithContext(ctx).
+		Raw(sql, prefix, limit).
+		Scan(rows).Error
+}
+
+func (r *LibrarySearchRepository) collectionSQLite(ctx context.Context, q string, limit int, rows *[]collectionHitRow) error {
+	pattern := "%" + q + "%"
+	prefix := q + "%"
+	sql := `
+SELECT c.id, c.tmdb_collection_id, c.name, c.poster_asset, c.backdrop_asset,
+       (CASE WHEN LOWER(c.name) LIKE LOWER(?) THEN 1 ELSE 0 END) AS prefix_hit
+  FROM collections c
+ WHERE LOWER(c.name) LIKE LOWER(?)
+ ORDER BY prefix_hit DESC, c.name ASC, c.id ASC
+ LIMIT ?`
+	// args: prefix(prefix_hit), pattern(where), limit
+	return r.db.WithContext(ctx).
+		Raw(sql, prefix, pattern, limit).
+		Scan(rows).Error
+}
+
+func collectionHitFromRow(row collectionHitRow) searchdomain.CollectionHit {
+	hit := searchdomain.CollectionHit{
+		CollectionID: searchdomain.CollectionID(row.ID),
+		Name:         row.Name,
+	}
+	// tmdb_collection_id is NOT NULL — always present.
+	v := shareddomain.TMDBID(row.TMDBCollectionID)
+	hit.TMDBID = &v
+	if row.PosterAsset != nil && *row.PosterAsset != "" {
+		p := *row.PosterAsset
+		hit.PosterPath = &p
+	}
+	if row.BackdropAsset != nil && *row.BackdropAsset != "" {
+		b := *row.BackdropAsset
+		hit.BackdropPath = &b
+	}
+	return hit
+}
+
+// ============================ PEOPLE ============================
+
+// SearchPeople matches people.original_name ∪ people_texts.name, restricted to
+// persons credited on an in-library title (D7). people.name was dropped in
+// 000037 — NEVER referenced. Display name resolves requested-lang → en-US →
+// original_name. Ranked by trigram similarity then popularity.
+func (r *LibrarySearchRepository) SearchPeople(ctx context.Context, q, language string, limit int) ([]searchdomain.PersonHit, error) {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var rows []personHitRow
+	var err error
+	if r.isPostgres() {
+		if len([]rune(q)) >= minTrigramLen {
+			err = r.peoplePostgresTrigram(ctx, q, language, limit, &rows)
+		} else {
+			err = r.peoplePostgresPrefix(ctx, q, language, limit, &rows)
+		}
+	} else {
+		err = r.peopleSQLite(ctx, q, language, limit, &rows)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("library search people: %w", err)
+	}
+
+	out := make([]searchdomain.PersonHit, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, personHitFromRow(row))
+	}
+	return out, nil
+}
+
+type personHitRow struct {
+	ID                 int64   `gorm:"column:id"`
+	TMDBID             *int64  `gorm:"column:tmdb_id"`
+	Name               string  `gorm:"column:name"`
+	ProfileAsset       *string `gorm:"column:profile_asset"`
+	KnownForDepartment *string `gorm:"column:known_for_department"`
+}
+
+// peopleDisplayName resolves the localized display name: requested-lang →
+// en-US → people.original_name. One `?` placeholder (the requested language).
+const peopleDisplayName = `
+       COALESCE((SELECT pt.name FROM people_texts pt
+                  WHERE pt.person_id = p.id AND pt.name IS NOT NULL
+                  ORDER BY CASE WHEN pt.language = ? THEN 2 WHEN pt.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                           pt.language ASC LIMIT 1), p.original_name) AS name`
+
+// peopleLibraryRestriction is the D7 EXISTS clause — a person surfaces only if
+// credited on a tmdb_media_id that is in the library. No placeholders.
+const peopleLibraryRestriction = `
+   AND EXISTS (
+         SELECT 1 FROM person_credits pc
+          WHERE pc.person_id = p.id
+            AND (
+                 (pc.media_type = 'movie' AND pc.tmdb_media_id IN (SELECT tmdb_id FROM movies WHERE tmdb_id IS NOT NULL))
+              OR (pc.media_type = 'tv'    AND pc.tmdb_media_id IN (SELECT tmdb_id FROM series WHERE tmdb_id IS NOT NULL))
+                )
+       )`
+
+func (r *LibrarySearchRepository) peoplePostgresTrigram(ctx context.Context, q, language string, limit int, rows *[]personHitRow) error {
+	pattern := "%" + q + "%"
+	sql := `
+SELECT p.id, p.tmdb_id,` + peopleDisplayName + `,
+       p.profile_asset, p.known_for_department,
+       GREATEST(
+         COALESCE(similarity(lower(f_unaccent(p.original_name)), lower(f_unaccent(?))), 0),
+         COALESCE((SELECT MAX(similarity(lower(f_unaccent(pt.name)), lower(f_unaccent(?))))
+                     FROM people_texts pt WHERE pt.person_id = p.id), 0)
+       ) AS score
+  FROM people p
+ WHERE (
+         lower(f_unaccent(p.original_name)) LIKE lower(f_unaccent(?))
+      OR EXISTS (SELECT 1 FROM people_texts pt WHERE pt.person_id = p.id
+                   AND lower(f_unaccent(pt.name)) LIKE lower(f_unaccent(?)))
+       )` + peopleLibraryRestriction + `
+ ORDER BY score DESC NULLS LAST, p.popularity DESC NULLS LAST, p.id ASC
+ LIMIT ?`
+	// args: language(name), q(score orig), q(score texts), pattern(where orig), pattern(where texts), limit
+	return r.db.WithContext(ctx).
+		Raw(sql, language, q, q, pattern, pattern, limit).
+		Scan(rows).Error
+}
+
+func (r *LibrarySearchRepository) peoplePostgresPrefix(ctx context.Context, q, language string, limit int, rows *[]personHitRow) error {
+	prefix := q + "%"
+	sql := `
+SELECT p.id, p.tmdb_id,` + peopleDisplayName + `,
+       p.profile_asset, p.known_for_department
+  FROM people p
+ WHERE (
+         lower(f_unaccent(p.original_name)) LIKE lower(f_unaccent(?))
+      OR EXISTS (SELECT 1 FROM people_texts pt WHERE pt.person_id = p.id
+                   AND lower(f_unaccent(pt.name)) LIKE lower(f_unaccent(?)))
+       )` + peopleLibraryRestriction + `
+ ORDER BY p.popularity DESC NULLS LAST, p.id ASC
+ LIMIT ?`
+	// args: language(name), prefix(where orig), prefix(where texts), limit
+	return r.db.WithContext(ctx).
+		Raw(sql, language, prefix, prefix, limit).
+		Scan(rows).Error
+}
+
+func (r *LibrarySearchRepository) peopleSQLite(ctx context.Context, q, language string, limit int, rows *[]personHitRow) error {
+	pattern := "%" + q + "%"
+	prefix := q + "%"
+	sql := `
+SELECT p.id, p.tmdb_id,` + peopleDisplayName + `,
+       p.profile_asset, p.known_for_department,
+       (CASE WHEN LOWER(p.original_name) LIKE LOWER(?)
+                  OR EXISTS (SELECT 1 FROM people_texts pt WHERE pt.person_id = p.id
+                               AND LOWER(pt.name) LIKE LOWER(?))
+             THEN 1 ELSE 0 END) AS prefix_hit
+  FROM people p
+ WHERE (
+         LOWER(p.original_name) LIKE LOWER(?)
+      OR EXISTS (SELECT 1 FROM people_texts pt WHERE pt.person_id = p.id
+                   AND LOWER(pt.name) LIKE LOWER(?))
+       )` + peopleLibraryRestriction + `
+ ORDER BY prefix_hit DESC, p.popularity DESC NULLS LAST, p.id ASC
+ LIMIT ?`
+	// args: language(name), prefix(prefix_hit orig), prefix(prefix_hit texts), pattern(where orig), pattern(where texts), limit
+	return r.db.WithContext(ctx).
+		Raw(sql, language, prefix, prefix, pattern, pattern, limit).
+		Scan(rows).Error
+}
+
+func personHitFromRow(row personHitRow) searchdomain.PersonHit {
+	hit := searchdomain.PersonHit{
+		PersonID: searchdomain.PersonID(row.ID),
+		Name:     row.Name,
+	}
+	if row.TMDBID != nil {
+		v := shareddomain.TMDBID(*row.TMDBID)
+		hit.TMDBID = &v
+	}
+	if row.ProfileAsset != nil && *row.ProfileAsset != "" {
+		p := *row.ProfileAsset
+		hit.ProfilePath = &p
+	}
+	if row.KnownForDepartment != nil && *row.KnownForDepartment != "" {
+		k := *row.KnownForDepartment
+		hit.KnownFor = &k
+	}
+	return hit
+}

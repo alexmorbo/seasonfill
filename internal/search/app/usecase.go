@@ -56,6 +56,17 @@ func (uc *UnifiedSearchUseCase) SearchLibrary(ctx context.Context, q, language s
 	}
 	out.Movies = movies
 
-	// S1.2b: out.Collections, out.People.
+	collections, err := uc.repo.SearchCollections(ctx, q, language, limitPerGroup)
+	if err != nil {
+		return searchdomain.LibrarySearchResult{}, fmt.Errorf("search library collections: %w", err)
+	}
+	out.Collections = collections
+
+	people, err := uc.repo.SearchPeople(ctx, q, language, limitPerGroup)
+	if err != nil {
+		return searchdomain.LibrarySearchResult{}, fmt.Errorf("search library people: %w", err)
+	}
+	out.People = people
+
 	return out, nil
 }

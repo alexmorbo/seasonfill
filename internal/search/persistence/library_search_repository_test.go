@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -46,6 +47,52 @@ func seedMovie(t *testing.T, db *gorm.DB, tmdbID int64, title, originalTitle str
 			id, lang, t18,
 		).Error)
 	}
+}
+
+// seedCollection inserts a collection row (id = tmdb_collection_id for
+// determinism). poster/backdrop may be nil.
+func seedCollection(t *testing.T, db *gorm.DB, tmdbCollID int64, name string, poster, backdrop *string) {
+	t.Helper()
+	require.NoError(t, db.Exec(
+		`INSERT INTO collections (id, tmdb_collection_id, name, poster_asset, backdrop_asset)
+		 VALUES (?, ?, ?, ?, ?)`,
+		tmdbCollID, tmdbCollID, name, poster, backdrop,
+	).Error)
+}
+
+// seedPerson inserts a person + optional people_texts rows. people.name was
+// dropped (000037) — never inserted. originalName == "" maps to SQL NULL so the
+// NULL-original_name D-0 case is expressible.
+func seedPerson(t *testing.T, db *gorm.DB, id, tmdbID int64, originalName string, popularity float64, knownFor string, texts map[string]string) {
+	t.Helper()
+	var on any
+	if originalName != "" {
+		on = originalName
+	}
+	require.NoError(t, db.Exec(
+		`INSERT INTO people (id, tmdb_id, original_name, popularity, known_for_department)
+		 VALUES (?, ?, ?, ?, ?)`,
+		id, tmdbID, on, popularity, knownFor,
+	).Error)
+	for lang, name := range texts {
+		require.NoError(t, db.Exec(
+			`INSERT INTO people_texts (person_id, language, name) VALUES (?, ?, ?)`,
+			id, lang, name,
+		).Error)
+	}
+}
+
+// seedPersonCredit inserts one person_credits row. mediaType ∈ {"movie","tv"};
+// tmdbMediaID is the library title's tmdb_id for the D7 restriction. Supplies
+// all NOT NULL columns (tmdb_credit_id, title, kind).
+func seedPersonCredit(t *testing.T, db *gorm.DB, personID int64, mediaType string, tmdbMediaID int64) {
+	t.Helper()
+	creditID := fmt.Sprintf("c-%d-%s-%d", personID, mediaType, tmdbMediaID)
+	require.NoError(t, db.Exec(
+		`INSERT INTO person_credits (person_id, tmdb_credit_id, media_type, tmdb_media_id, title, kind)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		personID, creditID, mediaType, tmdbMediaID, "credit", "cast",
+	).Error)
 }
 
 // ---------- SERIES (dual-backend) ----------
@@ -262,12 +309,227 @@ func TestSearchPostgres_SeriesTextsPredicateUsesTrigramIndex(t *testing.T) {
 	assertUsesIndex(t, db, probe, "%ound%", "series_texts_title_trgm_idx", "series_texts")
 }
 
+// ---------- COLLECTIONS (dual-backend) ----------
+
+func TestSearchCollections_Match(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+
+			seedCollection(t, db, 800, "The Matrix Collection", nil, nil)
+			seedCollection(t, db, 801, "Unrelated Saga", nil, nil)
+
+			got, err := repo.SearchCollections(ctx, "Matrix", "en-US", 20)
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, int64(800), int64(got[0].CollectionID))
+			require.NotNil(t, got[0].TMDBID)
+			assert.Equal(t, int64(800), int64(*got[0].TMDBID))
+			assert.Equal(t, "The Matrix Collection", got[0].Name)
+		})
+	}
+}
+
+func TestSearchCollections_RankingAndLimit(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+
+			seedCollection(t, db, 810, "Star Trek Collection", nil, nil)
+			seedCollection(t, db, 811, "Star Wars Collection", nil, nil)
+			seedCollection(t, db, 812, "Stargate Collection", nil, nil)
+
+			got, err := repo.SearchCollections(ctx, "Star", "en-US", 2)
+			require.NoError(t, err)
+			require.Len(t, got, 2, "limit caps the group")
+		})
+	}
+}
+
+func TestSearchCollections_EmptyQuery(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			got, err := repo.SearchCollections(context.Background(), "   ", "en-US", 20)
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+	}
+}
+
+// ---------- PEOPLE (dual-backend, D7 library restriction) ----------
+
+func TestSearchPeople_LibraryRestriction(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+
+			// In-library movie (tmdb_id 900) + person credited on it.
+			seedMovie(t, db, 900, "Some Film", "", 5.0, 2010, nil)
+			seedPerson(t, db, 910, 910, "Jane Director", 20.0, "Directing", nil)
+			seedPersonCredit(t, db, 910, "movie", 900)
+
+			// Out-of-library person with the SAME name, credited only on a
+			// tmdb_media_id that is NOT in any library title.
+			seedPerson(t, db, 911, 911, "Jane Director", 99.0, "Directing", nil)
+			seedPersonCredit(t, db, 911, "movie", 999999)
+
+			got, err := repo.SearchPeople(ctx, "Jane Director", "en-US", 20)
+			require.NoError(t, err)
+			require.Len(t, got, 1, "only the in-library person surfaces (D7)")
+			assert.Equal(t, []int64{910}, personIDs(got))
+			require.NotNil(t, got[0].KnownFor)
+			assert.Equal(t, "Directing", *got[0].KnownFor)
+		})
+	}
+}
+
+func TestSearchPeople_NoCreditsExcluded(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+
+			// Person matches by name but has NO person_credits → excluded.
+			seedPerson(t, db, 920, 920, "Orphan Actor", 50.0, "Acting", nil)
+
+			got, err := repo.SearchPeople(ctx, "Orphan Actor", "en-US", 20)
+			require.NoError(t, err)
+			assert.Empty(t, got, "person with no credits is excluded by D7")
+		})
+	}
+}
+
+func TestSearchPeople_NullOriginalNameResolvedViaTexts(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+
+			// In-library tv title + person with NULL original_name whose only
+			// name lives in people_texts (D-0 NULL pair).
+			seedSeries(t, db, 930, "Some Show", 5.0, 2011, map[string]string{"en-US": "Some Show"})
+			seedPerson(t, db, 940, 940, "", 10.0, "Acting", map[string]string{"en-US": "Named Via Texts"})
+			seedPersonCredit(t, db, 940, "tv", 930)
+
+			got, err := repo.SearchPeople(ctx, "Named Via Texts", "en-US", 20)
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, int64(940), int64(got[0].PersonID))
+			assert.Equal(t, "Named Via Texts", got[0].Name, "display name resolved from people_texts")
+		})
+	}
+}
+
+func TestSearchPeople_EmptyQuery(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			got, err := repo.SearchPeople(context.Background(), "  ", "en-US", 20)
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+	}
+}
+
+// ---------- POSTGRES-ONLY LANE (people/collections accent + EXPLAIN) ----------
+
+func TestSearchPostgres_PersonNameAccentInsensitive(t *testing.T) {
+	testhelpers.SkipIfNoPostgres(t)
+	t.Parallel()
+	pc := testhelpers.StartPostgres(t)
+	db := pc.NewDB(t)
+	repo := NewLibrarySearchRepository(db)
+	ctx := context.Background()
+
+	// In-library movie + accented in-library person; unaccented query matches.
+	seedMovie(t, db, 950, "Concert Film", "", 5.0, 2016, nil)
+	seedPerson(t, db, 960, 960, "Beyoncé", 90.0, "Acting", nil)
+	seedPersonCredit(t, db, 960, "movie", 950)
+
+	got, err := repo.SearchPeople(ctx, "Beyonce", "en-US", 20)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(960), int64(got[0].PersonID))
+}
+
+func TestSearchPostgres_CollectionAccentInsensitive(t *testing.T) {
+	testhelpers.SkipIfNoPostgres(t)
+	t.Parallel()
+	pc := testhelpers.StartPostgres(t)
+	db := pc.NewDB(t)
+	repo := NewLibrarySearchRepository(db)
+	ctx := context.Background()
+
+	seedCollection(t, db, 970, "Amélie Collection", nil, nil)
+
+	got, err := repo.SearchCollections(ctx, "Amelie", "en-US", 20)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(970), int64(got[0].CollectionID))
+}
+
+func TestSearchPostgres_PersonOriginalNamePredicateUsesTrigramIndex(t *testing.T) {
+	testhelpers.SkipIfNoPostgres(t)
+	t.Parallel()
+	pc := testhelpers.StartPostgres(t)
+	db := pc.NewDB(t)
+	seedPerson(t, db, 980, 980, "Beyoncé", 90.0, "Acting", nil)
+
+	// Byte-identical to the 000067 index expression on people.original_name.
+	probe := `SELECT p.id FROM people p WHERE lower(f_unaccent(p.original_name)) LIKE lower(f_unaccent(?))`
+	assertUsesIndex(t, db, probe, "%once%", "people_original_name_trgm_idx", "people")
+}
+
+func TestSearchPostgres_CollectionNamePredicateUsesTrigramIndex(t *testing.T) {
+	testhelpers.SkipIfNoPostgres(t)
+	t.Parallel()
+	pc := testhelpers.StartPostgres(t)
+	db := pc.NewDB(t)
+	seedCollection(t, db, 990, "Interstellar Collection", nil, nil)
+
+	probe := `SELECT c.id FROM collections c WHERE lower(f_unaccent(c.name)) LIKE lower(f_unaccent(?))`
+	assertUsesIndex(t, db, probe, "%stel%", "collections_name_trgm_idx", "collections")
+}
+
 // ---------- helpers ----------
 
 func movieIDs(hits []searchdomain.MovieHit) []int64 {
 	out := make([]int64, 0, len(hits))
 	for _, h := range hits {
 		out = append(out, int64(h.MovieID))
+	}
+	return out
+}
+
+func personIDs(hits []searchdomain.PersonHit) []int64 {
+	out := make([]int64, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, int64(h.PersonID))
 	}
 	return out
 }
