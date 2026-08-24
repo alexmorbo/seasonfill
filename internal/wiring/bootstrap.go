@@ -1081,7 +1081,7 @@ func BuildHTTPServer(
 	// ADR-0024 S1.4 — unified hybrid search. Standalone: the repo's only
 	// dependency is persistence.DB (dialect-branched inside). Always wired
 	// (no TMDB gate) — catalog fan-out lands in a later slice.
-	searchHandler := BuildSearch(persistence.DB, catalogSearchClient, log)
+	searchHandler := BuildSearch(persistence.DB, catalogSearchClient, seriesDetailBundle.MediaResolver, log)
 	// ADR-0017 Ф5 S3 — discovery blocklist. Standalone repo over
 	// persistence.DB; the shared MediaResolver resolves tmdb-row poster
 	// hashes. The cache is injected into the curated + discover readers

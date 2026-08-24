@@ -15,6 +15,7 @@ import (
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 )
 
 // defaultLang is the BCP-47 tag used when the client omits ?lang=. Mirrors
@@ -62,21 +63,60 @@ type LibrarySearcher interface {
 // SearchHandler serves GET /api/v1/search. Construct via NewSearchHandler
 // (called from wiring/search.go).
 type SearchHandler struct {
-	search LibrarySearcher
-	log    *slog.Logger
+	search   LibrarySearcher
+	resolver *media.Resolver
+	log      *slog.Logger
 }
 
 // NewSearchHandler wires the handler. search + log are required — panics on a
 // nil dependency so a wiring bug surfaces at boot rather than at first request
-// (mirrors NewDiscoveryHandler / NewUnifiedSearchUseCase).
-func NewSearchHandler(search LibrarySearcher, log *slog.Logger) *SearchHandler {
+// (mirrors NewDiscoveryHandler / NewUnifiedSearchUseCase). resolver is nil-OK:
+// a nil resolver passes raw *_asset paths through unchanged (BUG-1 fix wires
+// the shared MediaResolver so poster/backdrop/profile fields carry the same
+// /media hash /movies mints).
+func NewSearchHandler(search LibrarySearcher, resolver *media.Resolver, log *slog.Logger) *SearchHandler {
 	switch {
 	case search == nil:
 		panic("search handler: library searcher required")
 	case log == nil:
 		panic("search handler: log required")
 	}
-	return &SearchHandler{search: search, log: log}
+	return &SearchHandler{search: search, resolver: resolver, log: log}
+}
+
+// resolvePoster / resolveBackdrop / resolveProfile translate a raw TMDB image
+// path into the /media wire hash using the SAME size+kind conventions the
+// catalog + detail handlers use (poster w342/poster_w342, backdrop
+// w1280/backdrop_w1280, profile w185/profile_w185). A nil resolver or a nil
+// hash returns the raw pointer unchanged (nil-OK pass-through).
+func (h *SearchHandler) resolvePoster(ctx context.Context, raw *string) *string {
+	if h.resolver == nil {
+		return raw
+	}
+	if hash := h.resolver.Resolve(ctx, raw, "w342", "poster_w342"); hash != nil {
+		return hash
+	}
+	return raw
+}
+
+func (h *SearchHandler) resolveBackdrop(ctx context.Context, raw *string) *string {
+	if h.resolver == nil {
+		return raw
+	}
+	if hash := h.resolver.Resolve(ctx, raw, "w1280", "backdrop_w1280"); hash != nil {
+		return hash
+	}
+	return raw
+}
+
+func (h *SearchHandler) resolveProfile(ctx context.Context, raw *string) *string {
+	if h.resolver == nil {
+		return raw
+	}
+	if hash := h.resolver.Resolve(ctx, raw, "w185", "profile_w185"); hash != nil {
+		return hash
+	}
+	return raw
 }
 
 // Search serves GET /api/v1/search.
@@ -155,7 +195,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, buildResponse(q, scope, types, res))
+	c.JSON(http.StatusOK, h.buildResponse(c.Request.Context(), q, scope, types, res))
 }
 
 // validateLang gates the BCP-47 subset (mirrors discovery). Empty is rejected;
@@ -268,7 +308,7 @@ func parseLimit(raw string) (int, bool) {
 // buildResponse maps the grouped domain result into the wire envelope. Every
 // group is initialized to a non-nil empty slice so an empty or type-excluded
 // group serializes as [] (never null) — the FE consumes arrays.
-func buildResponse(q, scope string, ts typeSet, res searchdomain.LibrarySearchResult) SearchResponse {
+func (h *SearchHandler) buildResponse(ctx context.Context, q, scope string, ts typeSet, res searchdomain.LibrarySearchResult) SearchResponse {
 	resp := SearchResponse{
 		Query:       q,
 		Scope:       scope,
@@ -280,70 +320,70 @@ func buildResponse(q, scope string, ts typeSet, res searchdomain.LibrarySearchRe
 	}
 	if ts.series {
 		for _, hit := range res.Series {
-			resp.Series = append(resp.Series, seriesItem(hit))
+			resp.Series = append(resp.Series, h.seriesItem(ctx, hit))
 		}
 	}
 	if ts.movie {
 		for _, hit := range res.Movies {
-			resp.Movies = append(resp.Movies, movieItem(hit))
+			resp.Movies = append(resp.Movies, h.movieItem(ctx, hit))
 		}
 	}
 	if ts.collection {
 		for _, hit := range res.Collections {
-			resp.Collections = append(resp.Collections, collectionItem(hit))
+			resp.Collections = append(resp.Collections, h.collectionItem(ctx, hit))
 		}
 	}
 	if ts.person {
 		for _, hit := range res.People {
-			resp.People = append(resp.People, personItem(hit))
+			resp.People = append(resp.People, h.personItem(ctx, hit))
 		}
 	}
 	return resp
 }
 
-func seriesItem(h searchdomain.SeriesHit) SearchSeriesItem {
+func (h *SearchHandler) seriesItem(ctx context.Context, hit searchdomain.SeriesHit) SearchSeriesItem {
 	return SearchSeriesItem{
-		ID:           int64(h.SeriesID),
-		TMDBID:       tmdbPtr(h.TMDBID),
-		Title:        h.Title,
-		Year:         intPtr(h.Year),
-		PosterPath:   strPtr(h.PosterPath),
-		BackdropPath: strPtr(h.BackdropPath),
-		Source:       wireSource(h.Source),
+		ID:           int64(hit.SeriesID),
+		TMDBID:       tmdbPtr(hit.TMDBID),
+		Title:        hit.Title,
+		Year:         intPtr(hit.Year),
+		PosterPath:   h.resolvePoster(ctx, strPtr(hit.PosterPath)),
+		BackdropPath: h.resolveBackdrop(ctx, strPtr(hit.BackdropPath)),
+		Source:       wireSource(hit.Source),
 	}
 }
 
-func movieItem(h searchdomain.MovieHit) SearchMovieItem {
+func (h *SearchHandler) movieItem(ctx context.Context, hit searchdomain.MovieHit) SearchMovieItem {
 	return SearchMovieItem{
-		ID:           int64(h.MovieID),
-		TMDBID:       tmdbPtr(h.TMDBID),
-		Title:        h.Title,
-		Year:         intPtr(h.Year),
-		PosterPath:   strPtr(h.PosterPath),
-		BackdropPath: strPtr(h.BackdropPath),
-		Source:       wireSource(h.Source),
+		ID:           int64(hit.MovieID),
+		TMDBID:       tmdbPtr(hit.TMDBID),
+		Title:        hit.Title,
+		Year:         intPtr(hit.Year),
+		PosterPath:   h.resolvePoster(ctx, strPtr(hit.PosterPath)),
+		BackdropPath: h.resolveBackdrop(ctx, strPtr(hit.BackdropPath)),
+		Source:       wireSource(hit.Source),
 	}
 }
 
-func collectionItem(h searchdomain.CollectionHit) SearchCollectionItem {
+func (h *SearchHandler) collectionItem(ctx context.Context, hit searchdomain.CollectionHit) SearchCollectionItem {
 	return SearchCollectionItem{
-		ID:           int64(h.CollectionID),
-		TMDBID:       tmdbPtr(h.TMDBID),
-		Name:         h.Name,
-		PosterPath:   strPtr(h.PosterPath),
-		BackdropPath: strPtr(h.BackdropPath),
-		Source:       wireSource(h.Source),
+		ID:           int64(hit.CollectionID),
+		TMDBID:       tmdbPtr(hit.TMDBID),
+		Name:         hit.Name,
+		PosterPath:   h.resolvePoster(ctx, strPtr(hit.PosterPath)),
+		BackdropPath: h.resolveBackdrop(ctx, strPtr(hit.BackdropPath)),
+		Source:       wireSource(hit.Source),
 	}
 }
 
-func personItem(h searchdomain.PersonHit) SearchPersonItem {
+func (h *SearchHandler) personItem(ctx context.Context, hit searchdomain.PersonHit) SearchPersonItem {
 	return SearchPersonItem{
-		ID:          int64(h.PersonID),
-		TMDBID:      tmdbPtr(h.TMDBID),
-		Name:        h.Name,
-		ProfilePath: strPtr(h.ProfilePath),
-		KnownFor:    strPtr(h.KnownFor),
-		Source:      wireSource(h.Source),
+		ID:          int64(hit.PersonID),
+		TMDBID:      tmdbPtr(hit.TMDBID),
+		Name:        hit.Name,
+		ProfilePath: h.resolveProfile(ctx, strPtr(hit.ProfilePath)),
+		KnownFor:    strPtr(hit.KnownFor),
+		Source:      wireSource(hit.Source),
 	}
 }
 

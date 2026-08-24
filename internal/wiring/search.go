@@ -9,6 +9,7 @@ import (
 	searchcatalog "github.com/alexmorbo/seasonfill/internal/search/catalog"
 	searchpersistence "github.com/alexmorbo/seasonfill/internal/search/persistence"
 	searchrest "github.com/alexmorbo/seasonfill/internal/search/rest"
+	"github.com/alexmorbo/seasonfill/internal/shared/media"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
@@ -17,10 +18,10 @@ import (
 // live runtime TMDB surface (nil-OK — a nil client means TMDB is disabled at
 // boot, and the catalog adapter degrades every catalog group to empty). Reuses
 // the existing "search" DomainLogger domain — NO new domain (S1.4 CI-red trap).
-func BuildSearch(db *gorm.DB, catalogClient searchcatalog.TMDBSearchClient, base *slog.Logger) *searchrest.SearchHandler {
+func BuildSearch(db *gorm.DB, catalogClient searchcatalog.TMDBSearchClient, resolver *media.Resolver, base *slog.Logger) *searchrest.SearchHandler {
 	log := sharedports.DomainLogger(base, "search")
 	repo := searchpersistence.NewLibrarySearchRepository(db)
 	catalogRepo := searchcatalog.NewAdapter(catalogClient, log)
 	uc := searchapp.NewUnifiedSearchUseCase(repo, catalogRepo)
-	return searchrest.NewSearchHandler(uc, log)
+	return searchrest.NewSearchHandler(uc, resolver, log)
 }

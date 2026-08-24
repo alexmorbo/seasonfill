@@ -489,10 +489,12 @@ const peopleDisplayName = `
                   ORDER BY CASE WHEN pt.language = ? THEN 2 WHEN pt.language = 'en-US' THEN 1 ELSE 0 END DESC,
                            pt.language ASC LIMIT 1), p.original_name) AS name`
 
-// peopleLibraryRestriction is the D7 EXISTS clause — a person surfaces only if
-// credited on a tmdb_media_id that is in the library. No placeholders.
-const peopleLibraryRestriction = `
-   AND EXISTS (
+// peopleLibraryRestriction is the D7 predicate — a person surfaces only if
+// credited on a tmdb_media_id that is in the library. Applied as the sole WHERE
+// clause after the candidate set is materialized via the `matched` CTE, so it
+// no longer drives the plan (BUG-2 fix): the selective trgm name match drives.
+// No placeholders. NOTE: no leading AND — callers prefix `WHERE `.
+const peopleLibraryRestriction = `EXISTS (
          SELECT 1 FROM person_credits pc
           WHERE pc.person_id = p.id
             AND (
@@ -504,6 +506,13 @@ const peopleLibraryRestriction = `
 func (r *LibrarySearchRepository) peoplePostgresTrigram(ctx context.Context, q, language string, limit int, rows *[]personHitRow) error {
 	pattern := "%" + q + "%"
 	sql := `
+WITH matched AS (
+    SELECT id AS person_id FROM people
+     WHERE lower(f_unaccent(original_name)) LIKE lower(f_unaccent(?))
+    UNION
+    SELECT person_id FROM people_texts
+     WHERE lower(f_unaccent(name)) LIKE lower(f_unaccent(?))
+)
 SELECT p.id, p.tmdb_id,` + peopleDisplayName + `,
        p.profile_asset, p.known_for_department,
        GREATEST(
@@ -512,35 +521,37 @@ SELECT p.id, p.tmdb_id,` + peopleDisplayName + `,
                      FROM people_texts pt WHERE pt.person_id = p.id), 0)
        ) AS score
   FROM people p
- WHERE (
-         lower(f_unaccent(p.original_name)) LIKE lower(f_unaccent(?))
-      OR EXISTS (SELECT 1 FROM people_texts pt WHERE pt.person_id = p.id
-                   AND lower(f_unaccent(pt.name)) LIKE lower(f_unaccent(?)))
-       )` + peopleLibraryRestriction + `
+  JOIN matched m ON m.person_id = p.id
+ WHERE ` + peopleLibraryRestriction + `
  ORDER BY score DESC NULLS LAST, p.popularity DESC NULLS LAST, p.id ASC
  LIMIT ?`
-	// args: language(name), q(score orig), q(score texts), pattern(where orig), pattern(where texts), limit
+	// bind order: pattern(cte orig), pattern(cte texts), language(display name),
+	//             q(score orig), q(score texts), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, language, q, q, pattern, pattern, limit).
+		Raw(sql, pattern, pattern, language, q, q, limit).
 		Scan(rows).Error
 }
 
 func (r *LibrarySearchRepository) peoplePostgresPrefix(ctx context.Context, q, language string, limit int, rows *[]personHitRow) error {
 	prefix := q + "%"
 	sql := `
+WITH matched AS (
+    SELECT id AS person_id FROM people
+     WHERE lower(f_unaccent(original_name)) LIKE lower(f_unaccent(?))
+    UNION
+    SELECT person_id FROM people_texts
+     WHERE lower(f_unaccent(name)) LIKE lower(f_unaccent(?))
+)
 SELECT p.id, p.tmdb_id,` + peopleDisplayName + `,
        p.profile_asset, p.known_for_department
   FROM people p
- WHERE (
-         lower(f_unaccent(p.original_name)) LIKE lower(f_unaccent(?))
-      OR EXISTS (SELECT 1 FROM people_texts pt WHERE pt.person_id = p.id
-                   AND lower(f_unaccent(pt.name)) LIKE lower(f_unaccent(?)))
-       )` + peopleLibraryRestriction + `
+  JOIN matched m ON m.person_id = p.id
+ WHERE ` + peopleLibraryRestriction + `
  ORDER BY p.popularity DESC NULLS LAST, p.id ASC
  LIMIT ?`
-	// args: language(name), prefix(where orig), prefix(where texts), limit
+	// bind order: prefix(cte orig), prefix(cte texts), language(display name), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, language, prefix, prefix, limit).
+		Raw(sql, prefix, prefix, language, limit).
 		Scan(rows).Error
 }
 
@@ -548,6 +559,13 @@ func (r *LibrarySearchRepository) peopleSQLite(ctx context.Context, q, language 
 	pattern := "%" + q + "%"
 	prefix := q + "%"
 	sql := `
+WITH matched AS (
+    SELECT id AS person_id FROM people
+     WHERE LOWER(original_name) LIKE LOWER(?)
+    UNION
+    SELECT person_id FROM people_texts
+     WHERE LOWER(name) LIKE LOWER(?)
+)
 SELECT p.id, p.tmdb_id,` + peopleDisplayName + `,
        p.profile_asset, p.known_for_department,
        (CASE WHEN LOWER(p.original_name) LIKE LOWER(?)
@@ -555,16 +573,14 @@ SELECT p.id, p.tmdb_id,` + peopleDisplayName + `,
                                AND LOWER(pt.name) LIKE LOWER(?))
              THEN 1 ELSE 0 END) AS prefix_hit
   FROM people p
- WHERE (
-         LOWER(p.original_name) LIKE LOWER(?)
-      OR EXISTS (SELECT 1 FROM people_texts pt WHERE pt.person_id = p.id
-                   AND LOWER(pt.name) LIKE LOWER(?))
-       )` + peopleLibraryRestriction + `
+  JOIN matched m ON m.person_id = p.id
+ WHERE ` + peopleLibraryRestriction + `
  ORDER BY prefix_hit DESC, p.popularity DESC NULLS LAST, p.id ASC
  LIMIT ?`
-	// args: language(name), prefix(prefix_hit orig), prefix(prefix_hit texts), pattern(where orig), pattern(where texts), limit
+	// bind order: pattern(cte orig), pattern(cte texts), language(display name),
+	//             prefix(prefix_hit orig), prefix(prefix_hit texts), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, language, prefix, prefix, pattern, pattern, limit).
+		Raw(sql, pattern, pattern, language, prefix, prefix, limit).
 		Scan(rows).Error
 }
 

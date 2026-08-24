@@ -399,6 +399,69 @@ func TestSearchPeople_LibraryRestriction(t *testing.T) {
 	}
 }
 
+// TestSearchPeople_UnionBothBranches proves the BUG-2 rewrite: the candidate
+// set is the UNION of (original_name match) and (people_texts.name match). One
+// in-library person matches ONLY via original_name, another ONLY via
+// people_texts.name — both must surface (the JOIN matched CTE covers both
+// branches without duplicating a person that matches in both).
+func TestSearchPeople_UnionBothBranches(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+
+			// One in-library movie both people are credited on.
+			seedMovie(t, db, 1000, "Shared Film", "", 5.0, 2015, nil)
+
+			// Person A matches ONLY via original_name (no people_texts).
+			seedPerson(t, db, 1010, 1010, "Zephyrus Alpha", 10.0, "Acting", nil)
+			seedPersonCredit(t, db, 1010, "movie", 1000)
+
+			// Person B matches ONLY via people_texts.name (NULL original_name).
+			seedPerson(t, db, 1011, 1011, "", 20.0, "Acting", map[string]string{"en-US": "Zephyrus Beta"})
+			seedPersonCredit(t, db, 1011, "movie", 1000)
+
+			got, err := repo.SearchPeople(ctx, "Zephyrus", "en-US", 20)
+			require.NoError(t, err)
+			require.Len(t, got, 2, "both UNION branches surface")
+			assert.ElementsMatch(t, []int64{1010, 1011}, personIDs(got))
+		})
+	}
+}
+
+// TestSearchPeople_D7SoleWhereStillExcludes proves the D7 restriction, now the
+// SOLE WHERE clause after the candidate set is materialized via the matched
+// CTE, still admits an in-library person and excludes an identically-named
+// person credited only outside the library (semantics byte-identical to the
+// pre-rewrite EXISTS predicate).
+func TestSearchPeople_D7SoleWhereStillExcludes(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+
+			seedMovie(t, db, 1100, "Library Title", "", 5.0, 2012, nil)
+			// In-library person — credited on the library title.
+			seedPerson(t, db, 1110, 1110, "Nomen Sharedname", 15.0, "Acting", nil)
+			seedPersonCredit(t, db, 1110, "movie", 1100)
+			// Same-name person credited only on a tmdb_media_id NOT in the library.
+			seedPerson(t, db, 1111, 1111, "Nomen Sharedname", 99.0, "Acting", nil)
+			seedPersonCredit(t, db, 1111, "movie", 888888)
+
+			got, err := repo.SearchPeople(ctx, "Sharedname", "en-US", 20)
+			require.NoError(t, err)
+			require.Len(t, got, 1, "only the in-library person surfaces (D7 sole WHERE)")
+			assert.Equal(t, []int64{1110}, personIDs(got))
+		})
+	}
+}
+
 func TestSearchPeople_NoCreditsExcluded(t *testing.T) {
 	t.Parallel()
 	for _, backend := range testhelpers.AllBackends(t) {
