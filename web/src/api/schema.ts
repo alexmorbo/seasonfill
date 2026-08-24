@@ -5801,13 +5801,14 @@ export type paths = {
         };
         /**
          * Unified hybrid search
-         * @description Grouped library search across series, movies, collections and
+         * @description Grouped hybrid search across series, movies, collections and
          *     people (ADR-0024). Returns four arrays keyed by entity; empty
-         *     groups serialize as []. scope selects library|catalog|all — in
-         *     this release every scope returns library hits only (catalog
-         *     TMDB fan-out lands in a later slice). types is an optional CSV
-         *     subset of series,movie,collection,person that filters which
-         *     groups are populated. Each hit carries source="library".
+         *     groups serialize as []. scope selects library|catalog|all:
+         *     library returns local hits only, catalog returns TMDB fan-out
+         *     hits, and all merges the two (library first, deduped by tmdb_id).
+         *     types is an optional CSV subset of series,movie,collection,person
+         *     that filters which groups are populated. Each hit carries
+         *     source="library" or source="catalog".
          */
         readonly get: {
             readonly parameters: {

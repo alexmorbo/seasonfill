@@ -6,22 +6,21 @@ import (
 	"gorm.io/gorm"
 
 	searchapp "github.com/alexmorbo/seasonfill/internal/search/app"
+	searchcatalog "github.com/alexmorbo/seasonfill/internal/search/catalog"
 	searchpersistence "github.com/alexmorbo/seasonfill/internal/search/persistence"
 	searchrest "github.com/alexmorbo/seasonfill/internal/search/rest"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
 )
 
-// search.go wires the universal-search bounded context (ADR-0024 S1.4):
-// persistence repo → UnifiedSearchUseCase → SearchHandler. The whole slice
-// depends only on the app *gorm.DB (dialect-branched inside the repo), so it
-// is always built — there is no TMDB dependency to gate on (the catalog layer
-// lands in S1.3). db MUST be non-nil.
-
-// BuildSearch wires GET /api/v1/search. base is the root logger — this
-// tags it with the "search" domain, mirroring BuildDiscoveryRowConfig.
-func BuildSearch(db *gorm.DB, base *slog.Logger) *searchrest.SearchHandler {
+// BuildSearch wires GET /api/v1/search (ADR-0024 S1.3): library repo +
+// catalog adapter → UnifiedSearchUseCase → SearchHandler. catalogClient is the
+// live runtime TMDB surface (nil-OK — a nil client means TMDB is disabled at
+// boot, and the catalog adapter degrades every catalog group to empty). Reuses
+// the existing "search" DomainLogger domain — NO new domain (S1.4 CI-red trap).
+func BuildSearch(db *gorm.DB, catalogClient searchcatalog.TMDBSearchClient, base *slog.Logger) *searchrest.SearchHandler {
 	log := sharedports.DomainLogger(base, "search")
 	repo := searchpersistence.NewLibrarySearchRepository(db)
-	uc := searchapp.NewUnifiedSearchUseCase(repo)
+	catalogRepo := searchcatalog.NewAdapter(catalogClient, log)
+	uc := searchapp.NewUnifiedSearchUseCase(repo, catalogRepo)
 	return searchrest.NewSearchHandler(uc, log)
 }

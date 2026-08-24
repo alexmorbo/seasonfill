@@ -19,6 +19,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/logger"
 	"github.com/alexmorbo/seasonfill/internal/observability"
 	"github.com/alexmorbo/seasonfill/internal/runtime"
+	searchcatalog "github.com/alexmorbo/seasonfill/internal/search/catalog"
 	infraextsvc "github.com/alexmorbo/seasonfill/internal/shared/clients/externalservices"
 	httpserver "github.com/alexmorbo/seasonfill/internal/shared/http/edge"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/middleware"
@@ -802,9 +803,14 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 	}
 	// ADR-0017 Ф5 S3 — runtime TMDB client for /discovery/keyword-search.
 	// nil when TMDB is unwired → the route returns 503.
+	// ADR-0024 S1.3 — the same holder is the runtime TMDB surface for the
+	// /search catalog fan-out; the assignment is the compile-time proof that
+	// *adapters.TMDBClientHolder satisfies searchcatalog.TMDBSearchClient.
 	var keywordSearchClient wiring.KeywordSearchClient
+	var catalogSearchClient searchcatalog.TMDBSearchClient
 	if enrichBundle != nil && enrichBundle.TMDBHolder != nil {
 		keywordSearchClient = enrichBundle.TMDBHolder
+		catalogSearchClient = enrichBundle.TMDBHolder
 	}
 	httpServer, instanceMetadataBundle, movieFreshenerHolder, movieHotEnqueuerHolder, movieStubResolverHolder, movieEngineFreshener := wiring.BuildHTTPServer(
 		persistence, runtimecfg, auth,
@@ -813,6 +819,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		mediaBundle, seriesDetailBundle,
 		seriesCacheRepo, counterRepo, discoveryHTTPBundle, tmdbSeasonsClient,
 		keywordSearchClient,
+		catalogSearchClient,
 		notificationBundle.AgentsHandler, log,
 	)
 

@@ -1,21 +1,30 @@
 // Package domain holds the value objects for the universal-search bounded
 // context (ADR-0024). Distinct from internal/discovery/domain — this context
-// models a grouped LIBRARY-scope search result across four entities.
+// models a grouped search result across four entities. Hits carry a Source
+// discriminator ("library" | "catalog", S1.3) so the projection can tag
+// provenance without a second type hierarchy.
 package domain
 
 import (
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
-// CollectionID is the surrogate PK of the collections table. New ID space —
-// not shared with SeriesID/MovieID (primitive-obsession defense).
+// Source discriminator values. Defined here (not in rest/dto) because BOTH
+// writer layers stamp them: persistence (library) and the catalog adapter
+// (catalog). Single DRY home; the dto layer maps these → its own wire consts.
+const (
+	SourceLibrary = "library"
+	SourceCatalog = "catalog"
+)
+
+// CollectionID is the surrogate PK of the collections table (0 for catalog
+// hits — they are not in the library).
 type CollectionID int64
 
 // PersonID is the surrogate PK of the people table.
 type PersonID int64
 
-// SeriesHit is one library series match. TMDBID/Year/poster/backdrop are
-// optional (unenriched rows carry NULLs).
+// SeriesHit is one series match. SeriesID is 0 for catalog hits.
 type SeriesHit struct {
 	SeriesID     shareddomain.SeriesID
 	TMDBID       *shareddomain.TMDBID
@@ -23,9 +32,10 @@ type SeriesHit struct {
 	Year         *int
 	PosterPath   *string
 	BackdropPath *string
+	Source       string
 }
 
-// MovieHit is one library movie match.
+// MovieHit is one movie match.
 type MovieHit struct {
 	MovieID      shareddomain.MovieID
 	TMDBID       *shareddomain.TMDBID
@@ -33,33 +43,34 @@ type MovieHit struct {
 	Year         *int
 	PosterPath   *string
 	BackdropPath *string
+	Source       string
 }
 
-// CollectionHit is one library collection match. TMDBID carries the
-// tmdb_collection_id (external). Collections have no popularity column.
+// CollectionHit is one collection match.
 type CollectionHit struct {
 	CollectionID CollectionID
 	TMDBID       *shareddomain.TMDBID
 	Name         string
 	PosterPath   *string
 	BackdropPath *string
+	Source       string
 }
 
-// PersonHit is one library-restricted person match (D7). KnownFor is the
-// known_for_department string.
+// PersonHit is one person match. KnownFor is the known_for_department string.
 type PersonHit struct {
 	PersonID    PersonID
 	TMDBID      *shareddomain.TMDBID
 	Name        string
 	ProfilePath *string
 	KnownFor    *string
+	Source      string
 }
 
-// LibrarySearchResult is the grouped aggregate returned by the use case.
-// Each group is independently ranked and capped at limitPerGroup. Groups
-// with no matches are left nil (JSON-friendly empty state).
-//
-// S1.2a populates Series + Movies; Collections + People are filled by S1.2b.
+// LibrarySearchResult is the grouped aggregate returned by the use case and by
+// the catalog adapter. Each group is independently ranked and capped. The name
+// is historical (S1.2a) — it now carries either library- or catalog-sourced
+// hits, distinguished per hit by Source; kept stable to avoid churning
+// S1.2a/S1.4.
 type LibrarySearchResult struct {
 	Series      []SeriesHit
 	Movies      []MovieHit

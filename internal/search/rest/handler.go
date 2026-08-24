@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	searchapp "github.com/alexmorbo/seasonfill/internal/search/app"
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/http/dto"
@@ -55,7 +56,7 @@ var bcp47Re = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$`)
 // concrete type, not an interface, so the seam lives at the rest boundary
 // (clean-arch: the interface belongs to the consumer).
 type LibrarySearcher interface {
-	SearchLibrary(ctx context.Context, q, language string, limitPerGroup int) (searchdomain.LibrarySearchResult, error)
+	Search(ctx context.Context, q, language string, limitPerGroup int, scope searchapp.Scope, types searchapp.TypeFilter) (searchdomain.LibrarySearchResult, error)
 }
 
 // SearchHandler serves GET /api/v1/search. Construct via NewSearchHandler
@@ -81,13 +82,14 @@ func NewSearchHandler(search LibrarySearcher, log *slog.Logger) *SearchHandler {
 // Search serves GET /api/v1/search.
 //
 // @Summary     Unified hybrid search
-// @Description Grouped library search across series, movies, collections and
+// @Description Grouped hybrid search across series, movies, collections and
 // @Description people (ADR-0024). Returns four arrays keyed by entity; empty
-// @Description groups serialize as []. scope selects library|catalog|all — in
-// @Description this release every scope returns library hits only (catalog
-// @Description TMDB fan-out lands in a later slice). types is an optional CSV
-// @Description subset of series,movie,collection,person that filters which
-// @Description groups are populated. Each hit carries source="library".
+// @Description groups serialize as []. scope selects library|catalog|all:
+// @Description library returns local hits only, catalog returns TMDB fan-out
+// @Description hits, and all merges the two (library first, deduped by tmdb_id).
+// @Description types is an optional CSV subset of series,movie,collection,person
+// @Description that filters which groups are populated. Each hit carries
+// @Description source="library" or source="catalog".
 // @Tags        search
 // @Produce     json
 // @Param       q      query     string true  "Search query (1..100 chars after trim)"
@@ -141,18 +143,15 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
-	// TODO(S1.3): scope=catalog|all fans out to TMDB (SearchTV/Movie/Collection/
-	// Person) and dedups by tmdb_id, merging catalog hits into these SAME four
-	// groups. For S1.4 every scope returns library hits only — the scope value is
-	// echoed back and gates nothing else yet.
-	res, err := h.search.SearchLibrary(c.Request.Context(), q, lang, limit)
+	res, err := h.search.Search(c.Request.Context(), q, lang, limit, appScope(scope), appTypes(types))
 	if err != nil {
-		h.log.WarnContext(c.Request.Context(), "search.library_failed",
+		h.log.WarnContext(c.Request.Context(), "search.failed",
 			slog.String("query", q),
+			slog.String("scope", scope),
 			slog.String("language", lang),
 			slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{
-			Error: "library search failed", Code: "SEARCH_READ_FAILED"})
+			Error: "search failed", Code: "SEARCH_READ_FAILED"})
 		return
 	}
 
@@ -229,6 +228,25 @@ func parseTypes(raw string) (typeSet, bool) {
 	return ts, true
 }
 
+// appScope maps the validated scope string → app.Scope.
+func appScope(scope string) searchapp.Scope {
+	switch scope {
+	case scopeCatalog:
+		return searchapp.ScopeCatalog
+	case scopeAll:
+		return searchapp.ScopeAll
+	default:
+		return searchapp.ScopeLibrary
+	}
+}
+
+// appTypes maps the parsed typeSet → app.TypeFilter (no rest types leak into app).
+func appTypes(ts typeSet) searchapp.TypeFilter {
+	return searchapp.TypeFilter{
+		Series: ts.series, Movie: ts.movie, Collection: ts.collection, Person: ts.person,
+	}
+}
+
 // parseLimit parses the optional per-group cap. Empty → 0 (the use case
 // applies its own 20/group default). A value above maxLimit is clamped; a
 // non-integer or <1 value is rejected (ok=false → 400).
@@ -291,7 +309,7 @@ func seriesItem(h searchdomain.SeriesHit) SearchSeriesItem {
 		Year:         intPtr(h.Year),
 		PosterPath:   strPtr(h.PosterPath),
 		BackdropPath: strPtr(h.BackdropPath),
-		Source:       sourceLibrary,
+		Source:       wireSource(h.Source),
 	}
 }
 
@@ -303,7 +321,7 @@ func movieItem(h searchdomain.MovieHit) SearchMovieItem {
 		Year:         intPtr(h.Year),
 		PosterPath:   strPtr(h.PosterPath),
 		BackdropPath: strPtr(h.BackdropPath),
-		Source:       sourceLibrary,
+		Source:       wireSource(h.Source),
 	}
 }
 
@@ -314,7 +332,7 @@ func collectionItem(h searchdomain.CollectionHit) SearchCollectionItem {
 		Name:         h.Name,
 		PosterPath:   strPtr(h.PosterPath),
 		BackdropPath: strPtr(h.BackdropPath),
-		Source:       sourceLibrary,
+		Source:       wireSource(h.Source),
 	}
 }
 
@@ -325,7 +343,7 @@ func personItem(h searchdomain.PersonHit) SearchPersonItem {
 		Name:        h.Name,
 		ProfilePath: strPtr(h.ProfilePath),
 		KnownFor:    strPtr(h.KnownFor),
-		Source:      sourceLibrary,
+		Source:      wireSource(h.Source),
 	}
 }
 

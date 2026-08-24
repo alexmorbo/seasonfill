@@ -177,6 +177,7 @@ func seriesHitFromRow(row seriesHitRow) searchdomain.SeriesHit {
 	hit := searchdomain.SeriesHit{
 		SeriesID: shareddomain.SeriesID(row.ID),
 		Title:    row.Title,
+		Source:   searchdomain.SourceLibrary,
 	}
 	if row.TMDBID != nil {
 		v := shareddomain.TMDBID(*row.TMDBID)
@@ -306,6 +307,7 @@ func movieHitFromRow(row movieHitRow) searchdomain.MovieHit {
 	hit := searchdomain.MovieHit{
 		MovieID: shareddomain.MovieID(row.ID),
 		Title:   row.Title,
+		Source:  searchdomain.SourceLibrary,
 	}
 	if row.TMDBID != nil {
 		v := shareddomain.TMDBID(*row.TMDBID)
@@ -418,6 +420,7 @@ func collectionHitFromRow(row collectionHitRow) searchdomain.CollectionHit {
 	hit := searchdomain.CollectionHit{
 		CollectionID: searchdomain.CollectionID(row.ID),
 		Name:         row.Name,
+		Source:       searchdomain.SourceLibrary,
 	}
 	// tmdb_collection_id is NOT NULL — always present.
 	v := shareddomain.TMDBID(row.TMDBCollectionID)
@@ -569,6 +572,7 @@ func personHitFromRow(row personHitRow) searchdomain.PersonHit {
 	hit := searchdomain.PersonHit{
 		PersonID: searchdomain.PersonID(row.ID),
 		Name:     row.Name,
+		Source:   searchdomain.SourceLibrary,
 	}
 	if row.TMDBID != nil {
 		v := shareddomain.TMDBID(*row.TMDBID)

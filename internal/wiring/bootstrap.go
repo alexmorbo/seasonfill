@@ -31,6 +31,7 @@ import (
 	"github.com/alexmorbo/seasonfill/internal/runtime"
 	"github.com/alexmorbo/seasonfill/internal/runtime/crypto"
 	"github.com/alexmorbo/seasonfill/internal/runtime/tz"
+	searchcatalog "github.com/alexmorbo/seasonfill/internal/search/catalog"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/radarr"
 	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	database "github.com/alexmorbo/seasonfill/internal/shared/db"
@@ -1001,6 +1002,10 @@ func BuildHTTPServer(
 	// ADR-0017 Ф5 S3 — runtime TMDB client for /discovery/keyword-search.
 	// nil-OK: the keyword-search route returns 503 when TMDB is unwired.
 	keywordSearchClient KeywordSearchClient,
+	// ADR-0024 S1.3 — runtime TMDB surface for /search catalog fan-out.
+	// nil-OK: a nil client makes the catalog groups return empty (TMDB
+	// disabled at boot). Same holder value as keywordSearchClient.
+	catalogSearchClient searchcatalog.TMDBSearchClient,
 	// ADR-0016 Ф4 N1 — notification agents CRUD/test handler. nil-OK: the
 	// /notification-agents routes are omitted when absent.
 	notificationAgentsHandler *notifrest.AgentsHandler,
@@ -1076,7 +1081,7 @@ func BuildHTTPServer(
 	// ADR-0024 S1.4 — unified hybrid search. Standalone: the repo's only
 	// dependency is persistence.DB (dialect-branched inside). Always wired
 	// (no TMDB gate) — catalog fan-out lands in a later slice.
-	searchHandler := BuildSearch(persistence.DB, log)
+	searchHandler := BuildSearch(persistence.DB, catalogSearchClient, log)
 	// ADR-0017 Ф5 S3 — discovery blocklist. Standalone repo over
 	// persistence.DB; the shared MediaResolver resolves tmdb-row poster
 	// hashes. The cache is injected into the curated + discover readers

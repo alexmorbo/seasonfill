@@ -12527,7 +12527,7 @@
         },
         "/search": {
             "get": {
-                "description": "Grouped library search across series, movies, collections and\npeople (ADR-0024). Returns four arrays keyed by entity; empty\ngroups serialize as []. scope selects library|catalog|all — in\nthis release every scope returns library hits only (catalog\nTMDB fan-out lands in a later slice). types is an optional CSV\nsubset of series,movie,collection,person that filters which\ngroups are populated. Each hit carries source=\"library\".",
+                "description": "Grouped hybrid search across series, movies, collections and\npeople (ADR-0024). Returns four arrays keyed by entity; empty\ngroups serialize as []. scope selects library|catalog|all:\nlibrary returns local hits only, catalog returns TMDB fan-out\nhits, and all merges the two (library first, deduped by tmdb_id).\ntypes is an optional CSV subset of series,movie,collection,person\nthat filters which groups are populated. Each hit carries\nsource=\"library\" or source=\"catalog\".",
                 "parameters": [
                     {
                         "description": "Search query (1..100 chars after trim)",

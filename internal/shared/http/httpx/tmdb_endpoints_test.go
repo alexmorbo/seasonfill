@@ -28,6 +28,7 @@ func TestTMDBEndpointFor(t *testing.T) {
 		{"/3/search/tv", "/search/tv"},
 		{"/3/search/movie", "/search/movie"},
 		{"/3/search/person", "/search/person"},
+		{"/3/search/collection", "/search/collection"}, // ADR-0024 S1.3
 		{"/3/configuration", "/configuration"},
 		// Future paths fall through.
 		{"/3/movie/603", "/unknown"},

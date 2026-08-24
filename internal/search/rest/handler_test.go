@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	searchapp "github.com/alexmorbo/seasonfill/internal/search/app"
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
 	searchrest "github.com/alexmorbo/seasonfill/internal/search/rest"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -24,12 +25,14 @@ type fakeSearcher struct {
 	gotQ     string
 	gotLang  string
 	gotLimit int
+	gotScope searchapp.Scope
+	gotTypes searchapp.TypeFilter
 	calls    int
 }
 
-func (f *fakeSearcher) SearchLibrary(_ context.Context, q, language string, limitPerGroup int) (searchdomain.LibrarySearchResult, error) {
+func (f *fakeSearcher) Search(_ context.Context, q, language string, limitPerGroup int, scope searchapp.Scope, types searchapp.TypeFilter) (searchdomain.LibrarySearchResult, error) {
 	f.calls++
-	f.gotQ, f.gotLang, f.gotLimit = q, language, limitPerGroup
+	f.gotQ, f.gotLang, f.gotLimit, f.gotScope, f.gotTypes = q, language, limitPerGroup, scope, types
 	if f.err != nil {
 		return searchdomain.LibrarySearchResult{}, f.err
 	}
@@ -243,4 +246,62 @@ func TestSearch_UseCaseError500(t *testing.T) {
 	r := newRouter(t, f)
 	w := doGET(t, r, "/search?q=matrix")
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestSearch_CatalogSourceProjected(t *testing.T) {
+	t.Parallel()
+	f := &fakeSearcher{result: searchdomain.LibrarySearchResult{
+		Movies: []searchdomain.MovieHit{{
+			MovieID: 0, TMDBID: tmdb(603), Title: "The Matrix",
+			Source: searchdomain.SourceCatalog,
+		}},
+	}}
+	r := newRouter(t, f)
+	w := doGET(t, r, "/search?q=matrix&scope=catalog")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp searchrest.SearchResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Movies, 1)
+	assert.Equal(t, "catalog", resp.Movies[0].Source)
+	assert.Equal(t, searchapp.ScopeCatalog, f.gotScope)
+}
+
+func TestSearch_AllScope_LibraryAndCatalogSources(t *testing.T) {
+	t.Parallel()
+	f := &fakeSearcher{result: searchdomain.LibrarySearchResult{
+		Series: []searchdomain.SeriesHit{
+			{SeriesID: shareddomain.SeriesID(11), TMDBID: tmdb(1399), Title: "in-library", Source: searchdomain.SourceLibrary},
+			{TMDBID: tmdb(999), Title: "from-catalog", Source: searchdomain.SourceCatalog},
+		},
+	}}
+	r := newRouter(t, f)
+	w := doGET(t, r, "/search?q=q&scope=all")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp searchrest.SearchResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Series, 2)
+	assert.Equal(t, "library", resp.Series[0].Source) // library-first (D8)
+	assert.Equal(t, "from-catalog", resp.Series[1].Title)
+	assert.Equal(t, "catalog", resp.Series[1].Source)
+	assert.Equal(t, searchapp.ScopeAll, f.gotScope)
+}
+
+func TestSearch_LibraryScopeSourceUnchanged(t *testing.T) {
+	t.Parallel()
+	f := &fakeSearcher{result: searchdomain.LibrarySearchResult{
+		Movies: []searchdomain.MovieHit{{MovieID: shareddomain.MovieID(1), Title: "x", Source: searchdomain.SourceLibrary}},
+	}}
+	r := newRouter(t, f)
+	w := doGET(t, r, "/search?q=x&scope=library&types=movie")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp searchrest.SearchResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Movies, 1)
+	assert.Equal(t, "library", resp.Movies[0].Source)
+	assert.Equal(t, searchapp.ScopeLibrary, f.gotScope)
+	assert.True(t, f.gotTypes.Movie)
+	assert.False(t, f.gotTypes.Series)
 }

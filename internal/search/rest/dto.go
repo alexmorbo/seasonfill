@@ -3,10 +3,11 @@
 // internal/discovery/rest (F-11) — this is the unified hybrid search that
 // returns a grouped envelope across four entities.
 //
-// dto.go declares the wire DTOs. Domain rule (mirrors
-// internal/discovery/rest/types.go): this file imports stdlib only. The
-// handler converts searchdomain hits → these structs at projection time;
-// the use case / repository never see them.
+// dto.go declares the wire DTOs. Besides stdlib it imports the search
+// domain package for the source consts (wireSource) — a legal
+// interface→domain reference. The handler converts searchdomain hits →
+// these structs at projection time; the use case / repository never see
+// them.
 //
 // snake_case json tags match the repo convention (see
 // internal/shared/http/dto/dto.go + internal/discovery/rest/types.go).
@@ -14,10 +15,28 @@
 // (Фаза 2/3) sees a stable shape — every key present, null when absent.
 package rest
 
-// itemSource is the provenance discriminator on every search hit. In S1.4
-// every hit is library-scoped; S1.3 introduces "catalog" on TMDB fan-out
-// hits merged into the same groups.
-const sourceLibrary = "library"
+import (
+	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
+)
+
+// Provenance discriminators on every search hit (D10). The domain stamps
+// searchdomain.SourceLibrary / SourceCatalog on each hit; wireSource maps the
+// domain value onto these wire consts (both used → no unused symbol), defaulting
+// empty/unknown to "library" so an un-stamped hit stays S1.4-identical.
+const (
+	sourceLibrary = "library"
+	sourceCatalog = "catalog"
+)
+
+// wireSource maps a domain Source value onto the wire vocabulary.
+func wireSource(domainSource string) string {
+	switch domainSource {
+	case searchdomain.SourceCatalog:
+		return sourceCatalog
+	default:
+		return sourceLibrary
+	}
+}
 
 // SearchSeriesItem is one library series hit. id is the internal SeriesID;
 // tmdb_id is the public TMDB id when the row carries one (nullable).

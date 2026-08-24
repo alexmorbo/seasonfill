@@ -224,6 +224,28 @@ func (h *TMDBClientHolder) SearchMovie(ctx context.Context, query, language stri
 	return c.SearchMovie(ctx, query, language, page)
 }
 
+// SearchCollection forwards to the live tmdb.Client; universal-search catalog
+// fan-out entry point (ADR-0024 S1.3). Same Load+nil-check pattern — a runtime
+// TMDB disable surfaces ErrTMDBClientNotReady, which the search catalog adapter
+// degrades to an empty collections group (WARN) rather than failing the search.
+func (h *TMDBClientHolder) SearchCollection(ctx context.Context, query, language string, page int) (*tmdb.CollectionListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.SearchCollection(ctx, query, language, page)
+}
+
+// SearchPerson forwards to the live tmdb.Client; universal-search catalog
+// fan-out entry point (ADR-0024 S1.3).
+func (h *TMDBClientHolder) SearchPerson(ctx context.Context, query, language string, page int) (*tmdb.PersonListResponse, error) {
+	c := h.Load()
+	if c == nil {
+		return nil, ErrTMDBClientNotReady
+	}
+	return c.SearchPerson(ctx, query, language, page)
+}
+
 // SearchKeyword forwards to the live tmdb.Client for the discovery
 // /keyword-search endpoint (ADR-0017 Ф5 S3). Same Load+nil-check pattern as
 // the other forwarders — a runtime TMDB disable surfaces

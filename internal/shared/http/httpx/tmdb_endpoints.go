@@ -31,6 +31,7 @@ var tmdbEndpointRules = []struct {
 	{regexp.MustCompile(`^/genre/tv/list$`), "/genre/tv/list"},
 	{regexp.MustCompile(`^/search/movie$`), "/search/movie"},
 	{regexp.MustCompile(`^/search/person$`), "/search/person"},
+	{regexp.MustCompile(`^/search/collection$`), "/search/collection"}, // ADR-0024 S1.3
 	{regexp.MustCompile(`^/configuration$`), "/configuration"},
 }
 
