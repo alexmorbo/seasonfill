@@ -36,6 +36,7 @@ import { MovieCast } from '@/pages/MovieCast';
 import { LegacySeriesRedirect } from '@/pages/LegacySeriesRedirect';
 import { Person } from '@/pages/Person';
 import { DiscoveryPage } from '@/pages/DiscoveryPage';
+import { SearchPage } from '@/pages/SearchPage';
 import { Requests } from '@/pages/Requests';
 import { Users } from '@/pages/Users';
 import { NotFound } from '@/pages/NotFound';
@@ -63,6 +64,7 @@ export const router = createBrowserRouter([
       { path: '/movies/:tmdbId/cast', element: <MovieCast /> },
       { path: '/person/:tmdbId',            element: <Person /> },
       { path: '/discovery', element: <DiscoveryPage /> },
+      { path: '/search', element: <SearchPage /> },
       // /requests is admin-only. The <Requests /> page self-gates on
       // role === 'admin' (renders a localized denied panel otherwise), so no
       // route-level guard wrapper is needed. U-6b will broaden this to a

@@ -5,6 +5,13 @@ import { screen } from "@testing-library/react"
 import { renderWithProviders } from "@/test-utils"
 import type { UnifiedSearchResult, SearchGroup } from "@/api/search"
 
+const mockNavigate = vi.fn()
+vi.mock("react-router-dom", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router-dom")>("react-router-dom")
+  return { ...actual, useNavigate: () => mockNavigate }
+})
+
 const emptyGroup: SearchGroup = { series: [], movies: [], people: [] }
 const baseResult: UnifiedSearchResult = {
   library: emptyGroup,
@@ -28,6 +35,7 @@ import { CommandPalette } from "./CommandPalette"
 
 beforeEach(() => {
   mockResult = baseResult
+  mockNavigate.mockClear()
 })
 
 describe("<CommandPalette />", () => {
@@ -127,5 +135,21 @@ describe("<CommandPalette />", () => {
     )
     expect(await screen.findByTestId("cmdk-catalog-searching")).toBeInTheDocument()
     expect(screen.queryByTestId("cmdk-search-empty")).toBeNull()
+  })
+
+  it("navigates to /search and closes the palette when 'show all' is selected", async () => {
+    mockResult = { ...baseResult, enabled: true, hasResults: false }
+    const onOpenChange = vi.fn()
+    renderWithProviders(
+      <CommandPalette open onOpenChange={onOpenChange} onNewScan={vi.fn()} />,
+    )
+    const input = await screen.findByPlaceholderText("Search, navigate, actions")
+    await userEvent.type(input, "matrix")
+
+    const showAll = await screen.findByTestId("cmdk-show-all")
+    await userEvent.click(showAll)
+
+    expect(mockNavigate).toHaveBeenCalledWith("/search?q=matrix")
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

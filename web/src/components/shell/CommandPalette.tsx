@@ -132,6 +132,12 @@ export function CommandPalette({ open, onOpenChange, onNewScan }: CommandPalette
     search.enabled && !search.libraryLoading && !search.catalogSearching && !search.hasResults
   const showHint = query.trim().length === 0
 
+  const showAllQuery = query.trim()
+  const showAll = () => {
+    close()
+    navigate(`/search?q=${encodeURIComponent(showAllQuery)}`)
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPortal>
@@ -189,6 +195,18 @@ export function CommandPalette({ open, onOpenChange, onNewScan }: CommandPalette
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   {t("shell.cmdk.searchingCatalog")}
                 </div>
+              ) : null}
+
+              {showAllQuery.length >= 1 ? (
+                <Command.Item
+                  value="show-all-results"
+                  onSelect={showAll}
+                  data-testid="cmdk-show-all"
+                  className="mt-1 flex cursor-pointer items-center gap-2.5 rounded-md border-t border-border-faint px-2.5 py-2 text-[13px] font-medium text-accent data-[selected=true]:bg-bg-surface-2"
+                >
+                  <Search className="h-4 w-4" />
+                  {t("shell.cmdk.showAll")}
+                </Command.Item>
               ) : null}
 
               {showEmpty ? (

@@ -539,12 +539,38 @@ export const en = {
       groupCatalog: 'Catalog',
       searchingCatalog: 'Searching catalog…',
       searchEmpty: 'No matches',
+      showAll: 'Show all results',
     },
     instanceSwitch: {
       metaAuto: 'Available · auto',
       metaManual: 'Available · manual',
       none: 'No instances configured',
       clear: 'Clear filter',
+    },
+  },
+  search: {
+    title: 'Search',
+    input: {
+      placeholder: 'Search series, movies, people…',
+    },
+    tab: {
+      all: 'All',
+      tv: 'Series',
+      movie: 'Movies',
+      people: 'People',
+    },
+    scope: {
+      all: 'All',
+      library: 'Library',
+      catalog: 'Catalog',
+    },
+    empty: {
+      prompt: 'Type at least 2 characters to search.',
+      noResults: 'No matches for "{{query}}"',
+    },
+    catalogSearching: 'Searching catalog…',
+    personCard: {
+      open: 'Open {{name}}',
     },
   },
   login: {

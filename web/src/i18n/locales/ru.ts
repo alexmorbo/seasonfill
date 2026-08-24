@@ -541,12 +541,38 @@ export const ru: Translations = {
       groupCatalog: 'Каталог',
       searchingCatalog: 'Ищем в каталоге…',
       searchEmpty: 'Ничего не найдено',
+      showAll: 'Показать все результаты',
     },
     instanceSwitch: {
       metaAuto: 'Available · auto',
       metaManual: 'Available · manual',
       none: 'Нет инстансов',
       clear: 'Сбросить фильтр',
+    },
+  },
+  search: {
+    title: 'Поиск',
+    input: {
+      placeholder: 'Искать сериалы, фильмы, людей…',
+    },
+    tab: {
+      all: 'Всё',
+      tv: 'Сериалы',
+      movie: 'Фильмы',
+      people: 'Персоны',
+    },
+    scope: {
+      all: 'Всё',
+      library: 'Библиотека',
+      catalog: 'Каталог',
+    },
+    empty: {
+      prompt: 'Введите минимум 2 символа для поиска.',
+      noResults: 'Ничего не найдено по запросу «{{query}}»',
+    },
+    catalogSearching: 'Ищем в каталоге…',
+    personCard: {
+      open: 'Открыть {{name}}',
     },
   },
   login: {
