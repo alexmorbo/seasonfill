@@ -535,6 +535,10 @@ export const en = {
       actionsHeading: 'Actions',
       newScan: 'New scan',
       emptyHint: 'Start typing to search…',
+      groupLibrary: 'Library',
+      groupCatalog: 'Catalog',
+      searchingCatalog: 'Searching catalog…',
+      searchEmpty: 'No matches',
     },
     instanceSwitch: {
       metaAuto: 'Available · auto',

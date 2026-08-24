@@ -537,6 +537,10 @@ export const ru: Translations = {
       actionsHeading: 'Действия',
       newScan: 'Новое сканирование',
       emptyHint: 'Начните вводить для поиска…',
+      groupLibrary: 'Библиотека',
+      groupCatalog: 'Каталог',
+      searchingCatalog: 'Ищем в каталоге…',
+      searchEmpty: 'Ничего не найдено',
     },
     instanceSwitch: {
       metaAuto: 'Available · auto',

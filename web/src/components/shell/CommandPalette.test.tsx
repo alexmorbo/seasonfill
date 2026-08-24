@@ -1,9 +1,34 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi, beforeEach } from "vitest"
 import userEvent from "@testing-library/user-event"
 import { screen } from "@testing-library/react"
 
 import { renderWithProviders } from "@/test-utils"
+import type { UnifiedSearchResult, SearchGroup } from "@/api/search"
+
+const emptyGroup: SearchGroup = { series: [], movies: [], people: [] }
+const baseResult: UnifiedSearchResult = {
+  library: emptyGroup,
+  catalog: emptyGroup,
+  libraryLoading: false,
+  catalogSearching: false,
+  hasResults: false,
+  enabled: false,
+}
+let mockResult: UnifiedSearchResult = baseResult
+
+vi.mock("@/api/search", async () => {
+  const actual = await vi.importActual<typeof import("@/api/search")>("@/api/search")
+  return {
+    ...actual,
+    useUnifiedSearch: () => mockResult,
+  }
+})
+
 import { CommandPalette } from "./CommandPalette"
+
+beforeEach(() => {
+  mockResult = baseResult
+})
 
 describe("<CommandPalette />", () => {
   it("renders the Actions heading and the New scan command when open", async () => {
@@ -28,5 +53,79 @@ describe("<CommandPalette />", () => {
       <CommandPalette open={false} onOpenChange={vi.fn()} onNewScan={vi.fn()} />,
     )
     expect(screen.queryByText("New scan")).toBeNull()
+  })
+
+  it("renders the Library group before the Catalog group, caps each type at 3, and omits empty groups", async () => {
+    const mkSeries = (n: number, source: "library" | "catalog") =>
+      Array.from({ length: n }, (_, i) => ({
+        kind: "series" as const,
+        source,
+        id: source === "library" ? i + 1 : undefined,
+        tmdbId: 1000 + i,
+        title: `${source} S${i}`,
+      }))
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: true,
+      library: { series: mkSeries(5, "library"), movies: [], people: [] },
+      catalog: { series: mkSeries(2, "catalog"), movies: [], people: [] },
+    }
+    renderWithProviders(
+      <CommandPalette open onOpenChange={vi.fn()} onNewScan={vi.fn()} />,
+    )
+    const lib = await screen.findByText("Library", {
+      selector: "[cmdk-group-heading]",
+    })
+    const cat = screen.getByText("Catalog", {
+      selector: "[cmdk-group-heading]",
+    })
+    expect(
+      lib.compareDocumentPosition(cat) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(screen.getAllByTestId("search-result-row")).toHaveLength(5)
+    expect(screen.queryByText("Collections")).toBeNull()
+  })
+
+  it("shows the searching-catalog affordance while the catalog call is in flight", async () => {
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: true,
+      catalogSearching: true,
+      library: {
+        series: [
+          { kind: "series", source: "library", id: 1, tmdbId: 1, title: "L" },
+        ],
+        movies: [],
+        people: [],
+      },
+    }
+    renderWithProviders(
+      <CommandPalette open onOpenChange={vi.fn()} onNewScan={vi.fn()} />,
+    )
+    expect(await screen.findByTestId("cmdk-catalog-searching")).toBeInTheDocument()
+  })
+
+  it("shows the empty state when a settled search has no results", async () => {
+    mockResult = { ...baseResult, enabled: true, hasResults: false }
+    renderWithProviders(
+      <CommandPalette open onOpenChange={vi.fn()} onNewScan={vi.fn()} />,
+    )
+    expect(await screen.findByTestId("cmdk-search-empty")).toBeInTheDocument()
+  })
+
+  it("suppresses the empty state while the catalog is still searching", async () => {
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: false,
+      catalogSearching: true,
+    }
+    renderWithProviders(
+      <CommandPalette open onOpenChange={vi.fn()} onNewScan={vi.fn()} />,
+    )
+    expect(await screen.findByTestId("cmdk-catalog-searching")).toBeInTheDocument()
+    expect(screen.queryByTestId("cmdk-search-empty")).toBeNull()
   })
 })
