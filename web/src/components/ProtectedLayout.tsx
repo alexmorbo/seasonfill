@@ -8,6 +8,7 @@ import { AddToRadarrProvider } from "./movies/AddToRadarrProvider"
 import { PageTitleProvider } from "./shell/page-title-context"
 import { NetBanner } from "./NetBanner"
 import { NewScanModal } from "./NewScanModal"
+import { CommandPalette } from "./shell/CommandPalette"
 import { AutoGenPasswordBanner } from "./AutoGenPasswordBanner"
 import { useCmdK } from "@/lib/use-cmdk"
 import { InstanceFilterProvider } from "@/lib/instance-filter-context"
@@ -26,8 +27,9 @@ export function ProtectedLayout() {
   const [scanModalOpen, setScanModalOpen] = useState<boolean>(() =>
     hasNewParam(location.search),
   )
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
-  useCmdK(() => setScanModalOpen(true))
+  useCmdK(() => setPaletteOpen(true))
 
   // Strip ?new=1 from the URL after consumption. Pure navigation; no setState.
   useEffect(() => {
@@ -64,11 +66,19 @@ export function ProtectedLayout() {
         <AddToSonarrProvider>
           <AddToRadarrProvider>
             <AutoGenPasswordBanner />
-            <AppShell>
+            <AppShell onOpenPalette={() => setPaletteOpen(true)}>
               <Outlet />
             </AppShell>
             <NetBanner />
             <NewScanModal open={scanModalOpen} onOpenChange={setScanModalOpen} />
+            <CommandPalette
+              open={paletteOpen}
+              onOpenChange={setPaletteOpen}
+              onNewScan={() => {
+                setPaletteOpen(false)
+                setScanModalOpen(true)
+              }}
+            />
           </AddToRadarrProvider>
         </AddToSonarrProvider>
       </PageTitleProvider>

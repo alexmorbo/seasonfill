@@ -533,6 +533,10 @@ export const ru: Translations = {
     cmdk: {
       placeholder: 'Поиск, переход, действия',
       hint: '⌘K',
+      title: 'Командная палитра',
+      actionsHeading: 'Действия',
+      newScan: 'Новое сканирование',
+      emptyHint: 'Начните вводить для поиска…',
     },
     instanceSwitch: {
       metaAuto: 'Available · auto',

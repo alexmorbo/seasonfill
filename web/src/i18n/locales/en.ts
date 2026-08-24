@@ -531,6 +531,10 @@ export const en = {
     cmdk: {
       placeholder: 'Search, navigate, actions',
       hint: '⌘K',
+      title: 'Command palette',
+      actionsHeading: 'Actions',
+      newScan: 'New scan',
+      emptyHint: 'Start typing to search…',
     },
     instanceSwitch: {
       metaAuto: 'Available · auto',
