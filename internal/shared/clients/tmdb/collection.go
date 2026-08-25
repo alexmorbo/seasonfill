@@ -20,6 +20,7 @@ func (c *Client) GetCollection(ctx context.Context, id int64, language string) (
 	lang := c.languageFor(language)
 	q := url.Values{}
 	q.Set("language", lang)
+	q.Set("append_to_response", "translations") // F-08 S2 — one fetch fans out all languages
 
 	body, err := c.do(ctx, "/collection/"+strconv.FormatInt(id, 10), q)
 	if err != nil {

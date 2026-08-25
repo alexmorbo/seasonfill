@@ -16,6 +16,12 @@ type CollectionResponse struct {
 	PosterPath   string           `json:"poster_path"`
 	BackdropPath string           `json:"backdrop_path"`
 	Parts        []CollectionPart `json:"parts"`
+	// Translations — append_to_response=translations sub-resource (F-08 S2).
+	// REUSES MovieTranslations: a collection translation's localized NAME is
+	// keyed data.title (same as a movie, NOT data.name like TV), so the movie
+	// type maps 1:1 (Title → collection name, Overview → collection overview).
+	// Nilable — callers MUST treat a nil pointer as "no translations".
+	Translations *MovieTranslations `json:"translations"`
 }
 
 // CollectionPart is one member-movie summary inside a collection's `parts`. Only

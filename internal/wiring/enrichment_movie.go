@@ -81,6 +81,7 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 	i18n := enrichpersistence.NewMovieI18nSeeder(deps.Persistence.DB)
 	cursor := enrichpersistence.NewMovieChangesStateRepository(deps.Persistence.DB)
 	movieCollections := enrichpersistence.NewMovieCollectionsRepository(deps.Persistence.DB)
+	collectionTexts := enrichpersistence.NewCollectionTextsRepository(deps.Persistence.DB)
 
 	// Nil-OK: only set the port when the concrete resolver is non-nil so a nil
 	// *media.Resolver never becomes a non-nil interface wrapping a nil pointer.
@@ -116,6 +117,7 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 	collectionWorker, cwErr := appenrich.NewMovieCollectionWorker(appenrich.MovieCollectionWorkerDeps{
 		TMDB:        movieCollectionTMDBFromHolder{holder: deps.TMDBHolder},
 		Collections: movieCollections,
+		Texts:       collectionTexts, // F-08 S2 — localized collection_texts writer
 		Movies:      movies,
 		Resolver:    resolver,
 		BaseLang:    tmdb.DefaultLanguage,
@@ -301,6 +303,7 @@ var (
 	_ appenrich.MovieOMDbRepo            = (*enrichpersistence.MovieRepository)(nil)
 	_ appenrich.MovieOMDbHandler         = (*appenrich.MovieOMDbWorker)(nil)
 	_ appenrich.MovieCollectionUpserter  = (*enrichpersistence.MovieCollectionsRepository)(nil)
+	_ appenrich.CollectionI18nWriter     = (*enrichpersistence.CollectionTextsRepository)(nil)
 	_ appenrich.MovieCollectionPopulator = (*appenrich.MovieCollectionWorker)(nil)
 	_ appenrich.PeopleRepo               = (*enrichpersistence.PeopleRepository)(nil)
 	_ appenrich.Transactor               = (*catalogpersistence.GormTransactor)(nil)

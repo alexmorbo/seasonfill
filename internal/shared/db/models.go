@@ -1571,3 +1571,18 @@ type CollectionModel struct {
 }
 
 func (CollectionModel) TableName() string { return "collections" }
+
+// CollectionTextModel is the per-collection per-language localized side-table
+// (F-08 S1, migration 000068). Composite PK (collection_id, language); FK
+// collection_id → collections(id). name/overview are nullable — the enrichment
+// COALESCE writer preserves a richer stored value on a language-poor refetch.
+type CollectionTextModel struct {
+	CollectionID int64      `gorm:"primaryKey;column:collection_id"`
+	Language     string     `gorm:"primaryKey;column:language;type:text"`
+	Name         *string    `gorm:"column:name;type:text"`
+	Overview     *string    `gorm:"column:overview;type:text"`
+	EnrichedAt   *time.Time `gorm:"column:enriched_at"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (CollectionTextModel) TableName() string { return "collection_texts" }
