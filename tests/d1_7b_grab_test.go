@@ -280,8 +280,8 @@ func TestD1_7b_TableCount_PostGrab(t *testing.T) {
 			// Ф8-U-2 adds requests → 73.
 			// Ф0.3 adds movie genres/keywords/recommendations/companies/videos → 78; ADR-0022 Wave-3 adds followed_movies → 79.
 			// ADR-0023 B1.1 adds torrent_movie_map → 80.
-			if len(s.Tables) != 80 {
-				t.Errorf("Schema(%s) tables = %d, want 80 (after ADR-0023 B1.1 torrent_movie_map)", d, len(s.Tables))
+			if len(s.Tables) != 81 {
+				t.Errorf("Schema(%s) tables = %d, want 81 (after F-08 collection_texts)", d, len(s.Tables))
 			}
 		})
 	}

@@ -3396,7 +3396,9 @@ func addMovies(s *atlasschema.Schema, d Dialect) {
 	s.AddTables(movies)
 	s.AddTables(buildMovieI18nTable(d, movies))
 	s.AddTables(buildMovieStatesTable(d, movies))
-	s.AddTables(buildCollectionsTable(d))
+	collections := buildCollectionsTable(d)
+	s.AddTables(collections)
+	s.AddTables(buildCollectionTextsTable(d, collections))
 	s.AddTables(buildMovieChangesStateTable(d))
 
 	// Ф0.3 — movie taxonomy joins + extras. Reuse the shared genres/
@@ -3770,6 +3772,29 @@ func buildCollectionsTable(d Dialect) *atlasschema.Table {
 		)
 	if d == DialectPostgres {
 		t.AddIndexes(pgTrgmSearchIndex("collections_name_trgm_idx", "name"))
+	}
+	return t
+}
+
+// buildCollectionTextsTable returns collection_texts — the per-collection
+// per-language i18n side-table (ADR-0024 F-08 S1). Composite PK
+// (collection_id, language), FK collection_id → collections(id) NO ACTION.
+// Mirrors buildMovieI18nTable: reuses the i18nTextTable helper with the
+// collection-localized columns (name, overview) + enriched_at + updated_at,
+// and attaches the Postgres-only trigram GIN over lower(f_unaccent(name)) so
+// universal search resolves localized collection names. The GIN name and
+// RawExpr MUST stay byte-identical to the generated migration 000068.
+func buildCollectionTextsTable(d Dialect, collections *atlasschema.Table) *atlasschema.Table {
+	t := i18nTextTable(d, "collection_texts", collections, "collection_id",
+		[]*atlasschema.Column{
+			atlasschema.NewNullStringColumn("name", "text"),
+			atlasschema.NewNullStringColumn("overview", "text"),
+		},
+		"",   // no (language, name) lookup index
+		true, // include enriched_at
+	)
+	if d == DialectPostgres {
+		t.AddIndexes(pgTrgmSearchIndex("collection_texts_name_trgm_idx", "name"))
 	}
 	return t
 }
