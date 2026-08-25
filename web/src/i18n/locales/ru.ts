@@ -572,6 +572,10 @@ export const ru: Translations = {
       noResults: 'Ничего не найдено по запросу «{{query}}»',
     },
     catalogSearching: 'Ищем в каталоге…',
+    year: {
+      label: 'Год',
+      all: 'Все годы',
+    },
     personCard: {
       open: 'Открыть {{name}}',
     },

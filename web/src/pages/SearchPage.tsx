@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Search, SearchX, Loader2 } from 'lucide-react';
@@ -21,6 +21,9 @@ const DEBOUNCE_MS = 250;
 type TypeTab = 'all' | 'tv' | 'movie' | 'collection' | 'people';
 type ScopeSeg = 'all' | 'library' | 'catalog';
 
+// Year sentinel: native <select> values are strings; 'all' = no filter.
+const YEAR_ALL = 'all';
+
 function groupVisibleCount(g: SearchGroup, tab: TypeTab): number {
   const s = tab === 'all' || tab === 'tv' ? g.series.length : 0;
   const m = tab === 'all' || tab === 'movie' ? g.movies.length : 0;
@@ -35,6 +38,22 @@ function groupVisibleCount(g: SearchGroup, tab: TypeTab): number {
 // the Library/Catalog segment are PURE client filters over the already-fetched
 // groups — no refetch. The input seeds from ?q= and keeps the URL in sync
 // (replace) so results are shareable / back-friendly.
+//
+// S3.3 adds a CLIENT-SIDE year filter. The BE /search endpoint has NO `year`
+// param — filtering is 100% over the already-fetched arrays. Design choices:
+//   • Year options are derived from the CURRENTLY-RETURNED series+movies within
+//     the visible scope (respects the Library/Catalog segment), numbers only,
+//     sorted DESC. Deriving from live data (not a static list) honours the
+//     top-N caveat of the search API.
+//   • The year filter narrows the series and movies groups ONLY; collections
+//     and people are shown UNFILTERED regardless of the selected year.
+//   • The control is HIDDEN on the Collections and People tabs (no year there).
+//   • Year is LOCAL STATE only — NOT synced to the URL. onQueryChange rebuilds
+//     URLSearchParams from scratch on every keystroke and would clobber a year
+//     param, and F-01 does not require a shareable year.
+//   • Stale-year guard: `activeYear` falls through to null (no filter) whenever
+//     the selected year is absent from the freshly derived options, so results
+//     never get stuck on an empty grid.
 export function SearchPage() {
   const { t } = useTranslation();
   useSetPageTitle(t('search.title'));
@@ -46,6 +65,7 @@ export function SearchPage() {
   const [debouncedQuery, setDebouncedQuery] = useState(initialQ);
   const [typeTab, setTypeTab] = useState<TypeTab>('all');
   const [scope, setScope] = useState<ScopeSeg>('all');
+  const [year, setYear] = useState<string>(YEAR_ALL);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -80,7 +100,47 @@ export function SearchPage() {
         ? [{ key: 'library', group: search.library }]
         : [{ key: 'catalog', group: search.catalog }];
 
-  const totalVisible = scopesToRender.reduce(
+  // Distinct years across the series+movies of the CURRENTLY-VISIBLE scope
+  // groups, numbers only (drop undefined), sorted DESCENDING. Derived from the
+  // UNFILTERED groups so the option list stays stable while a year is active.
+  const yearOptions = useMemo<number[]>(() => {
+    const groups =
+      scope === 'library'
+        ? [search.library]
+        : scope === 'catalog'
+          ? [search.catalog]
+          : [search.library, search.catalog];
+    const set = new Set<number>();
+    for (const g of groups) {
+      for (const s of g.series) if (typeof s.year === 'number') set.add(s.year);
+      for (const m of g.movies) if (typeof m.year === 'number') set.add(m.year);
+    }
+    return Array.from(set).sort((a, b) => b - a);
+  }, [scope, search.library, search.catalog]);
+
+  // Stale-year guard: a selected year absent from the derived options behaves
+  // as "All years" (null = no filter). Binding the <select> value to this keeps
+  // the control visually consistent when results change out from under it.
+  const activeYear =
+    year !== YEAR_ALL && yearOptions.includes(Number(year)) ? Number(year) : null;
+
+  // Narrows series + movies to activeYear; collections/people pass through
+  // untouched. Items with an undefined year are dropped when a year is active.
+  const filterByYear = (g: SearchGroup): SearchGroup =>
+    activeYear === null
+      ? g
+      : {
+          ...g,
+          series: g.series.filter((h) => h.year === activeYear),
+          movies: g.movies.filter((h) => h.year === activeYear),
+        };
+
+  const filteredScopes = scopesToRender.map(({ key, group }) => ({
+    key,
+    group: filterByYear(group),
+  }));
+
+  const totalVisible = filteredScopes.reduce(
     (n, s) => n + groupVisibleCount(s.group, typeTab),
     0,
   );
@@ -110,6 +170,10 @@ export function SearchPage() {
   const showMovies = typeTab === 'all' || typeTab === 'movie';
   const showCollections = typeTab === 'all' || typeTab === 'collection';
   const showPeople = typeTab === 'all' || typeTab === 'people';
+
+  // Year control only makes sense for tabs that carry a year.
+  const showYearFilter =
+    typeTab === 'all' || typeTab === 'tv' || typeTab === 'movie';
 
   return (
     <div className="flex flex-col gap-4" data-testid="search-page">
@@ -189,6 +253,27 @@ export function SearchPage() {
               </button>
             ))}
           </div>
+
+          {showYearFilter && (
+            <select
+              aria-label={t('search.year.label')}
+              data-testid="search-year-select"
+              value={activeYear !== null ? String(activeYear) : YEAR_ALL}
+              onChange={(e) => setYear(e.target.value)}
+              className={cn(
+                'flex h-9 items-center whitespace-nowrap rounded-md border border-strong',
+                'bg-input px-3 py-1 text-sm shadow-xs transition-colors',
+                'focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring',
+              )}
+            >
+              <option value={YEAR_ALL}>{t('search.year.all')}</option>
+              {yearOptions.map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       )}
 
@@ -211,7 +296,7 @@ export function SearchPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-6" data-testid="search-results">
-          {scopesToRender.map(({ key, group }) => {
+          {filteredScopes.map(({ key, group }) => {
             if (groupVisibleCount(group, typeTab) === 0) return null;
             return (
               <section key={key} className="flex flex-col gap-3">

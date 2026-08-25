@@ -570,6 +570,10 @@ export const en = {
       noResults: 'No matches for "{{query}}"',
     },
     catalogSearching: 'Searching catalog…',
+    year: {
+      label: 'Year',
+      all: 'All years',
+    },
     personCard: {
       open: 'Open {{name}}',
     },

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
 import { renderWithProviders } from '@/test-utils';
 import type {
@@ -174,5 +174,98 @@ describe('<SearchPage />', () => {
     mockResult = { ...baseResult, enabled: false, hasResults: false };
     renderWithProviders(<SearchPage />, { route: '/search' });
     expect(screen.getByTestId('search-prompt')).toBeInTheDocument();
+  });
+
+  it('derives year options from the returned series and movies', async () => {
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: true,
+      library: {
+        series: [seriesHit({ year: 2008 })],
+        movies: [movieHit({ year: 1999 })],
+        collections: [],
+        people: [],
+      },
+      catalog: emptyGroup,
+    };
+    renderWithProviders(<SearchPage />, { route: '/search?q=matrix' });
+    const select = await screen.findByTestId('search-year-select');
+    expect(within(select).getByRole('option', { name: '2008' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: '1999' })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: '2020' })).toBeNull();
+  });
+
+  it('filters series and movies to the selected year, leaving collections and people', async () => {
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: true,
+      library: {
+        series: [seriesHit({ year: 2008 })],
+        movies: [movieHit({ year: 1999 })],
+        collections: [collectionHit()],
+        people: [personHit()],
+      },
+      catalog: emptyGroup,
+    };
+    renderWithProviders(<SearchPage />, { route: '/search?q=matrix' });
+    const select = await screen.findByTestId('search-year-select');
+
+    await userEvent.selectOptions(select, '2008');
+    expect(screen.getByTestId('series-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('movie-card')).toBeNull();
+    expect(screen.getByTestId('collection-card')).toBeInTheDocument();
+    expect(screen.getByTestId('person-card')).toBeInTheDocument();
+  });
+
+  it('restores all items when All years is reselected', async () => {
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: true,
+      library: {
+        series: [seriesHit({ year: 2008 })],
+        movies: [movieHit({ year: 1999 })],
+        collections: [],
+        people: [],
+      },
+      catalog: emptyGroup,
+    };
+    renderWithProviders(<SearchPage />, { route: '/search?q=matrix' });
+    const select = await screen.findByTestId('search-year-select');
+
+    await userEvent.selectOptions(select, '2008');
+    expect(screen.queryByTestId('movie-card')).toBeNull();
+
+    await userEvent.selectOptions(select, 'all');
+    expect(screen.getByTestId('series-card')).toBeInTheDocument();
+    expect(screen.getByTestId('movie-card')).toBeInTheDocument();
+  });
+
+  it('hides the year control on the Collections and People tabs, showing it again on a year tab', async () => {
+    mockResult = {
+      ...baseResult,
+      enabled: true,
+      hasResults: true,
+      library: {
+        series: [seriesHit({ year: 2008 })],
+        movies: [movieHit({ year: 1999 })],
+        collections: [collectionHit()],
+        people: [personHit()],
+      },
+      catalog: emptyGroup,
+    };
+    renderWithProviders(<SearchPage />, { route: '/search?q=matrix' });
+    await screen.findByTestId('search-year-select');
+
+    await userEvent.click(screen.getByTestId('search-tab-collection'));
+    expect(screen.queryByTestId('search-year-select')).toBeNull();
+
+    await userEvent.click(screen.getByTestId('search-tab-people'));
+    expect(screen.queryByTestId('search-year-select')).toBeNull();
+
+    await userEvent.click(screen.getByTestId('search-tab-movie'));
+    expect(screen.getByTestId('search-year-select')).toBeInTheDocument();
   });
 });
