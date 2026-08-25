@@ -223,14 +223,16 @@ func d1IndexOf(s, sub string) int {
 // movie_i18n, movie_states, collections, migration 000053), and Ф8-U-1
 // (user_instance_access, migration 000055), and Ф8-U-2 (requests,
 // migration 000056), and ADR-0022 Wave-3 (followed_movies, migration
-// 000063), and ADR-0023 B1.1 (torrent_movie_map, migration 000065).
-// 80 tables in total — schema_migrations (golang-migrate tracker) is
+// 000063), and ADR-0023 B1.1 (torrent_movie_map, migration 000065), and
+// Story 1 collection_texts (migration 000068).
+// 81 tables in total — schema_migrations (golang-migrate tracker) is
 // excluded; it is not part of the seasonfill domain.
 //
 // Names are the same on both backends — the SQLite list is identical.
 var d1AcceptanceTablesPostgres = []string{
 	"app_config",
 	"app_secret",
+	"collection_texts",
 	"collections",
 	"content_ratings",
 	"cooldowns",
