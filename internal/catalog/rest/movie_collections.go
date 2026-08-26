@@ -19,10 +19,10 @@ import (
 )
 
 // collectionCanonReader reads the collection header row. Production impl:
-// *enrichpersistence.MovieCollectionsRepository.GetByTMDBCollectionID. Narrow
-// port keeps catalog/rest decoupled from enrichment persistence.
+// *enrichpersistence.MovieCollectionsRepository.GetByTMDBCollectionIDLocalized.
+// Narrow port keeps catalog/rest decoupled from enrichment persistence.
 type collectionCanonReader interface {
-	GetByTMDBCollectionID(ctx context.Context, tmdbCollectionID int) (movie.CollectionCanon, error)
+	GetByTMDBCollectionIDLocalized(ctx context.Context, tmdbCollectionID int, lang string) (movie.CollectionCanon, error)
 }
 
 // MovieCollectionsHandler serves the three collection routes (Ф6-R-6a).
@@ -97,7 +97,7 @@ func (h *MovieCollectionsHandler) Get(c *gin.Context) {
 	}
 	lang := strings.TrimSpace(c.Query("lang"))
 	ctx := c.Request.Context()
-	canon, err := h.canon.GetByTMDBCollectionID(ctx, id)
+	canon, err := h.canon.GetByTMDBCollectionIDLocalized(ctx, id, lang)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: "collection_not_found", Code: "COLLECTION_NOT_FOUND"})

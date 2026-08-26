@@ -227,3 +227,46 @@ func TestMovieCollectionsRepository_ListPartsWithMembership_LocalizedTitleAndPos
 		})
 	}
 }
+
+func TestMovieCollectionsRepository_GetLocalized(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			ctx := context.Background()
+			repo := NewMovieCollectionsRepository(db)
+			texts := NewCollectionTextsRepository(db)
+			cid := seedCollection(t, db, 726871)
+			now := time.Now().UTC()
+			require.NoError(t, texts.UpsertCollectionTexts(ctx, cid, "ru-RU", "Дюна: Коллекция", "Эпическая сага.", now))
+			require.NoError(t, texts.UpsertCollectionTexts(ctx, cid, "en-US", "Dune Collection (EN)", "English overview.", now))
+			got, err := repo.GetByTMDBCollectionIDLocalized(ctx, 726871, "ru-RU")
+			require.NoError(t, err)
+			assert.Equal(t, "Дюна: Коллекция", got.Name)
+			require.NotNil(t, got.Overview)
+			assert.Equal(t, "Эпическая сага.", *got.Overview)
+			got, err = repo.GetByTMDBCollectionIDLocalized(ctx, 726871, "de-DE")
+			require.NoError(t, err)
+			assert.Equal(t, "Dune Collection (EN)", got.Name)
+			require.NotNil(t, got.Overview)
+			assert.Equal(t, "English overview.", *got.Overview)
+			seedCollection(t, db, 726872)
+			got, err = repo.GetByTMDBCollectionIDLocalized(ctx, 726872, "ru-RU")
+			require.NoError(t, err)
+			assert.Equal(t, "Dune Collection", got.Name, "canon fallback when no collection_texts")
+		})
+	}
+}
+
+func TestMovieCollectionsRepository_GetLocalized_NotFound(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			repo := NewMovieCollectionsRepository(backend.NewDB(t))
+			_, err := repo.GetByTMDBCollectionIDLocalized(context.Background(), 999999, "ru-RU")
+			require.ErrorIs(t, err, ports.ErrNotFound)
+		})
+	}
+}

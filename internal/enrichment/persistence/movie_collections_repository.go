@@ -100,6 +100,56 @@ func (r *MovieCollectionsRepository) GetByTMDBCollectionID(ctx context.Context, 
 	}, nil
 }
 
+// GetByTMDBCollectionIDLocalized reads the collection header with name/overview
+// resolved requested-lang → en-US → canon (collections.name/overview) via the
+// collection_texts side-table (F-08 S3). All other fields identical to
+// GetByTMDBCollectionID. ports.ErrNotFound on miss. Column refs + COALESCE +
+// correlated subselect only → dialect-portable (Postgres + SQLite).
+func (r *MovieCollectionsRepository) GetByTMDBCollectionIDLocalized(ctx context.Context, tmdbCollectionID int, lang string) (movie.CollectionCanon, error) {
+	type canonRow struct {
+		TMDBCollectionID int     `gorm:"column:tmdb_collection_id"`
+		Name             string  `gorm:"column:name"`
+		Overview         *string `gorm:"column:overview"`
+		PosterAsset      *string `gorm:"column:poster_asset"`
+		BackdropAsset    *string `gorm:"column:backdrop_asset"`
+		Monitored        bool    `gorm:"column:monitored"`
+		RadarrMonitored  bool    `gorm:"column:radarr_monitored"`
+	}
+	const q = `
+SELECT c.tmdb_collection_id AS tmdb_collection_id,
+       COALESCE((SELECT ct.name FROM collection_texts ct
+                  WHERE ct.collection_id = c.id AND ct.name IS NOT NULL
+                  ORDER BY CASE WHEN ct.language = ? THEN 2 WHEN ct.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                           ct.language ASC LIMIT 1), c.name) AS name,
+       COALESCE((SELECT ct.overview FROM collection_texts ct
+                  WHERE ct.collection_id = c.id AND ct.overview IS NOT NULL
+                  ORDER BY CASE WHEN ct.language = ? THEN 2 WHEN ct.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                           ct.language ASC LIMIT 1), c.overview) AS overview,
+       c.poster_asset      AS poster_asset,
+       c.backdrop_asset    AS backdrop_asset,
+       c.monitored         AS monitored,
+       c.radarr_monitored  AS radarr_monitored
+  FROM collections c
+ WHERE c.tmdb_collection_id = ?`
+	var row canonRow
+	res := dbFromContext(ctx, r.db).WithContext(ctx).Raw(q, lang, lang, tmdbCollectionID).Scan(&row)
+	if res.Error != nil {
+		return movie.CollectionCanon{}, fmt.Errorf("get collection localized: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return movie.CollectionCanon{}, errors.Join(&sharedErrors.MovieNotFoundError{}, ports.ErrNotFound)
+	}
+	return movie.CollectionCanon{
+		TMDBCollectionID: row.TMDBCollectionID,
+		Name:             row.Name,
+		Overview:         row.Overview,
+		PosterAsset:      row.PosterAsset,
+		BackdropAsset:    row.BackdropAsset,
+		Monitored:        row.Monitored,
+		RadarrMonitored:  row.RadarrMonitored,
+	}, nil
+}
+
 // SetRadarrMonitored flips collections.radarr_monitored for a collection keyed by
 // tmdb_collection_id. ports.ErrNotFound when no row matched (the caller may treat
 // it as a no-op / surface it). Only touches radarr_monitored + updated_at.

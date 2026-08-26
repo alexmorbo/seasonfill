@@ -345,12 +345,12 @@ func (r *LibrarySearchRepository) SearchCollections(ctx context.Context, q, lang
 	var err error
 	if r.isPostgres() {
 		if len([]rune(q)) >= minTrigramLen {
-			err = r.collectionPostgresTrigram(ctx, q, limit, &rows)
+			err = r.collectionPostgresTrigram(ctx, q, language, limit, &rows)
 		} else {
-			err = r.collectionPostgresPrefix(ctx, q, limit, &rows)
+			err = r.collectionPostgresPrefix(ctx, q, language, limit, &rows)
 		}
 	} else {
-		err = r.collectionSQLite(ctx, q, limit, &rows)
+		err = r.collectionSQLite(ctx, q, language, limit, &rows)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("library search collections: %w", err)
@@ -371,48 +371,90 @@ type collectionHitRow struct {
 	BackdropAsset    *string `gorm:"column:backdrop_asset"`
 }
 
-func (r *LibrarySearchRepository) collectionPostgresTrigram(ctx context.Context, q string, limit int, rows *[]collectionHitRow) error {
+// collectionDisplayName resolves the localized collection name: requested-lang →
+// en-US → collections.name canon. One `?` placeholder (the requested language).
+// Mirrors peopleDisplayName (F-08 S3).
+const collectionDisplayName = `
+       COALESCE((SELECT ct.name FROM collection_texts ct
+                  WHERE ct.collection_id = c.id AND ct.name IS NOT NULL
+                  ORDER BY CASE WHEN ct.language = ? THEN 2 WHEN ct.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                           ct.language ASC LIMIT 1), c.name) AS name`
+
+func (r *LibrarySearchRepository) collectionPostgresTrigram(ctx context.Context, q, language string, limit int, rows *[]collectionHitRow) error {
 	pattern := "%" + q + "%"
 	sql := `
-SELECT c.id, c.tmdb_collection_id, c.name, c.poster_asset, c.backdrop_asset,
-       similarity(lower(f_unaccent(c.name)), lower(f_unaccent(?))) AS score
+WITH matched AS (
+    SELECT id AS collection_id FROM collections
+     WHERE lower(f_unaccent(name)) LIKE lower(f_unaccent(?))
+    UNION
+    SELECT collection_id FROM collection_texts
+     WHERE lower(f_unaccent(name)) LIKE lower(f_unaccent(?))
+)
+SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,
+       c.poster_asset, c.backdrop_asset,
+       GREATEST(
+         COALESCE(similarity(lower(f_unaccent(c.name)), lower(f_unaccent(?))), 0),
+         COALESCE((SELECT MAX(similarity(lower(f_unaccent(ct.name)), lower(f_unaccent(?))))
+                     FROM collection_texts ct WHERE ct.collection_id = c.id), 0)
+       ) AS score
   FROM collections c
- WHERE lower(f_unaccent(c.name)) LIKE lower(f_unaccent(?))
+  JOIN matched m ON m.collection_id = c.id
  ORDER BY score DESC NULLS LAST, c.name ASC, c.id ASC
  LIMIT ?`
-	// args: q(score), pattern(where), limit
+	// bind order: pattern(cte name), pattern(cte texts), language(display name),
+	//             q(score canon), q(score texts), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, q, pattern, limit).
+		Raw(sql, pattern, pattern, language, q, q, limit).
 		Scan(rows).Error
 }
 
-func (r *LibrarySearchRepository) collectionPostgresPrefix(ctx context.Context, q string, limit int, rows *[]collectionHitRow) error {
+func (r *LibrarySearchRepository) collectionPostgresPrefix(ctx context.Context, q, language string, limit int, rows *[]collectionHitRow) error {
 	prefix := q + "%"
 	sql := `
-SELECT c.id, c.tmdb_collection_id, c.name, c.poster_asset, c.backdrop_asset
+WITH matched AS (
+    SELECT id AS collection_id FROM collections
+     WHERE lower(f_unaccent(name)) LIKE lower(f_unaccent(?))
+    UNION
+    SELECT collection_id FROM collection_texts
+     WHERE lower(f_unaccent(name)) LIKE lower(f_unaccent(?))
+)
+SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,
+       c.poster_asset, c.backdrop_asset
   FROM collections c
- WHERE lower(f_unaccent(c.name)) LIKE lower(f_unaccent(?))
+  JOIN matched m ON m.collection_id = c.id
  ORDER BY c.name ASC, c.id ASC
  LIMIT ?`
-	// args: prefix(where), limit
+	// bind order: prefix(cte name), prefix(cte texts), language(display name), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, prefix, limit).
+		Raw(sql, prefix, prefix, language, limit).
 		Scan(rows).Error
 }
 
-func (r *LibrarySearchRepository) collectionSQLite(ctx context.Context, q string, limit int, rows *[]collectionHitRow) error {
+func (r *LibrarySearchRepository) collectionSQLite(ctx context.Context, q, language string, limit int, rows *[]collectionHitRow) error {
 	pattern := "%" + q + "%"
 	prefix := q + "%"
 	sql := `
-SELECT c.id, c.tmdb_collection_id, c.name, c.poster_asset, c.backdrop_asset,
-       (CASE WHEN LOWER(c.name) LIKE LOWER(?) THEN 1 ELSE 0 END) AS prefix_hit
+WITH matched AS (
+    SELECT id AS collection_id FROM collections
+     WHERE LOWER(name) LIKE LOWER(?)
+    UNION
+    SELECT collection_id FROM collection_texts
+     WHERE LOWER(name) LIKE LOWER(?)
+)
+SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,
+       c.poster_asset, c.backdrop_asset,
+       (CASE WHEN LOWER(c.name) LIKE LOWER(?)
+                  OR EXISTS (SELECT 1 FROM collection_texts ct WHERE ct.collection_id = c.id
+                               AND LOWER(ct.name) LIKE LOWER(?))
+             THEN 1 ELSE 0 END) AS prefix_hit
   FROM collections c
- WHERE LOWER(c.name) LIKE LOWER(?)
+  JOIN matched m ON m.collection_id = c.id
  ORDER BY prefix_hit DESC, c.name ASC, c.id ASC
  LIMIT ?`
-	// args: prefix(prefix_hit), pattern(where), limit
+	// bind order: pattern(cte name), pattern(cte texts), language(display name),
+	//             prefix(prefix_hit canon), prefix(prefix_hit texts), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, prefix, pattern, limit).
+		Raw(sql, pattern, pattern, language, prefix, prefix, limit).
 		Scan(rows).Error
 }
 

@@ -41,7 +41,7 @@ type fakeCanonReader struct {
 	err   error
 }
 
-func (f fakeCanonReader) GetByTMDBCollectionID(_ context.Context, _ int) (movie.CollectionCanon, error) {
+func (f fakeCanonReader) GetByTMDBCollectionIDLocalized(_ context.Context, _ int, _ string) (movie.CollectionCanon, error) {
 	return f.canon, f.err
 }
 

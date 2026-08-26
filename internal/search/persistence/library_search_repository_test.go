@@ -616,3 +616,101 @@ func assertUsesIndex(t *testing.T, db *gorm.DB, probeSQL, arg, indexName, matche
 	assert.NotContains(t, plan, "Seq Scan on "+matchedTable,
 		"predicate must not seq-scan %s when the index applies\nplan:\n%s", matchedTable, plan)
 }
+
+// seedCollectionText inserts a collection_texts row. Empty name/overview → SQL
+// NULL (so the NULL-side-table fallback is expressible). collection_texts.
+// collection_id is the collections LOCAL PK, which seedCollection sets == the
+// tmdb_collection_id passed. updated_at has a DEFAULT → omitted here.
+func seedCollectionText(t *testing.T, db *gorm.DB, collectionID int64, lang, name, overview string) {
+	t.Helper()
+	var n, o any
+	if name != "" {
+		n = name
+	}
+	if overview != "" {
+		o = overview
+	}
+	require.NoError(t, db.Exec(
+		`INSERT INTO collection_texts (collection_id, language, name, overview) VALUES (?, ?, ?, ?)`,
+		collectionID, lang, n, o,
+	).Error)
+}
+
+func TestSearchCollections_LocalizedNameMatch(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+			seedCollection(t, db, 1300, "The Matrix Collection", nil, nil)
+			seedCollectionText(t, db, 1300, "ru-RU", "Матрица: Коллекция", "")
+			seedCollection(t, db, 1301, "Unrelated Saga", nil, nil)
+			got, err := repo.SearchCollections(ctx, "Матрица", "ru-RU", 20)
+			require.NoError(t, err)
+			require.Len(t, got, 1, "ru query matches localized collection_texts name")
+			assert.Equal(t, int64(1300), int64(got[0].CollectionID))
+			assert.Equal(t, "Матрица: Коллекция", got[0].Name, "display name localized to ru")
+		})
+	}
+}
+
+func TestSearchCollections_CanonOnlyStillMatches(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+			seedCollection(t, db, 1310, "Interstellar Collection", nil, nil)
+			got, err := repo.SearchCollections(ctx, "Interstellar", "en-US", 20)
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, int64(1310), int64(got[0].CollectionID))
+			assert.Equal(t, "Interstellar Collection", got[0].Name, "canon fallback when no collection_texts row")
+		})
+	}
+}
+
+func TestSearchCollections_DisplayNameFallbackLadder(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+			seedCollection(t, db, 1320, "Dune Collection", nil, nil)
+			seedCollectionText(t, db, 1320, "en-US", "Dune Collection", "")
+			seedCollectionText(t, db, 1320, "ru-RU", "Дюна: Коллекция", "")
+			seedCollection(t, db, 1321, "Alien Collection", nil, nil)
+			seedCollectionText(t, db, 1321, "en-US", "Alien Saga (EN)", "")
+			seedCollection(t, db, 1322, "Predator Collection", nil, nil)
+			got1, err := repo.SearchCollections(ctx, "Dune", "ru-RU", 20)
+			require.NoError(t, err)
+			require.Len(t, got1, 1)
+			assert.Equal(t, "Дюна: Коллекция", got1[0].Name, "requested ru wins")
+			got2, err := repo.SearchCollections(ctx, "Alien", "ru-RU", 20)
+			require.NoError(t, err)
+			require.Len(t, got2, 1)
+			assert.Equal(t, "Alien Saga (EN)", got2[0].Name, "en-US fallback when ru missing")
+			got3, err := repo.SearchCollections(ctx, "Predator", "ru-RU", 20)
+			require.NoError(t, err)
+			require.Len(t, got3, 1)
+			assert.Equal(t, "Predator Collection", got3[0].Name, "canon fallback when no texts")
+		})
+	}
+}
+
+func TestSearchPostgres_CollectionTextsPredicateUsesTrigramIndex(t *testing.T) {
+	testhelpers.SkipIfNoPostgres(t)
+	t.Parallel()
+	pc := testhelpers.StartPostgres(t)
+	db := pc.NewDB(t)
+	seedCollection(t, db, 1330, "Interstellar Collection", nil, nil)
+	seedCollectionText(t, db, 1330, "ru-RU", "Интерстеллар: Коллекция", "")
+	probe := `SELECT ct.collection_id FROM collection_texts ct WHERE lower(f_unaccent(ct.name)) LIKE lower(f_unaccent(?))`
+	assertUsesIndex(t, db, probe, "%стелл%", "collection_texts_name_trgm_idx", "collection_texts")
+}
