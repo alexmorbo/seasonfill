@@ -380,6 +380,14 @@ const collectionDisplayName = `
                   ORDER BY CASE WHEN ct.language = ? THEN 2 WHEN ct.language = 'en-US' THEN 1 ELSE 0 END DESC,
                            ct.language ASC LIMIT 1), c.name) AS name`
 
+// collectionDisplayPoster resolves the localized poster: requested-lang → en-US → canon
+// (collections.poster_asset). One `?` (the requested language). Mirrors collectionDisplayName.
+const collectionDisplayPoster = `
+       COALESCE((SELECT ct.poster_asset FROM collection_texts ct
+                  WHERE ct.collection_id = c.id AND ct.poster_asset IS NOT NULL
+                  ORDER BY CASE WHEN ct.language = ? THEN 2 WHEN ct.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                           ct.language ASC LIMIT 1), c.poster_asset) AS poster_asset`
+
 func (r *LibrarySearchRepository) collectionPostgresTrigram(ctx context.Context, q, language string, limit int, rows *[]collectionHitRow) error {
 	pattern := "%" + q + "%"
 	sql := `
@@ -390,8 +398,8 @@ WITH matched AS (
     SELECT collection_id FROM collection_texts
      WHERE lower(f_unaccent(name)) LIKE lower(f_unaccent(?))
 )
-SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,
-       c.poster_asset, c.backdrop_asset,
+SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,` + collectionDisplayPoster + `,
+       c.backdrop_asset,
        GREATEST(
          COALESCE(similarity(lower(f_unaccent(c.name)), lower(f_unaccent(?))), 0),
          COALESCE((SELECT MAX(similarity(lower(f_unaccent(ct.name)), lower(f_unaccent(?))))
@@ -402,9 +410,9 @@ SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,
  ORDER BY score DESC NULLS LAST, c.name ASC, c.id ASC
  LIMIT ?`
 	// bind order: pattern(cte name), pattern(cte texts), language(display name),
-	//             q(score canon), q(score texts), limit
+	//             language(display poster), q(score canon), q(score texts), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, pattern, pattern, language, q, q, limit).
+		Raw(sql, pattern, pattern, language, language, q, q, limit).
 		Scan(rows).Error
 }
 
@@ -418,15 +426,16 @@ WITH matched AS (
     SELECT collection_id FROM collection_texts
      WHERE lower(f_unaccent(name)) LIKE lower(f_unaccent(?))
 )
-SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,
-       c.poster_asset, c.backdrop_asset
+SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,` + collectionDisplayPoster + `,
+       c.backdrop_asset
   FROM collections c
   JOIN matched m ON m.collection_id = c.id
  ORDER BY c.name ASC, c.id ASC
  LIMIT ?`
-	// bind order: prefix(cte name), prefix(cte texts), language(display name), limit
+	// bind order: prefix(cte name), prefix(cte texts), language(display name),
+	//             language(display poster), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, prefix, prefix, language, limit).
+		Raw(sql, prefix, prefix, language, language, limit).
 		Scan(rows).Error
 }
 
@@ -441,8 +450,8 @@ WITH matched AS (
     SELECT collection_id FROM collection_texts
      WHERE LOWER(name) LIKE LOWER(?)
 )
-SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,
-       c.poster_asset, c.backdrop_asset,
+SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,` + collectionDisplayPoster + `,
+       c.backdrop_asset,
        (CASE WHEN LOWER(c.name) LIKE LOWER(?)
                   OR EXISTS (SELECT 1 FROM collection_texts ct WHERE ct.collection_id = c.id
                                AND LOWER(ct.name) LIKE LOWER(?))
@@ -452,9 +461,9 @@ SELECT c.id, c.tmdb_collection_id,` + collectionDisplayName + `,
  ORDER BY prefix_hit DESC, c.name ASC, c.id ASC
  LIMIT ?`
 	// bind order: pattern(cte name), pattern(cte texts), language(display name),
-	//             prefix(prefix_hit canon), prefix(prefix_hit texts), limit
+	//             language(display poster), prefix(prefix_hit canon), prefix(prefix_hit texts), limit
 	return r.db.WithContext(ctx).
-		Raw(sql, pattern, pattern, language, prefix, prefix, limit).
+		Raw(sql, pattern, pattern, language, language, prefix, prefix, limit).
 		Scan(rows).Error
 }
 

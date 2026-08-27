@@ -56,6 +56,7 @@ func (r *CollectionTextsRepository) UpsertCollectionTexts(
 	ctx context.Context,
 	collectionID int64,
 	language, name, overview string,
+	posterAsset *string,
 	enrichedAt time.Time,
 ) error {
 	if collectionID == 0 {
@@ -70,6 +71,7 @@ func (r *CollectionTextsRepository) UpsertCollectionTexts(
 		Language:     language,
 		Name:         nilIfEmptyMovieText(name),
 		Overview:     nilIfEmptyMovieText(overview),
+		PosterAsset:  posterAsset, // nil → NULL; COALESCE preserves a prior non-NULL poster
 		EnrichedAt:   &now,
 		UpdatedAt:    now,
 	}
@@ -77,10 +79,11 @@ func (r *CollectionTextsRepository) UpsertCollectionTexts(
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "collection_id"}, {Name: "language"}},
 			DoUpdates: clause.Assignments(map[string]any{
-				"name":        gorm.Expr("COALESCE(excluded.name, collection_texts.name)"),
-				"overview":    gorm.Expr("COALESCE(excluded.overview, collection_texts.overview)"),
-				"enriched_at": now,
-				"updated_at":  now,
+				"name":         gorm.Expr("COALESCE(excluded.name, collection_texts.name)"),
+				"overview":     gorm.Expr("COALESCE(excluded.overview, collection_texts.overview)"),
+				"poster_asset": gorm.Expr("COALESCE(excluded.poster_asset, collection_texts.poster_asset)"),
+				"enriched_at":  now,
+				"updated_at":   now,
 			}),
 		}).
 		Create(&m).Error

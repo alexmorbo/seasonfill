@@ -1581,6 +1581,7 @@ type CollectionTextModel struct {
 	Language     string     `gorm:"primaryKey;column:language;type:text"`
 	Name         *string    `gorm:"column:name;type:text"`
 	Overview     *string    `gorm:"column:overview;type:text"`
+	PosterAsset  *string    `gorm:"column:poster_asset;type:text"` // F-08 S4 — per-language poster raw path
 	EnrichedAt   *time.Time `gorm:"column:enriched_at"`
 	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
 }

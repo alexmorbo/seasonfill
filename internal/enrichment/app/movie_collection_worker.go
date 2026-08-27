@@ -39,7 +39,7 @@ type MovieCollectionUpserter interface {
 // texts (exact pre-S2 behavior).
 type CollectionI18nWriter interface {
 	IDByTMDBCollectionID(ctx context.Context, tmdbCollectionID int) (int64, error)
-	UpsertCollectionTexts(ctx context.Context, collectionID int64, language, name, overview string, enrichedAt time.Time) error
+	UpsertCollectionTexts(ctx context.Context, collectionID int64, language, name, overview string, posterAsset *string, enrichedAt time.Time) error
 }
 
 // MovieCollectionWorkerDeps — TMDB + Collections + Movies are required; BaseLang /
@@ -172,7 +172,16 @@ func (w *MovieCollectionWorker) PopulateCollection(ctx context.Context, collecti
 						continue
 					}
 				}
-				if terr := w.deps.Texts.UpsertCollectionTexts(ctx, collectionID, lang, name, overview, now); terr != nil {
+				// F-08 S4 — strict per-language poster from images.posters[] (mirror of the
+				// series A4 localized writer, series_worker_images.go:221). EXACT short(lang)
+				// tier only, VoteAverage/VoteCount ranked; nil when TMDB has no poster tagged
+				// in this language → COALESCE upsert leaves the column NULL (reader ladders to
+				// canon collections.poster_asset).
+				poster := pickPosterForLangStrict(resp.Images, lang)
+				if w.deps.Resolver != nil && poster != nil {
+					_ = w.deps.Resolver.Resolve(ctx, poster, "w342", "poster_w342")
+				}
+				if terr := w.deps.Texts.UpsertCollectionTexts(ctx, collectionID, lang, name, overview, poster, now); terr != nil {
 					errs = append(errs, fmt.Errorf("upsert collection_texts pk=%d (%s): %w", collectionID, lang, terr))
 				}
 			}

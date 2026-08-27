@@ -125,14 +125,17 @@ SELECT c.tmdb_collection_id AS tmdb_collection_id,
                   WHERE ct.collection_id = c.id AND ct.overview IS NOT NULL
                   ORDER BY CASE WHEN ct.language = ? THEN 2 WHEN ct.language = 'en-US' THEN 1 ELSE 0 END DESC,
                            ct.language ASC LIMIT 1), c.overview) AS overview,
-       c.poster_asset      AS poster_asset,
+       COALESCE((SELECT ct.poster_asset FROM collection_texts ct
+                  WHERE ct.collection_id = c.id AND ct.poster_asset IS NOT NULL
+                  ORDER BY CASE WHEN ct.language = ? THEN 2 WHEN ct.language = 'en-US' THEN 1 ELSE 0 END DESC,
+                           ct.language ASC LIMIT 1), c.poster_asset) AS poster_asset,
        c.backdrop_asset    AS backdrop_asset,
        c.monitored         AS monitored,
        c.radarr_monitored  AS radarr_monitored
   FROM collections c
  WHERE c.tmdb_collection_id = ?`
 	var row canonRow
-	res := dbFromContext(ctx, r.db).WithContext(ctx).Raw(q, lang, lang, tmdbCollectionID).Scan(&row)
+	res := dbFromContext(ctx, r.db).WithContext(ctx).Raw(q, lang, lang, lang, tmdbCollectionID).Scan(&row)
 	if res.Error != nil {
 		return movie.CollectionCanon{}, fmt.Errorf("get collection localized: %w", res.Error)
 	}

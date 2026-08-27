@@ -20,7 +20,12 @@ func (c *Client) GetCollection(ctx context.Context, id int64, language string) (
 	lang := c.languageFor(language)
 	q := url.Values{}
 	q.Set("language", lang)
-	q.Set("append_to_response", "translations") // F-08 S2 — one fetch fans out all languages
+	q.Set("append_to_response", "translations,images") // F-08 S2 translations + S4 per-language posters
+	// F-08 S4: images sub-resource is filtered to the top-level `language` unless
+	// include_image_language widens it — same UNION (en,ru,null) the all-langs
+	// GetTV/GetSeason paths use, so ONE GetCollection yields posters for every
+	// supported language (else Images.Posters is en-only → ru pick writes NULL).
+	q.Set("include_image_language", includeImageLanguagesAll())
 
 	body, err := c.do(ctx, "/collection/"+strconv.FormatInt(id, 10), q)
 	if err != nil {

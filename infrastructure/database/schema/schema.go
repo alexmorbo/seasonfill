@@ -3789,6 +3789,7 @@ func buildCollectionTextsTable(d Dialect, collections *atlasschema.Table) *atlas
 		[]*atlasschema.Column{
 			atlasschema.NewNullStringColumn("name", "text"),
 			atlasschema.NewNullStringColumn("overview", "text"),
+			atlasschema.NewNullStringColumn("poster_asset", "text"), // F-08 S4 — per-language poster (raw TMDB path)
 		},
 		"",   // no (language, name) lookup index
 		true, // include enriched_at

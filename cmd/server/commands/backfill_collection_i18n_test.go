@@ -50,6 +50,12 @@ func TestRunBackfillCollectionI18n_IdempotentAndGuards(t *testing.T) {
 						{ISO6391: "en", Data: tmdb.MovieTranslationData{Title: "Dune Collection", Overview: "Epic saga."}},
 						{ISO6391: "ru", Data: tmdb.MovieTranslationData{Title: "Дюна: Коллекция", Overview: "Эпическая сага."}},
 					}},
+					Images: &tmdb.TVImages{Posters: []tmdb.TVImage{
+						{FilePath: "/ru_low.jpg", ISO6391: new("ru"), VoteAverage: 5.0, VoteCount: 10},
+						{FilePath: "/ru_top.jpg", ISO6391: new("ru"), VoteAverage: 8.0, VoteCount: 50},
+						{FilePath: "/en_poster.jpg", ISO6391: new("en"), VoteAverage: 7.0, VoteCount: 100},
+						{FilePath: "/agnostic.jpg", ISO6391: nil, VoteAverage: 9.9, VoteCount: 999},
+					}},
 				},
 				111: {ID: 111, Name: "Solo Franchise", Overview: "x"}, // no translations → only en-US
 			}}
@@ -77,8 +83,37 @@ func TestRunBackfillCollectionI18n_IdempotentAndGuards(t *testing.T) {
 				Scan(&ruName).Error)
 			require.NotNil(t, ruName)
 			assert.Equal(t, "Дюна: Коллекция", *ruName)
+
+			// F-08 S4 — the ru row carries the highest-vote ru poster (agnostic never crosses).
+			var ruPoster *string
+			require.NoError(t, db.Table("collection_texts").
+				Select("poster_asset").Where("collection_id = ? AND language = ?", cid, "ru-RU").
+				Scan(&ruPoster).Error)
+			require.NotNil(t, ruPoster)
+			assert.Equal(t, "/ru_top.jpg", *ruPoster, "backfill picks the localized ru poster")
 		})
 	}
+}
+
+func TestPickPosterStrictCLI(t *testing.T) {
+	t.Parallel()
+	assert.Nil(t, pickPosterStrictCLI(nil, "ru-RU"), "nil images → nil")
+	assert.Nil(t, pickPosterStrictCLI(&tmdb.TVImages{}, "ru-RU"), "no posters → nil")
+
+	imgs := &tmdb.TVImages{Posters: []tmdb.TVImage{
+		{FilePath: "/ru_low.jpg", ISO6391: new("ru"), VoteAverage: 5.0, VoteCount: 10},
+		{FilePath: "/ru_top.jpg", ISO6391: new("ru"), VoteAverage: 8.0, VoteCount: 50},
+		{FilePath: "/en.jpg", ISO6391: new("en"), VoteAverage: 9.0, VoteCount: 900},
+		{FilePath: "/agnostic.jpg", ISO6391: nil, VoteAverage: 9.9, VoteCount: 999},
+	}}
+	got := pickPosterStrictCLI(imgs, "ru-RU")
+	require.NotNil(t, got)
+	assert.Equal(t, "/ru_top.jpg", *got, "highest-vote ru wins; en/agnostic never cross into the ru tier")
+
+	assert.Nil(t, pickPosterStrictCLI(imgs, "de-DE"), "no de-tagged poster → nil (strict, no fallback)")
+
+	emptyFP := &tmdb.TVImages{Posters: []tmdb.TVImage{{FilePath: "", ISO6391: new("ru"), VoteAverage: 8.0}}}
+	assert.Nil(t, pickPosterStrictCLI(emptyFP, "ru-RU"), "empty FilePath → nil")
 }
 
 func TestRunBackfillCollectionI18n_DryRunWritesNothing(t *testing.T) {

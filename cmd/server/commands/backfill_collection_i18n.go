@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -169,7 +170,8 @@ func runBackfillCollectionI18n(
 					continue
 				}
 			}
-			if werr := texts.UpsertCollectionTexts(ctx, c.ID, lang, name, overview, now); werr != nil {
+			poster := pickPosterStrictCLI(resp.Images, lang) // F-08 S4
+			if werr := texts.UpsertCollectionTexts(ctx, c.ID, lang, name, overview, poster, now); werr != nil {
 				log.WarnContext(ctx, "backfill_collection_i18n.write_failed",
 					slog.Int64("collection_id", c.ID), slog.String("lang", lang), slog.String("error", werr.Error()))
 				continue
@@ -196,6 +198,35 @@ func shortLangCLI(lang string) string {
 		lang = lang[:i]
 	}
 	return strings.ToLower(lang)
+}
+
+// pickPosterStrictCLI mirrors enrichment.pickPosterForLangStrict (series_worker_images.go:221):
+// EXACT short(lang) tier ONLY over images.posters[], ranked VoteAverage desc, tie-break VoteCount
+// desc; nil when absent. Duplicated here because the app-package helper is unexported.
+func pickPosterStrictCLI(imgs *tmdb.TVImages, lang string) *string {
+	short := shortLangCLI(lang)
+	if imgs == nil || len(imgs.Posters) == 0 || short == "" {
+		return nil
+	}
+	var group []tmdb.TVImage
+	for _, p := range imgs.Posters {
+		if p.ISO6391 != nil && strings.ToLower(*p.ISO6391) == short {
+			group = append(group, p)
+		}
+	}
+	if len(group) == 0 {
+		return nil
+	}
+	sort.SliceStable(group, func(i, j int) bool {
+		if group[i].VoteAverage != group[j].VoteAverage {
+			return group[i].VoteAverage > group[j].VoteAverage
+		}
+		return group[i].VoteCount > group[j].VoteCount
+	})
+	if fp := group[0].FilePath; fp != "" {
+		return &fp
+	}
+	return nil
 }
 
 // collectionTrByLangCLI indexes translations by bare language code (mirror of

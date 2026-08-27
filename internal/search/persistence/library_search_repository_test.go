@@ -704,6 +704,42 @@ func TestSearchCollections_DisplayNameFallbackLadder(t *testing.T) {
 	}
 }
 
+func TestSearchCollections_LocalizedPoster(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewLibrarySearchRepository(db)
+			ctx := context.Background()
+			canon := "/canon.jpg"
+			seedCollection(t, db, 726871, "Dune Collection", &canon, nil)
+			// ru row carries a localized poster; name matches the ru query. The ru
+			// localized poster must WIN over the canon (en) poster for a ru request.
+			require.NoError(t, db.Exec(
+				`INSERT INTO collection_texts (collection_id, language, name, poster_asset) VALUES (?, ?, ?, ?)`,
+				726871, "ru-RU", "Дюна: Коллекция", "/ru_top.jpg",
+			).Error)
+
+			hits, err := repo.SearchCollections(ctx, "Дюна", "ru-RU", 10)
+			require.NoError(t, err)
+			require.Len(t, hits, 1)
+			require.NotNil(t, hits[0].PosterPath)
+			assert.Equal(t, "/ru_top.jpg", *hits[0].PosterPath, "ru search returns the localized poster over canon")
+
+			// Canon fallback: a collection with NO localized poster row at all →
+			// the ladder falls through to collections.poster_asset (canon).
+			alienCanon := "/alien_canon.jpg"
+			seedCollection(t, db, 1340, "Alien Collection", &alienCanon, nil)
+			hitsEn, err := repo.SearchCollections(ctx, "Alien", "en-US", 10)
+			require.NoError(t, err)
+			require.Len(t, hitsEn, 1)
+			require.NotNil(t, hitsEn[0].PosterPath)
+			assert.Equal(t, "/alien_canon.jpg", *hitsEn[0].PosterPath, "no localized poster → canon fallback")
+		})
+	}
+}
+
 func TestSearchPostgres_CollectionTextsPredicateUsesTrigramIndex(t *testing.T) {
 	testhelpers.SkipIfNoPostgres(t)
 	t.Parallel()

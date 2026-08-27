@@ -22,6 +22,12 @@ type CollectionResponse struct {
 	// type maps 1:1 (Title → collection name, Overview → collection overview).
 	// Nilable — callers MUST treat a nil pointer as "no translations".
 	Translations *MovieTranslations `json:"translations"`
+	// Images — append_to_response=images sub-resource (F-08 S4). REUSES TVImages
+	// (the movie/collection detail reuses the TV poster/backdrop embed, mirror of
+	// MovieResponse.Images at movie_types.go:46). posters[*].iso_639_1 lets the
+	// localized writer pick a per-language poster (pickPosterForLangStrict). Nilable —
+	// callers MUST treat nil as "no images".
+	Images *TVImages `json:"images"`
 }
 
 // CollectionPart is one member-movie summary inside a collection's `parts`. Only
