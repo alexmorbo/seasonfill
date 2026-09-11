@@ -234,7 +234,20 @@ func BuildRegrab(
 	// called from the OnApplied fanout. NOT started here — server.go
 	// owns rootCtx and calls .Start(rootCtx) inline after BuildRegrab
 	// returns.
-	regrabLoop := loops.NewRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, bgWG, watchdogLog)
+	//
+	// ADR-0025 F2 — WithInstanceTypes injects the arr-type resolver behind
+	// the supported-type gate. Both holders it reads are Replace'd by the
+	// OnApplied fanout BEFORE that same fanout calls refreshQbitLoops
+	// (internal/wiring/bootstrap.go:730 and :734 vs :768), so the loop never
+	// diffs fresh settings against stale types. RadarrSync is always
+	// non-nil (BuildScan calls BuildRadarrSync unconditionally) but is
+	// guarded anyway; a nil resolver is fail-open, i.e. pre-F2 behaviour.
+	var radarrHolder *adapters.RadarrInstanceMapHolder
+	if scanBundle.RadarrSync != nil {
+		radarrHolder = scanBundle.RadarrSync.RadarrHolder
+	}
+	regrabLoop := loops.NewRegrabLoop(regrabUC, observability.WatchdogMetricsAdapter{}, bgWG, watchdogLog).
+		WithInstanceTypes(adapters.NewRegrabInstanceTypes(sonarrBundle.Holder, radarrHolder))
 
 	// 047a — watchdog rollup handler.
 	watchdogInstanceAdapter := adapters.NewWatchdogInstanceLister(instanceRepo, cipher)

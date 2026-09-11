@@ -39,13 +39,16 @@ func TestRegistryMatchesADRTable(t *testing.T) {
 		// into the EntityMovie lane.
 		{InvariantRetrySweep, VerticalMovie}:         StateHeld,
 		{InvariantLoopDeclaresTypes, VerticalSeries}: StateHeld,
-		{InvariantLoopDeclaresTypes, VerticalMovie}:  StateGap,
-		{InvariantRegrabSupported, VerticalSeries}:   StateHeld,
-		{InvariantRegrabSupported, VerticalMovie}:    StateDeferred,
-		{InvariantMetricsNamespace, VerticalSeries}:  StateHeld,
-		{InvariantMetricsNamespace, VerticalMovie}:   StateGap,
-		{InvariantDomainLogger, VerticalSeries}:      StateHeld,
-		{InvariantDomainLogger, VerticalMovie}:       StateHeld,
+		// Closed by ADR-0025 Ф2: regrab declares SupportedInstanceTypes and
+		// skips instances of an unsupported arr type instead of failing on
+		// them every 30 minutes.
+		{InvariantLoopDeclaresTypes, VerticalMovie}: StateHeld,
+		{InvariantRegrabSupported, VerticalSeries}:  StateHeld,
+		{InvariantRegrabSupported, VerticalMovie}:   StateDeferred,
+		{InvariantMetricsNamespace, VerticalSeries}: StateHeld,
+		{InvariantMetricsNamespace, VerticalMovie}:  StateGap,
+		{InvariantDomainLogger, VerticalSeries}:     StateHeld,
+		{InvariantDomainLogger, VerticalMovie}:      StateHeld,
 	}
 
 	require.Len(t, registry, len(want))

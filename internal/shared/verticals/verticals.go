@@ -214,25 +214,34 @@ var registry = map[Key]Status{
 	},
 	{InvariantLoopDeclaresTypes, VerticalSeries}: {
 		State: StateHeld,
-		Evidence: "internal/wiring/bootstrap.go:600-603 — the spawner is type-neutral " +
-			"(\"any arr type: the loops are type-neutral\"); torrentsync genuinely honours " +
-			"that and runs against the radarr instance in production",
-		Note: "NOT statically detectable at F0. The ADR grounds this cell in live prod " +
-			"observation (torrentsync_reconciler_start/_done with instance=radarr every " +
-			"~30s, no errors), not in a property of the source. Any source scan here would " +
-			"be an imitation, so the conformance test declares this cell undetectable " +
-			"instead of faking a probe. F2 introduces an explicit supported-type " +
-			"declaration, which makes BOTH sides detectable.",
+		Evidence: "internal/wiring/bootstrap.go — refreshQbitLoops godoc (\"the SPAWNER stays " +
+			"type-neutral; each CONSUMER declares the instance types it supports\"); " +
+			"cmd/server/loops/torrentsync.go — SwapSettings gates on Enabled only, never on " +
+			"instance type, and torrentsync runs against the radarr instance in production",
+		Note: "STILL not statically detectable after F2. F2 made the MOVIE side detectable by " +
+			"giving regrab an explicit declaration; torrentsync declares nothing because it " +
+			"genuinely supports every type, and \"declares nothing\" is indistinguishable from " +
+			"\"forgot to declare\" in a source scan. The ADR therefore keeps grounding this cell " +
+			"in live prod observation (torrentsync_reconciler_start/_done with instance=radarr " +
+			"every ~30s, no errors). Any source scan here would be an imitation, so the " +
+			"conformance test declares this cell undetectable instead of faking a probe.",
 	},
 	{InvariantLoopDeclaresTypes, VerticalMovie}: {
-		State:    StateGap,
-		ClosedBy: "F2",
-		Evidence: "cmd/server/loops/regrab.go:297 (regrab_iteration_failed) + " +
-			"cmd/server/adapters/regrab_instance_registry.go:25 (sonarr-only registry) + " +
-			"internal/wiring/catalog.go:140 (radarr excluded from the scan slice)",
-		Reason: "regrab consumes the shared type-neutral spawner but resolves instances " +
-			"through a sonarr-only registry and declares no supported types anywhere, so it " +
-			"fails every 30 minutes on the radarr row instead of skipping it.",
+		State: StateHeld,
+		Evidence: "internal/watchdog/app/regrab/instance_types.go:31,42 — SupportedInstanceTypes / " +
+			"SupportsInstanceType; cmd/server/loops/regrab.go:295 (unsupportedLocked) and :235 " +
+			"(the regrab_skipped_unsupported_type INFO in SwapSettings); " +
+			"cmd/server/adapters/regrab_instance_types.go:53 — RegrabInstanceTypes.InstanceTypes " +
+			"(sonarr + radarr holder union); internal/wiring/watchdog.go:250 — WithInstanceTypes",
+		Reason: "regrab now DECLARES the arr_instance.type values it supports (sonarr only) " +
+			"instead of consuming the shared type-neutral spawner blindly. A radarr row in " +
+			"qbit_settings no longer spawns a per-instance loop that fails every 30 minutes " +
+			"with regrab_iteration_failed; it is skipped with one INFO per transition and the " +
+			"seasonfill_regrab_unresolved_instance gauge. The gate is fail-OPEN by " +
+			"construction — an unresolvable type spawns the loop exactly as before F2, so a " +
+			"boot-order race can never silently disable regrab in production. The radarr row " +
+			"itself is untouched: torrentsync still consumes the same projection and still " +
+			"runs against radarr.",
 	},
 	{InvariantRegrabSupported, VerticalSeries}: {
 		State: StateHeld,

@@ -3,6 +3,8 @@ package loops
 import (
 	"context"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,6 +31,31 @@ type InstanceLoopMetrics interface {
 	// detected on the last completed RunInstance cycle (story 479b).
 	// Sourced from regrab.RunResult.UnregisteredCount.
 	SetRegrabCandidates(instance domain.InstanceName, count int)
+	// SetRegrabUnresolvedInstance publishes 1 while an instance present in
+	// qbit_settings is skipped because regrab does not support its arr
+	// type, and 0 once it stops being skipped (ADR-0025 F2). It lives on
+	// THIS interface rather than on a second narrow one because it is the
+	// same shape of signal as its two neighbours — a per-instance gauge
+	// emitted by the loop itself, backed by the same single production
+	// implementation (observability.WatchdogMetricsAdapter).
+	SetRegrabUnresolvedInstance(instance domain.InstanceName, value int)
+}
+
+// InstanceTypeSource hands the loop a name -> arr_instance.type snapshot so
+// it can apply regrab.SupportedInstanceTypes (ADR-0025 F2). Declared here,
+// consumer-side; the production implementation is
+// adapters.RegrabInstanceTypes, backed by the sonarr + radarr instance
+// holders.
+//
+// Map-at-once rather than per-name lookup on purpose: SwapSettings walks
+// every name under l.mu, and the holders return a DEFENSIVE COPY of the
+// whole map on each Load (cmd/server/adapters/instance_map_holder.go:42-48),
+// so a per-name resolver would copy the map once per instance.
+//
+// A nil or empty return is legal and means "types unknown" — the loop then
+// spawns everything, exactly as it did before F2.
+type InstanceTypeSource interface {
+	InstanceTypes() map[string]string
 }
 
 // RegrabLoop owns one polling goroutine per qBit-enabled Sonarr
@@ -52,15 +79,25 @@ type InstanceLoopMetrics interface {
 //   - When ctx is cancelled (SIGTERM), every per-instance goroutine
 //     exits and bgWG drains.
 type RegrabLoop struct {
-	runner  RegrabRunner
-	metrics InstanceLoopMetrics
-	bgWG    *sync.WaitGroup
-	logger  *slog.Logger
-	now     func() time.Time
+	runner        RegrabRunner
+	metrics       InstanceLoopMetrics
+	instanceTypes InstanceTypeSource // nil-OK; nil => every type supported
+	bgWG          *sync.WaitGroup
+	logger        *slog.Logger
+	now           func() time.Time
 
-	mu     sync.Mutex
-	loops  map[string]*instanceLoop
-	parent context.Context // set by Start; never nil after that
+	mu    sync.Mutex
+	loops map[string]*instanceLoop
+	// skipped remembers which instances were already logged as
+	// unsupported, so the INFO is written once per TRANSITION instead of
+	// once per snapshot. Reload snapshots are published on every instance
+	// edit from the UI plus on the ADR-0023 F4 qbit-settings write path;
+	// logging on each of them would just swap the old 30-minute WARN flood
+	// for a new one. Guarded by the SAME mu as loops: "who is served and
+	// who is skipped" is one invariant, and a second mutex would let the
+	// two halves drift between swaps.
+	skipped map[string]struct{}
+	parent  context.Context // set by Start; never nil after that
 }
 
 // instanceLoop is the per-instance polling goroutine state. intervalNS
@@ -95,6 +132,7 @@ func NewRegrabLoop(runner RegrabRunner, metrics InstanceLoopMetrics, bgWG *sync.
 		logger:  log,
 		now:     func() time.Time { return time.Now().UTC() },
 		loops:   make(map[string]*instanceLoop),
+		skipped: make(map[string]struct{}),
 	}
 }
 
@@ -102,8 +140,24 @@ func NewRegrabLoop(runner RegrabRunner, metrics InstanceLoopMetrics, bgWG *sync.
 // panics when callers wire nil metrics.
 type nullStreakMetrics struct{}
 
-func (nullStreakMetrics) SetQbitUnreachableStreak(domain.InstanceName, int) {}
-func (nullStreakMetrics) SetRegrabCandidates(domain.InstanceName, int)      {}
+func (nullStreakMetrics) SetQbitUnreachableStreak(domain.InstanceName, int)    {}
+func (nullStreakMetrics) SetRegrabCandidates(domain.InstanceName, int)         {}
+func (nullStreakMetrics) SetRegrabUnresolvedInstance(domain.InstanceName, int) {}
+
+// WithInstanceTypes injects the arr-type resolver that backs the
+// supported-type gate (ADR-0025 F2). Option method rather than a fifth
+// constructor parameter: NewRegrabLoop has ten call sites in tests, and
+// the codebase's established idiom for optional collaborators is
+// WithXxx (WithMetrics, WithDecisions, WithRadarr, WithQbitProbe, ...).
+//
+// Leaving it unset is a supported configuration — the loop then treats
+// every instance as supported, i.e. pre-F2 behaviour.
+func (l *RegrabLoop) WithInstanceTypes(src InstanceTypeSource) *RegrabLoop {
+	l.mu.Lock()
+	l.instanceTypes = src
+	l.mu.Unlock()
+	return l
+}
 
 // Start records the parent context. Must be called before SwapSettings.
 // The actual goroutines are spawned by SwapSettings on the first
@@ -122,6 +176,15 @@ func (l *RegrabLoop) Start(ctx context.Context) {
 //   - name in `loops` but not in `next` → cancel + remove
 //   - name in both → if interval changed, call SetInterval (signals wake)
 //
+// ADR-0025 F2 adds one more arm: a name whose arr type regrab does not
+// support is never spawned (and an already-running loop for it is torn
+// down, because an instance CAN change type). The reaction is a gauge plus
+// a single INFO — never a panic. This method runs on EVERY reload
+// snapshot, so a panic here would take production down on any instance
+// edit from the UI; and an orphan qbit_settings row is impossible anyway
+// (FK CASCADE qbit_settings.instance_name → arr_instance.name, see
+// buildQbitSettingsTable in infrastructure/database/schema/schema.go).
+//
 // The caller must NOT pass a nil map; an empty map is the valid
 // "no instances enabled" state.
 func (l *RegrabLoop) SwapSettings(settings map[string]regrab.Settings) {
@@ -135,10 +198,28 @@ func (l *RegrabLoop) SwapSettings(settings map[string]regrab.Settings) {
 		return
 	}
 
-	// Stop loops for removed / disabled instances.
+	// name -> resolved arr type, for the instances regrab must NOT serve.
+	unsupported := l.unsupportedLocked(settings)
+
+	// Forget instances that are no longer skipped — they left the settings
+	// map, got disabled, or their type became supported/unknown. Resetting
+	// the gauge to 0 rather than leaving it at 1 is what keeps the ADR-0025
+	// F4 alert rule (seasonfill_regrab_unresolved_instance > 0) from
+	// latching forever; it mirrors the streak gauge's recovery write.
+	for name := range l.skipped {
+		if _, still := unsupported[name]; still {
+			continue
+		}
+		delete(l.skipped, name)
+		l.metrics.SetRegrabUnresolvedInstance(domain.InstanceName(name), 0)
+	}
+
+	// Stop loops for removed / disabled instances, and for any instance
+	// whose type regrab no longer supports (an instance CAN change type).
 	for name, ll := range l.loops {
 		s, ok := settings[name]
-		if !ok || !s.Enabled || s.PollInterval <= 0 {
+		_, bad := unsupported[name]
+		if !ok || !s.Enabled || s.PollInterval <= 0 || bad {
 			ll.cancel()
 			delete(l.loops, name)
 			l.logger.InfoContext(l.parent, "regrab_loop_stopped",
@@ -148,6 +229,20 @@ func (l *RegrabLoop) SwapSettings(settings map[string]regrab.Settings) {
 
 	// Start / re-tune loops for present instances.
 	for name, s := range settings {
+		if typ, bad := unsupported[name]; bad {
+			if _, logged := l.skipped[name]; !logged {
+				l.skipped[name] = struct{}{}
+				l.logger.InfoContext(l.parent, "regrab_skipped_unsupported_type",
+					slog.String("instance", name),
+					slog.String("instance_type", typ),
+					slog.String("supported_types",
+						strings.Join(regrab.SupportedInstanceTypes, ",")))
+			}
+			// Re-affirmed on every swap: a gauge write is idempotent and
+			// silent, unlike the log above.
+			l.metrics.SetRegrabUnresolvedInstance(domain.InstanceName(name), 1)
+			continue
+		}
 		if !s.Enabled || s.PollInterval <= 0 {
 			continue
 		}
@@ -176,6 +271,52 @@ func (l *RegrabLoop) SwapSettings(settings map[string]regrab.Settings) {
 	}
 }
 
+// unsupportedLocked returns instance name -> resolved arr type for every
+// name in `settings` that regrab must NOT run against. Returning the type
+// (rather than a bool set) lets the skip log name the offending type without
+// asking the resolver a second time — each ask copies the whole holder map.
+// Caller holds l.mu.
+//
+// ★ FAIL-OPEN is the entire contract of this helper. A name lands in the
+// result ONLY when its arr type is explicitly KNOWN and explicitly NOT in
+// regrab.SupportedInstanceTypes. A nil resolver, an empty snapshot, an
+// unknown name or an empty type all mean "supported", i.e. behave exactly
+// as the code did before ADR-0025 F2.
+//
+// The asymmetry is deliberate and load-bearing. Re-grabbing dead season
+// torrents is seasonfill's core value on top of Sonarr; a boot-order race
+// that made the type source look empty must degrade into "spawn the loop
+// and maybe log one WARN", never into "silently disable regrab in
+// production for the homelab instance".
+//
+// Disabled / zero-interval rows are skipped up front: they were never
+// going to spawn a loop, so flagging them would raise a gauge and write a
+// log line about work that was not going to happen.
+func (l *RegrabLoop) unsupportedLocked(settings map[string]regrab.Settings) map[string]string {
+	out := make(map[string]string)
+	if l.instanceTypes == nil {
+		return out // fail-open: no resolver wired
+	}
+	types := l.instanceTypes.InstanceTypes()
+	if len(types) == 0 {
+		return out // fail-open: nothing resolved yet
+	}
+	for name, s := range settings {
+		if !s.Enabled || s.PollInterval <= 0 {
+			continue
+		}
+		t, known := types[name]
+		if !known || t == "" {
+			continue // fail-open: type not resolvable
+		}
+		if regrab.SupportsInstanceType(t) {
+			continue
+		}
+		out[name] = t
+	}
+	return out
+}
+
 // active is a test/diagnostic helper — count of running per-instance
 // loops at this moment.
 func (l *RegrabLoop) active() int {
@@ -193,6 +334,19 @@ func (l *RegrabLoop) intervalOf(name string) time.Duration {
 		return time.Duration(ll.intervalNS.Load())
 	}
 	return 0
+}
+
+// skippedNames is a test/diagnostic helper — the instances currently
+// suppressed by the ADR-0025 F2 supported-type gate.
+func (l *RegrabLoop) skippedNames() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, 0, len(l.skipped))
+	for name := range l.skipped {
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // newInstanceLoop wires a per-instance loop value. intervalNS is set;

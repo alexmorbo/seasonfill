@@ -106,3 +106,30 @@ func TestWatchdogMetricsAdapter_DispatchesNewMethods(t *testing.T) {
 	assert.Contains(t, out, `seasonfill_watchdog_cooldown_pending{instance="gamma_new"}`)
 	assert.Contains(t, out, `seasonfill_watchdog_regrab_candidates{instance="gamma_new"}`)
 }
+
+func TestSetRegrabUnresolvedInstance_EmitsGauge(t *testing.T) {
+	t.Parallel()
+	SetRegrabUnresolvedInstance("unresolved_alpha", 1)
+	out := dumpMetrics(t)
+	assert.Contains(t, out, `seasonfill_regrab_unresolved_instance{instance="unresolved_alpha"} 1`)
+}
+
+// The reset to 0 is the load-bearing half: the ADR-0025 F4 alert rule is
+// `seasonfill_regrab_unresolved_instance > 0`, so a gauge that could only
+// go up would alert forever after the operator fixed the instance.
+func TestSetRegrabUnresolvedInstance_ResetsToZero(t *testing.T) {
+	t.Parallel()
+	SetRegrabUnresolvedInstance("unresolved_beta", 1)
+	SetRegrabUnresolvedInstance("unresolved_beta", 0)
+	out := dumpMetrics(t)
+	assert.Contains(t, out, `seasonfill_regrab_unresolved_instance{instance="unresolved_beta"} 0`)
+}
+
+func TestWatchdogMetricsAdapter_DispatchesUnresolvedInstance(t *testing.T) {
+	t.Parallel()
+	a := WatchdogMetricsAdapter{}
+	a.SetRegrabUnresolvedInstance("unresolved_gamma", 1)
+	out := dumpMetrics(t)
+	assert.Contains(t, out, `seasonfill_regrab_unresolved_instance{instance="unresolved_gamma"} 1`)
+	assert.Equal(t, MetricRegrabUnresolvedInstance, `seasonfill_regrab_unresolved_instance`)
+}

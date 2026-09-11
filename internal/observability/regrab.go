@@ -16,6 +16,16 @@ const (
 	MetricWatchdogQbitUnreachableStreak = `seasonfill_watchdog_qbit_unreachable_streak`
 	MetricWatchdogCooldownPending       = `seasonfill_watchdog_cooldown_pending`
 	MetricWatchdogRegrabCandidates      = `seasonfill_watchdog_regrab_candidates`
+
+	// MetricRegrabUnresolvedInstance is the ADR-0025 F2 gauge: 1 while the
+	// regrab loop refuses to run against an instance whose arr type it does
+	// not support, 0 once that instance stops being skipped.
+	//
+	// Deliberately NOT in the seasonfill_watchdog_* family of its
+	// neighbours: ADR-0025 F4 names this series verbatim in its alert rule
+	// (`seasonfill_regrab_unresolved_instance > 0`). Renaming it for prefix
+	// symmetry would silently break that rule before it is even written.
+	MetricRegrabUnresolvedInstance = `seasonfill_regrab_unresolved_instance`
 )
 
 // Poll result values — emitted as the `result` label on
@@ -84,6 +94,22 @@ func SetWatchdogRegrabCandidates(instance domain.InstanceName, count int) {
 	).Set(float64(count))
 }
 
+// SetRegrabUnresolvedInstance replaces the per-instance gauge that marks an
+// instance present in qbit_settings which the regrab loop skips because
+// regrab does not support its arr type (ADR-0025 F2). Published by
+// cmd/server/loops/regrab.go from SwapSettings: 1 on every swap while the
+// instance stays unsupported, 0 exactly once when it stops being skipped
+// (removed, disabled, or its type changed).
+//
+// The reset to 0 is mandatory, not cosmetic — the F4 alert rule is
+// `seasonfill_regrab_unresolved_instance > 0`, so a gauge left at 1 would
+// alert forever after the operator fixed the instance.
+func SetRegrabUnresolvedInstance(instance domain.InstanceName, value int) {
+	metrics.GetOrCreateGauge(
+		`seasonfill_regrab_unresolved_instance{instance="`+string(instance)+`"}`, nil,
+	).Set(float64(value))
+}
+
 // WatchdogMetricsAdapter satisfies application/regrab.Metrics by
 // dispatching to the package-level helpers above. The regrab use case
 // constructor takes the interface; cmd/server passes a value of this
@@ -117,4 +143,8 @@ func (WatchdogMetricsAdapter) SetCooldownPending(instance domain.InstanceName, c
 
 func (WatchdogMetricsAdapter) SetRegrabCandidates(instance domain.InstanceName, count int) {
 	SetWatchdogRegrabCandidates(instance, count)
+}
+
+func (WatchdogMetricsAdapter) SetRegrabUnresolvedInstance(instance domain.InstanceName, value int) {
+	SetRegrabUnresolvedInstance(instance, value)
 }

@@ -51,16 +51,19 @@ func (f *fakeRunner) count(name string) int {
 // assert the qbit_unreachable_streak gauge transitions. Story 479b
 // extended the port with SetRegrabCandidates — the stub records the
 // last-published value per instance so tests can assert it too.
+// ADR-0025 F2 extended it again with SetRegrabUnresolvedInstance.
 type fakeMetrics struct {
 	mu         sync.Mutex
 	streaks    map[string]int
 	candidates map[string]int
+	unresolved map[string]int
 }
 
 func newFakeMetrics() *fakeMetrics {
 	return &fakeMetrics{
 		streaks:    make(map[string]int),
 		candidates: make(map[string]int),
+		unresolved: make(map[string]int),
 	}
 }
 
@@ -74,6 +77,21 @@ func (m *fakeMetrics) SetRegrabCandidates(name domain.InstanceName, n int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.candidates[string(name)] = n
+}
+
+func (m *fakeMetrics) SetRegrabUnresolvedInstance(name domain.InstanceName, v int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unresolved[string(name)] = v
+}
+
+// unresolvedGauge returns the last published value and whether the gauge
+// was ever published for that instance at all.
+func (m *fakeMetrics) unresolvedGauge(name string) (int, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v, ok := m.unresolved[name]
+	return v, ok
 }
 
 func (m *fakeMetrics) streak(name string) int {

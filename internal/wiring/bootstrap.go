@@ -598,9 +598,11 @@ const qbitLoopRefreshTimeout = 10 * time.Second
 //     passing a cancellation-detached, timeout-bounded context.
 //
 // Both loops consume the SAME projection, so the map is loaded once per
-// call. SwapSettings is idempotent diff semantics — it spawns loops for
-// newly-enabled instances (any arr type: the loops are type-neutral),
-// re-tunes changed intervals, and cancels removed/disabled ones.
+// call. The SPAWNER stays type-neutral; each CONSUMER declares the instance
+// types it supports (ADR-0025 F2). torrentsync accepts every type and runs
+// against radarr in production; regrab accepts sonarr only
+// (regrab.SupportedInstanceTypes) and skips the rest with a gauge plus one
+// INFO. SwapSettings keeps its idempotent diff semantics otherwise.
 //
 // Returns the number of instances in the freshly-loaded map so callers can
 // log it; the fanout discards it.

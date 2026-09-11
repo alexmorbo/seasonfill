@@ -469,11 +469,12 @@ var f0Undetectable = map[verticals.Key]string{
 	{Invariant: verticals.InvariantLoopDeclaresTypes, Vertical: verticals.VerticalSeries}: "" +
 		"The ADR grounds this cell in live production observation " +
 		"(torrentsync_reconciler_start/_done with instance=radarr every ~30s, no errors), " +
-		"not in a property of the source tree. torrentsync declares nothing about instance " +
-		"types today — it simply happens to be genuinely type-neutral — so any static scan " +
-		"would be an imitation of a check. F2 introduces the explicit supported-type " +
-		"declaration that makes BOTH sides of this invariant detectable; the probe belongs " +
-		"in that story, not here.",
+		"not in a property of the source tree. F2 made the MOVIE side of this invariant " +
+		"detectable by giving regrab an explicit supported-type declaration; torrentsync " +
+		"still declares nothing, because it genuinely supports every type — and in a source " +
+		"scan \"declares nothing\" is indistinguishable from \"forgot to declare\". Any static " +
+		"probe here would be an imitation of a check, so this cell stays declared " +
+		"undetectable rather than getting a fake one.",
 }
 
 // ---------------------------------------------------------------------
