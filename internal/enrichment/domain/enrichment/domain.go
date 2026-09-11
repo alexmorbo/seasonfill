@@ -18,6 +18,15 @@ const (
 	SourceTMDBSeason Source = "tmdb_season"
 	SourceTMDBPerson Source = "tmdb_person"
 	SourceOMDb       Source = "omdb"
+	// SourceTMDBMovie journals /movie/{id} hydration failures (ADR-0025 Ф1).
+	// Added three ADRs after the movie vertical shipped: ADR-0018 built movie
+	// hydration as a parallel file set and never extended this enum, so
+	// RecordFailure rejected every movie row at its own validator and seven
+	// TMDB-deleted movies were re-pulled every ~15 minutes forever
+	// (ADR-0025 Доказательство №2). Journalled, therefore it MUST pass
+	// IsValid() — that is the ADR-0025 Р4-bis invariant, asserted by
+	// TestADR0025_F0_JournalledSourcesValid.
+	SourceTMDBMovie Source = "tmdb_movie"
 	// SourceTVDBResolve journals the tvdb_id→tmdb_id resolver's terminal
 	// not-found (W15-13). Isolated cooldown ledger: the retry-sweep
 	// (ListDueForRetry) only sweeps tmdb_series/tmdb_person, and Degraded()
@@ -32,7 +41,7 @@ const (
 func (s Source) IsValid() bool {
 	return s == SourceTMDBSeries || s == SourceTMDBSeason ||
 		s == SourceTMDBPerson || s == SourceOMDb ||
-		s == SourceTVDBResolve
+		s == SourceTMDBMovie || s == SourceTVDBResolve
 }
 
 // EntityType is the typed discriminator on enrichment_errors.entity_type
@@ -48,12 +57,18 @@ const (
 	EntityTypeSeason  EntityType = "season"
 	EntityTypePerson  EntityType = "person"
 	EntityTypeEpisode EntityType = "episode"
+	// EntityTypeMovie is the enrichment_errors discriminator for a canon
+	// `movies` row (ADR-0025 Ф1). external_ids does not use it today; the two
+	// tables share this enum, and no exhaustive switch over EntityType exists
+	// anywhere in the codebase, so widening it is additive.
+	EntityTypeMovie EntityType = "movie"
 )
 
-// IsValid reports whether e is one of the four known entity types.
-// enrichment_errors uses series/season/person; external_ids uses
+// IsValid reports whether e is one of the five known entity types.
+// enrichment_errors uses series/season/person/movie; external_ids uses
 // series/person/episode. Both subsets are valid here.
 func (e EntityType) IsValid() bool {
 	return e == EntityTypeSeries || e == EntityTypeSeason ||
-		e == EntityTypePerson || e == EntityTypeEpisode
+		e == EntityTypePerson || e == EntityTypeEpisode ||
+		e == EntityTypeMovie
 }

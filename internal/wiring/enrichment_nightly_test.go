@@ -3,7 +3,9 @@ package wiring
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,7 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alexmorbo/seasonfill/cmd/server/adapters"
+	appenrich "github.com/alexmorbo/seasonfill/internal/enrichment/app"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
+	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
 
@@ -104,4 +108,134 @@ func TestRunNightlyTick_SkippedWhenHolderEmpty(t *testing.T) {
 		"skip log must carry the reason field")
 	assert.NotContains(t, out, `"msg":"enrichment.nightly.swept"`,
 		"swept summary must NOT fire on the gated path")
+}
+
+// stubRetryErrorRepo hands out canned ListDueForRetry rows per source and records
+// which sources the tick asked for. Unlike countingErrorRepo above it does NOT
+// panic on the other methods: this test drives the FULL tick rather than the
+// gated path, and a panic would hide which arm actually ran.
+type stubRetryErrorRepo struct {
+	mu       sync.Mutex
+	bySource map[enrichment.Source][]enrichment.EnrichmentError
+	asked    []enrichment.Source
+}
+
+func (s *stubRetryErrorRepo) ListDueForRetry(_ context.Context, src enrichment.Source, _ time.Time, _ int) ([]enrichment.EnrichmentError, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.asked = append(s.asked, src)
+	return s.bySource[src], nil
+}
+
+func (s *stubRetryErrorRepo) RecordFailure(context.Context, enrichment.EnrichmentError) error {
+	return nil
+}
+
+func (s *stubRetryErrorRepo) ClearOnSuccess(context.Context, enrichment.EntityType, int64, enrichment.Source) error {
+	return nil
+}
+
+func (s *stubRetryErrorRepo) GetForEntity(context.Context, enrichment.EntityType, int64) ([]enrichment.EnrichmentError, error) {
+	return nil, nil
+}
+
+func (s *stubRetryErrorRepo) GetByEntitySource(context.Context, enrichment.EntityType, int64, enrichment.Source) (enrichment.EnrichmentError, error) {
+	return enrichment.EnrichmentError{}, nil
+}
+
+func (s *stubRetryErrorRepo) askedFor(src enrichment.Source) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, got := range s.asked {
+		if got == src {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRunNightlyTick_SweepsMovieRetriesIntoTheMovieLane is the behavioural half
+// of ADR-0025's retry_sweep/movie invariant. It drives the REAL dispatcher — not
+// a recording fake — because the thing that can silently break is the ENTITY
+// KIND: enqueuing movie ids under EntitySeries would compile, would tick the
+// same counters, and would hand movie ids to the series worker. Only a real
+// drain through DispatcherImpl.movieLoop proves the ids landed in the movie lane.
+func TestRunNightlyTick_SweepsMovieRetriesIntoTheMovieLane(t *testing.T) {
+	t.Parallel()
+
+	holder := adapters.NewTMDBClientHolder()
+	holder.Set(&tmdb.Client{}) // non-nil → the B-23 gate lets the tick run
+	require.NotNil(t, holder.Load(), "precondition: the tick must not short-circuit")
+
+	errs := &stubRetryErrorRepo{bySource: map[enrichment.Source][]enrichment.EnrichmentError{
+		enrichment.SourceTMDBMovie: {
+			{
+				EntityType: enrichment.EntityTypeMovie,
+				EntityID:   4242,
+				Source:     enrichment.SourceTMDBMovie,
+				Attempts:   2,
+			},
+			{
+				EntityType: enrichment.EntityTypeMovie,
+				EntityID:   777,
+				Source:     enrichment.SourceTMDBMovie,
+				Attempts:   1,
+			},
+		},
+	}}
+
+	var (
+		mu      sync.Mutex
+		drained []int64
+	)
+	quiet := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	dispatcher := appenrich.NewDispatcher(appenrich.Workers{
+		SeriesHandler: func(context.Context, int64) error { return nil },
+		PersonHandler: func(context.Context, int64) error { return nil },
+		MovieHandler: func(_ context.Context, id int64) error {
+			mu.Lock()
+			drained = append(drained, id)
+			mu.Unlock()
+			return nil
+		},
+	}, quiet)
+
+	// t.Context() is cancelled just BEFORE the t.Cleanup stack runs, so the
+	// dispatcher's loops unwind before Close waits on them.
+	ctx := t.Context()
+	dispatcher.Start(ctx)
+	t.Cleanup(dispatcher.Close)
+
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	runNightlyTick(ctx, nightlyTickDeps{
+		TMDBHolder:       holder,
+		SeriesStaleScan:  &countingSeriesStaleScanner{},
+		PeopleStaleScan:  &countingPeopleStaleScanner{},
+		EnrichmentErrors: errs,
+		Dispatcher:       dispatcher,
+		Log:              log,
+	})
+
+	assert.True(t, errs.askedFor(enrichment.SourceTMDBSeries), "series arm must still run")
+	assert.True(t, errs.askedFor(enrichment.SourceTMDBPerson), "person arm must still run")
+	assert.True(t, errs.askedFor(enrichment.SourceTMDBMovie),
+		"the nightly tick must ask enrichment_errors for due MOVIE retries — without "+
+			"this arm the ADR-0025 F1 journal is write-only")
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(drained) == 2
+	}, 5*time.Second, 10*time.Millisecond,
+		"both journalled movies must reach the dispatcher's EntityMovie lane")
+
+	mu.Lock()
+	got := append([]int64(nil), drained...)
+	mu.Unlock()
+	assert.ElementsMatch(t, []int64{4242, 777}, got)
+
+	assert.Contains(t, buf.String(), `"movie_retries":2`,
+		"the swept summary must report the movie arm so an operator can see it ran")
 }

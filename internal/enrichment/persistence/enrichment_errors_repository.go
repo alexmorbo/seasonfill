@@ -143,9 +143,10 @@ func (r *EnrichmentErrorsRepository) GetForEntity(ctx context.Context, entityTyp
 // (most-overdue first). Hits the partial index
 // `enrichment_errors_next_attempt WHERE next_attempt_at IS NOT NULL`.
 //
-// Sources scope: D-3 wires this for SourceTMDBSeries / SourceTMDBPerson /
-// SourceOMDb. Per-season retry queue is out of scope (no per-season
-// sync target — seasons enrich as a by-product of series sync).
+// Sources scope: D-3 wired this for SourceTMDBSeries / SourceTMDBPerson;
+// the nightly sweep now also wires SourceTMDBMovie (ADR-0025 Ф1).
+// Per-season retry queue is out of scope (no per-season sync target —
+// seasons enrich as a by-product of series sync).
 func (r *EnrichmentErrorsRepository) ListDueForRetry(ctx context.Context, source enrichment.Source, now time.Time, limit int) ([]enrichment.EnrichmentError, error) {
 	if !source.IsValid() {
 		return nil, fmt.Errorf("list enrichment errors due: invalid source %q", source)

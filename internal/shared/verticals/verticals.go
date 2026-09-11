@@ -167,13 +167,20 @@ var registry = map[Key]Status{
 			"(terminalAttempts, NextAttemptAt nil), anything else gets a backoff.",
 	},
 	{InvariantFailureJournal, VerticalMovie}: {
-		State:    StateGap,
-		ClosedBy: "F1",
-		Evidence: "internal/enrichment/app/movie_worker.go + movie_ports.go — zero " +
-			"EnrichmentError references; prod enrichment_errors holds 0 movie rows",
-		Reason: "The movie enum values (EntityTypeMovie, SourceTMDBMovie) do not exist and " +
-			"HandleForced does not parse *tmdb.APIError at all, so seven TMDB-deleted movies " +
-			"are re-pulled every ~15 minutes forever (ADR-0025 Proof #2).",
+		State: StateHeld,
+		Evidence: "internal/enrichment/app/movie_worker.go:96 (EnrichmentErrors dep), " +
+			":470 (handleTMDBError 404 / backoff / park arms), " +
+			":523 (recordEnrichmentError → EnrichmentErrors.RecordFailure), " +
+			":550 (clearEnrichmentError on a committed hydrate)",
+		Reason: "MovieWorker.HandleForced journals every failure of the /movie/{id} fetch: a " +
+			"404 parks the row terminally (terminalAttempts, NextAttemptAt nil) so the seven " +
+			"TMDB-deleted movies of ADR-0025 Proof #2 are never re-pulled; anything else lands " +
+			"as previousAttempts+1 with the shared enrichment.NextAttemptAt backoff, parked " +
+			"terminally once ShouldPark trips (E-FIX-1 parity on the fetch path). A " +
+			"committed hydrate clears the row, so the ledger cannot become a permanent " +
+			"breaker. One deliberate difference from the series helper: this one does NOT " +
+			"swallow the error — HandleForced still returns it, so the movie_refresh " +
+			"ok/error accounting is unchanged.",
 	},
 	{InvariantPickerBreaker, VerticalSeries}: {
 		State: StateHeld,
@@ -181,22 +188,29 @@ var registry = map[Key]Status{
 			"— NOT EXISTS(enrichment_errors … ee.attempts > 5) in all five tier arms",
 	},
 	{InvariantPickerBreaker, VerticalMovie}: {
-		State:    StateGap,
-		ClosedBy: "F1",
-		Evidence: "internal/enrichment/persistence/movie_refresh_query.go — zero " +
-			"enrichment_errors references in either of the two tier arms",
+		State: StateHeld,
+		Evidence: "internal/enrichment/persistence/movie_refresh_query.go:193," +
+			"212 — NOT EXISTS(enrichment_errors … ee.attempts > 5) in both " +
+			"tier arms (CHANGED tier 0, NORMAL tier 3)",
+		Reason: "Both arms of the two-arm movie picker carry the same terminal-failure gate " +
+			"the five series arms carry, bound to entity_type='movie' / source='tmdb_movie'. " +
+			"Combined with the F1 journal a TMDB-deleted movie is journalled once at " +
+			"attempts=99 and never re-picked, closing ADR-0025 Proof #2's ~15-minute re-pull " +
+			"loop.",
 	},
 	{InvariantRetrySweep, VerticalSeries}: {
 		State:    StateHeld,
 		Evidence: "internal/wiring/enrichment.go:947 — ListDueForRetry(SourceTMDBSeries)",
 	},
 	{InvariantRetrySweep, VerticalMovie}: {
-		State:    StateGap,
-		ClosedBy: "F1",
-		Evidence: "internal/wiring/enrichment.go:947,971 — exactly two nightly arms " +
-			"(SourceTMDBSeries, SourceTMDBPerson); no movie arm exists",
-		Reason: "Without a movie arm the F1 journal would be write-only: rows would be " +
-			"written and never swept back into the queue.",
+		State: StateHeld,
+		Evidence: "internal/wiring/enrichment.go:996 — " +
+			"ListDueForRetry(SourceTMDBMovie) → Dispatcher.Enqueue(EntityMovie, PriorityCold)",
+		Reason: "Journalled non-terminal movie failures are swept back into the queue by the " +
+			"nightly tick, so the F1 journal is not write-only. EntityMovie is a live lane: " +
+			"DispatcherImpl.movieLoop drains it into MovieWorker.HandleForced. There is " +
+			"deliberately NO movie stale-scan arm — movie staleness is owned by the " +
+			"MovieRefreshScheduler's own 30-minute tiered picker, not by the nightly job.",
 	},
 	{InvariantLoopDeclaresTypes, VerticalSeries}: {
 		State: StateHeld,

@@ -506,3 +506,149 @@ func TestMovieRepository_PickMovieRefreshCandidates_HealAttemptClock(t *testing.
 		})
 	}
 }
+
+// seedMovieTerminalError journals an enrichment_errors row for a movie through
+// the REAL repository (so the ADR-0025 Ф1a enum values are exercised, not just
+// the SQL). attempts is the knob: the picker gate is `attempts > 5`.
+func seedMovieTerminalError(t *testing.T, db *gorm.DB, id domain.MovieID, attempts int) {
+	t.Helper()
+	require.NoError(t, NewEnrichmentErrorsRepository(db).RecordFailure(context.Background(),
+		enrichment.EnrichmentError{
+			EntityType: enrichment.EntityTypeMovie,
+			EntityID:   int64(id),
+			Source:     enrichment.SourceTMDBMovie,
+			LastError:  "ADR-0025 F1 picker gate probe",
+			Attempts:   attempts,
+		}))
+}
+
+func pickedMovieIDs(t *testing.T, repo *MovieRepository, now time.Time, ttl enrichment.RefreshTTL) map[domain.MovieID]bool {
+	t.Helper()
+	got, err := repo.PickMovieRefreshCandidates(context.Background(), now, ttl, 100)
+	require.NoError(t, err)
+	out := map[domain.MovieID]bool{}
+	for _, c := range got {
+		out[c.MovieID] = true
+	}
+	return out
+}
+
+// TestMovieRepository_PickMovieRefreshCandidates_TerminalFailureGate is the
+// ADR-0025 Ф1 circuit breaker: a movie whose (movie, tmdb_movie)
+// enrichment_errors row crossed the terminal threshold must be excluded from
+// EVERY tier arm — CHANGED (tier 0) and NORMAL (tier 3) alike.
+//
+// The test asserts each arm SEPARATELY on purpose. A gate added to only one arm
+// still looks "done" in a diff and still passes any test that happens to seed a
+// movie into the gated arm; the seven TMDB-deleted movies of ADR-0025
+// Доказательство №2 are CHANGED-tier candidates precisely because the changes
+// poller keeps re-flagging them, so a NORMAL-only gate would have fixed nothing.
+//
+// The boundary pair (attempts=5 still picked, attempts=6 excluded) pins the
+// comparison as strictly-greater and keeps a stray `>=` from silently shrinking
+// the retry budget by one for every vertical that shares this idiom.
+func TestMovieRepository_PickMovieRefreshCandidates_TerminalFailureGate(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewMovieRepository(db)
+
+			now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+			old := now.Add(-40 * 24 * time.Hour) // older than the Normal TTL (14d)
+			changedAt := now.Add(-1 * time.Hour)
+			ttl := enrichment.DefaultRefreshTTL()
+
+			// CHANGED arm (tier 0): tmdb_changed_at set, sync old, race-guard OK.
+			changedClean := seedMovie(t, db, 300, new(old), new(changedAt))
+			changedDead := seedMovie(t, db, 301, new(old), new(changedAt))
+			// NORMAL arm (tier 3): no change flag, sync older than TTL.
+			normalClean := seedMovie(t, db, 400, new(old), nil)
+			normalDead := seedMovie(t, db, 401, new(old), nil)
+			// Boundary pair, both in the NORMAL arm.
+			atThreshold := seedMovie(t, db, 402, new(old), nil)
+			overThreshold := seedMovie(t, db, 403, new(old), nil)
+
+			// Baseline: with no journal rows at all, every one of the six is picked.
+			// Without this the exclusions below would prove nothing.
+			base := pickedMovieIDs(t, repo, now, ttl)
+			for _, id := range []domain.MovieID{
+				changedClean, changedDead, normalClean, normalDead, atThreshold, overThreshold,
+			} {
+				require.Truef(t, base[id], "baseline: movie %d must be picked before journalling", id)
+			}
+
+			seedMovieTerminalError(t, db, changedDead, 99)
+			seedMovieTerminalError(t, db, normalDead, 99)
+			seedMovieTerminalError(t, db, atThreshold, 5)
+			seedMovieTerminalError(t, db, overThreshold, 6)
+
+			got := pickedMovieIDs(t, repo, now, ttl)
+
+			assert.True(t, got[changedClean],
+				"an un-journalled CHANGED movie must still be picked — the gate must not "+
+					"widen into a blanket exclusion")
+			assert.False(t, got[changedDead],
+				"CHANGED tier 0 has NO terminal-failure gate: the seven TMDB-deleted movies "+
+					"of ADR-0025 Proof #2 arrive through this arm")
+			assert.True(t, got[normalClean],
+				"an un-journalled NORMAL movie must still be picked")
+			assert.False(t, got[normalDead],
+				"NORMAL tier 3 has no terminal-failure gate")
+			assert.True(t, got[atThreshold],
+				"attempts=5 is NOT terminal (the gate is strictly `> 5`) — a movie inside "+
+					"its retry budget must keep being picked")
+			assert.False(t, got[overThreshold],
+				"attempts=6 crosses the gate")
+		})
+	}
+}
+
+// TestMovieRepository_PickMovieRefreshCandidates_GateIsSourceScoped proves the
+// gate is scoped to (entity_type='movie', source='tmdb_movie') and does not
+// collide with rows of other verticals or other sources that happen to share an
+// id. enrichment_errors is ONE table for every vertical; an under-specified
+// predicate would silently make a series failure suppress a movie refresh.
+func TestMovieRepository_PickMovieRefreshCandidates_GateIsSourceScoped(t *testing.T) {
+	t.Parallel()
+	for _, backend := range testhelpers.AllBackends(t) {
+		t.Run(backend.Name, func(t *testing.T) {
+			t.Parallel()
+			db := backend.NewDB(t)
+			repo := NewMovieRepository(db)
+			ctx := context.Background()
+
+			now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+			old := now.Add(-40 * 24 * time.Hour)
+			ttl := enrichment.DefaultRefreshTTL()
+
+			m := seedMovie(t, db, 500, new(old), nil)
+			errRepo := NewEnrichmentErrorsRepository(db)
+
+			// Same numeric id, but a SERIES row and an OMDb row — neither may gate
+			// the movie picker.
+			require.NoError(t, errRepo.RecordFailure(ctx, enrichment.EnrichmentError{
+				EntityType: enrichment.EntityTypeSeries,
+				EntityID:   int64(m),
+				Source:     enrichment.SourceTMDBSeries,
+				LastError:  "other vertical",
+				Attempts:   99,
+			}))
+			require.NoError(t, errRepo.RecordFailure(ctx, enrichment.EnrichmentError{
+				EntityType: enrichment.EntityTypeMovie,
+				EntityID:   int64(m),
+				Source:     enrichment.SourceOMDb,
+				LastError:  "other source",
+				Attempts:   99,
+			}))
+
+			assert.True(t, pickedMovieIDs(t, repo, now, ttl)[m],
+				"only (entity_type='movie', source='tmdb_movie') may gate the movie picker")
+
+			seedMovieTerminalError(t, db, m, 99)
+			assert.False(t, pickedMovieIDs(t, repo, now, ttl)[m],
+				"the matching row DOES gate it")
+		})
+	}
+}

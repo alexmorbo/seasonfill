@@ -148,17 +148,51 @@ func f0LiteralMentions(t *testing.T, path, sub string) bool {
 // detectors — "does the code carry this invariant TODAY?"
 // ---------------------------------------------------------------------
 
-// f0DetectFailureJournal reports whether the named worker files journal
-// enrichment failures at all.
-func f0DetectFailureJournal(t *testing.T, root string, rels ...[]string) bool {
+// f0JournalWriteMarkers are the three identifiers a worker must carry for its
+// failure journal to be REAL rather than merely wired:
+//
+//   - "EnrichmentErrors"      — the journal repo is a dependency of the worker,
+//   - "recordEnrichmentError" — the worker owns a write helper,
+//   - "RecordFailure"         — that helper actually CALLS the repo write.
+//
+// All three must appear in the worker's OWN file, and all three must be present
+// — that is what keeps this probe capable of going false. See
+// f0DetectFailureJournal.
+var f0JournalWriteMarkers = []string{
+	"EnrichmentErrors",
+	"recordEnrichmentError",
+	"RecordFailure",
+}
+
+// f0DetectFailureJournal reports whether ONE worker file carries an actual
+// journal WRITE.
+//
+// Before ADR-0025 F1 the movie side of this probe scanned movie_worker.go OR
+// movie_ports.go for the substring "EnrichmentError" and returned true on the
+// first hit. That was a false-Held generator: merely DECLARING the port in
+// movie_ports.go, or adding an `EnrichmentErrors EnrichmentErrorRepo` field to
+// MovieWorkerDeps and stopping there, would have reported the invariant as
+// carried while not one row could ever reach enrichment_errors. This is the
+// movie side brought up to the strictness the series side already had, plus the
+// "RecordFailure" marker on BOTH — the write itself rather than a private
+// helper name that merely resembles one.
+//
+// How to confirm the probe still goes false (reviewer recipe, ~30 seconds):
+// delete the body of MovieWorker.recordEnrichmentError's RecordFailure call in
+// internal/enrichment/app/movie_worker.go — or move the whole journal helper
+// block into a new sibling file — then run
+// `go test -tags=integration ./tests/integration/ -run TestADR0025_F0_RegistryMatchesCode`.
+// It must fail on failure_journal/movie with "declared \"held\", code carries
+// it = false". Restore afterwards.
+func f0DetectFailureJournal(t *testing.T, root string, rel ...string) bool {
 	t.Helper()
-	for _, rel := range rels {
-		path := filepath.Join(append([]string{root}, rel...)...)
-		if f0CodeMentions(t, path, "EnrichmentError") {
-			return true
+	path := filepath.Join(append([]string{root}, rel...)...)
+	for _, marker := range f0JournalWriteMarkers {
+		if !f0CodeMentions(t, path, marker) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // f0DetectPickerBreaker reports whether EVERY tier arm of a tiered picker
@@ -333,15 +367,14 @@ type f0Probe func(t *testing.T, root string) bool
 // probe.
 var f0Detectors = map[verticals.Key]f0Probe{
 	{Invariant: verticals.InvariantFailureJournal, Vertical: verticals.VerticalSeries}: func(t *testing.T, root string) bool {
-		path := filepath.Join(root, "internal", "enrichment", "app", "series_worker.go")
-		return f0CodeMentions(t, path, "recordEnrichmentError") &&
-			f0CodeMentions(t, path, "EnrichmentErrors")
+		return f0DetectFailureJournal(t, root,
+			"internal", "enrichment", "app", "series_worker.go")
 	},
 	{Invariant: verticals.InvariantFailureJournal, Vertical: verticals.VerticalMovie}: func(t *testing.T, root string) bool {
+		// movie_ports.go is deliberately NOT scanned any more: a port
+		// declaration is a dependency, not a write.
 		return f0DetectFailureJournal(t, root,
-			[]string{"internal", "enrichment", "app", "movie_worker.go"},
-			[]string{"internal", "enrichment", "app", "movie_ports.go"},
-		)
+			"internal", "enrichment", "app", "movie_worker.go")
 	},
 	{Invariant: verticals.InvariantPickerBreaker, Vertical: verticals.VerticalSeries}: func(t *testing.T, root string) bool {
 		return f0DetectPickerBreaker(t, root,
@@ -690,20 +723,21 @@ func TestADR0025_F0_PickerBreakerBehaviour(t *testing.T) {
 			"baseline: an un-journalled movie must be picked, otherwise the probe below "+
 				"proves nothing")
 
-		// Seeded with a raw INSERT on purpose: EntityTypeMovie /
-		// SourceTMDBMovie do not exist yet (that IS the
-		// failure_journal/movie gap), so RecordFailure would reject the
-		// row at its own validator. The raw path is legitimate —
-		// enrichment_errors.entity_type / .source are plain
-		// `text NOT NULL` with no CHECK, enum or FK in either dialect
-		// (infrastructure/database/schema/schema.go:2195-2198:
-		// "enforced at the use-case layer … NOT by DB constraint").
-		require.NoError(t, gdb.WithContext(ctx).Exec(
-			`INSERT INTO enrichment_errors
-			   (entity_type, entity_id, source, last_error, attempts, first_seen_at, last_seen_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			"movie", int64(movieID), "tmdb_movie",
-			"ADR-0025 F0 parity probe", 99, now, now).Error)
+		// ADR-0025 F1: seeded through the REAL repository now, exactly like the
+		// series arm above. Before F1 this had to be a raw INSERT because
+		// EntityTypeMovie / SourceTMDBMovie did not exist and RecordFailure
+		// rejected the row at its own validator (that WAS the gap). Using the
+		// typed path means this test now also proves the new enum values
+		// survive persistence, instead of only proving the SQL gate.
+		require.NoError(t, errRepo.RecordFailure(ctx, enrichdomain.EnrichmentError{
+			EntityType:  enrichdomain.EntityTypeMovie,
+			EntityID:    int64(movieID),
+			Source:      enrichdomain.SourceTMDBMovie,
+			LastError:   "ADR-0025 F0 parity probe",
+			Attempts:    99,
+			FirstSeenAt: now,
+			LastSeenAt:  now,
+		}))
 		movieBreakerHeld := !f0MoviePicked(t, ctx, movieRepo, now, ttl, movieID)
 
 		// --- conformance --------------------------------------------

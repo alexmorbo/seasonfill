@@ -981,11 +981,34 @@ func runNightlyTick(ctx context.Context, d nightlyTickDeps) {
 		d.Dispatcher.Enqueue(appenrich.EntityPerson, e.EntityID, appenrich.PriorityCold)
 	}
 
+	// ADR-0025 Ф1: movie retry sweep. Retry-ONLY, deliberately — there is no
+	// movie stale-scan arm here because movie staleness is already owned by the
+	// MovieRefreshScheduler's own 30-minute tiered picker
+	// (movie_refresh_query.go); a nightly stale scan would duplicate it and
+	// double the TMDB budget for nothing. What the nightly job DOES have to do
+	// is drain the journal: without this arm the Ф1 failure ledger would be
+	// write-only — a transient 503 would be recorded with a next_attempt_at that
+	// nothing ever acts on, while the picker's new attempts>5 gate blocks the
+	// generic TTL path. EntityMovie is a live lane: DispatcherImpl.movieLoop
+	// drains it into MovieWorker.HandleForced, late-bound in cmd/server.
+	// Limit 100 mirrors the series arm; PriorityCold keeps a burst off the
+	// interactive lane.
+	movieRetries, err := d.EnrichmentErrors.ListDueForRetry(ctx, enrichment.SourceTMDBMovie, now, 100)
+	if err != nil {
+		d.Log.WarnContext(ctx, "enrichment.nightly.retry_due_failed",
+			slog.String("source", string(enrichment.SourceTMDBMovie)),
+			slog.String("error", err.Error()))
+	}
+	for _, e := range movieRetries {
+		d.Dispatcher.Enqueue(appenrich.EntityMovie, e.EntityID, appenrich.PriorityCold)
+	}
+
 	d.Log.InfoContext(ctx, "enrichment.nightly.swept",
 		slog.Int("series_stale", len(seriesStale)),
 		slog.Int("series_retries", len(seriesRetries)),
 		slog.Int("person_stale", len(personStale)),
 		slog.Int("person_retries", len(personRetries)),
+		slog.Int("movie_retries", len(movieRetries)),
 	)
 }
 

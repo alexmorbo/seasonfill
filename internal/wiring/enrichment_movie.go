@@ -159,8 +159,14 @@ func BuildMovieEnrichment(deps MovieEnrichmentDeps) (*MovieEnrichmentBundle, err
 		Companies:     companiesRepo,
 		Videos:        movieVideos,
 		Recs:          movieRecs,
-		BaseLang:      tmdb.DefaultLanguage,
-		Logger:        deps.Log,
+		// ADR-0025 Ф1: the movie failure journal. Same repository the series
+		// stack uses (wiring/seriesdetail.go:164) — one ledger table, one
+		// implementation, two verticals. Leaving this nil would declare
+		// failure_journal/movie Held in internal/shared/verticals while it is
+		// dead at runtime; the conformance detector reads source, not wiring.
+		EnrichmentErrors: enrichpersistence.NewEnrichmentErrorsRepository(deps.Persistence.DB),
+		BaseLang:         tmdb.DefaultLanguage,
+		Logger:           deps.Log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wire movie worker: %w", err)

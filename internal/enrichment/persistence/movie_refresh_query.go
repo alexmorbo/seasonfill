@@ -90,6 +90,21 @@ const movieI18nHealAttemptWindow = 6 * time.Hour
 //     fixable row lands a title on its first attempt and exits the set entirely.
 //     genres/companies (no stamp column) are intentionally excluded from the OR.
 //
+// ADR-0025 Ф1 terminal-failure gate: BOTH arms carry
+//
+//	AND NOT EXISTS (SELECT 1 FROM enrichment_errors ee
+//	                 WHERE ee.entity_type = 'movie' AND ee.entity_id = m.id
+//	                   AND ee.source = ? AND ee.attempts > 5)
+//
+// — the same shape and the same index path (enrichment_errors_pk_lookup) the five
+// series tier arms use (series_refresh_query.go:169,221,269,315,361). It is what
+// stops a TMDB-deleted movie (journalled by MovieWorker.handleTMDBError with
+// attempts=99) from being re-pulled every ~15 minutes forever, which is
+// ADR-0025 Доказательство №2. The gate MUST stay inside the sqlTmpl literal:
+// the conformance probe f0DetectPickerBreaker counts `ee.attempts >` against
+// `UNION ALL`+1 within the literal, so hoisting it into a helper const would
+// report the invariant as lost.
+//
 // R-A02-analog: the NORMAL arm carries `AND NOT (<changed-pending>)` (column refs
 // only, zero new binds) so a changed+stale movie appears EXACTLY ONCE, in tier 0.
 //
@@ -151,6 +166,14 @@ func (r *MovieRepository) PickMovieRefreshCandidates(
 		i18nWhereFragment = "\n        OR " + gapPredicate
 	}
 
+	// errSrc is the enrichment_errors.source discriminator the terminal-failure
+	// gate binds in BOTH arms. Mirrors series_refresh_query.go's `const errSrc =
+	// "tmdb_series"`; the value must equal enrichment.SourceTMDBMovie, which the
+	// movie worker writes (ADR-0025 Ф1a). Kept a literal rather than a domain
+	// reference so the persistence layer does not reach back into the domain enum
+	// for a SQL bind — exactly what the series file does.
+	const errSrc = "tmdb_movie"
+
 	const sqlTmpl = `
 SELECT * FROM (
   SELECT m.id AS movie_id, 0 AS tier, m.enrichment_tmdb_synced_at AS synced_at,
@@ -164,6 +187,10 @@ SELECT * FROM (
      AND (
            m.enrichment_tmdb_synced_at IS NULL
         OR m.enrichment_tmdb_synced_at < ?)
+     AND NOT EXISTS (
+       SELECT 1 FROM enrichment_errors ee
+        WHERE ee.entity_type = 'movie' AND ee.entity_id = m.id
+          AND ee.source = ? AND ee.attempts > 5)
   UNION ALL
   SELECT m.id AS movie_id, 3 AS tier, m.enrichment_tmdb_synced_at AS synced_at,
          %s AS is_gap
@@ -179,6 +206,10 @@ SELECT * FROM (
         OR m.enrichment_keywords_synced_at IS NULL
         OR m.enrichment_recs_synced_at IS NULL
         OR m.enrichment_media_synced_at IS NULL%s)
+     AND NOT EXISTS (
+       SELECT 1 FROM enrichment_errors ee
+        WHERE ee.entity_type = 'movie' AND ee.entity_id = m.id
+          AND ee.source = ? AND ee.attempts > 5)
 ) u
 ORDER BY u.tier ASC,
          u.is_gap DESC,
@@ -191,13 +222,15 @@ LIMIT ?
 
 	// Positional binds, left-to-right in sqlStr:
 	//   1. raceCutoff          — CHANGED WHERE race guard (< ?)
-	//   2. attemptCutoff, nonBaseLangs — NORMAL SELECT is_gap CASE (< ?, IN (?))  [i18n only]
-	//   3. normalCutoff        — NORMAL WHERE staleness (< ?)
-	//   4. attemptCutoff, nonBaseLangs — NORMAL WHERE i18n OR (< ?, IN (?))       [i18n only]
-	//   5. nullSentinel        — ORDER BY sentinel
-	//   6. limit               — LIMIT
-	args := make([]any, 0, 10)
-	args = append(args, raceCutoff)
+	//   2. errSrc              — CHANGED WHERE terminal-failure gate (ee.source = ?)
+	//   3. attemptCutoff, nonBaseLangs — NORMAL SELECT is_gap CASE (< ?, IN (?))  [i18n only]
+	//   4. normalCutoff        — NORMAL WHERE staleness (< ?)
+	//   5. attemptCutoff, nonBaseLangs — NORMAL WHERE i18n OR (< ?, IN (?))       [i18n only]
+	//   6. errSrc              — NORMAL WHERE terminal-failure gate (ee.source = ?)
+	//   7. nullSentinel        — ORDER BY sentinel
+	//   8. limit               — LIMIT
+	args := make([]any, 0, 12)
+	args = append(args, raceCutoff, errSrc)
 	if len(nonBaseLangs) > 0 {
 		args = append(args, attemptCutoff, nonBaseLangs)
 	}
@@ -205,7 +238,7 @@ LIMIT ?
 	if len(nonBaseLangs) > 0 {
 		args = append(args, attemptCutoff, nonBaseLangs)
 	}
-	args = append(args, nullSentinel, limit)
+	args = append(args, errSrc, nullSentinel, limit)
 
 	type row struct {
 		MovieID  domain.MovieID `gorm:"column:movie_id"`

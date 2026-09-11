@@ -19,8 +19,10 @@ import (
 	"slices"
 	"time"
 
+	enrichdomain "github.com/alexmorbo/seasonfill/internal/enrichment/domain/enrichment"
 	"github.com/alexmorbo/seasonfill/internal/enrichment/domain/people"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
+	ports "github.com/alexmorbo/seasonfill/internal/shared/dataports"
 	"github.com/alexmorbo/seasonfill/internal/shared/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/locale"
 	sharedports "github.com/alexmorbo/seasonfill/internal/shared/ports"
@@ -76,6 +78,22 @@ type MovieWorkerDeps struct {
 	BaseLang string            // default tmdb.DefaultLanguage
 	Logger   *slog.Logger
 	Clock    func() time.Time
+
+	// EnrichmentErrors — ADR-0025 Ф1 movie failure journal. Same port the
+	// series worker uses (ports.go:339 EnrichmentErrorRepo); NOT a new
+	// movie-local seam — the whole point of the ADR is that the second
+	// vertical stops growing a parallel mechanism.
+	//
+	// nil-OK, matching every other optional dep on this struct: when nil,
+	// HandleForced behaves EXACTLY as it did pre-Ф1 (the TMDB error is
+	// returned, nothing is journalled), so the existing movie_worker_*_test.go
+	// fixtures — which set none of these — stay green untouched.
+	//
+	// Production MUST wire it (internal/wiring/enrichment_movie.go). A nil dep
+	// in production would leave failure_journal/movie declared Held in
+	// internal/shared/verticals while dead at runtime — the static conformance
+	// detector reads source, not wiring, so nothing else would catch it.
+	EnrichmentErrors EnrichmentErrorRepo // nil-OK
 }
 
 // MovieOMDbHandler is the post-hydrate OMDb trigger seam. Production impl is
@@ -133,10 +151,16 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 		return nil
 	}
 	tmdbID := int64(*canon.TMDBID)
+	start := w.deps.Clock()
 
 	// language-aware detail fetch (#1184 guard — GetMovie calls c.languageFor).
 	resp, err := w.deps.TMDB.GetMovie(ctx, tmdbID, w.baseLang)
 	if err != nil {
+		// ADR-0025 Ф1: journal the failure, THEN return it unchanged. The
+		// attempts read is lazy (error path only) so a healthy tick of 50
+		// movies costs zero extra queries; series reads it eagerly at :299.
+		w.handleTMDBError(ctx, canon.ID, "GetMovie", err,
+			w.previousTMDBAttempts(ctx, canon.ID), start)
 		return fmt.Errorf("movie worker: GetMovie(%d): %w", tmdbID, err)
 	}
 
@@ -227,6 +251,12 @@ func (w *MovieWorker) HandleForced(ctx context.Context, movieID int64) error {
 	if err := w.deps.Movies.MarkTMDBSynced(ctx, canon.ID, now); err != nil {
 		return fmt.Errorf("movie worker: mark synced %d: %w", canon.ID, err)
 	}
+
+	// ADR-0025 Ф1: clear-on-success (mirror of SeriesWorker.journalOK:1805).
+	// Without it a movie that failed 6+ times and then recovered would keep its
+	// attempts>5 row and be excluded by the Ф1b picker gate FOREVER — a journal
+	// without a clear is a permanent breaker, not a circuit breaker.
+	w.clearEnrichmentError(ctx, canon.ID)
 
 	w.deps.Logger.InfoContext(ctx, "enrichment.movie.hydrated",
 		slog.Int64("movie_id", int64(canon.ID)),
@@ -381,4 +411,150 @@ func movieTranslationsByLang(resp *tmdb.MovieResponse) map[string]tmdb.MovieTran
 		out[shortLang(t.ISO6391)] = t.Data
 	}
 	return out
+}
+
+// ---- ADR-0025 Ф1: failure journal ----------------------------------
+//
+// These four helpers are the movie mirror of the series pair
+// (series_worker.go:1720 handleTMDBError / :1775 recordEnrichmentError / :1805
+// journalOK's ClearOnSuccess arm). They live in THIS file on purpose: the
+// ADR-0025 conformance detector reads movie_worker.go itself and requires the
+// actual write, so moving them to a sibling file would (correctly) report the
+// invariant as absent.
+
+// previousTMDBAttempts reads the current (movie, tmdb_movie) attempts counter so
+// a retryable failure extends the existing backoff instead of restarting it at
+// 1h. Returns 0 when the journal dep is unwired, when no row exists yet, or when
+// the read failed — a read miss must never block the failure path; the worst
+// case is one extra short retry.
+func (w *MovieWorker) previousTMDBAttempts(ctx context.Context, movieID domain.MovieID) int {
+	if w.deps.EnrichmentErrors == nil {
+		return 0
+	}
+	row, err := w.deps.EnrichmentErrors.GetByEntitySource(ctx,
+		enrichdomain.EntityTypeMovie, int64(movieID), enrichdomain.SourceTMDBMovie)
+	if err != nil {
+		if !errors.Is(err, ports.ErrNotFound) {
+			w.deps.Logger.WarnContext(ctx, "enrichment.movie.handle.error_row_read_failed",
+				slog.Int64("movie_id", int64(movieID)),
+				slog.String("error", err.Error()))
+		}
+		return 0
+	}
+	return row.Attempts
+}
+
+// handleTMDBError journals one TMDB failure for one movie. Row semantics mirror
+// SeriesWorker.handleTMDBError exactly:
+//
+//   - TMDB 404 → terminalAttempts (99) with NextAttemptAt nil. Permanent: the
+//     Ф1b picker gate (attempts > 5) stops re-picking it and ListDueForRetry's
+//     `next_attempt_at IS NOT NULL` filter never sweeps it back. These are the
+//     seven TMDB-deleted movies of ADR-0025 Доказательство №2.
+//   - anything else → previousAttempts+1 with enrichdomain.NextAttemptAt
+//     backoff, UNLESS the retry budget is exhausted (enrichdomain.ShouldPark,
+//     MaxRetryAttempts=12) — then the row is PARKED terminally, exactly as
+//     E-FIX-1 does for series. Without the park a permanently-broken movie
+//     would burn one TMDB call per nightly sweep forever; ListDueForRetry has
+//     no attempts cap of its own. Series also ticks a parked counter there;
+//     movies get no metric (metrics are ADR-0025 Ф3) — WARN log only.
+//
+// UNLIKE the series/person helpers this one returns nothing and does NOT swallow
+// the error. HandleForced still returns the wrapped TMDB error to its three
+// callers (MovieRefreshScheduler.Tick, DispatcherImpl.runHandler, the moviedetail
+// freshener), so the existing failure accounting — enrichment.movie_refresh.movie_failed
+// and seasonfill_movie_refresh_total{result="error"} — keeps working unchanged.
+// The journal is purely additive.
+//
+// No-op when the journal dep is unwired (nil-OK contract, see MovieWorkerDeps).
+func (w *MovieWorker) handleTMDBError(
+	ctx context.Context,
+	movieID domain.MovieID,
+	op string,
+	cause error,
+	previousAttempts int,
+	start time.Time,
+) {
+	if w.deps.EnrichmentErrors == nil {
+		return
+	}
+	now := w.deps.Clock()
+	durMs := int(now.Sub(start).Milliseconds())
+	log := w.deps.Logger.With(
+		slog.String("entity_type", string(enrichdomain.EntityTypeMovie)),
+		slog.Int64("entity_id", int64(movieID)),
+		slog.String("source", string(enrichdomain.SourceTMDBMovie)),
+		slog.String("op", op),
+	)
+
+	var apiErr *tmdb.APIError
+	if errors.As(cause, &apiErr) && apiErr.Status == 404 {
+		w.recordEnrichmentError(ctx, movieID, cause, terminalAttempts, nil, log)
+		log.InfoContext(ctx, "enrichment.movie.handle.not_found",
+			slog.Int("duration_ms", durMs))
+		return
+	}
+
+	attempts := previousAttempts + 1
+	if enrichdomain.ShouldPark(attempts) {
+		w.recordEnrichmentError(ctx, movieID, cause, attempts, nil, log)
+		log.WarnContext(ctx, "enrichment.movie.handle.parked",
+			slog.Int("attempts", attempts),
+			slog.Int("max_attempts", enrichdomain.MaxRetryAttempts),
+			slog.Int("duration_ms", durMs),
+			slog.String("error", cause.Error()))
+		return
+	}
+
+	next := enrichdomain.NextAttemptAt(attempts, now)
+	w.recordEnrichmentError(ctx, movieID, cause, attempts, &next, log)
+	log.WarnContext(ctx, "enrichment.movie.handle.failed",
+		slog.Int("attempts", attempts),
+		slog.Time("next_attempt_at", next),
+		slog.Int("duration_ms", durMs),
+		slog.String("error", cause.Error()))
+}
+
+// recordEnrichmentError writes the single (movie, tmdb_movie) enrichment_errors
+// row — the durable failure ledger the Ф1b picker gate and nightly retry sweep
+// both read. Mirror of SeriesWorker.recordEnrichmentError (series_worker.go:1775).
+// A write miss is WARN-only: annoying (the movie stays re-pickable) but never
+// fatal, and the next attempt re-upserts the row by its natural key.
+func (w *MovieWorker) recordEnrichmentError(
+	ctx context.Context,
+	movieID domain.MovieID,
+	cause error,
+	attempts int,
+	nextAttemptAt *time.Time,
+	log *slog.Logger,
+) {
+	rec := enrichdomain.EnrichmentError{
+		EntityType:    enrichdomain.EntityTypeMovie,
+		EntityID:      int64(movieID),
+		Source:        enrichdomain.SourceTMDBMovie,
+		LastError:     cause.Error(),
+		Attempts:      attempts,
+		LastSeenAt:    w.deps.Clock(),
+		NextAttemptAt: nextAttemptAt,
+	}
+	if err := w.deps.EnrichmentErrors.RecordFailure(ctx, rec); err != nil {
+		log.WarnContext(ctx, "enrichment.movie.handle.record_failure_failed",
+			slog.String("error", err.Error()))
+	}
+}
+
+// clearEnrichmentError drops any outstanding (movie, tmdb_movie) row after a
+// committed hydrate. Mirror of SeriesWorker.journalOK's ClearOnSuccess arm
+// (series_worker.go:1811). Best-effort — a clear miss costs one extra excluded
+// tick, never correctness.
+func (w *MovieWorker) clearEnrichmentError(ctx context.Context, movieID domain.MovieID) {
+	if w.deps.EnrichmentErrors == nil {
+		return
+	}
+	if err := w.deps.EnrichmentErrors.ClearOnSuccess(ctx,
+		enrichdomain.EntityTypeMovie, int64(movieID), enrichdomain.SourceTMDBMovie); err != nil {
+		w.deps.Logger.WarnContext(ctx, "enrichment.movie.handle.clear_error_failed",
+			slog.Int64("movie_id", int64(movieID)),
+			slog.String("error", err.Error()))
+	}
 }

@@ -26,12 +26,18 @@ func TestRegistryMatchesADRTable(t *testing.T) {
 	t.Parallel()
 
 	want := map[Key]State{
-		{InvariantFailureJournal, VerticalSeries}:    StateHeld,
-		{InvariantFailureJournal, VerticalMovie}:     StateGap,
-		{InvariantPickerBreaker, VerticalSeries}:     StateHeld,
-		{InvariantPickerBreaker, VerticalMovie}:      StateGap,
-		{InvariantRetrySweep, VerticalSeries}:        StateHeld,
-		{InvariantRetrySweep, VerticalMovie}:         StateGap,
+		{InvariantFailureJournal, VerticalSeries}: StateHeld,
+		// Closed by ADR-0025 Ф1a: MovieWorker.HandleForced now journals every
+		// /movie/{id} failure through EnrichmentErrors.RecordFailure.
+		{InvariantFailureJournal, VerticalMovie}: StateHeld,
+		{InvariantPickerBreaker, VerticalSeries}: StateHeld,
+		// Closed by ADR-0025 Ф1b: both movie picker tier arms carry the
+		// attempts>5 terminal-failure gate.
+		{InvariantPickerBreaker, VerticalMovie}: StateHeld,
+		{InvariantRetrySweep, VerticalSeries}:   StateHeld,
+		// Closed by ADR-0025 Ф1b: runNightlyTick sweeps SourceTMDBMovie retries
+		// into the EntityMovie lane.
+		{InvariantRetrySweep, VerticalMovie}:         StateHeld,
 		{InvariantLoopDeclaresTypes, VerticalSeries}: StateHeld,
 		{InvariantLoopDeclaresTypes, VerticalMovie}:  StateGap,
 		{InvariantRegrabSupported, VerticalSeries}:   StateHeld,
