@@ -8,9 +8,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	searchapp "github.com/alexmorbo/seasonfill/internal/search/app"
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -183,7 +185,10 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
+	start := time.Now()
 	res, err := h.search.Search(c.Request.Context(), q, lang, limit, appScope(scope), appTypes(types))
+	observability.ObserveSearchRequest(
+		scope, observability.SearchResultOf(!res.IsEmpty(), err), time.Since(start))
 	if err != nil {
 		h.log.WarnContext(c.Request.Context(), "search.failed",
 			slog.String("query", q),

@@ -1,14 +1,18 @@
 package catalog_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	searchapp "github.com/alexmorbo/seasonfill/internal/search/app"
 	"github.com/alexmorbo/seasonfill/internal/search/catalog"
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
@@ -169,4 +173,60 @@ func TestSearchCatalog_NilClientDegradesEmpty(t *testing.T) {
 func TestNewAdapter_NilLogPanics(t *testing.T) {
 	t.Parallel()
 	assert.Panics(t, func() { catalog.NewAdapter(&stubTMDB{}, nil) })
+}
+
+// ---------------------------------------------------------------------
+// ADR-0025 F3 — catalog-source per-group metrics on the REAL fan-out
+// ---------------------------------------------------------------------
+
+// f3MetricValue — see the twin in internal/search/app/usecase_test.go. NOT
+// parallel: the VictoriaMetrics registry is process-global.
+func f3MetricValue(t *testing.T, series string) float64 {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		if strings.HasPrefix(line, series+" ") {
+			fields := strings.Fields(line)
+			v, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+			require.NoError(t, err)
+			return v
+		}
+	}
+	return 0
+}
+
+// TestSearchCatalog_ObservesPerGroupMetrics proves source="catalog" is a real
+// second dimension: the TMDB fan-out is timed per entity too, so a slow
+// /search/person at TMDB is distinguishable from a slow people SQL query.
+func TestSearchCatalog_ObservesPerGroupMetrics(t *testing.T) {
+	const hits = `seasonfill_search_group_queries_total` +
+		`{entity="people",source="catalog",result="hits"}`
+	const hist = `seasonfill_search_group_duration_seconds_count` +
+		`{entity="people",source="catalog"}`
+	const failed = `seasonfill_search_group_queries_total` +
+		`{entity="series",source="catalog",result="error"}`
+
+	beforeHits := f3MetricValue(t, hits)
+	beforeHist := f3MetricValue(t, hist)
+	beforeFailed := f3MetricValue(t, failed)
+
+	stub := &stubTMDB{
+		person: func() (*tmdb.PersonListResponse, error) {
+			return &tmdb.PersonListResponse{Results: []tmdb.PersonListEntry{
+				{ID: 6384, Name: "Keanu Reeves"},
+			}}, nil
+		},
+		tv: func() (*tmdb.TVListResponse, error) { return nil, errors.New("tmdb down") },
+	}
+	_, err := newAdapter(t, stub).SearchCatalog(context.Background(), "keanu", "en-US", 5,
+		searchapp.TypeFilter{Series: true, Person: true})
+	require.NoError(t, err)
+
+	assert.Equal(t, beforeHits+1, f3MetricValue(t, hits),
+		"a catalog people hit must increment %s", hits)
+	assert.Equal(t, beforeHist+1, f3MetricValue(t, hist),
+		"a catalog people call must be timed in %s", hist)
+	assert.Equal(t, beforeFailed+1, f3MetricValue(t, failed),
+		"a degraded catalog group must still be counted, as error, in %s", failed)
 }

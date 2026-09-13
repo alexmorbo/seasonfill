@@ -1,12 +1,14 @@
 package rest_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	appmedia "github.com/alexmorbo/seasonfill/internal/mediaproxy/app"
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	searchapp "github.com/alexmorbo/seasonfill/internal/search/app"
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
 	searchrest "github.com/alexmorbo/seasonfill/internal/search/rest"
@@ -419,4 +422,86 @@ func TestSearch_LibraryScopeSourceUnchanged(t *testing.T) {
 	assert.Equal(t, searchapp.ScopeLibrary, f.gotScope)
 	assert.True(t, f.gotTypes.Movie)
 	assert.False(t, f.gotTypes.Series)
+}
+
+// ---------------------------------------------------------------------
+// ADR-0025 F3 — request-level search metrics on the REAL handler path
+// ---------------------------------------------------------------------
+
+// f3MetricValue — see the twin in internal/search/app/usecase_test.go. The F3
+// tests below deliberately do NOT call t.Parallel(): the VictoriaMetrics
+// registry is process-global and a parallel sibling serving /search would bump
+// the same series.
+func f3MetricValue(t *testing.T, series string) float64 {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		if strings.HasPrefix(line, series+" ") {
+			fields := strings.Fields(line)
+			v, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+			require.NoError(t, err)
+			return v
+		}
+	}
+	return 0
+}
+
+func TestSearch_ObservesRequestMetric(t *testing.T) {
+	const counter = `seasonfill_search_requests_total{scope="all",result="hits"}`
+	const hist = `seasonfill_search_request_duration_seconds_count{scope="all"}`
+
+	beforeCounter := f3MetricValue(t, counter)
+	beforeHist := f3MetricValue(t, hist)
+
+	w := doGET(t, newRouter(t, &fakeSearcher{result: fullResult()}), "/search?q=matrix")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	assert.Equal(t, beforeCounter+1, f3MetricValue(t, counter),
+		"a served /search must increment %s", counter)
+	assert.Equal(t, beforeHist+1, f3MetricValue(t, hist),
+		"a served /search must be timed in %s", hist)
+}
+
+func TestSearch_ObservesEmptyAndErrorAndScope(t *testing.T) {
+	const emptyLibrary = `seasonfill_search_requests_total{scope="library",result="empty"}`
+	const failedCatalog = `seasonfill_search_requests_total{scope="catalog",result="error"}`
+
+	beforeEmpty := f3MetricValue(t, emptyLibrary)
+	w := doGET(t, newRouter(t, &fakeSearcher{}), "/search?q=nothing&scope=library")
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, beforeEmpty+1, f3MetricValue(t, emptyLibrary),
+		"an all-groups-empty response must be counted as empty under its own scope")
+
+	beforeFailed := f3MetricValue(t, failedCatalog)
+	w = doGET(t, newRouter(t, &fakeSearcher{err: context.DeadlineExceeded}),
+		"/search?q=boom&scope=catalog")
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, beforeFailed+1, f3MetricValue(t, failedCatalog),
+		"a 500 must be counted as error under its own scope")
+}
+
+// TestSearch_RejectedRequestIsNotObserved pins the documented boundary: the
+// request family counts searches that RAN. A 400 never reached the use case, so
+// counting it would pollute the empty-ratio denominator with client typos.
+func TestSearch_RejectedRequestIsNotObserved(t *testing.T) {
+	var before float64
+	for _, scope := range []string{"library", "catalog", "all", "unknown"} {
+		for _, result := range []string{"hits", "empty", "error", "unknown"} {
+			before += f3MetricValue(t,
+				`seasonfill_search_requests_total{scope="`+scope+`",result="`+result+`"}`)
+		}
+	}
+
+	w := doGET(t, newRouter(t, &fakeSearcher{result: fullResult()}), "/search?q=")
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	var after float64
+	for _, scope := range []string{"library", "catalog", "all", "unknown"} {
+		for _, result := range []string{"hits", "empty", "error", "unknown"} {
+			after += f3MetricValue(t,
+				`seasonfill_search_requests_total{scope="`+scope+`",result="`+result+`"}`)
+		}
+	}
+	assert.Equal(t, before, after, "a 400 must not increment any search request series")
 }

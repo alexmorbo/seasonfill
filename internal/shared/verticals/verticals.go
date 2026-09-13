@@ -271,16 +271,32 @@ var registry = map[Key]Status{
 		Evidence: "internal/observability/enrichment_refresh_metrics.go:27 — seasonfill_enrichment_refresh_*",
 	},
 	{InvariantMetricsNamespace, VerticalMovie}: {
-		State:    StateGap,
-		ClosedBy: "F3",
-		Subject:  "search bounded context (ADR-0024, internal/search)",
-		Evidence: "internal/observability/ — zero seasonfill_search_* literals; prod exports " +
-			"165 distinct seasonfill_* families and none of them is a search family",
-		Reason: "The movie VERTICAL does export metrics (seasonfill_movie_refresh_*, " +
-			"seasonfill_movie_changes_*). The bounded context that shipped without any is " +
-			"search — which is exactly what the ADR-0025 R4 table records in this cell " +
-			"(\"search F3\"). Subject names the real carrier so the probe matches the claim " +
-			"instead of testing a vertical that already holds the invariant.",
+		State:   StateHeld,
+		Subject: "search bounded context (ADR-0024, internal/search)",
+		Evidence: "internal/observability/search_metrics.go:29-32 (the four frozen family " +
+			"names), :125 (ObserveSearchRequest), :143 (ObserveSearchGroup); " +
+			"internal/search/rest/handler.go:190 — ObserveSearchRequest around the " +
+			"use-case call; internal/search/app/usecase.go:98,107,116,125 — observeGroup " +
+			"around each of the four per-entity repo calls, :137 the helper itself; " +
+			"internal/search/catalog/adapter.go:94,99,108,113,122,127,136,141 — " +
+			"Adapter.observeGroup in both arms of all four TMDB fan-out branches, :160 " +
+			"the helper itself",
+		Reason: "The movie VERTICAL always exported metrics (seasonfill_movie_refresh_*, " +
+			"seasonfill_movie_changes_*). The bounded context that shipped without any was " +
+			"search — which is what the ADR-0025 R4 table records in this cell " +
+			"(\"search F3\"); Subject names the real carrier so the probe matches the claim " +
+			"instead of testing a vertical that already held the invariant. F3 closes it " +
+			"with four families: seasonfill_search_requests_total{scope,result} and " +
+			"seasonfill_search_request_duration_seconds{scope} at the HTTP boundary, plus " +
+			"seasonfill_search_group_queries_total{entity,source,result} and " +
+			"seasonfill_search_group_duration_seconds{entity,source} around every " +
+			"per-entity-group query in BOTH layers. The per-entity split is the whole " +
+			"point, not decoration: ADR-0024 BUG-2 was a 12-second PEOPLE query inside " +
+			"requests whose other three groups answered in ~100ms, and a request-level " +
+			"mean would have hidden it exactly as it hid it from everyone for weeks. " +
+			"Every label is a closed enum with an \"unknown\" fallback — 95 label " +
+			"combinations across the four families, and neither q nor lang nor limit nor " +
+			"any id is ever a label.",
 	},
 	{InvariantDomainLogger, VerticalSeries}: {
 		State: StateHeld,

@@ -19,9 +19,11 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	searchapp "github.com/alexmorbo/seasonfill/internal/search/app"
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
 	"github.com/alexmorbo/seasonfill/internal/shared/clients/tmdb"
@@ -86,45 +88,57 @@ func (a *Adapter) SearchCatalog(ctx context.Context, q, language string, limit i
 
 	if types.Series {
 		g.Go(func() error {
+			start := time.Now()
 			resp, err := a.tmdb.SearchTV(gctx, q, language, 1)
 			if err != nil {
+				a.observeGroup(observability.SearchEntitySeries, 0, err, start)
 				a.warn(gctx, "series", q, language, err)
 				return nil
 			}
 			series = mapSeriesHits(resp, limit)
+			a.observeGroup(observability.SearchEntitySeries, len(series), nil, start)
 			return nil
 		})
 	}
 	if types.Movie {
 		g.Go(func() error {
+			start := time.Now()
 			resp, err := a.tmdb.SearchMovie(gctx, q, language, 1)
 			if err != nil {
+				a.observeGroup(observability.SearchEntityMovies, 0, err, start)
 				a.warn(gctx, "movie", q, language, err)
 				return nil
 			}
 			movies = mapMovieHits(resp, limit)
+			a.observeGroup(observability.SearchEntityMovies, len(movies), nil, start)
 			return nil
 		})
 	}
 	if types.Collection {
 		g.Go(func() error {
+			start := time.Now()
 			resp, err := a.tmdb.SearchCollection(gctx, q, language, 1)
 			if err != nil {
+				a.observeGroup(observability.SearchEntityCollections, 0, err, start)
 				a.warn(gctx, "collection", q, language, err)
 				return nil
 			}
 			collections = mapCollectionHits(resp, limit)
+			a.observeGroup(observability.SearchEntityCollections, len(collections), nil, start)
 			return nil
 		})
 	}
 	if types.Person {
 		g.Go(func() error {
+			start := time.Now()
 			resp, err := a.tmdb.SearchPerson(gctx, q, language, 1)
 			if err != nil {
+				a.observeGroup(observability.SearchEntityPeople, 0, err, start)
 				a.warn(gctx, "person", q, language, err)
 				return nil
 			}
 			people = mapPersonHits(resp, limit)
+			a.observeGroup(observability.SearchEntityPeople, len(people), nil, start)
 			return nil
 		})
 	}
@@ -139,6 +153,13 @@ func (a *Adapter) SearchCatalog(ctx context.Context, q, language string, limit i
 	return searchdomain.LibrarySearchResult{
 		Series: series, Movies: movies, Collections: collections, People: people,
 	}, nil
+}
+
+// observeGroup records one catalog-scope per-entity TMDB call under the
+// ADR-0025 F3 metrics. One call shape for all four fan-out branches.
+func (a *Adapter) observeGroup(entity string, hits int, err error, start time.Time) {
+	observability.ObserveSearchGroup(entity, observability.SearchSourceCatalog,
+		observability.SearchResultOf(hits > 0, err), time.Since(start))
 }
 
 func (a *Adapter) warn(ctx context.Context, group, q, lang string, err error) {

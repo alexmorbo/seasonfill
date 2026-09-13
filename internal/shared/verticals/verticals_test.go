@@ -46,9 +46,13 @@ func TestRegistryMatchesADRTable(t *testing.T) {
 		{InvariantRegrabSupported, VerticalSeries}:  StateHeld,
 		{InvariantRegrabSupported, VerticalMovie}:   StateDeferred,
 		{InvariantMetricsNamespace, VerticalSeries}: StateHeld,
-		{InvariantMetricsNamespace, VerticalMovie}:  StateGap,
-		{InvariantDomainLogger, VerticalSeries}:     StateHeld,
-		{InvariantDomainLogger, VerticalMovie}:      StateHeld,
+		// Closed by ADR-0025 Ф3: the search bounded context (Subject of this
+		// cell) now exports four seasonfill_search_* families, incremented on
+		// the real request path in rest/handler.go, app/usecase.go and
+		// catalog/adapter.go.
+		{InvariantMetricsNamespace, VerticalMovie}: StateHeld,
+		{InvariantDomainLogger, VerticalSeries}:    StateHeld,
+		{InvariantDomainLogger, VerticalMovie}:     StateHeld,
 	}
 
 	require.Len(t, registry, len(want))
@@ -77,13 +81,17 @@ func TestDeferredCellsCarryReasonAndReference(t *testing.T) {
 }
 
 // TestMetricsNamespaceMovieDeclaresItsSubject locks in the honesty fix:
-// the movie-column metrics gap belongs to the search bounded context, not
-// to the movie vertical, and the declaration must say so.
+// the movie-column metrics cell belongs to the search bounded context, not
+// to the movie vertical, and the declaration must keep saying so — closing
+// the gap in Ф3 must not quietly drop the Subject, or a future reader would
+// conclude the probe tests the movie vertical.
 func TestMetricsNamespaceMovieDeclaresItsSubject(t *testing.T) {
 	t.Parallel()
 	s := MustLookup(InvariantMetricsNamespace, VerticalMovie)
-	require.Equal(t, StateGap, s.State)
+	require.Equal(t, StateHeld, s.State)
 	require.Contains(t, s.Subject, "search")
+	require.Empty(t, s.ClosedBy,
+		"a Held cell must not name a closing phase — the phase already closed it")
 }
 
 func TestAllIsSortedAndComplete(t *testing.T) {

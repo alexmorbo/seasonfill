@@ -1,13 +1,17 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	searchapp "github.com/alexmorbo/seasonfill/internal/search/app"
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
@@ -300,4 +304,97 @@ func TestSearch_ScopeAll_PartialCatalogStill200(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, res.Series)
 	assert.Len(t, res.Movies, 2) // lib + catalog movie
+}
+
+// ---------------------------------------------------------------------
+// ADR-0025 F3 — per-group search metrics on the REAL use-case path
+// ---------------------------------------------------------------------
+
+// f3MetricValue returns the current value of one exposition series (0 when the
+// series is absent), so a before/after delta reads cleanly as +N. Mirrors
+// seriesValue in internal/observability/auth_metrics_test.go.
+//
+// The VictoriaMetrics registry is process-global. That is why every F3 test
+// below deliberately does NOT call t.Parallel(): a parallel sibling running
+// searchLibrary would bump the very series under assertion. Go runs
+// non-parallel top-level tests to completion during the sequential pass,
+// before any paused parallel test resumes, so these stay isolated.
+func f3MetricValue(t *testing.T, series string) float64 {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	observability.WritePrometheus(buf)
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		if strings.HasPrefix(line, series+" ") {
+			fields := strings.Fields(line)
+			v, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+			require.NoError(t, err)
+			return v
+		}
+	}
+	return 0
+}
+
+// TestSearchLibrary_ObservesPeopleGroup is the BUG-2 regression seam: it proves
+// the people group is timed SEPARATELY, on the real use-case path, not only in
+// an isolated observability unit test.
+func TestSearchLibrary_ObservesPeopleGroup(t *testing.T) {
+	const counter = `seasonfill_search_group_queries_total` +
+		`{entity="people",source="library",result="hits"}`
+	const hist = `seasonfill_search_group_duration_seconds_count` +
+		`{entity="people",source="library"}`
+
+	beforeCounter := f3MetricValue(t, counter)
+	beforeHist := f3MetricValue(t, hist)
+
+	repo := &fakeRepo{peopleFn: func(context.Context, string, string, int) ([]searchdomain.PersonHit, error) {
+		return []searchdomain.PersonHit{{Name: "Keanu Reeves"}}, nil
+	}}
+	_, err := newUC(repo).Search(context.Background(), "keanu", "en-US", 5,
+		searchapp.ScopeLibrary, searchapp.TypeFilter{Person: true})
+	require.NoError(t, err)
+
+	assert.Equal(t, beforeCounter+1, f3MetricValue(t, counter),
+		"the real searchLibrary path must increment %s", counter)
+	assert.Equal(t, beforeHist+1, f3MetricValue(t, hist),
+		"the real searchLibrary path must time the people group in %s", hist)
+}
+
+func TestSearchLibrary_ObservesEmptyAndErrorResults(t *testing.T) {
+	const emptyMovies = `seasonfill_search_group_queries_total` +
+		`{entity="movies",source="library",result="empty"}`
+	const failedSeries = `seasonfill_search_group_queries_total` +
+		`{entity="series",source="library",result="error"}`
+
+	beforeEmpty := f3MetricValue(t, emptyMovies)
+	_, err := newUC(&fakeRepo{}).Search(context.Background(), "nothing", "en-US", 5,
+		searchapp.ScopeLibrary, searchapp.TypeFilter{Movie: true})
+	require.NoError(t, err)
+	assert.Equal(t, beforeEmpty+1, f3MetricValue(t, emptyMovies),
+		"a zero-hit group must be counted as empty, so the empty RATIO is a PromQL "+
+			"expression over this label rather than a second metric family")
+
+	beforeFailed := f3MetricValue(t, failedSeries)
+	boom := &fakeRepo{seriesFn: func(context.Context, string, string, int) ([]searchdomain.SeriesHit, error) {
+		return nil, errors.New("boom")
+	}}
+	_, err = newUC(boom).Search(context.Background(), "boom", "en-US", 5,
+		searchapp.ScopeLibrary, searchapp.TypeFilter{Series: true})
+	require.Error(t, err)
+	assert.Equal(t, beforeFailed+1, f3MetricValue(t, failedSeries),
+		"a failing group must be counted as error")
+}
+
+// TestSearchLibrary_ExcludedGroupIsNotObserved guards against a phantom
+// observation: a group the TypeFilter excluded fires no query, so it must fire
+// no series either.
+func TestSearchLibrary_ExcludedGroupIsNotObserved(t *testing.T) {
+	const collections = `seasonfill_search_group_duration_seconds_count` +
+		`{entity="collections",source="library"}`
+
+	before := f3MetricValue(t, collections)
+	_, err := newUC(&fakeRepo{}).Search(context.Background(), "q", "en-US", 5,
+		searchapp.ScopeLibrary, searchapp.TypeFilter{Series: true, Movie: true, Person: true})
+	require.NoError(t, err)
+	assert.Equal(t, before, f3MetricValue(t, collections),
+		"an excluded group ran no query, so %s must not move", collections)
 }

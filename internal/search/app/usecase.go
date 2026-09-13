@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/alexmorbo/seasonfill/internal/observability"
 	searchdomain "github.com/alexmorbo/seasonfill/internal/search/domain"
 	shareddomain "github.com/alexmorbo/seasonfill/internal/shared/domain"
 )
@@ -91,34 +93,50 @@ func (uc *UnifiedSearchUseCase) searchLibrary(ctx context.Context, q, language s
 	var out searchdomain.LibrarySearchResult
 
 	if types.Series {
+		start := time.Now()
 		series, err := uc.repo.SearchSeries(ctx, q, language, limit)
+		observeGroup(observability.SearchEntitySeries, len(series), err, start)
 		if err != nil {
 			return searchdomain.LibrarySearchResult{}, fmt.Errorf("search library series: %w", err)
 		}
 		out.Series = series
 	}
 	if types.Movie {
+		start := time.Now()
 		movies, err := uc.repo.SearchMovies(ctx, q, language, limit)
+		observeGroup(observability.SearchEntityMovies, len(movies), err, start)
 		if err != nil {
 			return searchdomain.LibrarySearchResult{}, fmt.Errorf("search library movies: %w", err)
 		}
 		out.Movies = movies
 	}
 	if types.Collection {
+		start := time.Now()
 		collections, err := uc.repo.SearchCollections(ctx, q, language, limit)
+		observeGroup(observability.SearchEntityCollections, len(collections), err, start)
 		if err != nil {
 			return searchdomain.LibrarySearchResult{}, fmt.Errorf("search library collections: %w", err)
 		}
 		out.Collections = collections
 	}
 	if types.Person {
+		start := time.Now()
 		people, err := uc.repo.SearchPeople(ctx, q, language, limit)
+		observeGroup(observability.SearchEntityPeople, len(people), err, start)
 		if err != nil {
 			return searchdomain.LibrarySearchResult{}, fmt.Errorf("search library people: %w", err)
 		}
 		out.People = people
 	}
 	return out, nil
+}
+
+// observeGroup records one library-scope per-entity query under the ADR-0025
+// F3 metrics. One call shape for all four branches of searchLibrary, so the
+// counter and the histogram can never drift apart per branch.
+func observeGroup(entity string, hits int, err error, start time.Time) {
+	observability.ObserveSearchGroup(entity, observability.SearchSourceLibrary,
+		observability.SearchResultOf(hits > 0, err), time.Since(start))
 }
 
 // mergeDedup appends catalog hits after library hits (library-first, D8),

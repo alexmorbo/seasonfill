@@ -308,6 +308,80 @@ func f0ObservabilityHasPrefix(t *testing.T, root, prefix string) bool {
 	return found
 }
 
+// f0SearchMetricFamilies are the four seasonfill_search_* family names that
+// must exist as STRING LITERALS in internal/observability/search_metrics.go.
+var f0SearchMetricFamilies = []string{
+	"seasonfill_search_requests_total",
+	"seasonfill_search_request_duration_seconds",
+	"seasonfill_search_group_queries_total",
+	"seasonfill_search_group_duration_seconds",
+}
+
+// f0SearchMetricCallSites are the production files that must REFERENCE an
+// increment helper, together with the identifier each one must carry. A metric
+// nobody increments on the request path is not observability.
+var f0SearchMetricCallSites = []struct {
+	rel    []string
+	marker string
+}{
+	{[]string{"internal", "search", "rest", "handler.go"}, "ObserveSearchRequest"},
+	{[]string{"internal", "search", "app", "usecase.go"}, "ObserveSearchGroup"},
+	{[]string{"internal", "search", "catalog", "adapter.go"}, "ObserveSearchGroup"},
+}
+
+// f0DetectSearchMetrics reports whether the search bounded context REALLY
+// exports metrics.
+//
+// Before ADR-0025 F3 this cell was probed by f0ObservabilityHasPrefix(t, root,
+// "seasonfill_search_"), which returns true on the FIRST string literal
+// containing that prefix in ANY production file under internal/observability/.
+// That was a false-Held generator of exactly the class F1 closed for
+// failure_journal: declaring
+//
+//	const MetricSearchRequestsTotal = "seasonfill_search_requests_total"
+//
+// and never calling it — or leaving the constant behind after deleting the call
+// sites — would have reported the invariant as carried while /metrics stayed
+// silent. It was in fact weaker than the F1 case, because the scan is
+// directory-wide: a stray seasonfill_search_ literal in ANY observability file
+// (a dashboard name, a dead const, a doc example moved into a literal) flips it.
+//
+// The triplet below is the f0JournalWriteMarkers pattern applied here: the
+// family NAMES must be literals in the one file that owns them, AND the
+// increment helpers must be referenced as real identifiers (comments are not in
+// the AST — see f0CodeIdentifiers) in all three production call sites. All must
+// hold; any one missing returns false.
+//
+// How to confirm the probe still goes false (reviewer recipe, ~30 seconds):
+// delete the observability.ObserveSearchRequest(...) call from
+// internal/search/rest/handler.go:190 — leave search_metrics.go and every other
+// call site untouched — then run
+// `go test -tags=integration ./tests/integration/ -run TestADR0025_F0_RegistryMatchesCode`.
+// It must fail on metrics_namespace/movie with `declared "held", code carries
+// it = false`. The symmetric check: restore it and instead delete the four
+// const lines from search_metrics.go — same failure. Restore afterwards.
+func f0DetectSearchMetrics(t *testing.T, root string) bool {
+	t.Helper()
+	path := filepath.Join(root, "internal", "observability", "search_metrics.go")
+	if _, err := os.Stat(path); err != nil {
+		// The whole family was removed. Report a clean false rather than
+		// failing the parse — a reverted F3 must read as "Gap", not as a
+		// broken test.
+		return false
+	}
+	for _, family := range f0SearchMetricFamilies {
+		if !f0LiteralMentions(t, path, family) {
+			return false
+		}
+	}
+	for _, cs := range f0SearchMetricCallSites {
+		if !f0CodeMentions(t, filepath.Join(append([]string{root}, cs.rel...)...), cs.marker) {
+			return false
+		}
+	}
+	return true
+}
+
 // f0SourceConstants returns value→constName for every `X Source = "..."`
 // declaration in the enrichment domain package.
 func f0SourceConstants(t *testing.T, root string) map[string]string {
@@ -428,9 +502,11 @@ var f0Detectors = map[verticals.Key]f0Probe{
 	},
 	{Invariant: verticals.InvariantMetricsNamespace, Vertical: verticals.VerticalMovie}: func(t *testing.T, root string) bool {
 		// Subject = search bounded context (see the Status.Subject note on
-		// this cell): the movie vertical already exports metrics, the
-		// search bc does not.
-		return f0ObservabilityHasPrefix(t, root, "seasonfill_search_")
+		// this cell): the movie vertical already exported metrics, the
+		// search bc did not until F3. Deliberately NOT
+		// f0ObservabilityHasPrefix — see f0DetectSearchMetrics for why a
+		// prefix scan is a false-Held generator here.
+		return f0DetectSearchMetrics(t, root)
 	},
 	{Invariant: verticals.InvariantDomainLogger, Vertical: verticals.VerticalSeries}: func(t *testing.T, _ string) bool {
 		_, ok := sharedports.AllowedDomains["enrichment"]
