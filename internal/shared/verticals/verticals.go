@@ -306,7 +306,7 @@ var registry = map[Key]Status{
 	{InvariantDomainLogger, VerticalMovie}: {
 		State: StateHeld,
 		Evidence: "internal/shared/ports/log.go — \"enrichment\" in AllowedDomains; " +
-			"internal/enrichment/app/movie_worker.go:105",
+			"internal/enrichment/app/movie_worker.go:123",
 		Note: "Both verticals log under the same domain value; the closed AllowedDomains " +
 			"list plus its wiring-time panic is the one mechanism in this codebase with a " +
 			"proven record against this bug class (ADR-0025 Proof #4).",
