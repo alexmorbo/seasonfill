@@ -1,6 +1,6 @@
 module github.com/alexmorbo/seasonfill
 
-go 1.26.4
+go 1.26.8
 
 require (
 	ariga.io/atlas v1.3.0

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.26.8
 ARG BUILDER_REGISTRY=docker.io
 ARG RUNTIME_REGISTRY=gcr.io
 

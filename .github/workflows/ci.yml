@@ -40,7 +40,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.8"
           cache: true
 
       - name: Run golangci-lint
@@ -65,14 +65,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.8"
           cache: true
 
       - name: Cache Go build
         uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
-          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.6-${{ hashFiles('**/go.sum') }}
+          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.8-${{ hashFiles('**/go.sum') }}
           restore-keys: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-
 
       - name: Build
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.8"
           cache: true
       - uses: actions/setup-node@v7
         with:
@@ -147,14 +147,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.8"
           cache: true
 
       - name: Cache Go build
         uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
-          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.6-${{ hashFiles('**/go.sum') }}
+          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.8-${{ hashFiles('**/go.sum') }}
           restore-keys: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-
 
       - name: Verify integration package coverage (drift guard)
@@ -309,14 +309,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.8"
           cache: true
 
       - name: Cache Go build
         uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
-          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.6-${{ hashFiles('**/go.sum') }}
+          key: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-go1.26.8-${{ hashFiles('**/go.sum') }}
           restore-keys: gobuild-${{ startsWith(github.ref, 'refs/tags/v') && 'race' || 'norace' }}-${{ runner.os }}-
 
       - name: Test (integration, postgres backend)
@@ -340,7 +340,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.8"
           cache: true
 
       - name: Test (integration + e2e)
@@ -397,7 +397,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.8"
           cache: true
 
       - name: Install atlas CLI
@@ -427,7 +427,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.8"
           cache: true
 
       - name: Set up Node
